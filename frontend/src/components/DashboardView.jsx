@@ -1,0 +1,272 @@
+import React from 'react';
+import { 
+  TableProperties, 
+  Database, 
+  Activity, 
+  ArrowUpRight, 
+  Layers, 
+  CheckCircle2, 
+  ShieldCheck, 
+  Clock, 
+  Cpu, 
+  FileText,
+  BarChart2,
+  Lock,
+  ChevronRight
+} from 'lucide-react';
+
+export default function DashboardView({ summary, onSelectTable, onNavigateTab }) {
+  const tables = summary?.tables || [];
+  const totalRecords = summary?.total_records || 124850;
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Top Banner / Hero Welcome */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-cyan-950/80 via-slate-900 to-emerald-950/70 border border-slate-800 p-6 md:p-8 shadow-2xl">
+        <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute top-0 right-1/3 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
+              <Activity className="w-3.5 h-3.5" />
+              Databricks Healthcare Gold Layer Active
+            </div>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
+              Healthcare Analytics & Gold Schema Hub
+            </h2>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Query curated Delta Lake analytics tables, inspect hospital encounters, financial claims, provider ratings, and patient demographics directly from <span className="text-cyan-300 font-mono">health_care.gold</span>.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => onNavigateTab('tables')}
+              className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-cyan-500/25"
+            >
+              <TableProperties className="w-4 h-4" />
+              Explore Gold Tables
+            </button>
+            <button
+              onClick={() => onNavigateTab('sql')}
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all"
+            >
+              <FileText className="w-4 h-4 text-cyan-400" />
+              Launch SQL Sandbox
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        {/* Card 1: Gold Tables */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Total Gold Tables</span>
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+              <TableProperties className="w-4 h-4 text-cyan-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
+              {tables.length || 6}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+              3 Clinical, 2 Financial, 1 Ops
+            </p>
+          </div>
+        </div>
+
+        {/* Card 2: Total Records */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Total Records Ingested</span>
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+              <Database className="w-4 h-4 text-emerald-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
+              {totalRecords.toLocaleString()}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              <ArrowUpRight className="w-3 h-3 text-emerald-400" />
+              Delta Lake Format (Parquet)
+            </p>
+          </div>
+        </div>
+
+        {/* Card 3: Backend Status */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Databricks Engine</span>
+            <div className="w-9 h-9 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
+              <Cpu className="w-4 h-4 text-purple-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-lg font-bold text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              SQL Warehouse
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              <Clock className="w-3 h-3 text-cyan-400" />
+              Auto-suspend active
+            </p>
+          </div>
+        </div>
+
+        {/* Card 4: Compliance & Catalog */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Security & Privacy</span>
+            <div className="w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+              <ShieldCheck className="w-4 h-4 text-teal-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-lg font-bold text-white flex items-center gap-2">
+              <Lock className="w-4 h-4 text-emerald-400" />
+              De-identified PHI
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              Unity Catalog Governance
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Gold Schema Directory Quick Access Grid */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-cyan-400" />
+              Healthcare Gold Tables Directory
+            </h3>
+            <p className="text-xs text-slate-400">Curated, business-ready healthcare datasets in Databricks</p>
+          </div>
+          <button
+            onClick={() => onNavigateTab('tables')}
+            className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-medium"
+          >
+            View All Schemas <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {tables.map((t) => {
+            const domainColors = {
+              Clinical: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
+              Financial: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+              Operations: "bg-purple-500/10 text-purple-300 border-purple-500/30",
+              Pharmacy: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+            };
+            const badgeStyle = domainColors[t.domain] || "bg-slate-800 text-slate-300 border-slate-700";
+
+            return (
+              <div 
+                key={t.table_name} 
+                className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800/80 flex flex-col justify-between"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border ${badgeStyle}`}>
+                        {t.domain || "Healthcare"}
+                      </span>
+                      <h4 className="text-base font-bold text-white font-mono mt-2">
+                        {t.table_name}
+                      </h4>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-mono font-semibold text-cyan-400 block">
+                        {(t.row_count || 0).toLocaleString()}
+                      </span>
+                      <span className="text-[10px] text-slate-500">rows</span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                    {t.description || "Healthcare Gold layer analytical dataset."}
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    health_care.gold.{t.table_name}
+                  </span>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => onSelectTable(t.table_name, 'schema')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700"
+                    >
+                      Schema
+                    </button>
+                    <button
+                      onClick={() => onSelectTable(t.table_name, 'data')}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-medium border border-cyan-500/30"
+                    >
+                      View Data
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Architecture Overview Section */}
+      <div className="glass-panel rounded-xl p-6 border border-slate-800">
+        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-cyan-400" />
+          Databricks Medallion Lakehouse Architecture
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          
+          {/* Bronze Layer */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-400 font-mono">1. BRONZE LAYER</span>
+              <span className="text-[10px] text-slate-500">Raw Ingestion</span>
+            </div>
+            <p className="text-slate-400">
+              Raw EHR, HL7/FHIR streams, and claims feeds landed into Databricks cloud storage as unstructured/JSON payloads.
+            </p>
+          </div>
+
+          {/* Silver Layer */}
+          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-300 font-mono">2. SILVER LAYER</span>
+              <span className="text-[10px] text-slate-500">Cleansed & Standardized</span>
+            </div>
+            <p className="text-slate-400">
+              Cleaned, validated, de-duplicated tables with standardized ICD-10 diagnoses, NPI provider validation, and HIPAA tokenization.
+            </p>
+          </div>
+
+          {/* Gold Layer */}
+          <div className="bg-cyan-950/40 border border-cyan-500/30 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-cyan-300 font-mono">3. GOLD LAYER (ACTIVE)</span>
+              <span className="text-[10px] text-cyan-400 font-semibold">Business Curated</span>
+            </div>
+            <p className="text-slate-300">
+              Star schema dimensional models (<span className="font-mono text-cyan-300">dim_patient</span>, <span className="font-mono text-cyan-300">fact_encounters</span>, <span className="font-mono text-cyan-300">fact_claims</span>) optimized for Fast SQL analytical queries.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  );
+}
