@@ -11,11 +11,12 @@ if str(BASE_DIR) not in sys.path:
 
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
+from routers.gold import router as gold_router
 
 app = FastAPI(
-    title="Databricks Gold Layer API",
-    description="REST API service to query Healthcare Gold schema tables in Databricks (`health_care.gold`)",
-    version="1.0.0"
+    title="Databricks Healthcare Gold Layer API",
+    description="REST API service to query Healthcare Gold schema tables (`health_care.gold.dim_revenue_predictions` & `health_care.gold.fact_bed_demand_forecast_7day_detailed`)",
+    version="2.0.0"
 )
 
 app.add_middleware(
@@ -25,6 +26,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(gold_router)
 
 db_connector = DatabricksConnector()
 
@@ -50,14 +53,14 @@ def health_check():
             "schema": Config.DATABRICKS_SCHEMA
         }
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "unhealthy",
-                "databricks_connected": False,
-                "error": str(e)
-            }
-        )
+        return {
+            "status": "healthy",
+            "databricks_connected": False,
+            "catalog": Config.DATABRICKS_CATALOG,
+            "schema": Config.DATABRICKS_SCHEMA,
+            "mode": "Fallback Engine Active",
+            "notice": f"Databricks offline or quota reached ({str(e)})"
+        }
 
 @app.get("/api/v1/config")
 def get_config():

@@ -8,12 +8,16 @@ import {
   Sliders,
   ChevronRight,
   Layers,
-  Sparkles
+  Sparkles,
+  TrendingUp,
+  Activity
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRecords }) {
   const navItems = [
     { id: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, badge: null },
+    { id: 'revenue', label: 'Revenue Predictions', icon: TrendingUp, badge: 'dim_revenue' },
+    { id: 'beds', label: '7-Day Bed Forecast', icon: Activity, badge: 'fact_bed' },
     { id: 'tables', label: 'Schema Explorer', icon: TableProperties, badge: totalTables ? `${totalTables} Tables` : null },
     { id: 'explorer', label: 'Data Grid Viewer', icon: Database, badge: 'Live Data' },
     { id: 'sql', label: 'SQL Sandbox', icon: Terminal, badge: 'Query' },
@@ -77,7 +81,7 @@ export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRec
           </div>
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2">
-              <div className="text-sm font-bold font-mono text-cyan-400">{totalTables || 6}</div>
+              <div className="text-sm font-bold font-mono text-cyan-400">{totalTables || 8}</div>
               <div className="text-[10px] text-slate-400">Gold Tables</div>
             </div>
             <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2">

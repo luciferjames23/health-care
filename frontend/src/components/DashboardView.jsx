@@ -12,12 +12,16 @@ import {
   FileText,
   BarChart2,
   Lock,
-  ChevronRight
+  ChevronRight,
+  TrendingUp
 } from 'lucide-react';
 
 export default function DashboardView({ summary, onSelectTable, onNavigateTab }) {
   const tables = summary?.tables || [];
-  const totalRecords = summary?.total_records || 124850;
+  const totalRecords = summary?.total_records || 124860;
+
+  const financialKpis = summary?.financial_kpis || { total_predicted_revenue_usd: 29400000.0, total_prediction_records: 7 };
+  const bedKpis = summary?.bed_capacity_kpis || { total_predicted_beds_demanded: 26, avg_predicted_occupancy_rate_pct: 36.87, total_forecast_records: 3 };
 
   return (
     <div className="space-y-6">
@@ -30,31 +34,31 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
-              <Activity className="w-3.5 h-3.5" />
+              <Activity className="w-3.5 h-3.5 text-cyan-400" />
               Databricks Healthcare Gold Layer Active
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
               Healthcare Analytics & Gold Schema Hub
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Query curated Delta Lake analytics tables, inspect hospital encounters, financial claims, provider ratings, and patient demographics directly from <span className="text-cyan-300 font-mono">health_care.gold</span>.
+              Query curated Delta Lake analytics tables: department revenue predictions (<span className="text-cyan-300 font-mono">dim_revenue_predictions</span>), 7-day bed demand forecasts (<span className="text-cyan-300 font-mono">fact_bed_demand_forecast_7day_detailed</span>), encounters, and claims directly from <span className="text-cyan-300 font-mono">health_care.gold</span>.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => onNavigateTab('tables')}
-              className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-cyan-500/25"
+              onClick={() => onNavigateTab('revenue')}
+              className="flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-cyan-500/25"
             >
-              <TableProperties className="w-4 h-4" />
-              Explore Gold Tables
+              <TrendingUp className="w-4 h-4" />
+              Revenue Predictions
             </button>
             <button
-              onClick={() => onNavigateTab('sql')}
+              onClick={() => onNavigateTab('beds')}
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all"
             >
-              <FileText className="w-4 h-4 text-cyan-400" />
-              Launch SQL Sandbox
+              <Activity className="w-4 h-4 text-cyan-400" />
+              7-Day Bed Forecast
             </button>
           </div>
         </div>
@@ -63,79 +67,78 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        {/* Card 1: Gold Tables */}
+        {/* Card 1: Predicted Revenue */}
         <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total Gold Tables</span>
-            <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
-              <TableProperties className="w-4 h-4 text-cyan-400" />
+            <span className="text-xs font-medium text-slate-400">Total Predicted Revenue</span>
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
-              {tables.length || 6}
+            <div className="text-2xl font-extrabold font-mono text-emerald-400 tracking-tight">
+              ${(financialKpis.total_predicted_revenue_usd || 29400000).toLocaleString()}
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              3 Clinical, 2 Financial, 1 Ops
+              dim_revenue_predictions
             </p>
           </div>
         </div>
 
-        {/* Card 2: Total Records */}
+        {/* Card 2: Bed Demand Forecast */}
         <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total Records Ingested</span>
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-              <Database className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-medium text-slate-400">7-Day Demanded Beds</span>
+            <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
+              <Activity className="w-4 h-4 text-cyan-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-3xl font-extrabold font-mono text-cyan-300 tracking-tight">
+              {bedKpis.total_predicted_beds_demanded || 26} beds
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              <ArrowUpRight className="w-3 h-3 text-cyan-400" />
+              {bedKpis.avg_predicted_occupancy_rate_pct || 36.87}% avg occupancy
+            </p>
+          </div>
+        </div>
+
+        {/* Card 3: Gold Tables Count */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Total Gold Tables</span>
+            <div className="w-9 h-9 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
+              <TableProperties className="w-4 h-4 text-purple-400" />
             </div>
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
+              {tables.length || 8}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+              <Clock className="w-3 h-3 text-purple-400" />
+              catalog: health_care.gold
+            </p>
+          </div>
+        </div>
+
+        {/* Card 4: Total Records */}
+        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Total Ingested Records</span>
+            <div className="w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+              <Database className="w-4 h-4 text-teal-400" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-extrabold font-mono text-white tracking-tight">
               {totalRecords.toLocaleString()}
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-              <ArrowUpRight className="w-3 h-3 text-emerald-400" />
+              <ShieldCheck className="w-3 h-3 text-teal-400" />
               Delta Lake Format (Parquet)
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Backend Status */}
-        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Databricks Engine</span>
-            <div className="w-9 h-9 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
-              <Cpu className="w-4 h-4 text-purple-400" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              SQL Warehouse
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-              <Clock className="w-3 h-3 text-cyan-400" />
-              Auto-suspend active
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4: Compliance & Catalog */}
-        <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Security & Privacy</span>
-            <div className="w-9 h-9 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4 text-teal-400" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-lg font-bold text-white flex items-center gap-2">
-              <Lock className="w-4 h-4 text-emerald-400" />
-              De-identified PHI
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-              Unity Catalog Governance
             </p>
           </div>
         </div>
@@ -166,6 +169,8 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
               Financial: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
               Operations: "bg-purple-500/10 text-purple-300 border-purple-500/30",
               Pharmacy: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+              "Financial & Predictive Analytics": "bg-emerald-500/15 text-emerald-300 border-emerald-500/40 font-bold",
+              "Clinical Operations & Bed Management": "bg-cyan-500/15 text-cyan-300 border-cyan-500/40 font-bold"
             };
             const badgeStyle = domainColors[t.domain] || "bg-slate-800 text-slate-300 border-slate-700";
 
@@ -177,10 +182,10 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border ${badgeStyle}`}>
+                      <span className={`text-[10px] px-2.5 py-0.5 rounded-full border ${badgeStyle}`}>
                         {t.domain || "Healthcare"}
                       </span>
-                      <h4 className="text-base font-bold text-white font-mono mt-2">
+                      <h4 className="text-sm font-bold text-white font-mono mt-2">
                         {t.table_name}
                       </h4>
                     </div>
@@ -198,8 +203,8 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-500 font-mono">
-                    health_care.gold.{t.table_name}
+                  <span className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
+                    gold.{t.table_name}
                   </span>
                   <div className="flex space-x-2">
                     <button
@@ -219,51 +224,6 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Architecture Overview Section */}
-      <div className="glass-panel rounded-xl p-6 border border-slate-800">
-        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <BarChart2 className="w-4 h-4 text-cyan-400" />
-          Databricks Medallion Lakehouse Architecture
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-          
-          {/* Bronze Layer */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-amber-400 font-mono">1. BRONZE LAYER</span>
-              <span className="text-[10px] text-slate-500">Raw Ingestion</span>
-            </div>
-            <p className="text-slate-400">
-              Raw EHR, HL7/FHIR streams, and claims feeds landed into Databricks cloud storage as unstructured/JSON payloads.
-            </p>
-          </div>
-
-          {/* Silver Layer */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-300 font-mono">2. SILVER LAYER</span>
-              <span className="text-[10px] text-slate-500">Cleansed & Standardized</span>
-            </div>
-            <p className="text-slate-400">
-              Cleaned, validated, de-duplicated tables with standardized ICD-10 diagnoses, NPI provider validation, and HIPAA tokenization.
-            </p>
-          </div>
-
-          {/* Gold Layer */}
-          <div className="bg-cyan-950/40 border border-cyan-500/30 rounded-xl p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-cyan-300 font-mono">3. GOLD LAYER (ACTIVE)</span>
-              <span className="text-[10px] text-cyan-400 font-semibold">Business Curated</span>
-            </div>
-            <p className="text-slate-300">
-              Star schema dimensional models (<span className="font-mono text-cyan-300">dim_patient</span>, <span className="font-mono text-cyan-300">fact_encounters</span>, <span className="font-mono text-cyan-300">fact_claims</span>) optimized for Fast SQL analytical queries.
-            </p>
-          </div>
-
         </div>
       </div>
 

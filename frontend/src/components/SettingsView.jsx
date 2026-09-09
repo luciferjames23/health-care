@@ -103,22 +103,30 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
             FastAPI Backend Service Endpoints
           </h3>
 
-          <div className="space-y-2 font-mono text-xs">
+          <div className="space-y-2 font-mono text-xs max-h-[260px] overflow-y-auto pr-1">
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
               <span className="text-cyan-300">GET /api/v1/health</span>
-              <span className="text-[10px] text-slate-500 font-sans">Health & DB Check</span>
+              <span className="text-[10px] text-slate-500 font-sans">Health Check</span>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
               <span className="text-cyan-300">GET /api/v1/gold/summary</span>
-              <span className="text-[10px] text-slate-500 font-sans">Tables Summary</span>
+              <span className="text-[10px] text-slate-500 font-sans">Gold Summary KPIs</span>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/tables/&#123;table&#125;/schema</span>
-              <span className="text-[10px] text-slate-500 font-sans">Table Columns</span>
+              <span className="text-cyan-300">GET /api/v1/gold/revenue-predictions</span>
+              <span className="text-[10px] text-slate-500 font-sans">Revenue Projections</span>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/tables/&#123;table&#125;/data</span>
-              <span className="text-[10px] text-slate-500 font-sans">Data Rows Preview</span>
+              <span className="text-cyan-300">GET /api/v1/gold/bed-demand-forecast</span>
+              <span className="text-[10px] text-slate-500 font-sans">7-Day Bed Forecast</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
+              <span className="text-cyan-300">GET /api/v1/gold/tables</span>
+              <span className="text-[10px] text-slate-500 font-sans">Table Metadata</span>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
+              <span className="text-cyan-300">GET /api/v1/gold/table/&#123;table&#125;</span>
+              <span className="text-[10px] text-slate-500 font-sans">Dynamic Query</span>
             </div>
           </div>
         </div>
