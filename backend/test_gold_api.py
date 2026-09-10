@@ -21,7 +21,7 @@ def test_gold_tables_api():
     data = res.json()
     print("Status:", res.status_code)
     print("Gold Table Count:", data.get("count"))
-    assert data["count"] == 2
+    assert data["count"] == 4
 
     print("\n--- 2. Testing GET /api/v1/gold/summary (Executive Analytics Summary) ---")
     res = client.get("/api/v1/gold/summary")
@@ -75,12 +75,77 @@ def test_gold_tables_api():
     assert "forecast_date" in trend_data.get("data", [])[0]
     assert "ward_name" in trend_data.get("data", [])[0]
 
-    print("\n--- 9. Testing GET /api/v1/gold/table/{table_name} (Dynamic Query Endpoint) ---")
-    res = client.get("/api/v1/gold/table/fact_bed_demand_forecast_7day_detailed")
+    print("\n--- 9. Testing GET /api/v1/gold/current-admission-llm-inputs (Query dim_admission_inputs) ---")
+    res = client.get("/api/v1/gold/current-admission-llm-inputs?admission_type=Emergency")
     assert res.status_code == 200
-    print("Dynamic Table Query rows:", res.json().get("returned_rows"))
+    adm_data = res.json()
+    print("Returned Emergency Admission LLM Inputs:", adm_data.get("returned_rows"))
+    assert adm_data.get("returned_rows") > 0
+    assert adm_data.get("data")[0]["admission_type"] == "Emergency"
 
-    print("\n[SUCCESS] ALL GOLD SCHEMA API TESTS FOR dim_revenue_predictions AND fact_bed_demand_forecast_7day_detailed PASSED PERFECTLY!")
+    print("\n--- 10. Testing GET /api/v1/gold/current-admission-llm-inputs/summary (Admission LLM Summary) ---")
+    res = client.get("/api/v1/gold/current-admission-llm-inputs/summary")
+    assert res.status_code == 200
+    adm_summary = res.json()
+    print("Admission LLM Summary:", adm_summary)
+    assert "avg_risk_score" in adm_summary.get("metrics", {})
+
+    print("\n--- 11. Testing GET /api/v1/gold/current-admission-llm-inputs/{id} (Single Admission Lookup) ---")
+    res = client.get("/api/v1/gold/current-admission-llm-inputs/ADM-2026-001")
+    assert res.status_code == 200
+    adm_item = res.json()
+    print("Admission LLM Record:", adm_item.get("admission_id"), adm_item.get("patient_name"), adm_item.get("risk_score"))
+    assert adm_item.get("admission_id") == "ADM-2026-001"
+
+    print("\n--- 12. Testing GET /api/v1/gold/generated-discharge-summaries (Query dim_generated_discharge_summaries) ---")
+    res = client.get("/api/v1/gold/generated-discharge-summaries?approval_status=Approved")
+    assert res.status_code == 200
+    ds_data = res.json()
+    print("Returned Approved Discharge Summaries:", ds_data.get("returned_rows"))
+    assert ds_data.get("returned_rows") > 0
+    assert ds_data.get("data")[0]["approval_status"] == "Approved"
+
+    print("\n--- 13. Testing GET /api/v1/gold/generated-discharge-summaries/summary (Discharge Summary Analytics) ---")
+    res = client.get("/api/v1/gold/generated-discharge-summaries/summary")
+    assert res.status_code == 200
+    ds_summary = res.json()
+    print("Discharge Summary Analytics:", ds_summary)
+    assert "approved_count" in ds_summary.get("metrics", {})
+
+    print("\n--- 14. Testing GET /api/v1/gold/generated-discharge-summaries/{id} (Single Summary Lookup) ---")
+    res = client.get("/api/v1/gold/generated-discharge-summaries/DS-2026-001")
+    assert res.status_code == 200
+    ds_item = res.json()
+    print("Discharge Summary Record:", ds_item.get("summary_id"), ds_item.get("patient_name"), ds_item.get("approval_status"))
+    assert ds_item.get("summary_id") == "DS-2026-001"
+
+    print("\n--- 15. Testing GET /api/v1/gold/table/{table_name} (Dynamic Query Endpoint) ---")
+    res = client.get("/api/v1/gold/table/dim_generated_discharge_summaries")
+    assert res.status_code == 200
+    print("Dynamic Table Query rows for dim_generated_discharge_summaries:", res.json().get("returned_rows"))
+    assert res.json().get("returned_rows") > 0
+
+    print("\n--- 16. Testing Default Limit Behavior (Omitted Limit = Full Data, Explicit Limit = Truncated) ---")
+    # Test 16a: Omitted limit returns full data (all 5 admission records)
+    full_res = client.get("/api/v1/gold/current-admission-llm-inputs")
+    assert full_res.status_code == 200
+    full_json = full_res.json()
+    assert full_json.get("limit") is None
+    assert full_json.get("returned_rows") == 5
+    print("Full Data (No limit specified): limit =", full_json.get("limit"), "| returned_rows =", full_json.get("returned_rows"))
+
+    # Test 16b: Explicit limit=2 returns exactly 2 records
+    limited_res = client.get("/api/v1/gold/current-admission-llm-inputs?limit=2")
+    assert limited_res.status_code == 200
+    limited_json = limited_res.json()
+    assert limited_json.get("limit") == 2
+    assert limited_json.get("returned_rows") == 2
+    print("Explicit Limit (limit=2): limit =", limited_json.get("limit"), "| returned_rows =", limited_json.get("returned_rows"))
+
+    print("\n[SUCCESS] ALL GOLD SCHEMA API TESTS AND LIMIT BEHAVIOR VERIFICATIONS PASSED PERFECTLY!")
 
 if __name__ == "__main__":
     test_gold_tables_api()
+
+
+

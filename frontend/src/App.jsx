@@ -1,191 +1,152 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { apiService } from './services/api';
 
-const INITIAL_PATIENTS = [
-  {
-    id: 1, name: "Ramesh Kumar", age: 58, sex: "M", mrn: "004471", ward: "Cardiology · Bed 4B-12",
-    admitted: "03 Sep", diagnosisShort: "NSTEMI, s/p PCI", diagnosisSub: "Cardiology",
-    billing: "cleared", due: 0, of: 84500, discharged: false,
-    rawNote: `Pt: Kumar, R. · 58M · MRN 004471
-Adm: 03-Sep · Disch: 09-Sep
+function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patientDetailsList = [], doctorDetailsList = []) {
+  if (!admissionsData.length) return [];
 
-Dx: NSTEMI, single vessel, s/p PCI to LAD 04-Sep. HTN, T2DM (known).
+  const summariesByAdm = {};
+  summariesData.forEach(s => {
+    if (s.admission_id) summariesByAdm[s.admission_id] = s;
+    if (s.admission_number) summariesByAdm[s.admission_number] = s;
+    if (s.patient_number) summariesByAdm[s.patient_number] = s;
+  });
 
-Meds on disch:
-Aspirin 75mg OD, Clopidogrel 75mg OD, Atorvastatin 40mg ON,
-Metoprolol 25mg BD, Ramipril 2.5mg OD, Metformin 500mg BD
+  return admissionsData.map((adm, index) => {
+    const matchedDs = summariesByAdm[adm.admission_id] || summariesByAdm[adm.admission_number] || summariesByAdm[adm.patient_number];
 
-Ix: Troponin peak 4.8, TLC 9800, Echo — EF 48%,
-mild hypokinesia inf wall. {{FLAG}}Cr 1.3, up from 0.9 baseline{{/FLAG}} — monitor.
+    const isApproved = matchedDs && (matchedDs.approval_status === "Approved" || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged");
 
-Plan: cardiac rehab OP, f/u cardiology 2/52,
-repeat Cr + lipid panel 1/52, low salt/DM diet counselling given.`,
-    summary: {
-      why: "You came to the hospital with a heart attack (a blockage in one of the arteries feeding your heart). A small tube called a stent was placed on 4 September to reopen the artery.",
-      dx: "Heart attack (NSTEMI), treated with a stent to one artery. You also have high blood pressure and type 2 diabetes, which we're continuing to manage.",
-      meds: [
-        ["Aspirin","75mg, once daily","Prevents clots"],
-        ["Clopidogrel","75mg, once daily","Prevents clots"],
-        ["Atorvastatin","40mg, at night","Lowers cholesterol"],
-        ["Metoprolol","25mg, twice daily","Protects the heart"],
-        ["Ramipril","2.5mg, once daily","Blood pressure"],
-        ["Metformin","500mg, twice daily","Blood sugar"]
-      ],
-      followup: "Cardiology check-up in 2 weeks. Blood test (kidney function and cholesterol) in 1 week — your kidney reading was slightly elevated during your stay, so we're keeping an eye on it.",
-      warnings: ["Chest pain or breathlessness that doesn't go away with rest","Swelling in your legs or sudden weight gain","Bleeding or bruising that doesn't stop"]
+    const admDateStr = adm.admission_date
+      ? new Date(adm.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+      : '';
+
+    // Dynamic Patient Name from API record fields
+    const firstName = adm.first_name || '';
+    const lastName = adm.last_name || '';
+    const pName = (firstName || lastName) 
+      ? `${firstName} ${lastName}`.trim() 
+      : (adm.patient_name || `Patient ${adm.patient_number || adm.patient_id || index + 1}`);
+    
+    const pAge = adm.age_at_admission ?? adm.age ?? '';
+    const pSex = adm.gender || '';
+    const pMrn = adm.patient_number || String(adm.patient_id || index + 1001);
+    const admNum = adm.admission_number || adm.admission_id || String(index + 1);
+
+    const patAddr = adm.address 
+      ? `${adm.address}, ${adm.city || ''}, ${adm.state || ''} ${adm.postal_code || ''}`.replace(/,\s*,/g, ',').trim()
+      : 'N/A';
+    const patPhone = adm.phone || adm.phone_number || 'N/A';
+    const patEmergency = adm.emergency_contact_name 
+      ? `${adm.emergency_contact_name} ${adm.emergency_contact_phone ? '(' + adm.emergency_contact_phone + ')' : ''}`.trim()
+      : 'N/A';
+
+    const docName = adm.attending_doctor || matchedDs?.approved_by || matchedDs?.attending_physician || 'Attending Physician';
+    const docSpecialty = adm.doctor_specialization || adm.physician_specialty || 'General Medicine';
+    const docQual = adm.doctor_qualification ? `(${adm.doctor_qualification})` : '';
+
+    const admType = adm.admission_type || 'General';
+    const admSource = adm.admission_source ? ` (${adm.admission_source})` : '';
+    const reason = adm.reason_for_admission || adm.chief_complaint || 'Clinical Evaluation';
+    const primaryDx = adm.primary_diagnosis || adm.reason_for_admission || 'Under Management';
+    const secondaryDx = Array.isArray(adm.secondary_diagnoses) 
+      ? (adm.secondary_diagnoses.join(', ') || 'None')
+      : (adm.secondary_diagnoses || 'None');
+
+    let vitalsStr = '';
+    if (adm.latest_temperature || adm.latest_heart_rate || adm.latest_systolic_bp) {
+      vitalsStr = `Temp: ${adm.latest_temperature || '--'}°F · HR: ${adm.latest_heart_rate || '--'} bpm · BP: ${adm.latest_systolic_bp || '--'}/${adm.latest_diastolic_bp || '--'} mmHg · SpO2: ${adm.latest_oxygen_saturation || '--'}%`;
+    } else {
+      vitalsStr = adm.vital_signs_summary || 'Stable';
     }
-  },
-  {
-    id: 2, name: "Priya Nair", age: 31, sex: "F", mrn: "004488", ward: "General Medicine · Bed 2A-05",
-    admitted: "05 Sep", diagnosisShort: "Dengue fever", diagnosisSub: "General Medicine",
-    billing: "pending", due: 18400, of: 18400, discharged: false,
-    rawNote: `Pt: Nair, P. · 31F · MRN 004488
-Adm: 05-Sep · Disch: 09-Sep
 
-Dx: Dengue fever (NS1 +ve), no warning signs. Resolved fever day 4.
-
-Meds on disch:
-Paracetamol 650mg SOS (fever), ORS as needed,
-avoid NSAIDs x2/52
-
-Ix: Platelet nadir 92,000 (day 3), recovered to 168,000 at disch.
-Hct stable. {{FLAG}}Advise repeat CBC if fever/bleeding recurs{{/FLAG}}.
-
-Plan: rest, hydration, f/u OPD if symptoms recur.
-No routine f/u needed unless symptomatic.`,
-    summary: {
-      why: "You were admitted with dengue fever, a viral infection spread by mosquitoes. Your platelet count dropped, which we monitored closely, and it has now recovered.",
-      dx: "Dengue fever, without warning signs. Your blood counts have returned to a safe range.",
-      meds: [
-        ["Paracetamol","650mg, as needed for fever","Fever/pain relief"],
-        ["ORS solution","As needed","Stay hydrated"]
-      ],
-      followup: "No routine follow-up needed unless symptoms return. Avoid pain relievers like ibuprofen or aspirin for 2 weeks — they can increase bleeding risk after dengue.",
-      warnings: ["Fever returning after being fever-free for 24 hours","Any unusual bleeding or bruising","Severe abdominal pain or persistent vomiting"]
+    let parsedLlm = null;
+    if (adm.llm_input_json) {
+      try {
+        parsedLlm = typeof adm.llm_input_json === 'string' ? JSON.parse(adm.llm_input_json) : adm.llm_input_json;
+      } catch (e) {
+        parsedLlm = null;
+      }
     }
-  },
-  {
-    id: 3, name: "Arjun Reddy", age: 44, sex: "M", mrn: "004502", ward: "Orthopedics · Bed 3C-08",
-    admitted: "01 Sep", diagnosisShort: "Fractured femur, s/p ORIF", diagnosisSub: "Orthopedics",
-    billing: "partial", due: 32000, of: 95000, discharged: false,
-    rawNote: `Pt: Reddy, A. · 44M · MRN 004502
-Adm: 01-Sep · Disch: 09-Sep
 
-Dx: Closed # shaft femur (L), s/p ORIF with IM nail 02-Sep. Post-op stable.
+    const billStatusRaw = (adm.bill_clearance_status || adm.bill_status || '').toLowerCase();
+    const billingStatus = (billStatusRaw.includes('cleared') || billStatusRaw.includes('settled') || billStatusRaw === 'paid') 
+      ? 'cleared' 
+      : (billStatusRaw.includes('partial')) 
+      ? 'partial' 
+      : 'pending';
+    const amountDue = billingStatus === 'cleared' ? 0 : (adm.outstanding_balance ?? adm.billing_amount_due ?? 0);
+    const amountTotal = adm.bill_net_amount ?? adm.billing_amount_total ?? amountDue;
 
-Meds on disch:
-Tab Diclofenac 50mg BD x5d, Tab Pantoprazole 40mg OD,
-Cap Doxycycline... {{FLAG}}[illegible - confirm abx choice with ortho team]{{/FLAG}}
-Enoxaparin 40mg SC OD x2/52 (DVT ppx)
+    const rawNote = adm.llm_input || `Pt: ${pName} · ${pAge}${pSex} · Reg ${pMrn} · Adm ${admNum}
+Addr: ${patAddr} · Ph: ${patPhone}
+Emergency Contact: ${patEmergency}
+Attending Physician: ${docName} ${docQual} (${docSpecialty})
+Adm Date: ${adm.admission_date ? new Date(adm.admission_date).toLocaleString() : 'N/A'} · Type: ${admType}${admSource}
 
-Ix: Hb 10.8 (post-op drop from 13.2), Xray — good alignment, nail in situ.
+Reason for Adm: ${reason}
+Primary Dx: ${primaryDx}
+Secondary Dx: ${secondaryDx}
 
-Plan: NWB (L) leg 6/52, physio started, f/u ortho OPD 2/52 with Xray,
-staple removal 12-14 days at local clinic.`,
-    summary: {
-      why: "You broke the large bone in your left thigh (femur). Surgeons fixed it on 2 September using a metal rod inside the bone, and it's healing well.",
-      dx: "Fracture of the left thigh bone, repaired with an internal rod. Your blood count dropped a little after surgery, which is expected and being watched.",
-      meds: [
-        ["Diclofenac","50mg, twice daily for 5 days","Pain relief"],
-        ["Pantoprazole","40mg, once daily","Protects your stomach"],
-        ["Enoxaparin (injection)","40mg, once daily for 2 weeks","Prevents blood clots"]
-      ],
-      followup: "Do not put weight on your left leg for 6 weeks. Physiotherapy has started. Follow-up with orthopedics in 2 weeks with a new X-ray. Stitches/staples removed at a local clinic around day 12–14.",
-      warnings: ["Swelling, redness, or pain in your calf (possible clot)","Increasing pain, warmth, or discharge at the surgical site","Fever above 101°F"]
+Vitals: ${vitalsStr}
+
+Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${adm.current_stay_days || 1} days`;
+
+    let medsArray = [];
+    if (parsedLlm && parsedLlm.medications && parsedLlm.medications.medications_list) {
+      medsArray = parsedLlm.medications.medications_list.map(m => [
+        m.medication_name || m.generic_name || 'Medication',
+        `${m.dosage || ''} ${m.frequency || ''} (${m.route || ''})`.trim(),
+        m.instructions || m.medication_category || 'Take as directed'
+      ]);
+    } else if (matchedDs && matchedDs.discharge_medications) {
+      const lines = matchedDs.discharge_medications.split('\n').filter(Boolean);
+      medsArray = lines.map(line => {
+        const parts = line.split(' - ');
+        return [parts[0] || line, parts[1] || 'As directed', parts[2] || 'Treatment'];
+      });
+    } else {
+      medsArray = [
+        [primaryDx + " Treatment", "As directed by physician", "Primary condition care"],
+        ["Supportive Care", "As needed", "Symptom management"]
+      ];
     }
-  },
-  {
-    id: 4, name: "Fatima Sheikh", age: 27, sex: "F", mrn: "004515", ward: "Obstetrics · Bed 1B-02",
-    admitted: "07 Sep", diagnosisShort: "Normal vaginal delivery", diagnosisSub: "Obstetrics",
-    billing: "cleared", due: 0, of: 42000, discharged: false,
-    rawNote: `Pt: Sheikh, F. · 27F · MRN 004515
-Adm: 07-Sep · Disch: 09-Sep
 
-Dx: Term NVD, live birth, baby well. Mother stable postpartum.
+    const summary = {
+      why: matchedDs?.admission_reason || reason || `Admitted for ${primaryDx}.`,
+      dx: matchedDs?.discharge_diagnosis || primaryDx || 'Under medical management.',
+      meds: medsArray,
+      followup: matchedDs?.followup_instructions || `Follow-up in 1-2 weeks with ${docName} (${docSpecialty}).`,
+      warnings: [
+        "Fever returning or not responding to medication",
+        "Severe shortness of breath, dizziness, or chest discomfort",
+        "Persistent vomiting, swelling, or unusual bleeding"
+      ]
+    };
 
-Meds on disch:
-Tab Ferrous sulfate + folic acid OD x3/12, Tab Paracetamol SOS,
-Tab Calcium OD
-
-Ix: Hb 10.5 postpartum, BP stable, lochia normal.
-
-Plan: postnatal f/u 1/52, baby ped f/u 1/52 for weight check + vaccination,
-breastfeeding counselling given, contraception counselling deferred to f/u.`,
-    summary: {
-      why: "You had a healthy vaginal delivery. Both you and your baby are doing well.",
-      dx: "Normal delivery, no complications. Your blood count is slightly low, which is common after delivery — the iron tablets will help.",
-      meds: [
-        ["Iron + folic acid","Once daily for 3 months","Rebuilds blood count"],
-        ["Calcium","Once daily","Bone health"],
-        ["Paracetamol","As needed","Pain relief"]
-      ],
-      followup: "Postnatal check-up in 1 week. Baby's check-up in 1 week for weight and first vaccinations. We covered breastfeeding basics — contraception options can be discussed at your follow-up.",
-      warnings: ["Heavy bleeding (soaking a pad in under an hour)","Fever, chills, or foul-smelling discharge","Severe headache or vision changes"]
-    }
-  },
-  {
-    id: 5, name: "George Thomas", age: 66, sex: "M", mrn: "004529", ward: "Nephrology · Bed 4A-03",
-    admitted: "04 Sep", diagnosisShort: "CKD exacerbation", diagnosisSub: "Nephrology",
-    billing: "pending", due: 54200, of: 54200, discharged: false,
-    rawNote: `Pt: Thomas, G. · 66M · MRN 004529
-Adm: 04-Sep · Disch: 09-Sep
-
-Dx: CKD stage 4 on top of baseline, acute-on-chronic worsening, likely
-NSAID-related. No dialysis needed this admission.
-
-Meds on disch:
-Tab Nicardia Retard 20mg BD, Tab Torsemide 10mg OD,
-Tab Sodibic 650mg BD, Avoid all NSAIDs — {{FLAG}}counsel pt re: OTC painkillers{{/FLAG}}
-
-Ix: Cr 3.8 on admission, down to 2.9 at disch (baseline ~2.4).
-K+ 5.1, stable. eGFR ~22.
-
-Plan: nephro OPD f/u 1/52 with repeat RFT + electrolytes,
-dietary counselling (low K, low phosphate) given, weigh daily at home.`,
-    summary: {
-      why: "Your kidneys, which were already working at reduced capacity, became more strained — most likely from a pain-relief medication. You did not need dialysis this time.",
-      dx: "Worsening of chronic kidney disease (stage 4). Your kidney function improved with treatment but has not returned fully to your usual baseline.",
-      meds: [
-        ["Nicardia Retard","20mg, twice daily","Blood pressure"],
-        ["Torsemide","10mg, once daily","Reduces fluid buildup"],
-        ["Sodibic","650mg, twice daily","Corrects blood acidity"]
-      ],
-      followup: "Nephrology follow-up in 1 week with repeat blood tests. Please avoid all over-the-counter pain relievers like ibuprofen — they can worsen kidney function. Weigh yourself daily and follow the low-potassium, low-phosphate diet discussed with you.",
-      warnings: ["Weight gain of more than 1kg in a day, or swelling","Reduced urine output","Confusion, severe weakness, or irregular heartbeat"]
-    }
-  },
-  {
-    id: 6, name: "Jeevalgin MR", age: 24, sex: "M", mrn: "2603449", ward: "General Medicine · Visit 202609090005",
-    admitted: "09 Sep", diagnosisShort: "Acute Febrile Illness (Fever)", diagnosisSub: "General Medicine",
-    billing: "cleared", due: 0, of: 15000, discharged: true, signedBy: "Dr. KUAR", signedDate: "09 Sep 2026",
-    rawNote: `Pt: Jeevalgin MR · 24M · Reg 2603449 · Visit 202609090005
-Addr: 103, GOUNDAR KOTTAYI, Maiyanur, Sankarapuram, Viluppuram, TN · Ph: 9360345065
-Adm: 09/09/2026 12:25 PM · Disch: 09/09/2026 12:27 PM · Cert: DS26000023
-
-Dx: Acute Febrile Illness (Fever)
-
-History: Fever x3 days associated with chills, body pain & generalized weakness. No seizures or altered sensorium.
-
-Ix: Chest X-Ray — No significant abnormality. ECG — Normal sinus rhythm.
-Lab: CBC, Dengue NS1/IgM, Malaria Parasite/RDT, Widal/Blood Culture. {{FLAG}}Advise repeat blood counts if fever recurs{{/FLAG}}.
-
-Rx Given: IV fluids, antipyretics & supportive care.
-
-Surgery Details: Surgeon Dr. KUAR / Anaesthetist Dr. KUAR.
-
-Health Ed & Follow-up: Adequate oral fluids, proper nutrition, rest, daily temp monitoring. Return immediately if fever recurs.`,
-    summary: {
-      why: "You were admitted with a high fever lasting 3 days, accompanied by chills, body pain, and general weakness.",
-      dx: "Acute Febrile Illness (Fever). Chest X-ray and ECG were normal. Infection screenings were performed and supportive treatments were provided.",
-      meds: [
-        ["Paracetamol","650mg, as needed","Fever and body pain relief"],
-        ["ORS solution","As needed","Hydration & fluid balance"],
-        ["Multivitamin","Once daily","Supportive recovery"]
-      ],
-      followup: "Rest adequately, maintain high fluid intake and proper nutrition at home. Monitor body temperature daily. Follow-up at the outpatient clinic in 5–7 days or immediately if symptoms worsen.",
-      warnings: ["Fever returning or not responding to medication","Severe body pain, headache, or neck stiffness","Persistent vomiting, abdominal pain, or unusual rash/bleeding"]
-    }
-  }
-];
+    return {
+      id: adm.admission_id || adm.admission_number || adm.patient_id || index + 100,
+      name: pName,
+      age: pAge,
+      sex: pSex,
+      mrn: pMrn,
+      ward: `${admType} Ward · Adm ${admNum}`,
+      admitted: admDateStr,
+      diagnosisShort: primaryDx,
+      diagnosisSub: admType,
+      billing: billingStatus,
+      due: amountDue,
+      of: amountTotal,
+      discharged: !!isApproved,
+      signedBy: docName,
+      signedDate: admDateStr ? admDateStr + ' 2026' : '09 Sep 2026',
+      rawNote,
+      summary,
+      address: patAddr,
+      phone: patPhone,
+      emergencyContact: patEmergency
+    };
+  });
+}
 
 function billLabel(status) {
   if (status === "cleared") return "Cleared";
@@ -202,7 +163,7 @@ function SummaryContent({ s }) {
   return (
     <>
       <div className="osec">
-        <h3>Why you were admitted</h3>
+        <h3>Admission details</h3>
         <p>{s.why}</p>
       </div>
       <div className="osec">
@@ -249,15 +210,53 @@ function SummaryContent({ s }) {
 }
 
 export default function App() {
-  const [patients, setPatients] = useState(INITIAL_PATIENTS);
+  const [patients, setPatients] = useState([]);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [modalPatientId, setModalPatientId] = useState(null);
   const [generatedMap, setGeneratedMap] = useState({});
   const [isGenerating, setIsGenerating] = useState(false);
   const [signPanelOpen, setSignPanelOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signDate, setSignDate] = useState('09 Sep 2026');
+  const [apiStatus, setApiStatus] = useState({ connected: false, loading: true });
+  const [bedsSummary, setBedsSummary] = useState(null);
+
+  useEffect(() => {
+    fetchDynamicApiData();
+  }, []);
+
+  async function fetchDynamicApiData() {
+    setApiStatus({ connected: false, loading: true });
+    try {
+      const [admissionsRes, summariesRes, bedsSummaryRes] = await Promise.allSettled([
+        apiService.getCurrentAdmissionLlmInputs({ limit: 400 }),
+        apiService.getGeneratedDischargeSummaries({ limit: 400 }),
+        apiService.getBronzeBedsSummary()
+      ]);
+
+      const admissions = admissionsRes.status === 'fulfilled' ? admissionsRes.value?.data || [] : [];
+      const summaries = summariesRes.status === 'fulfilled' ? summariesRes.value?.data || [] : [];
+      const bSummary = bedsSummaryRes.status === 'fulfilled' ? bedsSummaryRes.value : null;
+
+      if (bSummary) setBedsSummary(bSummary);
+
+      if (admissions.length > 0) {
+        const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
+        setPatients(mapped || []);
+        setApiStatus({ connected: true, loading: false });
+      } else {
+        setPatients([]);
+        setApiStatus({ connected: false, loading: false });
+      }
+    } catch (err) {
+      console.warn("API error:", err);
+      setPatients([]);
+      setApiStatus({ connected: false, loading: false });
+    }
+  }
 
   // Calculated Ward Stats
   const totalCount = patients.length;
@@ -270,7 +269,8 @@ export default function App() {
   const openModal = (id) => {
     setModalPatientId(id);
     setSignPanelOpen(false);
-    setSignName('');
+    const p = patients.find(pat => pat.id === id);
+    setSignName(p?.signedBy || 'Dr. Attending Physician');
     setSignDate('09 Sep 2026');
   };
 
@@ -334,6 +334,26 @@ export default function App() {
     return true;
   });
 
+  // Pagination calculation
+  const totalFiltered = filteredPatients.length;
+  const totalPages = Math.ceil(totalFiltered / pageSize) || 1;
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const paginatedPatients = filteredPatients.slice(startIndex, startIndex + pageSize);
+
+  function getPageNumbers(current, total) {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, '...', total];
+    }
+    if (current >= total - 3) {
+      return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+    }
+    return [1, '...', current - 1, current, current + 1, '...', total];
+  }
+
   const isCurrentGenerated = currentPatient ? (currentPatient.discharged || !!generatedMap[currentPatient.id]) : false;
 
   const renderRawNoteContent = (rawText) => {
@@ -355,8 +375,49 @@ export default function App() {
             <div className="brand-mark"></div>
             <div className="brand-name">DischargeNote</div>
           </div>
-          <div className="masthead-meta">
-            INTERNAL DEMO<br />Ward view · v0.3
+          <div className="masthead-meta" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <button 
+              className="btn-reload"
+              onClick={() => window.location.reload()}
+              style={{
+                fontFamily: 'var(--sans)',
+                fontSize: '12px',
+                fontWeight: 600,
+                padding: '7px 13px',
+                borderRadius: '7px',
+                border: '1px solid var(--line)',
+                background: 'var(--paper)',
+                color: 'var(--primary-dark)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                transition: 'all 0.15s ease'
+              }}
+              title="Perform Full Page Reload"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M23 4v6h-6M1 20v-6h6" />
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+              </svg>
+              Reload Page
+            </button>
+            <div>
+              ADMIN CONSOLE<br />
+              Ward view · v0.3 &nbsp;
+              <span style={{
+                fontFamily: 'var(--mono)',
+                fontSize: '10.5px',
+                padding: '2px 7px',
+                borderRadius: '4px',
+                fontWeight: 600,
+                background: apiStatus.loading ? 'var(--line-soft)' : apiStatus.connected ? 'var(--primary-tint)' : 'var(--alert-tint)',
+                color: apiStatus.loading ? 'var(--ink-soft)' : apiStatus.connected ? 'var(--primary-dark)' : 'var(--alert)'
+              }}>
+                {apiStatus.loading ? 'CONNECTING TO API...' : apiStatus.connected ? 'API CONNECTED' : 'OFFLINE / NO API DATA'}
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -372,20 +433,30 @@ export default function App() {
 
         <div className="ward-strip" id="wardStrip">
           <div className="ward-stat">
+            <div className="ward-stat-num">
+              {bedsSummary?.metrics?.total_beds_count ?? bedsSummary?.total_records ?? 0}
+            </div>
+            <div className="ward-stat-label">Total Beds</div>
+          </div>
+          <div className="ward-stat">
+            <div className="ward-stat-num">
+              {bedsSummary?.metrics?.available_beds_count ?? bedsSummary?.metrics?.available ?? bedsSummary?.metrics?.occupancy_status_breakdown?.Available ?? 0}
+            </div>
+            <div className="ward-stat-label">Available Beds</div>
+          </div>
+          <div className="ward-stat">
+            <div className="ward-stat-num">
+              {bedsSummary?.metrics?.occupied_beds_count ?? bedsSummary?.metrics?.occupied ?? bedsSummary?.metrics?.occupancy_status_breakdown?.Occupied ?? 0}
+            </div>
+            <div className="ward-stat-label">Occupied Beds</div>
+          </div>
+          <div className="ward-stat">
             <div className="ward-stat-num">{totalCount}</div>
-            <div className="ward-stat-label">Currently admitted, this ward</div>
-          </div>
-          <div className="ward-stat">
-            <div className="ward-stat-num">{clearedCount}</div>
-            <div className="ward-stat-label">Billing fully cleared</div>
-          </div>
-          <div className="ward-stat">
-            <div className="ward-stat-num">{outstandingCount}</div>
-            <div className="ward-stat-label">Billing pending or partial</div>
+            <div className="ward-stat-label">Currently Admitted Patients</div>
           </div>
           <div className="ward-stat">
             <div className="ward-stat-num">{dischargedCount} / {totalCount}</div>
-            <div className="ward-stat-label">Summaries signed &amp; finalized</div>
+            <div className="ward-stat-label">Summaries Signed &amp; Finalized</div>
           </div>
         </div>
 
@@ -408,7 +479,10 @@ export default function App() {
                   id="searchInput"
                   placeholder="Search by name, MRN, or ward…"
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
                 />
               </div>
             </div>
@@ -419,7 +493,10 @@ export default function App() {
               <button
                 key={c.key}
                 className={`chip ${activeFilter === c.key ? 'active' : ''}`}
-                onClick={() => setActiveFilter(c.key)}
+                onClick={() => {
+                  setActiveFilter(c.key);
+                  setCurrentPage(1);
+                }}
               >
                 {c.label}
               </button>
@@ -439,12 +516,25 @@ export default function App() {
                 </tr>
               </thead>
               <tbody id="patientRows">
-                {filteredPatients.length === 0 ? (
+                {apiStatus.loading ? (
                   <tr className="empty-row">
-                    <td colSpan="6">No patients match this search or filter.</td>
+                    <td colSpan="6">Fetching patient records from API...</td>
+                  </tr>
+                ) : !apiStatus.connected && filteredPatients.length === 0 ? (
+                  <tr className="empty-row">
+                    <td colSpan="6">
+                      <strong style={{ color: 'var(--alert)' }}>API Not Connected.</strong><br />
+                      <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>
+                        Please verify backend API service connection at http://127.0.0.1:8000
+                      </span>
+                    </td>
+                  </tr>
+                ) : paginatedPatients.length === 0 ? (
+                  <tr className="empty-row">
+                    <td colSpan="6">No patient records match this search or filter.</td>
                   </tr>
                 ) : (
-                  filteredPatients.map(p => (
+                  paginatedPatients.map(p => (
                     <tr key={p.id} className={p.discharged ? 'discharged' : ''}>
                       <td>
                         <div className="p-name">
@@ -501,6 +591,79 @@ export default function App() {
                 )}
               </tbody>
             </table>
+
+            {/* Pagination Controls Bar */}
+            {!apiStatus.loading && totalFiltered > 0 && (
+              <div className="pagination-bar">
+                <div className="pagination-info">
+                  Showing {startIndex + 1}–{Math.min(startIndex + pageSize, totalFiltered)} of {totalFiltered} admitted patients
+                </div>
+                <div className="pagination-controls">
+                  <label style={{ fontSize: '12px', color: 'var(--ink-soft)', marginRight: '2px' }}>Per page:</label>
+                  <select 
+                    className="page-size-selector"
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+
+                  <button
+                    className="pg-btn"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={validCurrentPage === 1}
+                    title="First Page"
+                  >
+                    «
+                  </button>
+                  <button
+                    className="pg-btn"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={validCurrentPage === 1}
+                    title="Previous Page"
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {getPageNumbers(validCurrentPage, totalPages).map((p, idx) => (
+                    p === '...' ? (
+                      <span key={idx} style={{ padding: '0 4px', color: 'var(--ink-soft)' }}>…</span>
+                    ) : (
+                      <button
+                        key={idx}
+                        className={`pg-btn ${p === validCurrentPage ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(p)}
+                      >
+                        {p}
+                      </button>
+                    )
+                  ))}
+
+                  <button
+                    className="pg-btn"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={validCurrentPage === totalPages}
+                    title="Next Page"
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    className="pg-btn"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={validCurrentPage === totalPages}
+                    title="Last Page"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </main>
@@ -706,7 +869,7 @@ export default function App() {
             </div>
 
             <div className="print-sec">
-              <div className="print-sec-title">1. Why You Were Admitted</div>
+              <div className="print-sec-title">1. Admission Details</div>
               <div className="print-sec-body">{currentPatient.summary.why}</div>
             </div>
 
@@ -758,7 +921,7 @@ export default function App() {
                 Prepared / Verified By
               </div>
               <div className="print-sig-line">
-                Clinician Signature: {currentPatient.discharged ? (currentPatient.signedBy || 'Dr. KUAR') : '___________________'}
+                Clinician Signature: {currentPatient.discharged ? (currentPatient.signedBy || 'Attending Physician') : '___________________'}
                 <br />
                 Date: {currentPatient.discharged ? (currentPatient.signedDate || '09 Sep 2026') : '____/____/________'}
               </div>

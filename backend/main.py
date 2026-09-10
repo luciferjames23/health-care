@@ -12,10 +12,11 @@ if str(BASE_DIR) not in sys.path:
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
 from routers.gold import router as gold_router
+from routers.bronze import router as bronze_router
 
 app = FastAPI(
-    title="Databricks Healthcare Gold Layer API",
-    description="REST API service to query Healthcare Gold schema tables (`health_care.gold.dim_revenue_predictions` & `health_care.gold.fact_bed_demand_forecast_7day_detailed`)",
+    title="Databricks Healthcare Lakehouse API",
+    description="REST API service to query Healthcare Gold and Bronze schema tables in Databricks (`health_care.gold.*` and `health_care.bronze.*`)",
     version="2.0.0"
 )
 
@@ -28,6 +29,7 @@ app.add_middleware(
 )
 
 app.include_router(gold_router)
+app.include_router(bronze_router)
 
 db_connector = DatabricksConnector()
 
@@ -109,7 +111,7 @@ def get_table_schema(table_name: str, schema: Optional[str] = None):
 @app.get("/api/v1/gold/tables/{table_name}/data")
 def query_table_data(
     table_name: str,
-    limit: int = Query(default=100, ge=1, le=1000, description="Max rows to return (1-1000)"),
+    limit: Optional[int] = Query(None, ge=1, description="Max rows to return. Omit for full data."),
     offset: int = Query(default=0, ge=0, description="Offset for pagination"),
     schema: Optional[str] = None
 ):

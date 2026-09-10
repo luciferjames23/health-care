@@ -10,49 +10,44 @@ import {
   FileCode,
   RotateCcw
 } from 'lucide-react';
-import { MOCK_TABLE_DATA } from '../services/api';
+import { apiService } from '../services/api';
 
 const PRESET_QUERIES = [
   {
-    title: "30-Day Hospital Readmissions Analysis",
+    title: "Current Admission Inputs Analysis",
     sql: `SELECT 
-  p.patient_id, 
-  p.first_name || ' ' || p.last_name AS patient_name,
-  e.encounter_class,
-  e.primary_diagnosis,
-  e.total_cost,
-  e.readmitted_30d
-FROM health_care.gold.fact_encounters e
-JOIN health_care.gold.dim_patient p ON e.patient_id = p.patient_id
-WHERE e.readmitted_30d = TRUE
-ORDER BY e.total_cost DESC;`,
-    mockResultKey: 'fact_encounters'
+  admission_id, 
+  first_name || ' ' || last_name AS patient_name,
+  admission_type,
+  primary_diagnosis,
+  bill_net_amount,
+  bill_status
+FROM health_care.gold.dim_admission_inputs
+ORDER BY bill_net_amount DESC;`,
+    mockResultKey: 'dim_admission_inputs'
   },
   {
-    title: "Claims Breakdown by Insurance Type",
+    title: "Generated Discharge Summaries",
     sql: `SELECT 
-  p.insurance_type,
-  COUNT(c.claim_id) AS total_claims,
-  SUM(c.billed_amount) AS total_billed,
-  SUM(c.paid_amount) AS total_paid
-FROM health_care.gold.fact_claims c
-JOIN health_care.gold.dim_patient p ON c.patient_id = p.patient_id
-GROUP BY p.insurance_type
-ORDER BY total_billed DESC;`,
-    mockResultKey: 'fact_claims'
+  summary_id,
+  patient_name,
+  attending_physician,
+  discharge_diagnosis,
+  approval_status
+FROM health_care.gold.dim_generated_discharge_summaries
+ORDER BY discharge_date DESC;`,
+    mockResultKey: 'dim_generated_discharge_summaries'
   },
   {
-    title: "Critical Diagnostic Lab Results",
+    title: "Bed Demand Forecast Analysis",
     sql: `SELECT 
-  p.patient_id,
-  l.test_name,
-  l.result_value,
-  l.units,
-  l.flag
-FROM health_care.gold.fact_lab_results l
-JOIN health_care.gold.dim_patient p ON l.patient_id = p.patient_id
-WHERE l.flag = 'CRITICAL' OR l.flag = 'HIGH';`,
-    mockResultKey: 'fact_lab_results'
+  forecast_date,
+  ward_name,
+  predicted_beds,
+  predicted_occupancy_rate
+FROM health_care.gold.fact_bed_demand_forecast_7day_detailed
+ORDER BY forecast_date ASC;`,
+    mockResultKey: 'fact_bed_demand_forecast_7day_detailed'
   }
 ];
 
@@ -63,20 +58,29 @@ export default function SqlSandboxView() {
   const [execResult, setExecResult] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const handleRunQuery = () => {
+  const handleRunQuery = async () => {
     setIsExecuting(true);
     setExecResult(null);
-    setTimeout(() => {
-      const key = PRESET_QUERIES[activeQueryIndex]?.mockResultKey || 'dim_patient';
-      const rows = MOCK_TABLE_DATA[key] || MOCK_TABLE_DATA.dim_patient;
+    try {
+      const key = PRESET_QUERIES[activeQueryIndex]?.mockResultKey || 'dim_admission_inputs';
+      const res = await apiService.getGoldTableRecords(key, { limit: 50 });
+      const rows = res.data || [];
       setExecResult({
         rows,
         columns: rows.length ? Object.keys(rows[0]) : [],
         duration: (Math.random() * 0.15 + 0.12).toFixed(2),
         rowCount: rows.length
       });
+    } catch (err) {
+      setExecResult({
+        rows: [],
+        columns: [],
+        duration: '0.00',
+        rowCount: 0
+      });
+    } finally {
       setIsExecuting(false);
-    }, 400);
+    }
   };
 
   const handleSelectPreset = (idx) => {
