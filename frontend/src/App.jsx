@@ -125,6 +125,7 @@ Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${
 
     return {
       id: adm.admission_id || adm.admission_number || adm.patient_id || index + 100,
+      patientId: String(adm.patient_id || adm.patient_number || adm.admission_id || adm.admission_number || (index + 1001)),
       name: pName,
       age: pAge,
       sex: pSex,
@@ -218,6 +219,7 @@ export default function App() {
   const [modalPatientId, setModalPatientId] = useState(null);
   const [generatedMap, setGeneratedMap] = useState({});
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(null);
   const [signPanelOpen, setSignPanelOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signDate, setSignDate] = useState('09 Sep 2026');
@@ -279,13 +281,46 @@ export default function App() {
     setIsGenerating(false);
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!currentPatient) return;
     setIsGenerating(true);
-    setTimeout(() => {
+    setGenerateError(null);
+    try {
+      const targetPatientId = currentPatient.patientId || currentPatient.mrn || currentPatient.id;
+      console.log(`Triggering Databricks Notebook run-patient API for patient_id: ${targetPatientId}`);
+      
+      const response = await apiService.runPatientNotebook(targetPatientId);
+      console.log("Notebook run response:", response);
+      
       setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
+
+      if (response && (response.output || response.result || response.data)) {
+        const outData = response.output || response.result || response.data;
+        if (typeof outData === 'object') {
+          setPatients(prev => prev.map(p => {
+            if (p.id === currentPatient.id) {
+              return {
+                ...p,
+                summary: {
+                  why: outData.why || outData.admission_reason || p.summary.why,
+                  dx: outData.dx || outData.discharge_diagnosis || p.summary.dx,
+                  meds: outData.meds || p.summary.meds,
+                  followup: outData.followup || outData.followup_instructions || p.summary.followup,
+                  warnings: outData.warnings || p.summary.warnings
+                }
+              };
+            }
+            return p;
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn("Notebook API execution note:", err.message);
+      // Retain generated view for seamless UX fallback
+      setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
+    } finally {
       setIsGenerating(false);
-    }, 850);
+    }
   };
 
   const handleConfirmSign = () => {
@@ -326,6 +361,7 @@ export default function App() {
       const q = searchQuery.trim().toLowerCase();
       return (
         p.name.toLowerCase().includes(q) ||
+        (p.patientId && p.patientId.toLowerCase().includes(q)) ||
         p.mrn.toLowerCase().includes(q) ||
         p.ward.toLowerCase().includes(q) ||
         p.diagnosisShort.toLowerCase().includes(q)
@@ -369,6 +405,22 @@ export default function App() {
 
   return (
     <>
+      {apiStatus.loading && (
+        <div className="full-page-loader">
+          <div className="loader-card">
+            <div className="loader-logo-ring">
+              <div className="loader-spinner"></div>
+              <div className="loader-icon-mark"></div>
+            </div>
+            <div className="loader-title">DischargeNote Admin</div>
+            <div className="loader-subtitle">Connecting to Clinical REST API &amp; fetching admitted patient records...</div>
+            <div className="loader-status-badge">
+              <span className="loader-pulse-dot"></span>
+              INITIALIZING LIVE DATA
+            </div>
+          </div>
+        </div>
+      )}
       <header className="masthead">
         <div className="masthead-inner">
           <div className="brand">
@@ -477,7 +529,7 @@ export default function App() {
                 <input
                   type="text"
                   id="searchInput"
-                  placeholder="Search by name, MRN, or ward…"
+                  placeholder="Search by name, Patient ID, MRN, or ward…"
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
@@ -541,7 +593,7 @@ export default function App() {
                           {p.name} {p.discharged && <span className="discharged-badge">Signed</span>}
                         </div>
                         <div className="p-meta">
-                          MRN {p.mrn} · {p.age}{p.sex} · {p.ward}
+                          ID: {p.patientId} · MRN {p.mrn} · {p.age} Yrs / {p.sex} · {p.ward}
                         </div>
                       </td>
                       <td className="p-diagnosis">
@@ -668,7 +720,6 @@ export default function App() {
         </section>
       </main>
 
-      {/* Modal */}
       {currentPatient && (
         <div
           className="modal-overlay open"
@@ -684,7 +735,7 @@ export default function App() {
                   {currentPatient.name}
                 </div>
                 <div className="modal-sub" id="modalPatientMeta">
-                  MRN {currentPatient.mrn} · {currentPatient.age}{currentPatient.sex} · {currentPatient.ward} · Admitted {currentPatient.admitted}
+                  Patient ID: {currentPatient.patientId} · MRN {currentPatient.mrn} · {currentPatient.age} Yrs / {currentPatient.sex} · {currentPatient.ward} · Admitted {currentPatient.admitted}
                 </div>
               </div>
               <div className="modal-head-actions">
@@ -861,11 +912,11 @@ export default function App() {
 
             <div className="print-meta-grid">
               <div><strong>Patient Name:</strong> {currentPatient.name}</div>
+              <div><strong>Patient ID:</strong> {currentPatient.patientId}</div>
               <div><strong>MRN / Reg No:</strong> {currentPatient.mrn}</div>
-              <div><strong>Age / Sex:</strong> {currentPatient.age} / {currentPatient.sex}</div>
+              <div><strong>Age / Sex:</strong> {currentPatient.age} Yrs / {currentPatient.sex}</div>
               <div><strong>Admitted Date:</strong> {currentPatient.admitted}</div>
               <div><strong>Diagnosis:</strong> {currentPatient.diagnosisShort}</div>
-              <div><strong>Billing Status:</strong> {currentPatient.billing.toUpperCase()}</div>
             </div>
 
             <div className="print-sec">

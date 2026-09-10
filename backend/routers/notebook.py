@@ -1,0 +1,109 @@
+﻿from typing import Optional
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+from connectors.databricks_connector import DatabricksConnector
+from config.config import Config
+
+router = APIRouter(
+    prefix="/api/v1/notebook",
+    tags=["Databricks Notebook Execution APIs"]
+)
+
+db_connector = DatabricksConnector()
+
+# Known notebooks:
+# 2865138219507461 -> /Users/jamesrubert02@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
+# 3655906645282312 -> /Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
+
+DEFAULT_NOTEBOOK_ID = "2865138219507461"
+
+
+class PatientNotebookRequest(BaseModel):
+    patient_id: str
+    notebook_id: Optional[str] = DEFAULT_NOTEBOOK_ID
+    timeout_seconds: Optional[int] = 300
+
+
+@router.post("/run-patient", summary="Execute Databricks Notebook for Patient ID (POST)")
+def run_patient_notebook_post(request: PatientNotebookRequest):
+    """
+    Triggers execution of the Discharge Summary LLM Generation notebook
+    passing patient_id as a parameter, polls for completion, returns output data.
+    """
+    pid = str(request.patient_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="Parameter patient_id is required.")
+
+    notebook_id = str(request.notebook_id or DEFAULT_NOTEBOOK_ID).strip()
+    parameters  = {"patient_id": pid}
+
+    try:
+        res = db_connector.run_databricks_notebook(
+            notebook_path_or_id=notebook_id,
+            parameters=parameters,
+            timeout_seconds=request.timeout_seconds or 300
+        )
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute notebook: {str(e)}")
+
+
+@router.get("/run-patient", summary="Execute Databricks Notebook for Patient ID (GET)")
+def run_patient_notebook_get(
+    patient_id: str = Query(..., description="Patient ID to pass to the notebook (e.g. 87227)"),
+    notebook_id: Optional[str] = Query(
+        default=DEFAULT_NOTEBOOK_ID,
+        description="Databricks Notebook object ID or absolute workspace path"
+    ),
+    timeout_seconds: int = Query(default=300, ge=1, le=600)
+):
+    """
+    Triggers execution of the Discharge Summary LLM Generation notebook
+    passing patient_id as a parameter via query string.
+    """
+    pid = str(patient_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="Parameter patient_id is required.")
+
+    nb = str(notebook_id or DEFAULT_NOTEBOOK_ID).strip()
+    parameters = {"patient_id": pid}
+
+    try:
+        res = db_connector.run_databricks_notebook(
+            notebook_path_or_id=nb,
+            parameters=parameters,
+            timeout_seconds=timeout_seconds
+        )
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute notebook: {str(e)}")
+
+
+@router.get("/config", summary="Databricks Workspace and Notebook Configuration")
+def get_notebook_config():
+    """Returns configured Databricks workspace URL and known notebook IDs."""
+    return {
+        "workspace_hostname": Config.DATABRICKS_SERVER_HOSTNAME,
+        "workspace_id": Config.DATABRICKS_WORKSPACE_ID,
+        "default_notebook_id": DEFAULT_NOTEBOOK_ID,
+        "notebook_url": (
+            f"https://{Config.DATABRICKS_SERVER_HOSTNAME}"
+            f"/editor/notebooks/{DEFAULT_NOTEBOOK_ID}"
+            f"?o={Config.DATABRICKS_WORKSPACE_ID}"
+        ),
+        "known_notebooks": {
+            "2865138219507461": (
+                "/Users/jamesrubert02@gmail.com/POC/Health-care/code/"
+                "Discharge_summary/Discharge Summary LLM Generation"
+            ),
+            "3655906645282312": (
+                "/Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/"
+                "Discharge_summary/Discharge Summary LLM Generation"
+            ),
+        },
+        "supported_parameters": ["patient_id"],
+    }

@@ -13,6 +13,7 @@ from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
 from routers.gold import router as gold_router
 from routers.bronze import router as bronze_router
+from routers.notebook import router as notebook_router
 
 app = FastAPI(
     title="Databricks Healthcare Lakehouse API",
@@ -30,6 +31,7 @@ app.add_middleware(
 
 app.include_router(gold_router)
 app.include_router(bronze_router)
+app.include_router(notebook_router)
 
 db_connector = DatabricksConnector()
 

@@ -5,16 +5,17 @@ const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:800
 const FETCH_TIMEOUT_MS = 15000;
 
 async function fetchWithTimeout(url, options = {}) {
+  const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       signal: controller.signal,
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        ...options.headers,
+        ...fetchOptions.headers,
       },
     });
     clearTimeout(timeoutId);
@@ -201,5 +202,23 @@ export const apiService = {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/patients/${patientId}`);
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
-  }
+  },
+
+  // Trigger Databricks Notebook Execution for Patient
+  async runPatientNotebook(patientId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
+      method: 'POST',
+      timeoutMs: 120000,
+      body: JSON.stringify({
+        patient_id: String(patientId),
+        notebook_id: '3655906645282312',
+        timeout_seconds: 60,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    return await res.json();
+  },
 };

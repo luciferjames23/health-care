@@ -10,7 +10,8 @@ import {
   Layers,
   Sparkles,
   TrendingUp,
-  Activity
+  Activity,
+  BookOpen,
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRecords }) {
