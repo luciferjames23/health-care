@@ -1,6 +1,7 @@
 // Dynamic API Service connecting React frontend to FastAPI Databricks Gold & Bronze Layer APIs
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+// const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:2003';
 
 const FETCH_TIMEOUT_MS = 45000;
 
