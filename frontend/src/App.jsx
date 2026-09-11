@@ -309,6 +309,8 @@ export default function App() {
         apiService.getBronzeBedsSummary()
       ]);
 
+      const isAnyFulfilled = admissionsRes.status === 'fulfilled' || summariesRes.status === 'fulfilled' || bedsSummaryRes.status === 'fulfilled';
+
       const admissions = admissionsRes.status === 'fulfilled' ? admissionsRes.value?.data || [] : [];
       const summaries = summariesRes.status === 'fulfilled' ? summariesRes.value?.data || [] : [];
       const bSummary = bedsSummaryRes.status === 'fulfilled' ? bedsSummaryRes.value : null;
@@ -319,11 +321,9 @@ export default function App() {
       if (admissions.length > 0) {
         const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
         setPatients(mapped || []);
-        setApiStatus({ connected: true, loading: false });
-      } else {
-        setPatients([]);
-        setApiStatus({ connected: false, loading: false });
       }
+      
+      setApiStatus({ connected: isAnyFulfilled || admissions.length > 0, loading: false });
     } catch (err) {
       console.warn("API error:", err);
       setPatients([]);

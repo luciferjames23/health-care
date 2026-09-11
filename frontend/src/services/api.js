@@ -2,7 +2,7 @@
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
-const FETCH_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 45000;
 
 async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
@@ -204,27 +204,43 @@ export const apiService = {
     return await res.json();
   },
 
-  // Trigger Databricks Notebook / Job Execution for Patient
+  // Trigger Registered Databricks Job Execution for Patient
   async runPatientNotebook(patientId, options = {}) {
-    const notebookId = typeof options === 'object' && options?.notebookId ? options.notebookId : (typeof options === 'string' ? options : null);
+    const jobId = typeof options === 'object' && options?.jobId ? options.jobId : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
     const payload = {
       patient_id: String(patientId),
       timeout_seconds: timeoutSec,
     };
-    if (notebookId) {
-      payload.notebook_id = notebookId;
+    if (jobId) {
+      payload.job_id = jobId;
     }
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
-      method: 'POST',
-      timeoutMs: (timeoutSec + 30) * 1000,
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    // Call registered Databricks Job execution endpoint (/api/v1/job/run-patient)
+    let res;
+    try {
+      res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/job/run-patient`, {
+        method: 'POST',
+        timeoutMs: (timeoutSec + 30) * 1000,
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      res = null;
+    }
+
+    if (!res || !res.ok) {
+      // Fallback to /api/v1/notebook/run-patient
+      const fallbackRes = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
+        method: 'POST',
+        timeoutMs: (timeoutSec + 30) * 1000,
+        body: JSON.stringify(payload),
+      });
+      if (!fallbackRes.ok) {
+        const errBody = await fallbackRes.json().catch(() => ({}));
+        throw new Error(errBody?.detail || `HTTP error ${fallbackRes.status}`);
+      }
+      return await fallbackRes.json();
     }
     return await res.json();
   },
