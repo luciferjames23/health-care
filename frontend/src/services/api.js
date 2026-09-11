@@ -204,9 +204,38 @@ export const apiService = {
     return await res.json();
   },
 
-  // Trigger Registered Databricks Job Execution for Patient
+  // 1. Trigger Databricks Notebook Execution for Patient (/api/v1/notebook/run-patient)
   async runPatientNotebook(patientId, options = {}) {
-    const jobId = typeof options === 'object' && options?.jobId ? options.jobId : (typeof options === 'string' ? options : null);
+    const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id) 
+      ? (options.notebookId || options.notebook_id) 
+      : (typeof options === 'string' ? options : null);
+    const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
+
+    const payload = {
+      patient_id: String(patientId),
+      timeout_seconds: timeoutSec,
+    };
+    if (notebookId) {
+      payload.notebook_id = notebookId;
+    }
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
+      method: 'POST',
+      timeoutMs: (timeoutSec + 30) * 1000,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  // 2. Trigger Registered Databricks Job Execution for Patient (/api/v1/job/run-patient)
+  async runPatientJob(patientId, options = {}) {
+    const jobId = typeof options === 'object' && (options?.jobId || options?.job_id) 
+      ? (options.jobId || options.job_id) 
+      : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
     const payload = {
@@ -217,30 +246,14 @@ export const apiService = {
       payload.job_id = jobId;
     }
 
-    // Call registered Databricks Job execution endpoint (/api/v1/job/run-patient)
-    let res;
-    try {
-      res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/job/run-patient`, {
-        method: 'POST',
-        timeoutMs: (timeoutSec + 30) * 1000,
-        body: JSON.stringify(payload),
-      });
-    } catch (e) {
-      res = null;
-    }
-
-    if (!res || !res.ok) {
-      // Fallback to /api/v1/notebook/run-patient
-      const fallbackRes = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
-        method: 'POST',
-        timeoutMs: (timeoutSec + 30) * 1000,
-        body: JSON.stringify(payload),
-      });
-      if (!fallbackRes.ok) {
-        const errBody = await fallbackRes.json().catch(() => ({}));
-        throw new Error(errBody?.detail || `HTTP error ${fallbackRes.status}`);
-      }
-      return await fallbackRes.json();
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/job/run-patient`, {
+      method: 'POST',
+      timeoutMs: (timeoutSec + 30) * 1000,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
     }
     return await res.json();
   },
