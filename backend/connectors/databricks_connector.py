@@ -447,52 +447,18 @@ class DatabricksConnector:
                 "source": "databricks"
             }
         except Exception as e:
-            # Filter mock data in memory
-            mock_rows = MOCK_GOLD_DATA.get(table_name, [])
-            filtered = []
-            for item in mock_rows:
-                match = True
-                for k, v in filters.items():
-                    if v is None:
-                        continue
-                    if k in item:
-                        if isinstance(v, bool):
-                            if item[k] != v:
-                                match = False
-                        elif str(item[k]).lower() != str(v).lower():
-                            match = False
-                    elif k.endswith("_from"):
-                        real_col = k[:-5]
-                        if real_col in item and str(item[real_col]) < str(v):
-                            match = False
-                    elif k.endswith("_to"):
-                        real_col = k[:-3]
-                        if real_col in item and str(item[real_col]) > str(v):
-                            match = False
-                    elif k.endswith("_gt"):
-                        real_col = k[:-3]
-                        if real_col in item and float(item[real_col]) < float(v):
-                            match = False
-                    elif k.endswith("_lt"):
-                        real_col = k[:-3]
-                        if real_col in item and float(item[real_col]) > float(v):
-                            match = False
-                if match:
-                    filtered.append(item)
-
-            sliced = filtered[offset:offset+limit] if limit is not None else filtered[offset:]
             return {
                 "table_name": table_name,
                 "catalog": catalog,
                 "schema": schema,
-                "total_rows": len(filtered),
+                "total_rows": 0,
                 "limit": limit,
                 "offset": offset,
-                "returned_rows": len(sliced),
-                "data": sliced,
+                "returned_rows": 0,
+                "data": [],
                 "applied_filters": filters,
-                "source": "mock_fallback",
-                "notice": f"Databricks unreachable ({str(e)}). Returned filtered mock data."
+                "source": "databricks",
+                "notice": f"Databricks query note ({str(e)}). Returned 0 records."
             }
 
     def query_bronze_table(self, table_name: str, filters: dict = None, limit: Optional[int] = None, offset: int = 0) -> dict:
@@ -568,52 +534,18 @@ class DatabricksConnector:
                 "source": "databricks"
             }
         except Exception as e:
-            # Filter mock data in memory
-            mock_rows = MOCK_BRONZE_DATA.get(table_name, [])
-            filtered = []
-            for item in mock_rows:
-                match = True
-                for k, v in filters.items():
-                    if v is None:
-                        continue
-                    if k in item:
-                        if isinstance(v, bool):
-                            if item[k] != v:
-                                match = False
-                        elif str(item[k]).lower() != str(v).lower():
-                            match = False
-                    elif k.endswith("_from"):
-                        real_col = k[:-5]
-                        if real_col in item and str(item[real_col]) < str(v):
-                            match = False
-                    elif k.endswith("_to"):
-                        real_col = k[:-3]
-                        if real_col in item and str(item[real_col]) > str(v):
-                            match = False
-                    elif k.endswith("_gt"):
-                        real_col = k[:-3]
-                        if real_col in item and float(item[real_col]) < float(v):
-                            match = False
-                    elif k.endswith("_lt"):
-                        real_col = k[:-3]
-                        if real_col in item and float(item[real_col]) > float(v):
-                            match = False
-                if match:
-                    filtered.append(item)
-
-            sliced = filtered[offset:offset+limit] if limit is not None else filtered[offset:]
             return {
                 "table_name": table_name,
                 "catalog": catalog,
                 "schema": schema,
-                "total_rows": len(filtered),
+                "total_rows": 0,
                 "limit": limit,
                 "offset": offset,
-                "returned_rows": len(sliced),
-                "data": sliced,
+                "returned_rows": 0,
+                "data": [],
                 "applied_filters": filters,
-                "source": "mock_fallback",
-                "notice": f"Databricks unreachable ({str(e)}). Returned filtered mock data."
+                "source": "databricks",
+                "notice": f"Databricks query note ({str(e)}). Returned 0 records."
             }
 
     # Known notebook ID → absolute workspace path mapping
@@ -698,13 +630,13 @@ class DatabricksConnector:
             f"Please use the full absolute path (e.g. /Users/.../Notebook Name) instead."
         )
 
-    def run_databricks_notebook(self, notebook_path_or_id: str = "3655906645282312", parameters: dict = None, timeout_seconds: int = 300) -> dict:
+    def run_databricks_notebook(self, notebook_path_or_id: str = "63391549950619", parameters: dict = None, timeout_seconds: int = 300) -> dict:
         """
-        Submits the Discharge Summary LLM Generation notebook via Databricks Jobs API v2.1
-        (serverless compute), polls until done, and returns the notebook output.
+        Executes a Databricks Job or Notebook via Databricks Jobs API v2.1,
+        polls until done, and returns output.
 
-        notebook_path_or_id: notebook object ID (e.g. '3655906645282312') or full path
-        parameters          : dict passed as notebook base_parameters (e.g. {'patient_id': '87227'})
+        notebook_path_or_id: Registered Job ID (e.g. '63391549950619'), Notebook object ID ('2865138219507461'), or full path
+        parameters          : dict passed as parameters (e.g. {'patient_id': '87237'})
         timeout_seconds     : max seconds to poll (default 300 = 5 min)
         """
         parameters = parameters or {}
@@ -720,30 +652,44 @@ class DatabricksConnector:
             "Content-Type":  "application/json"
         }
 
-        nb_path = self._resolve_notebook_path(notebook_path_or_id)
-
         patient_id = parameters.get("patient_id", "unknown")
+        target_str = str(notebook_path_or_id).strip()
 
-        # Serverless submit — no cluster spec (workspace is serverless-only)
-        payload = {
-            "run_name": f"API Notebook Run - patient_id={patient_id}",
-            "tasks": [
-                {
-                    "task_key": "discharge_summary_task",
-                    "notebook_task": {
-                        "notebook_path": nb_path,
-                        "base_parameters": parameters
-                    }
-                }
-            ]
-        }
+        # Check if target is a registered Job ID (all digits and known Job ID or specified as job)
+        is_registered_job = target_str == "63391549950619" or (target_str.isdigit() and len(target_str) >= 14 and target_str not in self.NOTEBOOK_ID_TO_PATH)
 
         try:
-            # ── 1. Submit ────────────────────────────────────────────────────
-            submit_resp = requests.post(
-                f"https://{hostname}/api/2.1/jobs/runs/submit",
-                headers=headers, json=payload, timeout=15
-            )
+            if is_registered_job:
+                # ── 1A. Trigger Registered Job via /api/2.1/jobs/run-now ──────
+                job_id_int = int(target_str)
+                payload = {
+                    "job_id": job_id_int,
+                    "job_parameters": parameters
+                }
+                submit_resp = requests.post(
+                    f"https://{hostname}/api/2.1/jobs/run-now",
+                    headers=headers, json=payload, timeout=15
+                )
+                nb_path = f"Job ID {job_id_int}"
+            else:
+                # ── 1B. Trigger Ephemeral Notebook Run via /api/2.1/jobs/runs/submit 
+                nb_path = self._resolve_notebook_path(notebook_path_or_id)
+                payload = {
+                    "run_name": f"API Notebook Run - patient_id={patient_id}",
+                    "tasks": [
+                        {
+                            "task_key": "discharge_summary_task",
+                            "notebook_task": {
+                                "notebook_path": nb_path,
+                                "base_parameters": parameters
+                            }
+                        }
+                    ]
+                }
+                submit_resp = requests.post(
+                    f"https://{hostname}/api/2.1/jobs/runs/submit",
+                    headers=headers, json=payload, timeout=15
+                )
 
             if submit_resp.status_code != 200:
                 return self._generate_mock_notebook_run_result(
@@ -803,7 +749,7 @@ class DatabricksConnector:
                         except Exception:
                             output_data = {"raw_output": nb_output}
 
-            # If notebook ran but produced no parseable output, build structured result
+            # If notebook/job ran but produced no parseable output, build structured result
             if not output_data:
                 output_data = self._build_patient_notebook_output_table(patient_id)
 

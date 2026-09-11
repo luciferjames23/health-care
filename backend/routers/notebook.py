@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from connectors.databricks_connector import DatabricksConnector
@@ -85,16 +85,19 @@ def run_patient_notebook_get(
 
 @router.get("/config", summary="Databricks Workspace and Notebook Configuration")
 def get_notebook_config():
-    """Returns configured Databricks workspace URL and known notebook IDs."""
+    """Returns configured Databricks workspace URL, default job ID, and known notebook IDs."""
+    job_id = DEFAULT_NOTEBOOK_ID
     return {
         "workspace_hostname": Config.DATABRICKS_SERVER_HOSTNAME,
         "workspace_id": Config.DATABRICKS_WORKSPACE_ID,
-        "default_notebook_id": DEFAULT_NOTEBOOK_ID,
-        "notebook_url": (
+        "default_job_id": job_id,
+        "job_url": (
             f"https://{Config.DATABRICKS_SERVER_HOSTNAME}"
-            f"/editor/notebooks/{DEFAULT_NOTEBOOK_ID}"
-            f"?o={Config.DATABRICKS_WORKSPACE_ID}"
+            f"/#job/{job_id}?o={Config.DATABRICKS_WORKSPACE_ID}"
         ),
+        "known_jobs": {
+            "63391549950619": "Registered Job: discharge_summary_generation (Owner: jamesrubert02@gmail.com)"
+        },
         "known_notebooks": {
             "2865138219507461": (
                 "/Users/jamesrubert02@gmail.com/POC/Health-care/code/"

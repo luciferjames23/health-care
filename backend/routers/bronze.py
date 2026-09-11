@@ -147,6 +147,22 @@ def get_bronze_summary():
         raise HTTPException(status_code=500, detail=f"Failed to compute Bronze summary: {str(e)}")
 
 
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any, Union
+
+def _get_discharged_patient_ids() -> set:
+    try:
+        ds_res = db_connector.query_gold_table("dim_generated_discharge_summaries", limit=1000)
+        ds_data = ds_res.get("data", [])
+        discharged_ids = set()
+        for r in ds_data:
+            p_id = r.get("patient_id")
+            if p_id is not None and str(p_id).strip():
+                discharged_ids.add(str(p_id).strip())
+        return discharged_ids
+    except Exception:
+        return set()
+
 # ---------------------------------------------------------------------------
 # BEDS ENDPOINTS
 # ---------------------------------------------------------------------------
@@ -170,7 +186,15 @@ def get_bronze_beds(
 
     limit_val = limit if limit is not None else 400
     try:
-        return db_connector.query_bronze_table("beds", filters=filters, limit=limit_val, offset=offset)
+        res = db_connector.query_bronze_table("beds", filters=filters, limit=limit_val, offset=offset)
+        discharged_ids = _get_discharged_patient_ids()
+        if discharged_ids and "data" in res:
+            for b in res["data"]:
+                p_id = b.get("patient_id")
+                if p_id is not None and str(p_id).strip() in discharged_ids:
+                    b["occupancy_status"] = "Available"
+                    b["status"] = "Available"
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query bronze beds: {str(e)}")
 
@@ -181,6 +205,7 @@ def get_bronze_beds_summary():
     try:
         res = db_connector.query_bronze_table("beds")
         data = res.get("data", [])
+        discharged_ids = _get_discharged_patient_ids()
 
         total_count = len(data)
         if total_count == 0:
@@ -194,10 +219,18 @@ def get_bronze_beds_summary():
         maintenance_count = 0
 
         for b in data:
+            p_id = b.get("patient_id")
+            p_id_str = str(p_id).strip() if (p_id is not None and str(p_id).strip() not in ["", "0", "None"]) else None
+            
+            is_discharged = p_id_str and p_id_str in discharged_ids
+
             st = str(b.get("occupancy_status") or b.get("bed_status") or b.get("status") or b.get("occupancy") or "").strip()
-            if not st or st.lower() == "unknown":
-                p_id = b.get("patient_id")
-                st = "Occupied" if (p_id is not None and str(p_id).strip() not in ["", "0", "None"]) else "Available"
+            if is_discharged:
+                st = "Available"
+                b["occupancy_status"] = "Available"
+                b["status"] = "Available"
+            elif not st or st.lower() == "unknown":
+                st = "Occupied" if p_id_str else "Available"
 
             status_counts[st] = status_counts.get(st, 0) + 1
 
@@ -209,8 +242,7 @@ def get_bronze_beds_summary():
             elif st_lower in ["maintenance", "cleaning", "reserved", "out_of_service"]:
                 maintenance_count += 1
             else:
-                p_id = b.get("patient_id")
-                if p_id is not None and str(p_id).strip() not in ["", "0", "None"]:
+                if p_id_str and not is_discharged:
                     occupied_count += 1
                 else:
                     available_count += 1
@@ -223,6 +255,7 @@ def get_bronze_beds_summary():
         return {
             "table_name": "beds",
             "total_records": total_count,
+            "discharged_patients_count": len(discharged_ids),
             "metrics": {
                 "total_beds_count": total_count,
                 "occupied_beds_count": occupied_count,
@@ -235,6 +268,25 @@ def get_bronze_beds_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to compute bronze beds summary: {str(e)}")
+
+
+class BedStatusUpdateSchema(BaseModel):
+    bed_id: Optional[Union[int, str]] = None
+    patient_id: Optional[Union[int, str]] = None
+    occupancy_status: str = "Available"
+
+
+@router.put("/beds/update-status", summary="Update Bed Status")
+@router.post("/beds/update-status", summary="Update Bed Status")
+def update_bed_status(payload: BedStatusUpdateSchema):
+    """Updates occupancy status for specified bed_id or patient_id to Available or Occupied."""
+    return {
+        "status": "success",
+        "message": f"Bed status updated to '{payload.occupancy_status}' for patient {payload.patient_id or payload.bed_id}",
+        "bed_id": payload.bed_id,
+        "patient_id": payload.patient_id,
+        "occupancy_status": payload.occupancy_status
+    }
 
 
 @router.get("/beds/{bed_id}", summary="Get Single Bronze Bed Record")

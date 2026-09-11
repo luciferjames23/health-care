@@ -1,20 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 
+function cleanId(val) {
+  if (val == null) return '';
+  const str = String(val).trim();
+  const digitsOnly = str.replace(/\D/g, '');
+  return digitsOnly ? String(parseInt(digitsOnly, 10)) : str.toLowerCase();
+}
+
+function getTodayFormatted() {
+  return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patientDetailsList = [], doctorDetailsList = []) {
   if (!admissionsData.length) return [];
 
-  const summariesByAdm = {};
+  // Map discharge summaries STRICTLY by patient_id ONLY
+  const summariesByPatientId = {};
   summariesData.forEach(s => {
-    if (s.admission_id) summariesByAdm[s.admission_id] = s;
-    if (s.admission_number) summariesByAdm[s.admission_number] = s;
-    if (s.patient_number) summariesByAdm[s.patient_number] = s;
+    if (s.patient_id != null) {
+      const pidStr = String(s.patient_id).trim();
+      if (pidStr) summariesByPatientId[pidStr] = s;
+    }
   });
 
   return admissionsData.map((adm, index) => {
-    const matchedDs = summariesByAdm[adm.admission_id] || summariesByAdm[adm.admission_number] || summariesByAdm[adm.patient_number];
+    const pIdKey = adm.patient_id != null ? String(adm.patient_id).trim() : null;
+    const matchedDs = pIdKey ? summariesByPatientId[pIdKey] : null;
 
-    const isApproved = matchedDs && (matchedDs.approval_status === "Approved" || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged");
+    const isDischarged = !!matchedDs || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged";
 
     const admDateStr = adm.admission_date
       ? new Date(adm.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
@@ -40,7 +54,7 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
       ? `${adm.emergency_contact_name} ${adm.emergency_contact_phone ? '(' + adm.emergency_contact_phone + ')' : ''}`.trim()
       : 'N/A';
 
-    const docName = adm.attending_doctor || matchedDs?.approved_by || matchedDs?.attending_physician || 'Attending Physician';
+    const docName = matchedDs?.primary_consultant || adm.attending_doctor || matchedDs?.approved_by || matchedDs?.attending_physician || 'Attending Physician';
     const docSpecialty = adm.doctor_specialization || adm.physician_specialty || 'General Medicine';
     const docQual = adm.doctor_qualification ? `(${adm.doctor_qualification})` : '';
 
@@ -91,36 +105,39 @@ Vitals: ${vitalsStr}
 
 Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${adm.current_stay_days || 1} days`;
 
+    let medsData = matchedDs?.treatment || '';
     let medsArray = [];
-    if (parsedLlm && parsedLlm.medications && parsedLlm.medications.medications_list) {
+    if (Array.isArray(medsData)) {
+      medsArray = medsData;
+    } else if (typeof medsData === 'string' && medsData.trim()) {
+      medsArray = medsData.split('\n').filter(Boolean).map(line => {
+        const parts = line.split(' - ');
+        return [parts[0] || line, parts[1] || 'As directed', parts[2] || 'Treatment'];
+      });
+    } else if (parsedLlm && parsedLlm.medications && parsedLlm.medications.medications_list) {
       medsArray = parsedLlm.medications.medications_list.map(m => [
         m.medication_name || m.generic_name || 'Medication',
         `${m.dosage || ''} ${m.frequency || ''} (${m.route || ''})`.trim(),
         m.instructions || m.medication_category || 'Take as directed'
       ]);
-    } else if (matchedDs && matchedDs.discharge_medications) {
-      const lines = matchedDs.discharge_medications.split('\n').filter(Boolean);
-      medsArray = lines.map(line => {
-        const parts = line.split(' - ');
-        return [parts[0] || line, parts[1] || 'As directed', parts[2] || 'Treatment'];
-      });
     } else {
-      medsArray = [
-        [primaryDx + " Treatment", "As directed by physician", "Primary condition care"],
-        ["Supportive Care", "As needed", "Symptom management"]
-      ];
+      medsArray = [];
     }
 
     const summary = {
-      why: matchedDs?.admission_reason || reason || `Admitted for ${primaryDx}.`,
-      dx: matchedDs?.discharge_diagnosis || primaryDx || 'Under medical management.',
+      tableRecord: matchedDs || null,
+      summaryId: matchedDs?.summary_id || null,
+      admissionId: matchedDs?.admission_id || adm.admission_id,
+      patientId: matchedDs?.patient_id || adm.patient_id,
+      why: matchedDs?.case_history || matchedDs?.admission_reason || reason || '',
+      dx: matchedDs?.diagnoses || matchedDs?.discharge_diagnosis || primaryDx || '',
+      investigations: matchedDs?.investigations || '',
+      treatmentText: typeof matchedDs?.treatment === 'string' ? matchedDs.treatment : '',
       meds: medsArray,
-      followup: matchedDs?.followup_instructions || `Follow-up in 1-2 weeks with ${docName} (${docSpecialty}).`,
-      warnings: [
-        "Fever returning or not responding to medication",
-        "Severe shortness of breath, dizziness, or chest discomfort",
-        "Persistent vomiting, swelling, or unusual bleeding"
-      ]
+      consultant: matchedDs?.primary_consultant || docName,
+      followup: matchedDs?.discharge_advice || matchedDs?.followup_instructions || '',
+      surgery: matchedDs?.surgery_details || '',
+      warnings: matchedDs?.patient_condition ? (Array.isArray(matchedDs.patient_condition) ? matchedDs.patient_condition : [matchedDs.patient_condition]) : []
     };
 
     return {
@@ -137,9 +154,9 @@ Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${
       billing: billingStatus,
       due: amountDue,
       of: amountTotal,
-      discharged: !!isApproved,
+      discharged: !!isDischarged,
       signedBy: docName,
-      signedDate: admDateStr ? admDateStr + ' 2026' : '09 Sep 2026',
+      signedDate: matchedDs?.discharge_date ? new Date(matchedDs.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (admDateStr || getTodayFormatted()),
       rawNote,
       summary,
       address: patAddr,
@@ -161,68 +178,166 @@ function fmtINR(n) {
 
 function SummaryContent({ s }) {
   if (!s) return null;
+  const rec = s.tableRecord;
+
   return (
     <>
-      <div className="osec">
-        <h3>Admission details</h3>
-        <p>{s.why}</p>
-      </div>
-      <div className="osec">
-        <h3>Your diagnosis</h3>
-        <p>{s.dx}</p>
-      </div>
-      <div className="osec">
-        <h3>Your medications</h3>
-        <table className="med-table">
-          <thead>
-            <tr>
-              <th>Medicine</th>
-              <th>Dose</th>
-              <th>What it's for</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.meds.map((m, i) => (
-              <tr key={i}>
-                <td className="med-name">{m[0]}</td>
-                <td>{m[1]}</td>
-                <td className="med-note">{m[2]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="osec">
-        <h3>Follow-up</h3>
-        <p>{s.followup}</p>
-      </div>
-      <div className="osec">
-        <h3>Call your doctor right away if you notice</h3>
-        <div className="warn-box">
-          <ul>
-            {s.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
+      {/* Databricks Gold Table Record Header Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(14, 165, 233, 0.12) 100%)',
+        border: '1px solid rgba(2, 132, 199, 0.25)',
+        borderRadius: '10px',
+        padding: '14px 16px',
+        marginBottom: '20px',
+        fontSize: '12px',
+        color: '#0369a1'
+      }}>
+        <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(2,132,199,0.15)', paddingBottom: '8px' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>📊</span>
+            <span>Discharge Record Details</span>
+          </span>
+          {rec?.summary_id && <span style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Summary ID #{rec.summary_id}</span>}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginTop: '8px' }}>
+          <div><strong>Patient ID:</strong> {rec?.patient_id || s.patientId || 'N/A'}</div>
+          <div><strong>Admission ID:</strong> {rec?.admission_id || s.admissionId || 'N/A'}</div>
+          <div><strong>Doctor ID:</strong> {rec?.doctor_id || 'N/A'}</div>
+          <div><strong>Consultant:</strong> {rec?.primary_consultant || s.consultant || 'N/A'}</div>
+          {rec?.admission_date && <div><strong>Admission Date:</strong> {new Date(rec.admission_date).toLocaleString()}</div>}
+          {rec?.discharge_date && <div><strong>Discharge Date:</strong> {new Date(rec.discharge_date).toLocaleString()}</div>}
+          {rec?.generated_at && <div><strong>Generated At:</strong> {new Date(rec.generated_at).toLocaleString()}</div>}
+          {rec?.source_table && <div><strong>LLM Engine / Model:</strong> {rec.source_table}</div>}
         </div>
       </div>
+
+      {/* Clinical Summary Content Sections */}
+      {s.why && (
+        <div className="osec">
+          <h3>Admission Details &amp; Case History</h3>
+          <p>{s.why}</p>
+        </div>
+      )}
+      {s.dx && (
+        <div className="osec">
+          <h3>Diagnoses</h3>
+          <p>{s.dx}</p>
+        </div>
+      )}
+      {s.investigations && (
+        <div className="osec">
+          <h3>Investigations &amp; Lab Results</h3>
+          <p>{s.investigations}</p>
+        </div>
+      )}
+      {(s.treatmentText || (s.meds && s.meds.length > 0)) && (
+        <div className="osec">
+          <h3>Treatment &amp; Medications</h3>
+          {s.treatmentText && <p style={{ marginBottom: '10px' }}>{s.treatmentText}</p>}
+          {s.meds && s.meds.length > 0 && typeof s.meds[0] !== 'string' && (
+            <table className="med-table">
+              <thead>
+                <tr>
+                  <th>Medicine</th>
+                  <th>Dose</th>
+                  <th>What it's for</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.meds.map((m, i) => (
+                  <tr key={i}>
+                    <td className="med-name">{m[0]}</td>
+                    <td>{m[1]}</td>
+                    <td className="med-note">{m[2]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      {s.surgery && (
+        <div className="osec">
+          <h3>Surgery &amp; Procedures Details</h3>
+          <p>{s.surgery}</p>
+        </div>
+      )}
+      {s.consultant && (
+        <div className="osec">
+          <h3>Primary Consultant</h3>
+          <p><strong>{s.consultant}</strong></p>
+        </div>
+      )}
+      {s.followup && (
+        <div className="osec">
+          <h3>Discharge Advice &amp; Follow-up</h3>
+          <p>{s.followup}</p>
+        </div>
+      )}
+      {s.warnings && s.warnings.length > 0 && (
+        <div className="osec">
+          <h3>Patient Condition &amp; Care Instructions</h3>
+          <div className="warn-box">
+            <ul>
+              {s.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Complete Discharge Table Schema & Values Grid */}
+      {rec && (
+        <div className="osec" style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <span>📋 Complete Discharge Record Details</span>
+          </h3>
+          <div style={{ overflowX: 'auto', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '12px' }}>
+            <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                  <th style={{ padding: '8px 10px', color: '#475569', fontWeight: 700, width: '210px' }}>Column Name</th>
+                  <th style={{ padding: '8px 10px', color: '#475569', fontWeight: 700 }}>Stored Databricks Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(rec).map(([key, val], idx) => (
+                  <tr key={key} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600, color: '#0369a1' }}>
+                      {key}
+                    </td>
+                    <td style={{ padding: '8px 10px', color: '#334155', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                      {val == null ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span> : String(val)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 export default function App() {
   const [patients, setPatients] = useState([]);
+  const [rawSummaries, setRawSummaries] = useState([]);
+  const [activeNavTab, setActiveNavTab] = useState('patients'); // 'patients' | 'written_summaries'
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modalPatientId, setModalPatientId] = useState(null);
+  const [modalViewTab, setModalViewTab] = useState('summary'); // 'summary' | 'raw'
   const [generatedMap, setGeneratedMap] = useState({});
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
   const [signPanelOpen, setSignPanelOpen] = useState(false);
   const [signName, setSignName] = useState('');
-  const [signDate, setSignDate] = useState('09 Sep 2026');
+  const [signDate, setSignDate] = useState(getTodayFormatted());
   const [apiStatus, setApiStatus] = useState({ connected: false, loading: true });
   const [bedsSummary, setBedsSummary] = useState(null);
 
@@ -244,6 +359,7 @@ export default function App() {
       const bSummary = bedsSummaryRes.status === 'fulfilled' ? bedsSummaryRes.value : null;
 
       if (bSummary) setBedsSummary(bSummary);
+      setRawSummaries(summaries);
 
       if (admissions.length > 0) {
         const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
@@ -265,15 +381,76 @@ export default function App() {
   const clearedCount = patients.filter(p => p.billing === 'cleared').length;
   const outstandingCount = patients.filter(p => p.billing !== 'cleared').length;
   const dischargedCount = patients.filter(p => p.discharged).length;
+  const admittedCount = patients.filter(p => !p.discharged).length;
 
-  const currentPatient = patients.find(p => p.id === modalPatientId);
+  const rawAvailableBeds = bedsSummary?.metrics?.available_beds_count ?? bedsSummary?.metrics?.available ?? 0;
+  const rawOccupiedBeds = bedsSummary?.metrics?.occupied_beds_count ?? bedsSummary?.metrics?.occupied ?? 0;
+  const totalBedsCount = bedsSummary?.metrics?.total_beds_count ?? bedsSummary?.total_records ?? (rawAvailableBeds + rawOccupiedBeds);
+
+  // Bed status changes from Occupied to Available when patient is discharged
+  const availableBedsCount = rawAvailableBeds + dischargedCount;
+  const occupiedBedsCount = Math.max(0, rawOccupiedBeds - dischargedCount);
+
+  let currentPatient = patients.find(p => p.id === modalPatientId || cleanId(p.patientId) === cleanId(modalPatientId));
+  if (!currentPatient && modalPatientId && rawSummaries.length > 0) {
+    const rawMatch = rawSummaries.find(s => String(s.patient_id) === String(modalPatientId) || String(s.admission_id) === String(modalPatientId) || String(s.summary_id) === String(modalPatientId));
+    if (rawMatch) {
+      const matchedP = patients.find(p => String(p.patientId) === String(rawMatch.patient_id));
+      const pName = matchedP?.name || rawMatch.patient_name || `Patient #${rawMatch.patient_id}`;
+      const diagStr = rawMatch.discharge_diagnosis || rawMatch.diagnoses || matchedP?.diagnosisShort || 'Clinical Care';
+      const docStr = rawMatch.attending_physician || rawMatch.primary_consultant || rawMatch.approved_by || matchedP?.signedBy || 'Attending Physician';
+      const whyStr = rawMatch.hospital_course_summary || rawMatch.admission_reason || rawMatch.case_history || matchedP?.summary?.why || 'N/A';
+      const medsStr = rawMatch.discharge_medications || rawMatch.treatment || '';
+      let medsList = [];
+      if (typeof medsStr === 'string' && medsStr.trim()) {
+        medsList = medsStr.includes(',') 
+          ? medsStr.split(',').map(m => [m.trim(), 'As directed', 'Treatment']) 
+          : medsStr.split('\n').map(l => [l.split(' - ')[0] || l, l.split(' - ')[1] || 'As directed', 'Treatment']);
+      }
+
+      currentPatient = {
+        id: rawMatch.admission_id || rawMatch.patient_id,
+        patientId: String(rawMatch.patient_id),
+        name: pName,
+        age: matchedP?.age || 'N/A',
+        sex: matchedP?.sex || '',
+        mrn: rawMatch.patient_number || `PAT-${rawMatch.patient_id}`,
+        ward: `Discharged · Adm ${rawMatch.admission_id}`,
+        admitted: rawMatch.admission_date ? new Date(rawMatch.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (matchedP?.admitted || ''),
+        diagnosisShort: diagStr,
+        diagnosisSub: 'Gold Table Summary',
+        billing: 'cleared',
+        due: 0,
+        of: rawMatch.billing_amount_total || matchedP?.of || 0,
+        discharged: true,
+        signedBy: docStr,
+        signedDate: rawMatch.discharge_date ? new Date(rawMatch.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : getTodayFormatted(),
+        summary: {
+          tableRecord: rawMatch,
+          summaryId: rawMatch.summary_id,
+          admissionId: rawMatch.admission_id,
+          patientId: rawMatch.patient_id,
+          why: whyStr,
+          dx: diagStr,
+          investigations: rawMatch.investigations || '',
+          treatmentText: typeof rawMatch.treatment === 'string' ? rawMatch.treatment : '',
+          meds: medsList,
+          consultant: docStr,
+          followup: rawMatch.followup_instructions || rawMatch.discharge_advice || 'Follow up as directed.',
+          surgery: rawMatch.surgery_details || 'Nil',
+          warnings: rawMatch.patient_condition ? [rawMatch.patient_condition] : []
+        }
+      };
+    }
+  }
 
   const openModal = (id) => {
     setModalPatientId(id);
+    setModalViewTab('summary');
     setSignPanelOpen(false);
     const p = patients.find(pat => pat.id === id);
     setSignName(p?.signedBy || 'Dr. Attending Physician');
-    setSignDate('09 Sep 2026');
+    setSignDate(getTodayFormatted());
   };
 
   const closeModal = () => {
@@ -326,7 +503,7 @@ export default function App() {
   const handleConfirmSign = () => {
     if (!currentPatient) return;
     const finalName = signName.trim() || "Dr. (unspecified)";
-    const finalDate = signDate.trim() || "09 Sep 2026";
+    const finalDate = signDate.trim() || getTodayFormatted();
 
     setPatients(prev => prev.map(p => {
       if (p.id === currentPatient.id) {
@@ -359,11 +536,19 @@ export default function App() {
     if (activeFilter !== 'all' && p.billing !== activeFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
+      const cleanQ = cleanId(q);
+
+      // If searching by numeric Patient ID (e.g. 87245), match exact Patient ID or MRN
+      if (cleanQ) {
+        if (cleanId(p.patientId) === cleanQ || cleanId(p.id) === cleanQ || cleanId(p.mrn) === cleanQ) {
+          return true;
+        }
+      }
+
       return (
         p.name.toLowerCase().includes(q) ||
         (p.patientId && p.patientId.toLowerCase().includes(q)) ||
         p.mrn.toLowerCase().includes(q) ||
-        p.ward.toLowerCase().includes(q) ||
         p.diagnosisShort.toLowerCase().includes(q)
       );
     }
@@ -390,10 +575,12 @@ export default function App() {
     return [1, '...', current - 1, current, current + 1, '...', total];
   }
 
-  const isCurrentGenerated = currentPatient ? (currentPatient.discharged || !!generatedMap[currentPatient.id]) : false;
+  const isCurrentGenerated = currentPatient ? (currentPatient.hasSummary || currentPatient.discharged || !!currentPatient.summary?.tableRecord || !!generatedMap[currentPatient.id]) : false;
 
   const renderRawNoteContent = (rawText) => {
-    const parts = rawText.split(/(\{\{FLAG\}\}.*?\{\{\/FLAG\}\})/g);
+    if (!rawText) return null;
+    const strText = String(rawText);
+    const parts = strText.split(/(\{\{FLAG\}\}.*?\{\{\/FLAG\}\})/g);
     return parts.map((part, idx) => {
       if (part.startsWith('{{FLAG}}') && part.endsWith('{{/FLAG}}')) {
         const flagText = part.replace('{{FLAG}}', '').replace('{{/FLAG}}', '');
@@ -486,32 +673,96 @@ export default function App() {
         <div className="ward-strip" id="wardStrip">
           <div className="ward-stat">
             <div className="ward-stat-num">
-              {bedsSummary?.metrics?.total_beds_count ?? bedsSummary?.total_records ?? 0}
+              {totalBedsCount}
             </div>
             <div className="ward-stat-label">Total Beds</div>
           </div>
           <div className="ward-stat">
-            <div className="ward-stat-num">
-              {bedsSummary?.metrics?.available_beds_count ?? bedsSummary?.metrics?.available ?? bedsSummary?.metrics?.occupancy_status_breakdown?.Available ?? 0}
+            <div className="ward-stat-num" style={{ color: '#059669' }}>
+              {availableBedsCount}
             </div>
-            <div className="ward-stat-label">Available Beds</div>
+            <div className="ward-stat-label">Available Beds (Released)</div>
           </div>
           <div className="ward-stat">
-            <div className="ward-stat-num">
-              {bedsSummary?.metrics?.occupied_beds_count ?? bedsSummary?.metrics?.occupied ?? bedsSummary?.metrics?.occupancy_status_breakdown?.Occupied ?? 0}
+            <div className="ward-stat-num" style={{ color: '#d97706' }}>
+              {occupiedBedsCount}
             </div>
             <div className="ward-stat-label">Occupied Beds</div>
           </div>
           <div className="ward-stat">
-            <div className="ward-stat-num">{totalCount}</div>
+            <div className="ward-stat-num">{admittedCount}</div>
             <div className="ward-stat-label">Currently Admitted Patients</div>
           </div>
           <div className="ward-stat">
-            <div className="ward-stat-num">{dischargedCount} / {totalCount}</div>
-            <div className="ward-stat-label">Summaries Signed &amp; Finalized</div>
+            <div className="ward-stat-num" style={{ color: '#0284c7' }}>{dischargedCount} / {totalCount}</div>
+            <div className="ward-stat-label">Written Discharge Summaries</div>
           </div>
         </div>
 
+        {/* Top Navigation Tab Bar */}
+        <div style={{
+          display: 'flex',
+          gap: '12px',
+          margin: '24px 0 20px 0',
+          borderBottom: '2px solid var(--line-soft)',
+          paddingBottom: '12px'
+        }}>
+          <button
+            onClick={() => setActiveNavTab('patients')}
+            style={{
+              fontFamily: 'var(--sans)',
+              fontSize: '13.5px',
+              fontWeight: 700,
+              padding: '9px 18px',
+              borderRadius: '8px',
+              border: '1px solid',
+              borderColor: activeNavTab === 'patients' ? 'var(--primary-dark)' : 'var(--line)',
+              background: activeNavTab === 'patients' ? 'var(--primary-tint)' : 'var(--paper)',
+              color: activeNavTab === 'patients' ? 'var(--primary-dark)' : 'var(--ink-soft)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: activeNavTab === 'patients' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 21v-2a4 4 0 00-4-4H9a4 4 0 00-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Admitted Patients ({admittedCount})
+          </button>
+
+          <button
+            onClick={() => setActiveNavTab('written_summaries')}
+            style={{
+              fontFamily: 'var(--sans)',
+              fontSize: '13.5px',
+              fontWeight: 700,
+              padding: '9px 18px',
+              borderRadius: '8px',
+              border: '1px solid',
+              borderColor: activeNavTab === 'written_summaries' ? 'var(--primary-dark)' : 'var(--line)',
+              background: activeNavTab === 'written_summaries' ? 'var(--primary-tint)' : 'var(--paper)',
+              color: activeNavTab === 'written_summaries' ? 'var(--primary-dark)' : 'var(--ink-soft)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: activeNavTab === 'written_summaries' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+            </svg>
+            Written Discharge Summaries ({dischargedCount})
+          </button>
+        </div>
+
+        {activeNavTab === 'patients' && (
         <section className="list-section">
           <div className="list-head-row">
             <div>
@@ -586,60 +837,72 @@ export default function App() {
                     <td colSpan="6">No patient records match this search or filter.</td>
                   </tr>
                 ) : (
-                  paginatedPatients.map(p => (
-                    <tr key={p.id} className={p.discharged ? 'discharged' : ''}>
-                      <td>
-                        <div className="p-name">
-                          {p.name} {p.discharged && <span className="discharged-badge">Signed</span>}
-                        </div>
-                        <div className="p-meta">
-                          ID: {p.patientId} · MRN {p.mrn} · {p.age} Yrs / {p.sex} · {p.ward}
-                        </div>
-                      </td>
-                      <td className="p-diagnosis">
-                        {p.diagnosisShort}
-                        <span className="dx-sub">{p.diagnosisSub}</span>
-                      </td>
-                      <td>{p.admitted}</td>
-                      <td>
-                        <span className={`bill-pill ${p.billing}`}>
-                          <span className="dot"></span>
-                          {billLabel(p.billing)}
-                        </span>
-                      </td>
-                      <td>
-                        {p.due === 0 ? (
-                          <span className="amount-due zero">₹0</span>
-                        ) : (
-                          <span className="amount-due">
-                            {fmtINR(p.due)} <span className="of">of {fmtINR(p.of)}</span>
+                  paginatedPatients.map(p => {
+                    const hasSummary = p.hasSummary || p.discharged || !!generatedMap[p.id];
+                    return (
+                      <tr key={p.id} className={p.discharged ? 'discharged' : hasSummary ? 'has-summary' : ''}>
+                        <td>
+                          <div className="p-name" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span>{p.name}</span>
+                            {p.discharged ? (
+                              <span className="discharged-badge" style={{ background: '#059669', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                ✓ Discharged (Bed Released / Available)
+                              </span>
+                            ) : hasSummary ? (
+                              <span className="summary-badge" style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                ✓ Summary Available
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="p-meta">
+                            ID: {p.patientId} · MRN {p.mrn} · {p.age} Yrs / {p.sex} · {p.ward}
+                          </div>
+                        </td>
+                        <td className="p-diagnosis">
+                          {p.diagnosisShort}
+                          <span className="dx-sub">{p.diagnosisSub}</span>
+                        </td>
+                        <td>{p.admitted}</td>
+                        <td>
+                          <span className={`bill-pill ${p.billing}`}>
+                            <span className="dot"></span>
+                            {billLabel(p.billing)}
                           </span>
-                        )}
-                      </td>
-                      <td>
-                        <button
-                          className={`btn-gen ${p.discharged ? 'done' : ''}`}
-                          onClick={() => openModal(p.id)}
-                        >
-                          {p.discharged ? (
-                            <>
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M20 6L9 17l-5-5" />
-                              </svg>
-                              View summary
-                            </>
+                        </td>
+                        <td>
+                          {p.due === 0 ? (
+                            <span className="amount-due zero">₹0</span>
                           ) : (
-                            <>
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
-                              </svg>
-                              Generate discharge summary
-                            </>
+                            <span className="amount-due">
+                              {fmtINR(p.due)} <span className="of">of {fmtINR(p.of)}</span>
+                            </span>
                           )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td>
+                          <button
+                            className={`btn-gen ${hasSummary ? 'done' : ''}`}
+                            onClick={() => openModal(p.id)}
+                          >
+                            {hasSummary ? (
+                              <>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                                View summary
+                              </>
+                            ) : (
+                              <>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
+                                </svg>
+                                Generate discharge summary
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -718,6 +981,97 @@ export default function App() {
             )}
           </div>
         </section>
+        )}
+
+        {/* Written Discharge Summaries Tab View */}
+        {activeNavTab === 'written_summaries' && (
+          <section className="list-section">
+            <div className="list-head-row">
+              <div>
+                <h2 className="section-heading">Written Discharge Summaries</h2>
+                <p className="section-sub">
+                  All generated clinical discharge summaries.
+                </p>
+              </div>
+            </div>
+
+            <div className="patient-table-frame" style={{ marginTop: '16px' }}>
+              <table className="patient-table">
+                <thead>
+                  <tr>
+                    <th>Patient &amp; Demographics</th>
+                    <th>Diagnoses</th>
+                    <th>Primary Consultant</th>
+                    <th>Discharge Date</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawSummaries.length === 0 ? (
+                    <tr className="empty-row">
+                      <td colSpan="6">No written discharge summary records found.</td>
+                    </tr>
+                  ) : (
+                    rawSummaries.map((s, idx) => {
+                      const matchedPatient = patients.find(p => String(p.patientId) === String(s.patient_id) || String(p.id) === String(s.admission_id));
+                      const pName = matchedPatient?.name || s.patient_name || (s.case_history ? s.case_history.match(/patient,\s*([^,]+),/i)?.[1] : null) || `Patient #${s.patient_id}`;
+                      const disDate = s.discharge_date ? new Date(s.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : getTodayFormatted();
+                      const diagText = s.discharge_diagnosis || s.diagnoses || matchedPatient?.diagnosisShort || 'Clinical Care';
+                      const doctorText = s.attending_physician || s.primary_consultant || s.approved_by || matchedPatient?.signedBy || 'Attending Physician';
+
+                      return (
+                        <tr key={s.summary_id || idx}>
+                          <td>
+                            <div className="p-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>{pName}</span>
+                              <span className="summary-badge" style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                ✓ Generated Summary
+                              </span>
+                            </div>
+                            <div className="p-meta">
+                              Patient ID: {s.patient_id} · Adm ID: {s.admission_id}
+                            </div>
+                          </td>
+                          <td className="p-diagnosis">
+                            {diagText}
+                          </td>
+                          <td>
+                            <strong>{doctorText}</strong>
+                          </td>
+                          <td>{disDate}</td>
+                          <td>
+                            <span className="bill-pill cleared">
+                              <span className="dot"></span>
+                              Written / Stored
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              className="btn-gen done"
+                              onClick={() => {
+                                if (matchedPatient) {
+                                  openModal(matchedPatient.id);
+                                } else {
+                                  setModalPatientId(s.admission_id || s.patient_id);
+                                }
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                              View full summary
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </main>
 
       {currentPatient && (
@@ -786,53 +1140,103 @@ export default function App() {
               )}
             </div>
 
-            <div className="modal-body">
-              <div>
-                <div className="pane-label">Clinical record (raw)</div>
-                <div className="raw-note" id="modalRawNote">
-                  {renderRawNoteContent(currentPatient.rawNote)}
-                </div>
-                {!currentPatient.discharged && (
-                  <div className="generate-row">
+            {isCurrentGenerated ? (
+              <div className="modal-body single-col" style={{ display: 'block', padding: '20px 26px 26px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--line-soft)', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     <button
-                      className="btn-generate"
-                      id="modalGenBtn"
-                      onClick={handleGenerate}
-                      disabled={isGenerating}
-                      style={{ opacity: isGenerating ? 0.7 : 1 }}
+                      onClick={() => setModalViewTab('summary')}
+                      style={{
+                        fontFamily: 'var(--sans)',
+                        fontSize: '12.5px',
+                        fontWeight: 700,
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid',
+                        borderColor: modalViewTab === 'summary' ? '#0284c7' : 'var(--line)',
+                        background: modalViewTab === 'summary' ? 'rgba(2, 132, 199, 0.1)' : 'var(--paper)',
+                        color: modalViewTab === 'summary' ? '#0284c7' : 'var(--ink-soft)',
+                        cursor: 'pointer'
+                      }}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
-                      </svg>
-                      <span id="modalGenLabel">
-                        {isGenerating
-                          ? "Generating…"
-                          : generatedMap[currentPatient.id]
-                          ? "Summary generated"
-                          : "Generate discharge summary"}
-                      </span>
+                      📄 Written Discharge Summary
                     </button>
-                    <span className="generate-hint">~40 min saved</span>
+                    <button
+                      onClick={() => setModalViewTab('raw')}
+                      style={{
+                        fontFamily: 'var(--sans)',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: '1px solid',
+                        borderColor: modalViewTab === 'raw' ? '#0284c7' : 'var(--line)',
+                        background: modalViewTab === 'raw' ? 'rgba(2, 132, 199, 0.1)' : 'var(--paper)',
+                        color: modalViewTab === 'raw' ? '#0284c7' : 'var(--ink-soft)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      📝 Raw Clinical Input Data
+                    </button>
+                  </div>
+                  <div className="pane-label" style={{ margin: 0 }}>
+                    {modalViewTab === 'summary' ? 'Databricks Stored Discharge Summary' : 'Raw Input Data'}
+                  </div>
+                </div>
+
+                {modalViewTab === 'summary' ? (
+                  <div className="output-doc show" id="modalOutputDoc" style={{ width: '100%' }}>
+                    <SummaryContent s={currentPatient.summary} />
+                  </div>
+                ) : (
+                  <div className="raw-note" id="modalRawNote" style={{ width: '100%' }}>
+                    {renderRawNoteContent(currentPatient.rawNote)}
                   </div>
                 )}
               </div>
+            ) : (
+              <div className="modal-body">
+                <div>
+                  <div className="pane-label">Clinical record (raw)</div>
+                  <div className="raw-note" id="modalRawNote">
+                    {renderRawNoteContent(currentPatient.rawNote)}
+                  </div>
+                  {!currentPatient.discharged && (
+                    <div className="generate-row">
+                      <button
+                        className="btn-generate"
+                        id="modalGenBtn"
+                        onClick={handleGenerate}
+                        disabled={isGenerating}
+                        style={{ opacity: isGenerating ? 0.7 : 1 }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
+                        </svg>
+                        <span id="modalGenLabel">
+                          {isGenerating
+                            ? "Generating…"
+                            : generatedMap[currentPatient.id]
+                            ? "Summary generated"
+                            : "Generate discharge summary"}
+                        </span>
+                      </button>
+                      <span className="generate-hint">~40 min saved</span>
+                    </div>
+                  )}
+                </div>
 
-              <div>
-                <div className="pane-label">Patient discharge summary</div>
-                {!isCurrentGenerated ? (
+                <div>
+                  <div className="pane-label">Patient discharge summary</div>
                   <div className="output-empty" id="modalOutputEmpty">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <path d="M9 12h6M9 16h6M9 8h6M5 4h10l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
                     </svg>
                     Click "Generate discharge summary" to draft the plain-language version for this patient.
                   </div>
-                ) : (
-                  <div className="output-doc show" id="modalOutputDoc">
-                    <SummaryContent s={currentPatient.summary} />
-                  </div>
-                )}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="modal-foot">
               <div className="modal-foot-row">
@@ -906,7 +1310,7 @@ export default function App() {
               </div>
               <div style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px', color: '#4B564F' }}>
                 DischargeNote Clinical Summary<br />
-                Date: {currentPatient.signedDate || '09 Sep 2026'}
+                Date: {currentPatient.signedDate || getTodayFormatted()}
               </div>
             </div>
 
@@ -974,7 +1378,7 @@ export default function App() {
               <div className="print-sig-line">
                 Clinician Signature: {currentPatient.discharged ? (currentPatient.signedBy || 'Attending Physician') : '___________________'}
                 <br />
-                Date: {currentPatient.discharged ? (currentPatient.signedDate || '09 Sep 2026') : '____/____/________'}
+                Date: {currentPatient.discharged ? (currentPatient.signedDate || getTodayFormatted()) : '____/____/________'}
               </div>
             </div>
 

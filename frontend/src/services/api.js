@@ -204,16 +204,23 @@ export const apiService = {
     return await res.json();
   },
 
-  // Trigger Databricks Notebook Execution for Patient
-  async runPatientNotebook(patientId) {
+  // Trigger Databricks Notebook / Job Execution for Patient
+  async runPatientNotebook(patientId, options = {}) {
+    const notebookId = typeof options === 'object' && options?.notebookId ? options.notebookId : (typeof options === 'string' ? options : null);
+    const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
+
+    const payload = {
+      patient_id: String(patientId),
+      timeout_seconds: timeoutSec,
+    };
+    if (notebookId) {
+      payload.notebook_id = notebookId;
+    }
+
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/notebook/run-patient`, {
       method: 'POST',
-      timeoutMs: 120000,
-      body: JSON.stringify({
-        patient_id: String(patientId),
-        notebook_id: '3655906645282312',
-        timeout_seconds: 60,
-      }),
+      timeoutMs: (timeoutSec + 30) * 1000,
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}));
