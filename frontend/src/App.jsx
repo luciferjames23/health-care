@@ -296,10 +296,22 @@ export default function App() {
     }
   });
 
+  // Active generation tracking persisted in sessionStorage across page reloads
   const [generatingMap, setGeneratingMap] = useState(() => {
     try {
-      const saved = localStorage.getItem('discharge_generating_map');
-      return saved ? JSON.parse(saved) : {};
+      const saved = sessionStorage.getItem('discharge_generating_map');
+      if (!saved) return {};
+      const parsed = JSON.parse(saved);
+      const now = Date.now();
+      const validMap = {};
+      // Filter out stale runs older than 10 minutes (600,000 ms)
+      Object.keys(parsed).forEach(k => {
+        const val = parsed[k];
+        if (val === true || (typeof val === 'number' && now - val < 600000)) {
+          validMap[k] = typeof val === 'number' ? val : now;
+        }
+      });
+      return validMap;
     } catch (e) {
       return {};
     }
@@ -313,11 +325,14 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('discharge_generating_map', JSON.stringify(generatingMap));
+      if (Object.keys(generatingMap).length > 0) {
+        sessionStorage.setItem('discharge_generating_map', JSON.stringify(generatingMap));
+      } else {
+        sessionStorage.removeItem('discharge_generating_map');
+      }
     } catch (e) {}
   }, [generatingMap]);
 
-  const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
   const [signPanelOpen, setSignPanelOpen] = useState(false);
   const [signName, setSignName] = useState('');
@@ -329,8 +344,20 @@ export default function App() {
     fetchDynamicApiData();
   }, []);
 
-  async function fetchDynamicApiData() {
-    setApiStatus({ connected: false, loading: true });
+  // Background polling while any patient run is active
+  useEffect(() => {
+    const generatingKeys = Object.keys(generatingMap);
+    if (generatingKeys.length === 0) return;
+
+    const interval = setInterval(() => {
+      fetchDynamicApiData(false);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [generatingMap]);
+
+  async function fetchDynamicApiData(showLoader = true) {
+    if (showLoader) setApiStatus(prev => ({ ...prev, loading: true }));
     try {
       const [admissionsRes, summariesRes, bedsSummaryRes] = await Promise.allSettled([
         apiService.getCurrentAdmissionLlmInputs({ limit: 400 }),
@@ -347,6 +374,27 @@ export default function App() {
       if (bSummary) setBedsSummary(bSummary);
       setRawSummaries(summaries);
 
+      // Clean up generatingMap if summary is now available in Databricks API
+      if (summaries.length > 0) {
+        const summaryPatientIds = new Set();
+        summaries.forEach(s => {
+          if (s.patient_id != null) summaryPatientIds.add(String(s.patient_id).trim());
+          if (s.admission_id != null) summaryPatientIds.add(String(s.admission_id).trim());
+        });
+
+        setGeneratingMap(prev => {
+          let updated = false;
+          const next = { ...prev };
+          Object.keys(next).forEach(id => {
+            if (summaryPatientIds.has(String(id).trim())) {
+              delete next[id];
+              updated = true;
+            }
+          });
+          return updated ? next : prev;
+        });
+      }
+
       if (admissions.length > 0) {
         const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
         setPatients(mapped || []);
@@ -355,7 +403,7 @@ export default function App() {
       setApiStatus({ connected: isAnyFulfilled || admissions.length > 0, loading: false });
     } catch (err) {
       console.warn("API error:", err);
-      setPatients([]);
+      if (showLoader) setPatients([]);
       setApiStatus({ connected: false, loading: false });
     }
   }
@@ -434,6 +482,7 @@ export default function App() {
     setModalPatientId(id);
     setModalViewTab('summary');
     setSignPanelOpen(false);
+    setGenerateError(null);
     const p = patients.find(pat => pat.id === id);
     setSignName(p?.signedBy || 'Dr. Attending Physician');
     setSignDate(getTodayFormatted());
@@ -441,52 +490,67 @@ export default function App() {
 
   const closeModal = () => {
     setModalPatientId(null);
-    setIsGenerating(false);
+    setGenerateError(null);
   };
-
 
   const handleGenerate = async () => {
     if (!currentPatient) return;
-    setIsGenerating(true);
-    setGeneratingMap(prev => ({ ...prev, [currentPatient.id]: true }));
+    const pId = (currentPatient.id && currentPatient.id !== 'undefined') ? String(currentPatient.id).trim() : null;
+    const patId = (currentPatient.patientId && currentPatient.patientId !== 'undefined') ? String(currentPatient.patientId).trim() : null;
+
+    if (!pId && !patId) return;
+
+    const now = Date.now();
+    setGeneratingMap(prev => ({
+      ...prev,
+      ...(pId ? { [pId]: now } : {}),
+      ...(patId ? { [patId]: now } : {})
+    }));
     setGenerateError(null);
     try {
       const targetPatientId = currentPatient.patientId || currentPatient.mrn || currentPatient.id;
 
       const response = await apiService.runPatientNotebook(targetPatientId);
-      // const response = await apiService.runPatientJob(targetPatientId);
       console.log("Notebook run response:", response);
 
-      if (response && (response.output || response.result || response.data)) {
-        const outData = response.output || response.result || response.data;
-        if (typeof outData === 'object') {
-          setPatients(prev => prev.map(p => {
-            if (p.id === currentPatient.id) {
-              return {
-                ...p,
-                summary: {
-                  why: outData.why || outData.admission_reason || p.summary.why,
-                  dx: outData.dx || outData.discharge_diagnosis || p.summary.dx,
-                  meds: outData.meds || p.summary.meds,
-                  followup: outData.followup || outData.followup_instructions || p.summary.followup,
-                  warnings: outData.warnings || p.summary.warnings
-                }
-              };
-            }
-            return p;
-          }));
-        }
-      }
+      // 1. Mark summary as generated & update state
+      setGeneratedMap(prev => ({
+        ...prev,
+        ...(pId ? { [pId]: true } : {}),
+        ...(patId ? { [patId]: true } : {})
+      }));
 
-      // Mark summary as generated
-      setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
+      setPatients(prev => prev.map(p => {
+        if ((pId && p.id === pId) || (patId && p.patientId === patId)) {
+          const outData = response && (response.output || response.result || response.data);
+          const newSummary = (outData && typeof outData === 'object') ? {
+            why: outData.why || outData.admission_reason || p.summary.why,
+            dx: outData.dx || outData.discharge_diagnosis || p.summary.dx,
+            meds: outData.meds || p.summary.meds,
+            followup: outData.followup || outData.followup_instructions || p.summary.followup,
+            warnings: outData.warnings || p.summary.warnings
+          } : p.summary;
+          return {
+            ...p,
+            hasSummary: true,
+            summary: newSummary
+          };
+        }
+        return p;
+      }));
+
+      // 2. Silently re-sync Databricks API data in background (updates written summaries list)
+      await fetchDynamicApiData(false);
     } catch (err) {
-      console.warn("Notebook API execution note:", err.message);
-      // Retain generated view for seamless UX fallback
-      setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
+      console.error("Notebook API execution error:", err.message);
+      setGenerateError(err.message || "Failed to start discharge summary notebook run.");
     } finally {
-      setGeneratingMap(prev => ({ ...prev, [currentPatient.id]: false }));
-      setIsGenerating(false);
+      setGeneratingMap(prev => {
+        const next = { ...prev };
+        if (pId) delete next[pId];
+        if (patId) delete next[patId];
+        return next;
+      });
     }
   };
 
@@ -565,7 +629,20 @@ export default function App() {
     return [1, '...', current - 1, current, current + 1, '...', total];
   }
 
-  const isCurrentGenerated = currentPatient ? (currentPatient.hasSummary || currentPatient.discharged || !!currentPatient.summary?.tableRecord || !!generatedMap[currentPatient.id]) : false;
+  const isCurrentGenerated = currentPatient ? (
+    currentPatient.hasSummary ||
+    currentPatient.discharged ||
+    !!currentPatient.summary?.tableRecord ||
+    (currentPatient.id && !!generatedMap[currentPatient.id]) ||
+    (currentPatient.patientId && !!generatedMap[currentPatient.patientId])
+  ) : false;
+
+  const isCurrentPatientGenerating = Boolean(
+    currentPatient && !isCurrentGenerated && (
+      (currentPatient.id && currentPatient.id !== 'undefined' && !!generatingMap[currentPatient.id]) ||
+      (currentPatient.patientId && currentPatient.patientId !== 'undefined' && !!generatingMap[currentPatient.patientId])
+    )
+  );
 
   const renderRawNoteContent = (rawText) => {
     if (!rawText) return null;
@@ -838,8 +915,11 @@ export default function App() {
                     </tr>
                   ) : (
                     paginatedPatients.map(p => {
-                      const isGeneratingThisPatient = !!generatingMap[p.id];
-                      const hasSummary = p.hasSummary || p.discharged || !!generatedMap[p.id];
+                      const hasSummary = p.hasSummary || p.discharged || (p.id && !!generatedMap[p.id]) || (p.patientId && !!generatedMap[p.patientId]);
+                      const isGeneratingThisPatient = !hasSummary && Boolean(
+                        (p.id && p.id !== 'undefined' && !!generatingMap[p.id]) ||
+                        (p.patientId && p.patientId !== 'undefined' && !!generatingMap[p.patientId])
+                      );
                       return (
                         <tr key={p.id} className={p.discharged ? 'discharged' : isGeneratingThisPatient ? 'in-progress' : hasSummary ? 'has-summary' : ''}>
                           <td>
@@ -1227,16 +1307,16 @@ export default function App() {
                         className="btn-generate"
                         id="modalGenBtn"
                         onClick={handleGenerate}
-                        disabled={isGenerating}
-                        style={{ opacity: isGenerating ? 0.7 : 1 }}
+                        disabled={isCurrentPatientGenerating}
+                        style={{ opacity: isCurrentPatientGenerating ? 0.7 : 1 }}
                       >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
                         </svg>
                         <span id="modalGenLabel">
-                          {isGenerating
+                          {isCurrentPatientGenerating
                             ? "Generating…"
-                            : generatedMap[currentPatient.id]
+                            : isCurrentGenerated
                               ? "Summary generated"
                               : "Generate discharge summary"}
                         </span>
@@ -1244,11 +1324,16 @@ export default function App() {
                       <span className="generate-hint">~40 min saved</span>
                     </div>
                   )}
+                  {generateError && (
+                    <div style={{ color: 'var(--alert)', fontSize: '12px', marginTop: '8px', padding: '8px 12px', background: 'var(--alert-tint)', borderRadius: '6px' }}>
+                      ⚠️ {generateError}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <div className="pane-label">Patient discharge summary</div>
-                  {isGenerating ? (
+                  {isCurrentPatientGenerating ? (
                     <div className="premium-generation-loader">
                       <div className="premium-loader-orb">
                         <div className="premium-loader-ring"></div>
