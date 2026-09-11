@@ -131,18 +131,21 @@ Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${
       patientId: matchedDs?.patient_id || adm.patient_id,
       why: matchedDs?.case_history || matchedDs?.admission_reason || reason || '',
       dx: matchedDs?.diagnoses || matchedDs?.discharge_diagnosis || primaryDx || '',
-      investigations: matchedDs?.investigations || '',
-      treatmentText: typeof matchedDs?.treatment === 'string' ? matchedDs.treatment : '',
+      investigations: matchedDs?.investigations || matchedDs?.lab_results || '',
+      treatmentText: typeof (matchedDs?.treatment || matchedDs?.discharge_medications) === 'string' ? (matchedDs?.treatment || matchedDs?.discharge_medications) : '',
       meds: medsArray,
       consultant: matchedDs?.primary_consultant || docName,
-      followup: matchedDs?.discharge_advice || matchedDs?.followup_instructions || '',
+      followup: matchedDs?.discharge_advice || matchedDs?.followup_instructions || matchedDs?.review_followup || '',
       surgery: matchedDs?.surgery_details || '',
+      conditionOnDischarge: matchedDs?.patient_condition || matchedDs?.condition_on_discharge || '',
       warnings: matchedDs?.patient_condition ? (Array.isArray(matchedDs.patient_condition) ? matchedDs.patient_condition : [matchedDs.patient_condition]) : []
     };
 
     return {
-      id: adm.admission_id || adm.admission_number || adm.patient_id || index + 100,
-      patientId: String(adm.patient_id || adm.patient_number || adm.admission_id || adm.admission_number || (index + 1001)),
+      id: String(adm.patient_id || adm.admission_id || index + 100),
+      patientId: String(adm.patient_id || adm.patient_number || ''),
+      admissionId: String(adm.admission_id || adm.admission_number || ''),
+      hasSummary: !!matchedDs,
       name: pName,
       age: pAge,
       sex: pSex,
@@ -176,42 +179,32 @@ function fmtINR(n) {
   return "₹" + n.toLocaleString("en-IN");
 }
 
+function cleanConditionText(val) {
+  if (!val) return '';
+  let str = Array.isArray(val) ? val.join('. ') : String(val);
+  str = str
+    .replace(/The patient'?s overall status at discharge is not explicitly stated in the given data\.?/gi, '')
+    .replace(/overall status at discharge is not explicitly stated in the given data\.?/gi, '')
+    .replace(/is not explicitly stated in the given data\.?/gi, '')
+    .replace(/not explicitly stated in the given data\.?/gi, '')
+    .replace(/The patient'?s overall status at discharge is not explicitly stated\.?/gi, '')
+    .replace(/overall status at discharge is not explicitly stated\.?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return str;
+}
+
 function SummaryContent({ s }) {
   if (!s) return null;
-  const rec = s.tableRecord;
+
+  const investigationsText = s.investigations || s.tableRecord?.investigations || '';
+  const rawConditionText = s.conditionOnDischarge || s.tableRecord?.patient_condition || s.tableRecord?.condition_on_discharge || (s.warnings && s.warnings.length > 0 ? s.warnings.join(', ') : '');
+  const conditionText = cleanConditionText(rawConditionText);
+  const followupText = s.followup || s.tableRecord?.discharge_advice || s.tableRecord?.followup_instructions || s.tableRecord?.review_followup || '';
+  const treatmentText = s.treatmentText || s.tableRecord?.treatment || s.tableRecord?.discharge_medications || '';
 
   return (
     <>
-      {/* Databricks Gold Table Record Header Banner */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(14, 165, 233, 0.12) 100%)',
-        border: '1px solid rgba(2, 132, 199, 0.25)',
-        borderRadius: '10px',
-        padding: '14px 16px',
-        marginBottom: '20px',
-        fontSize: '12px',
-        color: '#0369a1'
-      }}>
-        <div style={{ fontWeight: 700, fontSize: '13.5px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(2,132,199,0.15)', paddingBottom: '8px' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>📊</span>
-            <span>Discharge Record Details</span>
-          </span>
-          {rec?.summary_id && <span style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Summary ID #{rec.summary_id}</span>}
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginTop: '8px' }}>
-          <div><strong>Patient ID:</strong> {rec?.patient_id || s.patientId || 'N/A'}</div>
-          <div><strong>Admission ID:</strong> {rec?.admission_id || s.admissionId || 'N/A'}</div>
-          <div><strong>Doctor ID:</strong> {rec?.doctor_id || 'N/A'}</div>
-          <div><strong>Consultant:</strong> {rec?.primary_consultant || s.consultant || 'N/A'}</div>
-          {rec?.admission_date && <div><strong>Admission Date:</strong> {new Date(rec.admission_date).toLocaleString()}</div>}
-          {rec?.discharge_date && <div><strong>Discharge Date:</strong> {new Date(rec.discharge_date).toLocaleString()}</div>}
-          {rec?.generated_at && <div><strong>Generated At:</strong> {new Date(rec.generated_at).toLocaleString()}</div>}
-          {rec?.source_table && <div><strong>LLM Engine / Model:</strong> {rec.source_table}</div>}
-        </div>
-      </div>
-
       {/* Clinical Summary Content Sections */}
       {s.why && (
         <div className="osec">
@@ -219,105 +212,67 @@ function SummaryContent({ s }) {
           <p>{s.why}</p>
         </div>
       )}
+
       {s.dx && (
         <div className="osec">
           <h3>Diagnoses</h3>
           <p>{s.dx}</p>
         </div>
       )}
-      {s.investigations && (
-        <div className="osec">
-          <h3>Investigations &amp; Lab Results</h3>
-          <p>{s.investigations}</p>
-        </div>
-      )}
-      {(s.treatmentText || (s.meds && s.meds.length > 0)) && (
-        <div className="osec">
-          <h3>Treatment &amp; Medications</h3>
-          {s.treatmentText && <p style={{ marginBottom: '10px' }}>{s.treatmentText}</p>}
-          {s.meds && s.meds.length > 0 && typeof s.meds[0] !== 'string' && (
-            <table className="med-table">
-              <thead>
-                <tr>
-                  <th>Medicine</th>
-                  <th>Dose</th>
-                  <th>What it's for</th>
+
+      <div className="osec">
+        <h3>INVESTIGATIONS</h3>
+        <p>{investigationsText || 'No specific investigation details recorded.'}</p>
+      </div>
+
+      <div className="osec">
+        <h3>CONDITION ON DISCHARGE</h3>
+        <p>{conditionText || 'Patient is hemodynamically stable at discharge.'}</p>
+      </div>
+
+      <div className="osec">
+        <h3>DISCHARGE MEDICATIONS</h3>
+        {treatmentText && <p style={{ marginBottom: '10px' }}>{treatmentText}</p>}
+        {s.meds && s.meds.length > 0 && typeof s.meds[0] !== 'string' && (
+          <table className="med-table">
+            <thead>
+              <tr>
+                <th>Medicine</th>
+                <th>Dose / Instructions</th>
+                <th>Notes / Indication</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.meds.map((m, i) => (
+                <tr key={i}>
+                  <td className="med-name">{m[0]}</td>
+                  <td>{m[1]}</td>
+                  <td className="med-note">{m[2]}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {s.meds.map((m, i) => (
-                  <tr key={i}>
-                    <td className="med-name">{m[0]}</td>
-                    <td>{m[1]}</td>
-                    <td className="med-note">{m[2]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-      {s.surgery && (
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {s.surgery && s.surgery !== 'Nil' && (
         <div className="osec">
           <h3>Surgery &amp; Procedures Details</h3>
           <p>{s.surgery}</p>
         </div>
       )}
+
       {s.consultant && (
         <div className="osec">
           <h3>Primary Consultant</h3>
           <p><strong>{s.consultant}</strong></p>
         </div>
       )}
-      {s.followup && (
-        <div className="osec">
-          <h3>Discharge Advice &amp; Follow-up</h3>
-          <p>{s.followup}</p>
-        </div>
-      )}
-      {s.warnings && s.warnings.length > 0 && (
-        <div className="osec">
-          <h3>Patient Condition &amp; Care Instructions</h3>
-          <div className="warn-box">
-            <ul>
-              {s.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
 
-      {/* Complete Discharge Table Schema & Values Grid */}
-      {rec && (
-        <div className="osec" style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed #cbd5e1' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <span>📋 Complete Discharge Record Details</span>
-          </h3>
-          <div style={{ overflowX: 'auto', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '12px' }}>
-            <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
-                  <th style={{ padding: '8px 10px', color: '#475569', fontWeight: 700, width: '210px' }}>Column Name</th>
-                  <th style={{ padding: '8px 10px', color: '#475569', fontWeight: 700 }}>Stored Databricks Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(rec).map(([key, val], idx) => (
-                  <tr key={key} style={{ borderBottom: '1px solid #e2e8f0', background: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600, color: '#0369a1' }}>
-                      {key}
-                    </td>
-                    <td style={{ padding: '8px 10px', color: '#334155', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                      {val == null ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>null</span> : String(val)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <div className="osec">
+        <h3>REVIEW / FOLLOW-UP</h3>
+        <p>{followupText || 'Follow up as directed by attending physician.'}</p>
+      </div>
     </>
   );
 }
@@ -391,11 +346,11 @@ export default function App() {
   const availableBedsCount = rawAvailableBeds + dischargedCount;
   const occupiedBedsCount = Math.max(0, rawOccupiedBeds - dischargedCount);
 
-  let currentPatient = patients.find(p => p.id === modalPatientId || cleanId(p.patientId) === cleanId(modalPatientId));
+  let currentPatient = patients.find(p => String(p.id) === String(modalPatientId) || (p.patientId && String(p.patientId) === String(modalPatientId)));
   if (!currentPatient && modalPatientId && rawSummaries.length > 0) {
     const rawMatch = rawSummaries.find(s => String(s.patient_id) === String(modalPatientId) || String(s.admission_id) === String(modalPatientId) || String(s.summary_id) === String(modalPatientId));
     if (rawMatch) {
-      const matchedP = patients.find(p => String(p.patientId) === String(rawMatch.patient_id));
+      const matchedP = patients.find(p => String(p.patientId) === String(rawMatch.patient_id) || String(p.admissionId) === String(rawMatch.admission_id));
       const pName = matchedP?.name || rawMatch.patient_name || `Patient #${rawMatch.patient_id}`;
       const diagStr = rawMatch.discharge_diagnosis || rawMatch.diagnoses || matchedP?.diagnosisShort || 'Clinical Care';
       const docStr = rawMatch.attending_physician || rawMatch.primary_consultant || rawMatch.approved_by || matchedP?.signedBy || 'Attending Physician';
@@ -409,8 +364,9 @@ export default function App() {
       }
 
       currentPatient = {
-        id: rawMatch.admission_id || rawMatch.patient_id,
+        id: String(rawMatch.patient_id || rawMatch.admission_id),
         patientId: String(rawMatch.patient_id),
+        admissionId: String(rawMatch.admission_id),
         name: pName,
         age: matchedP?.age || 'N/A',
         sex: matchedP?.sex || '',
@@ -432,12 +388,13 @@ export default function App() {
           patientId: rawMatch.patient_id,
           why: whyStr,
           dx: diagStr,
-          investigations: rawMatch.investigations || '',
-          treatmentText: typeof rawMatch.treatment === 'string' ? rawMatch.treatment : '',
+          investigations: rawMatch.investigations || rawMatch.lab_results || '',
+          treatmentText: typeof medsStr === 'string' ? medsStr : '',
           meds: medsList,
           consultant: docStr,
-          followup: rawMatch.followup_instructions || rawMatch.discharge_advice || 'Follow up as directed.',
+          followup: rawMatch.discharge_advice || rawMatch.followup_instructions || rawMatch.review_followup || 'Follow up as directed by physician.',
           surgery: rawMatch.surgery_details || 'Nil',
+          conditionOnDischarge: rawMatch.patient_condition || rawMatch.condition_on_discharge || '',
           warnings: rawMatch.patient_condition ? [rawMatch.patient_condition] : []
         }
       };
@@ -1014,7 +971,7 @@ export default function App() {
                     </tr>
                   ) : (
                     rawSummaries.map((s, idx) => {
-                      const matchedPatient = patients.find(p => String(p.patientId) === String(s.patient_id) || String(p.id) === String(s.admission_id));
+                      const matchedPatient = patients.find(p => String(p.patientId) === String(s.patient_id) || String(p.admissionId) === String(s.admission_id));
                       const pName = matchedPatient?.name || s.patient_name || (s.case_history ? s.case_history.match(/patient,\s*([^,]+),/i)?.[1] : null) || `Patient #${s.patient_id}`;
                       const disDate = s.discharge_date ? new Date(s.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : getTodayFormatted();
                       const diagText = s.discharge_diagnosis || s.diagnoses || matchedPatient?.diagnosisShort || 'Clinical Care';
@@ -1053,7 +1010,7 @@ export default function App() {
                                 if (matchedPatient) {
                                   openModal(matchedPatient.id);
                                 } else {
-                                  setModalPatientId(s.admission_id || s.patient_id);
+                                  setModalPatientId(s.patient_id || s.admission_id);
                                 }
                               }}
                             >
@@ -1323,51 +1280,81 @@ export default function App() {
               <div><strong>Diagnosis:</strong> {currentPatient.diagnosisShort}</div>
             </div>
 
+            {/* Admission Details & Case History */}
+            {currentPatient.summary.why && (
+              <div className="print-sec">
+                <div className="print-sec-title">Admission Details &amp; Case History</div>
+                <div className="print-sec-body">{currentPatient.summary.why}</div>
+              </div>
+            )}
+
+            {/* Diagnoses */}
+            {currentPatient.summary.dx && (
+              <div className="print-sec">
+                <div className="print-sec-title">Diagnoses</div>
+                <div className="print-sec-body">{currentPatient.summary.dx}</div>
+              </div>
+            )}
+
+            {/* INVESTIGATIONS */}
             <div className="print-sec">
-              <div className="print-sec-title">1. Admission Details</div>
-              <div className="print-sec-body">{currentPatient.summary.why}</div>
+              <div className="print-sec-title">INVESTIGATIONS</div>
+              <div className="print-sec-body">
+                {currentPatient.summary.investigations || currentPatient.summary.tableRecord?.investigations || 'No specific investigation details recorded.'}
+              </div>
             </div>
 
+            {/* CONDITION ON DISCHARGE */}
             <div className="print-sec">
-              <div className="print-sec-title">2. Diagnosis &amp; Clinical Details</div>
-              <div className="print-sec-body">{currentPatient.summary.dx}</div>
+              <div className="print-sec-title">CONDITION ON DISCHARGE</div>
+              <div className="print-sec-body">
+                {cleanConditionText(currentPatient.summary.conditionOnDischarge || currentPatient.summary.tableRecord?.patient_condition || currentPatient.summary.tableRecord?.condition_on_discharge || currentPatient.summary.warnings) || 'Patient is hemodynamically stable at discharge.'}
+              </div>
             </div>
 
+            {/* DISCHARGE MEDICATIONS */}
             <div className="print-sec">
-              <div className="print-sec-title">3. Discharge Medications</div>
-              <table className="print-table">
-                <thead>
-                  <tr>
-                    <th>Medication</th>
-                    <th>Dosage &amp; Frequency</th>
-                    <th>Purpose</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentPatient.summary.meds.map((m, i) => (
-                    <tr key={i}>
-                      <td><strong>{m[0]}</strong></td>
-                      <td>{m[1]}</td>
-                      <td>{m[2]}</td>
+              <div className="print-sec-title">DISCHARGE MEDICATIONS</div>
+              {(currentPatient.summary.treatmentText || currentPatient.summary.tableRecord?.treatment) && (
+                <div className="print-sec-body" style={{ marginBottom: '8px' }}>
+                  {currentPatient.summary.treatmentText || currentPatient.summary.tableRecord?.treatment}
+                </div>
+              )}
+              {currentPatient.summary.meds && currentPatient.summary.meds.length > 0 && typeof currentPatient.summary.meds[0] !== 'string' && (
+                <table className="print-table">
+                  <thead>
+                    <tr>
+                      <th>Medicine</th>
+                      <th>Dose / Instructions</th>
+                      <th>Notes / Indication</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {currentPatient.summary.meds.map((m, i) => (
+                      <tr key={i}>
+                        <td><strong>{m[0]}</strong></td>
+                        <td>{m[1]}</td>
+                        <td>{m[2]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
-            <div className="print-sec">
-              <div className="print-sec-title">4. Follow-up &amp; Care Instructions</div>
-              <div className="print-sec-body">{currentPatient.summary.followup}</div>
-            </div>
+            {/* Surgery Details */}
+            {currentPatient.summary.surgery && currentPatient.summary.surgery !== 'Nil' && (
+              <div className="print-sec">
+                <div className="print-sec-title">Surgery &amp; Procedures Details</div>
+                <div className="print-sec-body">{currentPatient.summary.surgery}</div>
+              </div>
+            )}
 
+            {/* REVIEW / FOLLOW-UP */}
             <div className="print-sec">
-              <div className="print-sec-title">5. Emergency Warning Signs</div>
-              <div className="print-warn-box">
-                <ul>
-                  {currentPatient.summary.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
+              <div className="print-sec-title">REVIEW / FOLLOW-UP</div>
+              <div className="print-sec-body">
+                {currentPatient.summary.followup || currentPatient.summary.tableRecord?.discharge_advice || currentPatient.summary.tableRecord?.followup_instructions || 'Follow up as directed by attending physician.'}
               </div>
             </div>
 
