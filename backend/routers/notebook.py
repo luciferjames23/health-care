@@ -1,4 +1,4 @@
-from typing import Optional
+﻿from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from connectors.databricks_connector import DatabricksConnector
@@ -15,7 +15,8 @@ db_connector = DatabricksConnector()
 # 2865138219507461 -> /Users/jamesrubert02@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
 # 3655906645282312 -> /Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
 
-DEFAULT_NOTEBOOK_ID = "63391549950619"
+DEFAULT_NOTEBOOK_ID = "2865138219507461"
+# DEFAULT_NOTEBOOK_ID = "63391549950619"
 
 
 class PatientNotebookRequest(BaseModel):

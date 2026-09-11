@@ -37,20 +37,20 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
     // Dynamic Patient Name from API record fields
     const firstName = adm.first_name || '';
     const lastName = adm.last_name || '';
-    const pName = (firstName || lastName) 
-      ? `${firstName} ${lastName}`.trim() 
+    const pName = (firstName || lastName)
+      ? `${firstName} ${lastName}`.trim()
       : (adm.patient_name || `Patient ${adm.patient_number || adm.patient_id || index + 1}`);
-    
+
     const pAge = adm.age_at_admission ?? adm.age ?? '';
     const pSex = adm.gender || '';
     const pMrn = adm.patient_number || String(adm.patient_id || index + 1001);
     const admNum = adm.admission_number || adm.admission_id || String(index + 1);
 
-    const patAddr = adm.address 
+    const patAddr = adm.address
       ? `${adm.address}, ${adm.city || ''}, ${adm.state || ''} ${adm.postal_code || ''}`.replace(/,\s*,/g, ',').trim()
       : 'N/A';
     const patPhone = adm.phone || adm.phone_number || 'N/A';
-    const patEmergency = adm.emergency_contact_name 
+    const patEmergency = adm.emergency_contact_name
       ? `${adm.emergency_contact_name} ${adm.emergency_contact_phone ? '(' + adm.emergency_contact_phone + ')' : ''}`.trim()
       : 'N/A';
 
@@ -62,7 +62,7 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
     const admSource = adm.admission_source ? ` (${adm.admission_source})` : '';
     const reason = adm.reason_for_admission || adm.chief_complaint || 'Clinical Evaluation';
     const primaryDx = adm.primary_diagnosis || adm.reason_for_admission || 'Under Management';
-    const secondaryDx = Array.isArray(adm.secondary_diagnoses) 
+    const secondaryDx = Array.isArray(adm.secondary_diagnoses)
       ? (adm.secondary_diagnoses.join(', ') || 'None')
       : (adm.secondary_diagnoses || 'None');
 
@@ -83,11 +83,11 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
     }
 
     const billStatusRaw = (adm.bill_clearance_status || adm.bill_status || '').toLowerCase();
-    const billingStatus = (billStatusRaw.includes('cleared') || billStatusRaw.includes('settled') || billStatusRaw === 'paid') 
-      ? 'cleared' 
-      : (billStatusRaw.includes('partial')) 
-      ? 'partial' 
-      : 'pending';
+    const billingStatus = (billStatusRaw.includes('cleared') || billStatusRaw.includes('settled') || billStatusRaw === 'paid')
+      ? 'cleared'
+      : (billStatusRaw.includes('partial'))
+        ? 'partial'
+        : 'pending';
     const amountDue = billingStatus === 'cleared' ? 0 : (adm.outstanding_balance ?? adm.billing_amount_due ?? 0);
     const amountTotal = adm.bill_net_amount ?? adm.billing_amount_total ?? amountDue;
 
@@ -287,7 +287,36 @@ export default function App() {
   const [pageSize, setPageSize] = useState(10);
   const [modalPatientId, setModalPatientId] = useState(null);
   const [modalViewTab, setModalViewTab] = useState('summary'); // 'summary' | 'raw'
-  const [generatedMap, setGeneratedMap] = useState({});
+  const [generatedMap, setGeneratedMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('discharge_generated_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const [generatingMap, setGeneratingMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('discharge_generating_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('discharge_generated_map', JSON.stringify(generatedMap));
+    } catch (e) {}
+  }, [generatedMap]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('discharge_generating_map', JSON.stringify(generatingMap));
+    } catch (e) {}
+  }, [generatingMap]);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
   const [signPanelOpen, setSignPanelOpen] = useState(false);
@@ -322,7 +351,7 @@ export default function App() {
         const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
         setPatients(mapped || []);
       }
-      
+
       setApiStatus({ connected: isAnyFulfilled || admissions.length > 0, loading: false });
     } catch (err) {
       console.warn("API error:", err);
@@ -358,8 +387,8 @@ export default function App() {
       const medsStr = rawMatch.discharge_medications || rawMatch.treatment || '';
       let medsList = [];
       if (typeof medsStr === 'string' && medsStr.trim()) {
-        medsList = medsStr.includes(',') 
-          ? medsStr.split(',').map(m => [m.trim(), 'As directed', 'Treatment']) 
+        medsList = medsStr.includes(',')
+          ? medsStr.split(',').map(m => [m.trim(), 'As directed', 'Treatment'])
           : medsStr.split('\n').map(l => [l.split(' - ')[0] || l, l.split(' - ')[1] || 'As directed', 'Treatment']);
       }
 
@@ -415,18 +444,18 @@ export default function App() {
     setIsGenerating(false);
   };
 
+
   const handleGenerate = async () => {
     if (!currentPatient) return;
     setIsGenerating(true);
+    setGeneratingMap(prev => ({ ...prev, [currentPatient.id]: true }));
     setGenerateError(null);
     try {
       const targetPatientId = currentPatient.patientId || currentPatient.mrn || currentPatient.id;
-      console.log(`Triggering Databricks Notebook run-patient API for patient_id: ${targetPatientId}`);
-      
+
       const response = await apiService.runPatientNotebook(targetPatientId);
+      // const response = await apiService.runPatientJob(targetPatientId);
       console.log("Notebook run response:", response);
-      
-      setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
 
       if (response && (response.output || response.result || response.data)) {
         const outData = response.output || response.result || response.data;
@@ -448,11 +477,15 @@ export default function App() {
           }));
         }
       }
+
+      // Mark summary as generated
+      setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
     } catch (err) {
       console.warn("Notebook API execution note:", err.message);
       // Retain generated view for seamless UX fallback
       setGeneratedMap(prev => ({ ...prev, [currentPatient.id]: true }));
     } finally {
+      setGeneratingMap(prev => ({ ...prev, [currentPatient.id]: false }));
       setIsGenerating(false);
     }
   };
@@ -554,13 +587,23 @@ export default function App() {
           <div className="loader-card">
             <div className="loader-logo-ring">
               <div className="loader-spinner"></div>
-              <div className="loader-icon-mark"></div>
+              <div className="loader-inner-ring"></div>
+              <div className="loader-icon-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2v20M2 12h20M7 12h3l1.5-3 3 6 1.5-3h3" />
+                </svg>
+              </div>
             </div>
-            <div className="loader-title">DischargeNote Admin</div>
-            <div className="loader-subtitle">Connecting to Clinical REST API &amp; fetching admitted patient records...</div>
+            <div className="loader-title">DischargeNote AI</div>
+            <div className="loader-subtitle">Connecting to Databricks Healthcare Lakehouse &amp; Syncing Patient EMR...</div>
+
+            <div className="loader-progress-track">
+              <div className="loader-progress-bar"></div>
+            </div>
+
             <div className="loader-status-badge">
               <span className="loader-pulse-dot"></span>
-              INITIALIZING LIVE DATA
+              HEALTHCARE LAKEHOUSE PIPELINE ACTIVE
             </div>
           </div>
         </div>
@@ -572,7 +615,7 @@ export default function App() {
             <div className="brand-name">DischargeNote</div>
           </div>
           <div className="masthead-meta" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <button 
+            <button
               className="btn-reload"
               onClick={() => window.location.reload()}
               style={{
@@ -601,7 +644,7 @@ export default function App() {
             </button>
             <div>
               ADMIN CONSOLE<br />
-              Ward view · v0.3 &nbsp;
+              &nbsp;
               <span style={{
                 fontFamily: 'var(--mono)',
                 fontSize: '10.5px',
@@ -623,7 +666,7 @@ export default function App() {
           <div className="hero-eyebrow">Automated Clinical Discharge Summary Generator</div>
           <h1>Every admitted patient, their billing status, and a discharge summary — one screen.</h1>
           <p className="hero-sub">
-            Search or filter the ward list, generate a plain-language summary per patient, and route it through clinician sign-off before it's finalized or printed.
+            Effortlessly search admitted patients across run Databricks AI to generate plain-language discharge summaries, and streamline clinician review &amp; approval prior to final discharge.
           </p>
         </section>
 
@@ -720,224 +763,244 @@ export default function App() {
         </div>
 
         {activeNavTab === 'patients' && (
-        <section className="list-section">
-          <div className="list-head-row">
-            <div>
-              <h2 className="section-heading">Admitted patients</h2>
-              <p className="section-sub">
-                Generating a summary is independent of billing — but discharge paperwork can be flagged until the bill clears.
-              </p>
-            </div>
-            <div className="list-controls">
-              <div className="search-box">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="M21 21l-4.35-4.35" />
-                </svg>
-                <input
-                  type="text"
-                  id="searchInput"
-                  placeholder="Search by name, Patient ID, MRN, or ward…"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                />
+          <section className="list-section">
+            <div className="list-head-row">
+              <div>
+                <h2 className="section-heading">Admitted patients</h2>
+                <p className="section-sub">
+                  Generating a summary is independent of billing — but discharge paperwork can be flagged until the bill clears.
+                </p>
               </div>
-            </div>
-          </div>
-
-          <div className="filter-chips" id="filterChips" style={{ marginBottom: '16px' }}>
-            {filterChips.map(c => (
-              <button
-                key={c.key}
-                className={`chip ${activeFilter === c.key ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveFilter(c.key);
-                  setCurrentPage(1);
-                }}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="patient-table-frame">
-            <table className="patient-table">
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Diagnosis</th>
-                  <th>Admitted</th>
-                  <th>Billing status</th>
-                  <th>Amount due</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="patientRows">
-                {apiStatus.loading ? (
-                  <tr className="empty-row">
-                    <td colSpan="6">Fetching patient records from API...</td>
-                  </tr>
-                ) : !apiStatus.connected && filteredPatients.length === 0 ? (
-                  <tr className="empty-row">
-                    <td colSpan="6">
-                      <strong style={{ color: 'var(--alert)' }}>API Not Connected.</strong><br />
-                      <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>
-                        Please verify backend API service connection at http://127.0.0.1:8000
-                      </span>
-                    </td>
-                  </tr>
-                ) : paginatedPatients.length === 0 ? (
-                  <tr className="empty-row">
-                    <td colSpan="6">No patient records match this search or filter.</td>
-                  </tr>
-                ) : (
-                  paginatedPatients.map(p => {
-                    const hasSummary = p.hasSummary || p.discharged || !!generatedMap[p.id];
-                    return (
-                      <tr key={p.id} className={p.discharged ? 'discharged' : hasSummary ? 'has-summary' : ''}>
-                        <td>
-                          <div className="p-name" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span>{p.name}</span>
-                            {p.discharged ? (
-                              <span className="discharged-badge" style={{ background: '#059669', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
-                                ✓ Discharged (Bed Released / Available)
-                              </span>
-                            ) : hasSummary ? (
-                              <span className="summary-badge" style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
-                                ✓ Summary Available
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="p-meta">
-                            ID: {p.patientId} · MRN {p.mrn} · {p.age} Yrs / {p.sex} · {p.ward}
-                          </div>
-                        </td>
-                        <td className="p-diagnosis">
-                          {p.diagnosisShort}
-                          <span className="dx-sub">{p.diagnosisSub}</span>
-                        </td>
-                        <td>{p.admitted}</td>
-                        <td>
-                          <span className={`bill-pill ${p.billing}`}>
-                            <span className="dot"></span>
-                            {billLabel(p.billing)}
-                          </span>
-                        </td>
-                        <td>
-                          {p.due === 0 ? (
-                            <span className="amount-due zero">₹0</span>
-                          ) : (
-                            <span className="amount-due">
-                              {fmtINR(p.due)} <span className="of">of {fmtINR(p.of)}</span>
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <button
-                            className={`btn-gen ${hasSummary ? 'done' : ''}`}
-                            onClick={() => openModal(p.id)}
-                          >
-                            {hasSummary ? (
-                              <>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M20 6L9 17l-5-5" />
-                                </svg>
-                                View summary
-                              </>
-                            ) : (
-                              <>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
-                                </svg>
-                                Generate discharge summary
-                              </>
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-
-            {/* Pagination Controls Bar */}
-            {!apiStatus.loading && totalFiltered > 0 && (
-              <div className="pagination-bar">
-                <div className="pagination-info">
-                  Showing {startIndex + 1}–{Math.min(startIndex + pageSize, totalFiltered)} of {totalFiltered} admitted patients
-                </div>
-                <div className="pagination-controls">
-                  <label style={{ fontSize: '12px', color: 'var(--ink-soft)', marginRight: '2px' }}>Per page:</label>
-                  <select 
-                    className="page-size-selector"
-                    value={pageSize}
+              <div className="list-controls">
+                <div className="search-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M21 21l-4.35-4.35" />
+                  </svg>
+                  <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Search by name, Patient ID, MRN, or ward…"
+                    value={searchQuery}
                     onChange={(e) => {
-                      setPageSize(Number(e.target.value));
+                      setSearchQuery(e.target.value);
                       setCurrentPage(1);
                     }}
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-
-                  <button
-                    className="pg-btn"
-                    onClick={() => setCurrentPage(1)}
-                    disabled={validCurrentPage === 1}
-                    title="First Page"
-                  >
-                    «
-                  </button>
-                  <button
-                    className="pg-btn"
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={validCurrentPage === 1}
-                    title="Previous Page"
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {getPageNumbers(validCurrentPage, totalPages).map((p, idx) => (
-                    p === '...' ? (
-                      <span key={idx} style={{ padding: '0 4px', color: 'var(--ink-soft)' }}>…</span>
-                    ) : (
-                      <button
-                        key={idx}
-                        className={`pg-btn ${p === validCurrentPage ? 'active' : ''}`}
-                        onClick={() => setCurrentPage(p)}
-                      >
-                        {p}
-                      </button>
-                    )
-                  ))}
-
-                  <button
-                    className="pg-btn"
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={validCurrentPage === totalPages}
-                    title="Next Page"
-                  >
-                    Next ›
-                  </button>
-                  <button
-                    className="pg-btn"
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={validCurrentPage === totalPages}
-                    title="Last Page"
-                  >
-                    »
-                  </button>
+                  />
                 </div>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+
+            <div className="filter-chips" id="filterChips" style={{ marginBottom: '16px' }}>
+              {filterChips.map(c => (
+                <button
+                  key={c.key}
+                  className={`chip ${activeFilter === c.key ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveFilter(c.key);
+                    setCurrentPage(1);
+                  }}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="patient-table-frame">
+              <table className="patient-table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Diagnosis</th>
+                    <th>Admitted</th>
+                    <th>Billing status</th>
+                    <th>Amount due</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="patientRows">
+                  {apiStatus.loading ? (
+                    <tr className="empty-row">
+                      <td colSpan="6">Loading Healthcare Lakehouse patient records...</td>
+                    </tr>
+                  ) : !apiStatus.connected && filteredPatients.length === 0 ? (
+                    <tr className="empty-row">
+                      <td colSpan="6">
+                        <strong style={{ color: 'var(--alert)' }}>API Not Connected.</strong><br />
+                        <span style={{ fontSize: '12px', color: 'var(--ink-soft)' }}>
+                          Please verify backend API service connection at http://127.0.0.1:8000
+                        </span>
+                      </td>
+                    </tr>
+                  ) : paginatedPatients.length === 0 ? (
+                    <tr className="empty-row">
+                      <td colSpan="6">No patient records match this search or filter.</td>
+                    </tr>
+                  ) : (
+                    paginatedPatients.map(p => {
+                      const isGeneratingThisPatient = !!generatingMap[p.id];
+                      const hasSummary = p.hasSummary || p.discharged || !!generatedMap[p.id];
+                      return (
+                        <tr key={p.id} className={p.discharged ? 'discharged' : isGeneratingThisPatient ? 'in-progress' : hasSummary ? 'has-summary' : ''}>
+                          <td>
+                            <div className="p-name" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span>{p.name}</span>
+                              {p.discharged ? (
+                                <span className="discharged-badge" style={{ background: '#059669', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                  ✓ Discharged (Bed Released / Available)
+                                </span>
+                              ) : isGeneratingThisPatient ? (
+                                <span className="in-progress-badge" style={{ background: '#d97706', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                                  <span className="loader-pulse-dot" style={{ background: '#fff', width: '6px', height: '6px' }}></span>
+                                  ⚡ Generating (In Progress...)
+                                </span>
+                              ) : hasSummary ? (
+                                <span className="summary-badge" style={{ background: '#0284c7', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                                  ✓ Summary Available
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="p-meta">
+                              ID: {p.patientId} · MRN {p.mrn} · {p.age} Yrs / {p.sex} · {p.ward}
+                            </div>
+                          </td>
+                          <td className="p-diagnosis">
+                            {p.diagnosisShort}
+                            <span className="dx-sub">{p.diagnosisSub}</span>
+                          </td>
+                          <td>{p.admitted}</td>
+                          <td>
+                            <span className={`bill-pill ${p.billing}`}>
+                              <span className="dot"></span>
+                              {billLabel(p.billing)}
+                            </span>
+                          </td>
+                          <td>
+                            {p.due === 0 ? (
+                              <span className="amount-due zero">₹0</span>
+                            ) : (
+                              <span className="amount-due">
+                                {fmtINR(p.due)} <span className="of">of {fmtINR(p.of)}</span>
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              className={`btn-gen ${isGeneratingThisPatient ? 'in-progress' : hasSummary ? 'done' : ''}`}
+                              onClick={() => openModal(p.id)}
+                              disabled={isGeneratingThisPatient}
+                              style={isGeneratingThisPatient ? {
+                                background: '#d97706',
+                                borderColor: '#b45309',
+                                color: '#ffffff',
+                                cursor: 'wait'
+                              } : undefined}
+                            >
+                              {isGeneratingThisPatient ? (
+                                <>
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+                                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h2" />
+                                  </svg>
+                                  In Progress...
+                                </>
+                              ) : hasSummary ? (
+                                <>
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M20 6L9 17l-5-5" />
+                                  </svg>
+                                  View summary
+                                </>
+                              ) : (
+                                <>
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />
+                                  </svg>
+                                  Generate discharge summary
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+
+              {/* Pagination Controls Bar */}
+              {!apiStatus.loading && totalFiltered > 0 && (
+                <div className="pagination-bar">
+                  <div className="pagination-info">
+                    Showing {startIndex + 1}–{Math.min(startIndex + pageSize, totalFiltered)} of {totalFiltered} admitted patients
+                  </div>
+                  <div className="pagination-controls">
+                    <label style={{ fontSize: '12px', color: 'var(--ink-soft)', marginRight: '2px' }}>Per page:</label>
+                    <select
+                      className="page-size-selector"
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+
+                    <button
+                      className="pg-btn"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={validCurrentPage === 1}
+                      title="First Page"
+                    >
+                      «
+                    </button>
+                    <button
+                      className="pg-btn"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={validCurrentPage === 1}
+                      title="Previous Page"
+                    >
+                      ‹ Prev
+                    </button>
+
+                    {getPageNumbers(validCurrentPage, totalPages).map((p, idx) => (
+                      p === '...' ? (
+                        <span key={idx} style={{ padding: '0 4px', color: 'var(--ink-soft)' }}>…</span>
+                      ) : (
+                        <button
+                          key={idx}
+                          className={`pg-btn ${p === validCurrentPage ? 'active' : ''}`}
+                          onClick={() => setCurrentPage(p)}
+                        >
+                          {p}
+                        </button>
+                      )
+                    ))}
+
+                    <button
+                      className="pg-btn"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={validCurrentPage === totalPages}
+                      title="Next Page"
+                    >
+                      Next ›
+                    </button>
+                    <button
+                      className="pg-btn"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={validCurrentPage === totalPages}
+                      title="Last Page"
+                    >
+                      »
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
         {/* Written Discharge Summaries Tab View */}
@@ -1174,8 +1237,8 @@ export default function App() {
                           {isGenerating
                             ? "Generating…"
                             : generatedMap[currentPatient.id]
-                            ? "Summary generated"
-                            : "Generate discharge summary"}
+                              ? "Summary generated"
+                              : "Generate discharge summary"}
                         </span>
                       </button>
                       <span className="generate-hint">~40 min saved</span>
@@ -1185,12 +1248,48 @@ export default function App() {
 
                 <div>
                   <div className="pane-label">Patient discharge summary</div>
-                  <div className="output-empty" id="modalOutputEmpty">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M9 12h6M9 16h6M9 8h6M5 4h10l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
-                    </svg>
-                    Click "Generate discharge summary" to draft the plain-language version for this patient.
-                  </div>
+                  {isGenerating ? (
+                    <div className="premium-generation-loader">
+                      <div className="premium-loader-orb">
+                        <div className="premium-loader-ring"></div>
+                        <div className="premium-loader-core">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h2M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="premium-loader-title">Generating Discharge Summary</div>
+                      <div className="premium-loader-sub">Databricks LLM Pipeline Active · Executing Notebook</div>
+
+                      <div className="premium-loader-steps">
+                        <div className="premium-step active">
+                          <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>✓</span>
+                          <span>Databricks API Connected</span>
+                        </div>
+                        <div className="premium-step active">
+                          <span style={{ color: '#0284c7' }}>⚡</span>
+                          <span>Executing LLM Notebook for Patient #{currentPatient.patientId || currentPatient.id}...</span>
+                        </div>
+                        <div className="premium-step">
+                          <span style={{ color: '#6366f1' }}>🤖</span>
+                          <span>Synthesizing Medical Record &amp; Rx Instructions</span>
+                        </div>
+                      </div>
+
+                      <div className="premium-shimmer-lines">
+                        <div className="shimmer-line" style={{ width: '100%' }}></div>
+                        <div className="shimmer-line" style={{ width: '82%' }}></div>
+                        <div className="shimmer-line" style={{ width: '65%' }}></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="output-empty" id="modalOutputEmpty">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path d="M9 12h6M9 16h6M9 8h6M5 4h10l4 4v12a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" />
+                      </svg>
+                      Click "Generate discharge summary" to draft the plain-language version for this patient.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1201,8 +1300,8 @@ export default function App() {
                   {currentPatient.billing === 'cleared'
                     ? "A clinician must review and sign before this summary is finalized."
                     : currentPatient.billing === 'pending'
-                    ? "Billing must clear before final discharge paperwork can be issued."
-                    : "Remaining balance must clear before final discharge paperwork can be issued."}
+                      ? "Billing must clear before final discharge paperwork can be issued."
+                      : "Remaining balance must clear before final discharge paperwork can be issued."}
                 </div>
                 <button
                   className="btn-sign"
