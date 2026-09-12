@@ -12,7 +12,7 @@ function getTodayFormatted() {
   return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patientDetailsList = [], doctorDetailsList = []) {
+function mapApiRecordsToPatients(admissionsData = [], summariesData = [], signedMap = {}) {
   if (!admissionsData.length) return [];
 
   // Map discharge summaries STRICTLY by patient_id ONLY
@@ -26,9 +26,12 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
 
   return admissionsData.map((adm, index) => {
     const pIdKey = adm.patient_id != null ? String(adm.patient_id).trim() : null;
+    const admIdKey = adm.admission_id != null ? String(adm.admission_id).trim() : null;
     const matchedDs = pIdKey ? summariesByPatientId[pIdKey] : null;
 
-    const isDischarged = !!matchedDs || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged";
+    const signedRecord = (pIdKey && signedMap[pIdKey]) || (admIdKey && signedMap[admIdKey]);
+    const isSignedByClinician = !!signedRecord || (matchedDs && (matchedDs.approval_status === "Approved" || matchedDs.is_signed === true));
+    const isDischarged = isSignedByClinician || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged";
 
     const admDateStr = adm.admission_date
       ? new Date(adm.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
@@ -54,7 +57,8 @@ function mapApiRecordsToPatients(admissionsData = [], summariesData = [], patien
       ? `${adm.emergency_contact_name} ${adm.emergency_contact_phone ? '(' + adm.emergency_contact_phone + ')' : ''}`.trim()
       : 'N/A';
 
-    const docName = matchedDs?.primary_consultant || adm.attending_doctor || matchedDs?.approved_by || matchedDs?.attending_physician || 'Attending Physician';
+    const docName = signedRecord?.signedBy || matchedDs?.approved_by || matchedDs?.primary_consultant || adm.attending_doctor || matchedDs?.attending_physician || 'Attending Physician';
+    const signedDateVal = signedRecord?.signedDate || (matchedDs?.discharge_date ? new Date(matchedDs.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null);
     const docSpecialty = adm.doctor_specialization || adm.physician_specialty || 'General Medicine';
     const docQual = adm.doctor_qualification ? `(${adm.doctor_qualification})` : '';
 
@@ -159,7 +163,7 @@ Status: ${adm.discharge_status || adm.admission_status || 'Admitted'} | Stay: ${
       of: amountTotal,
       discharged: !!isDischarged,
       signedBy: docName,
-      signedDate: matchedDs?.discharge_date ? new Date(matchedDs.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (admDateStr || getTodayFormatted()),
+      signedDate: signedDateVal || getTodayFormatted(),
       rawNote,
       summary,
       address: patAddr,
@@ -287,6 +291,15 @@ export default function App() {
   const [pageSize, setPageSize] = useState(10);
   const [modalPatientId, setModalPatientId] = useState(null);
   const [modalViewTab, setModalViewTab] = useState('summary'); // 'summary' | 'raw'
+  const [signedMap, setSignedMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('discharge_signed_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
   const [generatedMap, setGeneratedMap] = useState(() => {
     try {
       const saved = localStorage.getItem('discharge_generated_map');
@@ -339,6 +352,7 @@ export default function App() {
   const [signDate, setSignDate] = useState(getTodayFormatted());
   const [apiStatus, setApiStatus] = useState({ connected: false, loading: true });
   const [bedsSummary, setBedsSummary] = useState(null);
+  const [doctorsList, setDoctorsList] = useState([]);
 
   useEffect(() => {
     fetchDynamicApiData();
@@ -359,19 +373,22 @@ export default function App() {
   async function fetchDynamicApiData(showLoader = true) {
     if (showLoader) setApiStatus(prev => ({ ...prev, loading: true }));
     try {
-      const [admissionsRes, summariesRes, bedsSummaryRes] = await Promise.allSettled([
+      const [admissionsRes, summariesRes, bedsSummaryRes, doctorsRes] = await Promise.allSettled([
         apiService.getCurrentAdmissionLlmInputs({ limit: 400 }),
         apiService.getGeneratedDischargeSummaries({ limit: 400 }),
-        apiService.getBronzeBedsSummary()
+        apiService.getBronzeBedsSummary(),
+        apiService.getBronzeDoctors({ limit: 400 })
       ]);
 
-      const isAnyFulfilled = admissionsRes.status === 'fulfilled' || summariesRes.status === 'fulfilled' || bedsSummaryRes.status === 'fulfilled';
+      const isAnyFulfilled = admissionsRes.status === 'fulfilled' || summariesRes.status === 'fulfilled' || bedsSummaryRes.status === 'fulfilled' || doctorsRes.status === 'fulfilled';
 
       const admissions = admissionsRes.status === 'fulfilled' ? admissionsRes.value?.data || [] : [];
       const summaries = summariesRes.status === 'fulfilled' ? summariesRes.value?.data || [] : [];
       const bSummary = bedsSummaryRes.status === 'fulfilled' ? bedsSummaryRes.value : null;
+      const doctors = doctorsRes.status === 'fulfilled' ? (doctorsRes.value?.data || (Array.isArray(doctorsRes.value) ? doctorsRes.value : [])) : [];
 
       if (bSummary) setBedsSummary(bSummary);
+      if (doctors.length > 0) setDoctorsList(doctors);
       setRawSummaries(summaries);
 
       // Clean up generatingMap if summary is now available in Databricks API
@@ -396,7 +413,7 @@ export default function App() {
       }
 
       if (admissions.length > 0) {
-        const mapped = mapApiRecordsToPatients(admissions, summaries, [], []);
+        const mapped = mapApiRecordsToPatients(admissions, summaries, signedMap);
         setPatients(mapped || []);
       }
 
@@ -484,7 +501,23 @@ export default function App() {
     setSignPanelOpen(false);
     setGenerateError(null);
     const p = patients.find(pat => pat.id === id);
-    setSignName(p?.signedBy || 'Dr. Attending Physician');
+
+    let defaultDocName = p?.signedBy || '';
+    if (!defaultDocName && doctorsList.length > 0) {
+      const matchDoc = doctorsList.find(d => {
+        const dFull = `${d.first_name || ''} ${d.last_name || ''}`.toLowerCase();
+        return p?.signedBy && dFull.includes(p.signedBy.toLowerCase());
+      }) || doctorsList[0];
+      const rawName = (matchDoc.first_name || matchDoc.last_name)
+        ? `${matchDoc.first_name || ''} ${matchDoc.last_name || ''}`.trim()
+        : (matchDoc.full_name || matchDoc.doctor_name || matchDoc.name || 'Attending Physician');
+      const titleName = rawName.toLowerCase().startsWith('dr') ? rawName : `Dr. ${rawName}`;
+      const spec = matchDoc.specialty || matchDoc.department_name || matchDoc.specialization || 'General Medicine';
+      const qual = matchDoc.qualification ? ` (${matchDoc.qualification})` : '';
+      defaultDocName = `${titleName}${qual} (${spec})`;
+    }
+
+    setSignName(defaultDocName || p?.signedBy || 'Dr. Attending Physician');
     setSignDate(getTodayFormatted());
   };
 
@@ -559,8 +592,23 @@ export default function App() {
     const finalName = signName.trim() || "Dr. (unspecified)";
     const finalDate = signDate.trim() || getTodayFormatted();
 
+    const signedObj = { signedBy: finalName, signedDate: finalDate };
+
+    setSignedMap(prev => {
+      const next = {
+        ...prev,
+        [currentPatient.id]: signedObj,
+        ...(currentPatient.patientId ? { [currentPatient.patientId]: signedObj } : {}),
+        ...(currentPatient.admissionId ? { [currentPatient.admissionId]: signedObj } : {})
+      };
+      try {
+        localStorage.setItem('discharge_signed_map', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
     setPatients(prev => prev.map(p => {
-      if (p.id === currentPatient.id) {
+      if (p.id === currentPatient.id || (currentPatient.patientId && p.patientId === currentPatient.patientId)) {
         return {
           ...p,
           discharged: true,
@@ -1400,14 +1448,56 @@ export default function App() {
 
               <div className={`sign-panel ${signPanelOpen ? 'open' : ''}`} id="signPanel">
                 <div className="sign-field">
-                  <label>Signing clinician</label>
-                  <input
-                    type="text"
-                    id="signName"
-                    placeholder="Dr. …"
-                    value={signName}
-                    onChange={(e) => setSignName(e.target.value)}
-                  />
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Signing clinician / doctor</span>
+                    <span style={{ fontSize: '11px', color: 'var(--primary-dark)', fontWeight: 'normal' }}>
+                      (Loaded from Bronze Doctors API)
+                    </span>
+                  </label>
+                  {doctorsList.length > 0 ? (
+                    <select
+                      id="signDoctorSelect"
+                      className="sign-select"
+                      value={signName}
+                      onChange={(e) => setSignName(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid var(--line)',
+                        background: 'var(--paper)',
+                        color: 'var(--ink)',
+                        fontSize: '13px',
+                        fontFamily: 'var(--sans)',
+                        fontWeight: 500,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                      }}
+                    >
+                      <option value="">-- Select Signing Doctor --</option>
+                      {doctorsList.map((doc, idx) => {
+                        const fName = doc.first_name || '';
+                        const lName = doc.last_name || '';
+                        const rawName = (fName || lName) ? `${fName} ${lName}`.trim() : (doc.full_name || doc.doctor_name || doc.name || `Doctor #${doc.doctor_id || idx+1}`);
+                        const titleName = rawName.toLowerCase().startsWith('dr') ? rawName : `Dr. ${rawName}`;
+                        const spec = doc.specialty || doc.department_name || doc.specialization || 'General Medicine';
+                        const qual = doc.qualification ? ` (${doc.qualification})` : '';
+                        const fullDocStr = `${titleName}${qual} (${spec})`;
+                        return (
+                          <option key={doc.doctor_id || idx} value={fullDocStr}>
+                            {fullDocStr}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      id="signName"
+                      placeholder="Dr. …"
+                      value={signName}
+                      onChange={(e) => setSignName(e.target.value)}
+                    />
+                  )}
                 </div>
                 <div className="sign-field">
                   <label>Date</label>
