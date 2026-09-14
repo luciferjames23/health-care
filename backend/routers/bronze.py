@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
-from connectors.databricks_connector import DatabricksConnector, MOCK_BRONZE_DATA
+from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
 router = APIRouter(
@@ -89,8 +89,6 @@ def list_bronze_tables():
         tables_list = []
         for t_name, meta in BRONZE_TABLES_META.items():
             row_count = db_connector.get_row_count(t_name, schema="bronze")
-            if row_count == 0 and t_name in MOCK_BRONZE_DATA:
-                row_count = len(MOCK_BRONZE_DATA[t_name])
             
             tables_list.append({
                 "table_name": t_name,

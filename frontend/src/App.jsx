@@ -15,23 +15,40 @@ function getTodayFormatted() {
 function mapApiRecordsToPatients(admissionsData = [], summariesData = [], signedMap = {}) {
   if (!admissionsData.length) return [];
 
-  // Map discharge summaries STRICTLY by patient_id ONLY
+  // Map discharge summaries strictly by separate dictionaries to prevent cross-key matching
   const summariesByPatientId = {};
+  const summariesByAdmissionId = {};
+  const summariesByPatientNumber = {};
+
   summariesData.forEach(s => {
     if (s.patient_id != null) {
       const pidStr = String(s.patient_id).trim();
       if (pidStr) summariesByPatientId[pidStr] = s;
+    }
+    if (s.admission_id != null) {
+      const admStr = String(s.admission_id).trim();
+      if (admStr) summariesByAdmissionId[admStr] = s;
+    }
+    if (s.patient_number != null) {
+      const pNumStr = String(s.patient_number).trim();
+      if (pNumStr) summariesByPatientNumber[pNumStr] = s;
     }
   });
 
   return admissionsData.map((adm, index) => {
     const pIdKey = adm.patient_id != null ? String(adm.patient_id).trim() : null;
     const admIdKey = adm.admission_id != null ? String(adm.admission_id).trim() : null;
-    const matchedDs = pIdKey ? summariesByPatientId[pIdKey] : null;
+    const pNumKey = adm.patient_number != null ? String(adm.patient_number).trim() : null;
 
+    // Strict 1-to-1 matching: patient_id -> patient_id, patient_number -> patient_number, admission_id -> admission_id
+    const matchedDs = (pIdKey && summariesByPatientId[pIdKey]) ||
+                      (pNumKey && summariesByPatientNumber[pNumKey]) ||
+                      (admIdKey && summariesByAdmissionId[admIdKey]) || null;
+
+    const hasRealSummary = !!matchedDs;
     const signedRecord = (pIdKey && signedMap[pIdKey]) || (admIdKey && signedMap[admIdKey]);
-    const isSignedByClinician = !!signedRecord || (matchedDs && (matchedDs.approval_status === "Approved" || matchedDs.is_signed === true));
-    const isDischarged = isSignedByClinician || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged";
+    const isSignedByClinician = hasRealSummary && (!!signedRecord || matchedDs.approval_status === "Approved" || matchedDs.is_signed === true || !!matchedDs.discharge_date);
+    const isDischarged = hasRealSummary && (isSignedByClinician || adm.discharge_status === "Discharged" || adm.admission_status === "Discharged");
 
     const admDateStr = adm.admission_date
       ? new Date(adm.admission_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
@@ -291,23 +308,16 @@ export default function App() {
   const [pageSize, setPageSize] = useState(10);
   const [modalPatientId, setModalPatientId] = useState(null);
   const [modalViewTab, setModalViewTab] = useState('summary'); // 'summary' | 'raw'
-  const [signedMap, setSignedMap] = useState(() => {
-    try {
-      const saved = localStorage.getItem('discharge_signed_map');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
+  const [signedMap, setSignedMap] = useState({});
+  const [generatedMap, setGeneratedMap] = useState({});
 
-  const [generatedMap, setGeneratedMap] = useState(() => {
+  // Clear any legacy stale localStorage keys on initial mount
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem('discharge_generated_map');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
+      localStorage.removeItem('discharge_signed_map');
+      localStorage.removeItem('discharge_generated_map');
+    } catch (e) {}
+  }, []);
 
   // Active generation tracking persisted in sessionStorage across page reloads
   const [generatingMap, setGeneratingMap] = useState(() => {
@@ -329,12 +339,6 @@ export default function App() {
       return {};
     }
   });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('discharge_generated_map', JSON.stringify(generatedMap));
-    } catch (e) {}
-  }, [generatedMap]);
 
   useEffect(() => {
     try {
@@ -429,16 +433,17 @@ export default function App() {
   const totalCount = patients.length;
   const clearedCount = patients.filter(p => p.billing === 'cleared').length;
   const outstandingCount = patients.filter(p => p.billing !== 'cleared').length;
-  const dischargedCount = patients.filter(p => p.discharged).length;
-  const admittedCount = patients.filter(p => !p.discharged).length;
+  const writtenSummariesCount = rawSummaries.length;
+  const dischargedCount = rawSummaries.length;
+  const admittedCount = Math.max(0, totalCount - writtenSummariesCount);
 
   const rawAvailableBeds = bedsSummary?.metrics?.available_beds_count ?? bedsSummary?.metrics?.available ?? 0;
   const rawOccupiedBeds = bedsSummary?.metrics?.occupied_beds_count ?? bedsSummary?.metrics?.occupied ?? 0;
   const totalBedsCount = bedsSummary?.metrics?.total_beds_count ?? bedsSummary?.total_records ?? (rawAvailableBeds + rawOccupiedBeds);
 
-  // Bed status changes from Occupied to Available when patient is discharged
-  const availableBedsCount = rawAvailableBeds + dischargedCount;
-  const occupiedBedsCount = Math.max(0, rawOccupiedBeds - dischargedCount);
+  // Bed status changes from Occupied to Available when patient has a generated discharge summary
+  const availableBedsCount = rawAvailableBeds + writtenSummariesCount;
+  const occupiedBedsCount = Math.max(0, rawOccupiedBeds - writtenSummariesCount);
 
   let currentPatient = patients.find(p => String(p.id) === String(modalPatientId) || (p.patientId && String(p.patientId) === String(modalPatientId)));
   if (!currentPatient && modalPatientId && rawSummaries.length > 0) {
@@ -594,18 +599,12 @@ export default function App() {
 
     const signedObj = { signedBy: finalName, signedDate: finalDate };
 
-    setSignedMap(prev => {
-      const next = {
-        ...prev,
-        [currentPatient.id]: signedObj,
-        ...(currentPatient.patientId ? { [currentPatient.patientId]: signedObj } : {}),
-        ...(currentPatient.admissionId ? { [currentPatient.admissionId]: signedObj } : {})
-      };
-      try {
-        localStorage.setItem('discharge_signed_map', JSON.stringify(next));
-      } catch (e) {}
-      return next;
-    });
+    setSignedMap(prev => ({
+      ...prev,
+      [currentPatient.id]: signedObj,
+      ...(currentPatient.patientId ? { [currentPatient.patientId]: signedObj } : {}),
+      ...(currentPatient.admissionId ? { [currentPatient.admissionId]: signedObj } : {})
+    }));
 
     setPatients(prev => prev.map(p => {
       if (p.id === currentPatient.id || (currentPatient.patientId && p.patientId === currentPatient.patientId)) {
@@ -819,7 +818,7 @@ export default function App() {
             <div className="ward-stat-label">Currently Admitted Patients</div>
           </div>
           <div className="ward-stat">
-            <div className="ward-stat-num" style={{ color: '#0284c7' }}>{dischargedCount} / {totalCount}</div>
+            <div className="ward-stat-num" style={{ color: '#0284c7' }}>{writtenSummariesCount} / {totalCount}</div>
             <div className="ward-stat-label">Written Discharge Summaries</div>
           </div>
         </div>
@@ -883,7 +882,7 @@ export default function App() {
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
               <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
             </svg>
-            Written Discharge Summaries ({dischargedCount})
+            Written Discharge Summaries ({writtenSummariesCount})
           </button>
         </div>
 
@@ -963,7 +962,7 @@ export default function App() {
                     </tr>
                   ) : (
                     paginatedPatients.map(p => {
-                      const hasSummary = p.hasSummary || p.discharged || (p.id && !!generatedMap[p.id]) || (p.patientId && !!generatedMap[p.patientId]);
+                      const hasSummary = p.hasSummary || (p.id && !!generatedMap[p.id]) || (p.patientId && !!generatedMap[p.patientId]);
                       const isGeneratingThisPatient = !hasSummary && Boolean(
                         (p.id && p.id !== 'undefined' && !!generatingMap[p.id]) ||
                         (p.patientId && p.patientId !== 'undefined' && !!generatingMap[p.patientId])

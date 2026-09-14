@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
-from connectors.databricks_connector import DatabricksConnector, MOCK_GOLD_DATA
+from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
 router = APIRouter(
@@ -121,8 +121,6 @@ def list_gold_tables():
         tables_list = []
         for t_name, meta in GOLD_TABLES_META.items():
             row_count = db_connector.get_row_count(t_name)
-            if row_count == 0 and t_name in MOCK_GOLD_DATA:
-                row_count = len(MOCK_GOLD_DATA[t_name])
             
             tables_list.append({
                 "table_name": t_name,
