@@ -9,17 +9,26 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from contextlib import asynccontextmanager
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
 from routers.gold import router as gold_router
 from routers.bronze import router as bronze_router
 from routers.notebook import router as notebook_router
 from routers.jobrun import router as jobrun_router
+from routers.radiology import router as radiology_router, init_radiology_models, shutdown_radiology_models
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_radiology_models()
+    yield
+    shutdown_radiology_models()
 
 app = FastAPI(
-    title="Databricks Healthcare Lakehouse API",
-    description="REST API service to query Healthcare Gold and Bronze schema tables in Databricks (`health_care.gold.*` and `health_care.bronze.*`)",
-    version="2.0.0"
+    title="Healthcare Lakehouse & AI Radiology API",
+    description="Unified REST API service for Healthcare Clinical Lakehouse and AI Radiology Diagnostics",
+    version="2.1.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -34,6 +43,7 @@ app.include_router(gold_router)
 app.include_router(bronze_router)
 app.include_router(notebook_router)
 app.include_router(jobrun_router)
+app.include_router(radiology_router)
 
 db_connector = DatabricksConnector()
 

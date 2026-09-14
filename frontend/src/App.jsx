@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
+import './radiology/radiology.css';
+import AnalysisPage from './radiology/pages/AnalysisPage';
+import WorklistPage from './radiology/pages/WorklistPage';
+import { getStudyDetail, markStudyViewed } from './radiology/services/radiologyApi';
 
 function cleanId(val) {
   if (val == null) return '';
@@ -284,7 +288,9 @@ function SummaryContent({ s }) {
 export default function App() {
   const [patients, setPatients] = useState([]);
   const [rawSummaries, setRawSummaries] = useState([]);
-  const [activeNavTab, setActiveNavTab] = useState('patients'); // 'patients' | 'written_summaries'
+  const [activeNavTab, setActiveNavTab] = useState('patients'); // 'patients' | 'written_summaries' | 'radiology_analysis' | 'radiology_worklist'
+  const [selectedRadiologyStudy, setSelectedRadiologyStudy] = useState(null);
+  const [radiologyRefreshKey, setRadiologyRefreshKey] = useState(0);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -353,6 +359,17 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState({ connected: false, loading: true });
   const [bedsSummary, setBedsSummary] = useState(null);
   const [doctorsList, setDoctorsList] = useState([]);
+
+  const handleViewRadiologyStudy = async (studyId) => {
+    try {
+      const detail = await getStudyDetail(studyId);
+      await markStudyViewed(studyId).catch(() => {});
+      setSelectedRadiologyStudy(detail);
+      setActiveNavTab('radiology_analysis');
+    } catch (err) {
+      console.error("Failed to fetch radiology study detail:", err);
+    }
+  };
 
   useEffect(() => {
     fetchDynamicApiData();
@@ -429,7 +446,7 @@ export default function App() {
   const totalCount = patients.length;
   const clearedCount = patients.filter(p => p.billing === 'cleared').length;
   const outstandingCount = patients.filter(p => p.billing !== 'cleared').length;
-  const dischargedCount = patients.filter(p => p.discharged).length;
+  const dischargedCount = rawSummaries.length;
   const admittedCount = patients.filter(p => !p.discharged).length;
 
   const rawAvailableBeds = bedsSummary?.metrics?.available_beds_count ?? bedsSummary?.metrics?.available ?? 0;
@@ -885,6 +902,66 @@ export default function App() {
             </svg>
             Written Discharge Summaries ({dischargedCount})
           </button>
+
+          <button
+            onClick={() => {
+              setActiveNavTab('radiology_analysis');
+            }}
+            style={{
+              fontFamily: 'var(--sans)',
+              fontSize: '13.5px',
+              fontWeight: 700,
+              padding: '9px 18px',
+              borderRadius: '8px',
+              border: '1px solid',
+              borderColor: activeNavTab === 'radiology_analysis' ? 'var(--primary-dark)' : 'var(--line)',
+              background: activeNavTab === 'radiology_analysis' ? 'var(--primary-tint)' : 'var(--paper)',
+              color: activeNavTab === 'radiology_analysis' ? 'var(--primary-dark)' : 'var(--ink-soft)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: activeNavTab === 'radiology_analysis' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            AI Radiology Analysis
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveNavTab('radiology_worklist');
+              setRadiologyRefreshKey(k => k + 1);
+            }}
+            style={{
+              fontFamily: 'var(--sans)',
+              fontSize: '13.5px',
+              fontWeight: 700,
+              padding: '9px 18px',
+              borderRadius: '8px',
+              border: '1px solid',
+              borderColor: activeNavTab === 'radiology_worklist' ? 'var(--primary-dark)' : 'var(--line)',
+              background: activeNavTab === 'radiology_worklist' ? 'var(--primary-tint)' : 'var(--paper)',
+              color: activeNavTab === 'radiology_worklist' ? 'var(--primary-dark)' : 'var(--ink-soft)',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: activeNavTab === 'radiology_worklist' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+            </svg>
+            Radiology Worklist
+          </button>
         </div>
 
         {activeNavTab === 'patients' && (
@@ -1167,6 +1244,7 @@ export default function App() {
                       const disDate = s.discharge_date ? new Date(s.discharge_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : getTodayFormatted();
                       const diagText = s.discharge_diagnosis || s.diagnoses || matchedPatient?.diagnosisShort || 'Clinical Care';
                       const doctorText = s.attending_physician || s.primary_consultant || s.approved_by || matchedPatient?.signedBy || 'Attending Physician';
+                      const targetId = matchedPatient ? matchedPatient.id : (s.patient_id || s.admission_id);
 
                       return (
                         <tr key={s.summary_id || idx}>
@@ -1197,13 +1275,7 @@ export default function App() {
                           <td>
                             <button
                               className="btn-gen done"
-                              onClick={() => {
-                                if (matchedPatient) {
-                                  openModal(matchedPatient.id);
-                                } else {
-                                  setModalPatientId(s.patient_id || s.admission_id);
-                                }
-                              }}
+                              onClick={() => openModal(targetId)}
                             >
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M20 6L9 17l-5-5" />
@@ -1218,6 +1290,28 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {activeNavTab === 'radiology_analysis' && (
+          <section className="radiology-tab-content" style={{ marginTop: '16px' }}>
+            <AnalysisPage
+              initialResult={selectedRadiologyStudy}
+              onResultStateChange={(hasResult) => {
+                if (!hasResult) {
+                  setSelectedRadiologyStudy(null);
+                }
+              }}
+            />
+          </section>
+        )}
+
+        {activeNavTab === 'radiology_worklist' && (
+          <section className="radiology-tab-content" style={{ marginTop: '16px' }}>
+            <WorklistPage
+              onViewStudy={handleViewRadiologyStudy}
+              refreshKey={radiologyRefreshKey}
+            />
           </section>
         )}
       </main>
