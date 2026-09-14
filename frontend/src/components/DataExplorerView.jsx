@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 import { apiService } from '../services/api';
 
-export default function DataExplorerView({ tables = [], initialTable = 'dim_patient' }) {
+export default function DataExplorerView({ tables = [], initialTable = 'patients' }) {
+  const [tableList, setTableList] = useState(tables);
   const [selectedTable, setSelectedTable] = useState(initialTable);
   const [dataResult, setDataResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,27 @@ export default function DataExplorerView({ tables = [], initialTable = 'dim_pati
   const [searchFilter, setSearchFilter] = useState('');
 
   useEffect(() => {
-    if (initialTable) {
+    async function initTables() {
+      if (tables && tables.length > 0) {
+        setTableList(tables);
+        return;
+      }
+      try {
+        const res = await apiService.getPostgresTables();
+        const tList = res.tables || [];
+        setTableList(tList);
+        if (tList.length > 0 && (!selectedTable || selectedTable === 'dim_patient')) {
+          setSelectedTable(tList[0].table_name);
+        }
+      } catch (err) {
+        console.error("Failed to load tables list", err);
+      }
+    }
+    initTables();
+  }, [tables]);
+
+  useEffect(() => {
+    if (initialTable && initialTable !== 'dim_patient') {
       setSelectedTable(initialTable);
       setOffset(0);
     }
@@ -133,7 +154,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'dim_pati
               }}
               className="bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500"
             >
-              {tables.map((t) => (
+              {tableList.map((t) => (
                 <option key={t.table_name} value={t.table_name}>
                   {t.table_name} ({(t.row_count || 0).toLocaleString()} rows)
                 </option>

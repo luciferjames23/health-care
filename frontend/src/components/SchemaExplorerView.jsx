@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { apiService } from '../services/api';
 
-export default function SchemaExplorerView({ tables = [], initialTable = 'dim_patient', onViewData }) {
+export default function SchemaExplorerView({ tables = [], initialTable = 'patients', onViewData }) {
+  const [tableList, setTableList] = useState(tables);
   const [selectedTable, setSelectedTable] = useState(initialTable);
   const [schemaData, setSchemaData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,27 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_pa
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (initialTable) {
+    async function initTables() {
+      if (tables && tables.length > 0) {
+        setTableList(tables);
+        return;
+      }
+      try {
+        const res = await apiService.getPostgresTables();
+        const tList = res.tables || [];
+        setTableList(tList);
+        if (tList.length > 0 && (!selectedTable || selectedTable === 'dim_patient')) {
+          setSelectedTable(tList[0].table_name);
+        }
+      } catch (err) {
+        console.error("Failed to load tables list", err);
+      }
+    }
+    initTables();
+  }, [tables]);
+
+  useEffect(() => {
+    if (initialTable && initialTable !== 'dim_patient') {
       setSelectedTable(initialTable);
     }
   }, [initialTable]);
@@ -42,15 +63,15 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_pa
     loadSchema();
   }, [selectedTable]);
 
-  const filteredTables = tables.filter(t => 
+  const filteredTables = tableList.filter(t => 
     t.table_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (t.domain && t.domain.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const currentTableObj = tables.find(t => t.table_name === selectedTable) || {
+  const currentTableObj = tableList.find(t => t.table_name === selectedTable) || {
     table_name: selectedTable,
-    catalog: 'health_care',
-    schema: 'gold',
+    catalog: 'postgres',
+    schema: 'public',
     row_count: 0
   };
 

@@ -27,6 +27,160 @@ async function fetchWithTimeout(url, options = {}) {
 }
 
 export const apiService = {
+  // PostgreSQL Database & Generic Table APIs
+  async getPostgresHealth() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/health`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getPostgresTables(schema = 'public') {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables?schema=${encodeURIComponent(schema)}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getTableSchema(tableName, schema = 'public') {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables/${encodeURIComponent(tableName)}/schema?schema=${encodeURIComponent(schema)}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getTableData(tableName, limit = 50, offset = 0, params = {}) {
+    const queryParams = new URLSearchParams();
+    if (limit) queryParams.append("limit", limit);
+    if (offset) queryParams.append("offset", offset);
+    if (params.schema) queryParams.append("schema", params.schema);
+    if (params.order_by) queryParams.append("order_by", params.order_by);
+    if (params.order_dir) queryParams.append("order_dir", params.order_dir);
+    if (params.search) queryParams.append("search", params.search);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables/${encodeURIComponent(tableName)}/data?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async executeSqlQuery(query, limit = 100) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/query`, {
+      method: 'POST',
+      body: JSON.stringify({ query, limit })
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  // PostgreSQL UI Workspace Data APIs
+  async getCommandCentreData() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/command-centre`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getClinicalPatients(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+    if (params.search) queryParams.append("search", params.search);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/clinical-patients?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getPatient360(patientId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/patient-360/${encodeURIComponent(patientId)}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getDischargeCandidates(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/discharge-candidates?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getBedDemandAnalytics() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getBedDemandForecast(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+    if (params.ward_name) queryParams.append("ward_name", params.ward_name);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand/forecast?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getBedDemandSummary() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getBedDemand7DayTrend() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand/forecast?limit=100`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    return { data: data?.summary?.trend || [] };
+  },
+
+  async getRevenueAnalytics(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+    if (params.bill_status) queryParams.append("bill_status", params.bill_status);
+    if (params.department_name) queryParams.append("department_name", params.department_name);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getRevenuePredictions(params = {}) {
+    return await this.getRevenueAnalytics(params);
+  },
+
+  async getRevenuePredictionsSummary() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue?limit=1`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    const data = await res.json();
+    return data?.summary || {};
+  },
+
+  async getRevenuePredictionById(id) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue/${encodeURIComponent(id)}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getSoapNotes(params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/soap-notes?${queryParams.toString()}`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
+  async getExecutiveAnalytics() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/analytics`);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  },
+
   // Gold Summary
   async getGoldSummary() {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/summary`);

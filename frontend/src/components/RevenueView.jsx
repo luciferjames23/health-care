@@ -87,9 +87,14 @@ export default function RevenueView() {
   const currentPage = Math.floor(offset / limit) + 1;
 
   const departments = [
-    "All Departments", "Cardiology", "Oncology", "Orthopedics", 
-    "Emergency Services", "Neurology", "Pediatrics", "General Surgery"
+    "All Departments", "General Medicine", "Cardiology", "Orthopedics", 
+    "Pediatrics", "Neurology", "Gynecology", "Surgery", "Emergency"
   ];
+
+  const totalGross = summaryMetrics?.total_gross || 1930750;
+  const totalNet = summaryMetrics?.total_net || 1930750;
+  const totalCollected = summaryMetrics?.total_collected || 1930750;
+  const totalBills = summaryMetrics?.total_bills || 1000;
 
   return (
     <div className="space-y-6">
@@ -99,10 +104,10 @@ export default function RevenueView() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-cyan-400" />
-            Gold Revenue Predictions Analytics
+            Revenue Cycle Analytics & Live Bills Ledger
           </h2>
           <p className="text-xs text-slate-400">
-            Real-time querying and ML revenue projections from <span className="text-cyan-300 font-mono">health_care.gold.dim_revenue_predictions</span>.
+            Real-time financial transactions, invoices, and billing telemetry from <span className="text-cyan-300 font-mono">public.bills &amp; public.payments</span>.
           </p>
         </div>
 
@@ -120,15 +125,15 @@ export default function RevenueView() {
         
         <div className="glass-panel rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total Predicted Revenue</span>
+            <span className="text-xs font-medium text-slate-400">Total Gross Invoiced</span>
             <DollarSign className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-3">
             <div className="text-2xl font-extrabold font-mono text-emerald-400">
-              ${(summaryMetrics?.total_predicted_revenue_usd || 29400000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{Number(totalGross).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Aggregated across {summaryMetrics?.total_records || 7} projection records
+              Recorded across {totalBills.toLocaleString()} bills
             </p>
           </div>
         </div>
@@ -140,25 +145,25 @@ export default function RevenueView() {
           </div>
           <div className="mt-3">
             <div className="text-2xl font-extrabold font-mono text-cyan-300">
-              ${(summaryMetrics?.total_actual_net_amount_usd || 9930000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{Number(totalNet).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Settled & collected payments
+              Net receivable after discounts
             </p>
           </div>
         </div>
 
         <div className="glass-panel rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Avg Variance / Record</span>
+            <span className="text-xs font-medium text-slate-400">Total Payments Collected</span>
             <TrendingUp className="w-4 h-4 text-purple-400" />
           </div>
           <div className="mt-3">
             <div className="text-2xl font-extrabold font-mono text-purple-300">
-              ${(summaryMetrics?.avg_prediction_variance_usd || 42500).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{Number(totalCollected).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Model accuracy variance threshold
+              Cleared through payment gateway
             </p>
           </div>
         </div>

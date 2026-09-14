@@ -73,8 +73,16 @@ export default function BedDemandView() {
   const totalPages = Math.ceil(totalRows / limit) || 1;
   const currentPage = Math.floor(offset / limit) + 1;
 
-  const wards = ["All Wards", "Diamond Suite Ward", "ICU Intensive Unit", "Orthopedics Block A", "General Ward 2B"];
-  const days = ["All Days", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const wards = [
+    "All Wards",
+    "Coronary Care CCU",
+    "Medical Intensive Care MICU",
+    "Surgical Intensive Care SICU",
+    "Emerald Semi-Private Ward",
+    "Platinum Deluxe Wing",
+    "Emergency Observation Bay"
+  ];
+  const days = ["All Days", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
   return (
     <div className="space-y-6">
@@ -84,10 +92,10 @@ export default function BedDemandView() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <Activity className="w-5 h-5 text-cyan-400" />
-            7-Day Detailed Bed Demand Forecast
+            7-Day Detailed Bed Demand Forecast & Ward Capacity
           </h2>
           <p className="text-xs text-slate-400">
-            Real-time ward capacity and bed demand projections from <span className="text-cyan-300 font-mono">health_care.gold.fact_bed_demand_forecast_7day_detailed</span>.
+            Real-time ward capacity, bed inventory, and telemetry projections from <span className="text-cyan-300 font-mono">public.beds &amp; public.wards</span>.
           </p>
         </div>
 
@@ -100,65 +108,65 @@ export default function BedDemandView() {
         </button>
       </div>
 
-      {/* KPI Cards */}
+      {/* Overview Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
         <div className="glass-panel rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total Demanded Beds</span>
+            <span className="text-xs font-medium text-slate-400">Total Hospital Beds</span>
             <Activity className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-cyan-300">
-              {summaryMetrics?.metrics?.total_predicted_beds || 26}
+              {summaryMetrics?.overview?.total_beds || 180}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Across 7-day rolling forecast horizon
+              Active licensed capacity in PostgreSQL
             </p>
           </div>
         </div>
 
         <div className="glass-panel rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Emergency Beds</span>
-            <AlertTriangle className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-rose-400">
-              {summaryMetrics?.metrics?.total_predicted_emergency_beds || 13}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Unplanned emergency room load
-            </p>
-          </div>
-        </div>
-
-        <div className="glass-panel rounded-xl p-5 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Elective Procedure Beds</span>
+            <span className="text-xs font-medium text-slate-400">Available Ready Beds</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-emerald-300">
-              {summaryMetrics?.metrics?.total_predicted_elective_beds || 9}
+            <div className="text-3xl font-extrabold font-mono text-emerald-400">
+              {summaryMetrics?.overview?.available_beds ?? 180}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Scheduled admissions & surgeries
+              Immediately available for intake
             </p>
           </div>
         </div>
 
         <div className="glass-panel rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Avg Forecasted Occupancy Rate</span>
-            <BarChart2 className="w-4 h-4 text-purple-400" />
+            <span className="text-xs font-medium text-slate-400">Avg Daily Bed Charge</span>
+            <Building className="w-4 h-4 text-purple-400" />
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-purple-300">
-              {summaryMetrics?.metrics?.avg_predicted_occupancy_rate_pct || 36.87}%
+              ₹{(summaryMetrics?.overview?.avg_daily_charge || 5260).toLocaleString()}
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Target optimal capacity &lt; 85%
+              Per bed/day across 6 clinical wards
+            </p>
+          </div>
+        </div>
+
+        <div className="glass-panel rounded-xl p-5 border border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Projected Peak Occupancy</span>
+            <BarChart2 className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="mt-3">
+            <div className="text-3xl font-extrabold font-mono text-cyan-300">
+              {trendData?.[0]?.avg_occupancy_rate || 72.5}%
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Target operational threshold &lt; 85%
             </p>
           </div>
         </div>

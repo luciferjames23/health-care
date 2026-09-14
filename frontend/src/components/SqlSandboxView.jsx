@@ -14,40 +14,66 @@ import { apiService } from '../services/api';
 
 const PRESET_QUERIES = [
   {
-    title: "Current Admission Inputs Analysis",
+    title: "Patient Demographics & Master Index",
     sql: `SELECT 
-  admission_id, 
+  patient_id, 
+  patient_number, 
   first_name || ' ' || last_name AS patient_name,
-  admission_type,
-  primary_diagnosis,
-  bill_net_amount,
-  bill_status
-FROM health_care.gold.dim_admission_inputs
-ORDER BY bill_net_amount DESC;`,
-    mockResultKey: 'dim_admission_inputs'
+  gender,
+  date_of_birth,
+  blood_group
+FROM public.patients
+ORDER BY patient_id ASC
+LIMIT 50;`
   },
   {
-    title: "Generated Discharge Summaries",
+    title: "Active Admissions, Beds & Attending Doctors",
     sql: `SELECT 
-  summary_id,
-  patient_name,
-  attending_physician,
-  discharge_diagnosis,
-  approval_status
-FROM health_care.gold.dim_generated_discharge_summaries
-ORDER BY discharge_date DESC;`,
-    mockResultKey: 'dim_generated_discharge_summaries'
+  a.admission_id,
+  a.admission_number,
+  CONCAT(p.first_name, ' ', p.last_name) AS patient_name,
+  b.bed_number,
+  w.ward_name,
+  d.doctor_name,
+  a.admission_date
+FROM public.admissions a
+JOIN public.patients p ON a.patient_id = p.patient_id
+LEFT JOIN public.beds b ON a.bed_id = b.bed_id
+LEFT JOIN public.wards w ON a.ward_id = w.ward_id
+LEFT JOIN public.doctors d ON a.doctor_id = d.doctor_id
+ORDER BY a.admission_date DESC
+LIMIT 50;`
   },
   {
-    title: "Bed Demand Forecast Analysis",
+    title: "Hospital Bills & Financial Invoices",
     sql: `SELECT 
-  forecast_date,
-  ward_name,
-  predicted_beds,
-  predicted_occupancy_rate
-FROM health_care.gold.fact_bed_demand_forecast_7day_detailed
-ORDER BY forecast_date ASC;`,
-    mockResultKey: 'fact_bed_demand_forecast_7day_detailed'
+  b.bill_id,
+  b.bill_number,
+  CONCAT(p.first_name, ' ', p.last_name) AS patient_name,
+  b.gross_amount,
+  b.discount_amount,
+  b.net_amount,
+  b.bill_status,
+  b.bill_date
+FROM public.bills b
+JOIN public.patients p ON b.patient_id = p.patient_id
+ORDER BY b.bill_date DESC
+LIMIT 50;`
+  },
+  {
+    title: "Ward Bed Inventory & Daily Charges",
+    sql: `SELECT 
+  b.bed_id,
+  b.bed_number,
+  w.ward_name,
+  w.ward_type,
+  b.bed_type,
+  b.daily_charge,
+  b.status
+FROM public.beds b
+JOIN public.wards w ON b.ward_id = w.ward_id
+ORDER BY b.bed_id ASC
+LIMIT 50;`
   }
 ];
 
@@ -56,26 +82,31 @@ export default function SqlSandboxView() {
   const [sqlText, setSqlText] = useState(PRESET_QUERIES[0].sql);
   const [isExecuting, setIsExecuting] = useState(false);
   const [execResult, setExecResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const handleRunQuery = async () => {
     setIsExecuting(true);
     setExecResult(null);
+    setErrorMsg(null);
+    const start = performance.now();
     try {
-      const key = PRESET_QUERIES[activeQueryIndex]?.mockResultKey || 'dim_admission_inputs';
-      const res = await apiService.getGoldTableRecords(key, { limit: 50 });
+      const res = await apiService.executeSqlQuery(sqlText, 100);
+      const elapsed = ((performance.now() - start) / 1000).toFixed(3);
       const rows = res.data || [];
       setExecResult({
         rows,
-        columns: rows.length ? Object.keys(rows[0]) : [],
-        duration: (Math.random() * 0.15 + 0.12).toFixed(2),
+        columns: res.columns || (rows.length ? Object.keys(rows[0]) : []),
+        duration: elapsed,
         rowCount: rows.length
       });
     } catch (err) {
+      const elapsed = ((performance.now() - start) / 1000).toFixed(3);
+      setErrorMsg(err.message || String(err));
       setExecResult({
         rows: [],
         columns: [],
-        duration: '0.00',
+        duration: elapsed,
         rowCount: 0
       });
     } finally {

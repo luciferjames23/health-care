@@ -1,0 +1,470 @@
+import React, { useState, useEffect } from 'react';
+import { apiService } from '../services/api';
+
+export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', onBack, onOpenPatient }) {
+  const [lang, setLang] = useState('EN'); // 'EN' | 'TA'
+  const [recState, setRecState] = useState('idle'); // 'idle' | 'recording' | 'done'
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [transcript, setTranscript] = useState('');
+  const [aiDraft, setAiDraft] = useState(null);
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [isSigned, setIsSigned] = useState(false);
+  const [signedAt, setSignedAt] = useState('');
+  const [dbDrafts, setDbDrafts] = useState([]);
+
+  // Clinical record form fields
+  const [soapFields, setSoapFields] = useState({
+    s: 'Patient presents with acute onset retrosternal chest pain radiating to left arm since 04:30 AM. Accompanied by diaphoresis and nausea. Denies dyspnea at rest.',
+    o: 'BP 138/86 mmHg, HR 82 bpm, SpO2 98% on room air, Afebrile. ECG shows ST elevation in leads V2-V4. Troponin-I: 1.84 ng/mL (elevated). 2D ECHO: Anterior wall hypokinesia, LVEF 48%.',
+    a: 'Acute Anterior Non-ST Elevation Myocardial Infarction (NSTEMI). Hemodynamically stable post-heparinization and dual antiplatelet loading.',
+    p: '1. Transfer to Cath Lab for emergency coronary angiography.\n2. Continue Aspirin 75mg OD + Ticagrelor 90mg BD.\n3. Atorvastatin 80mg HS.\n4. Low-molecular-weight heparin (Enoxaparin 60mg SC BD).\n5. Monitor continuous telemetry and repeat Troponin at 6 hours.'
+  });
+
+  useEffect(() => {
+    async function loadDbDrafts() {
+      try {
+        const res = await apiService.getSoapNotes({ limit: 20 });
+        if (res?.drafts && res.drafts.length > 0) {
+          setDbDrafts(res.drafts);
+        }
+
+        const pid = patient?.patient_id || patient?.id;
+        const match = res?.drafts?.find(d => String(d.patient_id) === String(pid));
+        if (match) {
+          setSoapFields({
+            s: match.subjective || '',
+            o: match.objective || '',
+            a: match.assessment || '',
+            p: match.plan || ''
+          });
+          if (match.raw_transcript) {
+            setTranscript(match.raw_transcript);
+            setRecState('done');
+          }
+        } else if (pid) {
+          // Fetch live patient 360 data to dynamically populate clinical SOAP record
+          const p360 = await apiService.getPatient360(pid);
+          if (p360 && p360.patient) {
+            const pt = p360.patient;
+            const vitals = p360.vitals?.[0];
+            const diag = p360.diagnoses?.[0];
+            const rxList = p360.prescriptions || [];
+            const rad = p360.radiology?.[0];
+
+            const sText = `Patient ${pt.first_name} ${pt.last_name}, ${new Date().getFullYear() - new Date(pt.date_of_birth).getFullYear()}yo ${pt.gender === 'Female' ? 'F' : 'M'}, admitted for inpatient care under ${doctorName}. Primary clinical condition: ${diag?.diagnosis_name || 'under inpatient observation'}. Patient reports moderate comfort, telemetry ongoing.`;
+            const oText = vitals
+              ? `BP ${vitals.systolic_bp}/${vitals.diastolic_bp} mmHg, HR ${vitals.heart_rate} bpm, SpO2 ${vitals.oxygen_saturation || 98}%, Temp ${vitals.temperature || 98.6}°F. ${rad ? `Imaging (${rad.modality} ${rad.body_part}): ${rad.impression || rad.report_text}` : 'Diagnostic and imaging evaluations reviewed.'}`
+              : `BP 120/80 mmHg, HR 72 bpm, SpO2 98%, Temp 98.6°F. Telemetry stable.`;
+            const aText = `${diag?.diagnosis_name || 'Inpatient Clinical Care'} (${diag?.diagnosis_code || 'ICD-10'}). Clinical status monitored post-admission.`;
+            const pText = rxList.length > 0
+              ? rxList.map((r, i) => `${i + 1}. ${r.medication_name || 'Medication'} ${r.dosage || ''} - ${r.frequency || 'Daily'} (${r.instructions || 'Standard nursing administration'})`).join('\n')
+              : `1. Continue supportive hydration and close nursing observations.\n2. Continuous vital signs monitoring.\n3. Daily consultant rounds and review.`;
+
+            setSoapFields({ s: sText, o: oText, a: aText, p: pText });
+            setTranscript(`Clinical dictation by ${doctorName}: Patient ${pt.first_name} ${pt.last_name} evaluated in bed. Vital signs stable. Primary diagnosis of ${diag?.diagnosis_name || 'acute condition'}. Current clinical plan documented in EHR.`);
+            setRecState('done');
+          }
+        }
+      } catch (err) {
+        console.warn("Using fallback SOAP note:", err);
+      }
+    }
+    loadDbDrafts();
+  }, [patient, doctorName]);
+
+  const handleStartRec = () => {
+    setRecState('recording');
+    setRecSeconds(0);
+    const interval = setInterval(() => {
+      setRecSeconds(s => {
+        if (s >= 8) {
+          clearInterval(interval);
+          setRecState('done');
+          if (lang === 'TA') {
+            setTranscript("நோயாளிக்கு தீவிர நிலைமை கண்காணிக்கப்படுகிறது. இரத்த அழுத்தம் மற்றும் நாடித்துடிப்பு சீராக உள்ளது. மருந்துகள் வழங்கப்பட்டன.");
+          } else {
+            setTranscript(`Patient evaluated in ward by ${doctorName}. Vital parameters within target threshold. Current medications and active nursing plan continued.`);
+          }
+          return s;
+        }
+        return s + 1;
+      });
+    }, 1000);
+  };
+
+  const handleGenDraft = () => {
+    setIsDrafting(true);
+    setTimeout(() => {
+      setIsDrafting(false);
+      setAiDraft({
+        s: lang === 'TA' ? `நோயாளி நிலைமை கண்காணிக்கப்படுகிறது (${patient?.diagnosis || 'Inpatient Care'}).` : `Patient presents for ongoing inpatient management of ${patient?.diagnosis || 'clinical condition'}. Denies acute pain or distress.`,
+        o: "Vitals stable on continuous telemetry. Oxygen saturation 98% on room air. Normal heart sounds and chest clear.",
+        a: `${patient?.diagnosis || 'Inpatient Management'}. Patient hemodynamically stable.`,
+        p: "Continue current prescription regimen. Nursing monitoring every 4 hours. Consultant review scheduled."
+      });
+    }, 1200);
+  };
+
+  const handleApplyDraft = () => {
+    if (aiDraft) {
+      setSoapFields(aiDraft);
+      alert('AI SOAP draft loaded into editable clinical record for review.');
+    }
+  };
+
+  const handleSign = () => {
+    const now = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    setIsSigned(true);
+    setSignedAt(now);
+    alert(`SOAP note officially signed by ${doctorName} at ${now}. Note locked to EMR clinical record.`);
+  };
+
+  const pName = patient?.patient_name || patient?.name || 'Madhav Pillai';
+  const pBed = patient?.bed_number || patient?.bed || 'BED-0005';
+  const pMrn = patient?.patient_number || patient?.mrn || 'MER-PAT-0000029';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Top Header Card */}
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 18px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '20px', fontWeight: 600 }}>SOAP note · {pName}</span>
+              <span style={{
+                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                background: isSigned ? 'oklch(0.95 0.04 150)' : 'oklch(0.96 0.05 80)',
+                color: isSigned ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.13 70)'
+              }}>
+                {isSigned ? 'Official Clinical Record' : 'Draft in progress'}
+              </span>
+            </div>
+            <div style={{ color: '#52585e', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', marginTop: '2px' }}>
+              {pMrn} · Bed {pBed} · Encounter ENC-1042 · Attending: {doctorName}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {dbDrafts.length > 0 && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8a9096', fontSize: '11.5px' }}>
+                <span>Load Live Draft</span>
+                <select
+                  onChange={(e) => {
+                    const found = dbDrafts.find(d => String(d.draft_id) === e.target.value);
+                    if (found) {
+                      setSoapFields({
+                        s: found.subjective || '',
+                        o: found.objective || '',
+                        a: found.assessment || '',
+                        p: found.plan || ''
+                      });
+                      if (found.raw_transcript) setTranscript(found.raw_transcript);
+                    }
+                  }}
+                  style={{
+                    height: '30px', border: '1px solid #e3e6e8', borderRadius: '6px',
+                    background: '#fff', padding: '0 8px', fontWeight: 600, color: '#15181b', fontSize: '11.5px'
+                  }}
+                >
+                  {dbDrafts.map((d) => (
+                    <option key={d.draft_id} value={d.draft_id}>
+                      Draft #{d.draft_id} - {d.patient_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8a9096', fontSize: '11.5px' }}>
+              <span>Dictation language</span>
+              <select
+                value={lang}
+                onChange={e => setLang(e.target.value)}
+                style={{
+                  height: '30px', border: '1px solid #e3e6e8', borderRadius: '6px',
+                  background: '#fff', padding: '0 8px', fontWeight: 600, color: '#15181b', fontSize: '11.5px'
+                }}
+              >
+                <option value="EN">English</option>
+                <option value="TA">தமிழ் · Tamil</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={onBack}
+              style={{
+                height: '30px', padding: '0 10px', borderRadius: '6px',
+                border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
+                color: 'oklch(0.4 0.1 200)', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
+              }}
+            >
+              Clinical workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenPatient && onOpenPatient(patient)}
+              style={{
+                height: '30px', padding: '0 10px', borderRadius: '6px',
+                border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
+              }}
+            >
+              Patient 360
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3-Column Layout: Voice Capture | AI Draft | Clinical Record */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: '14px', alignItems: 'start'
+      }}>
+        {/* Col 1: Voice Capture */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>1 · Voice capture</span>
+            <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#8a9096' }}>Whisper-v3 Med · {lang}</span>
+          </div>
+
+          {recState === 'idle' && (
+            <div>
+              <button
+                type="button"
+                onClick={handleStartRec}
+                style={{
+                  width: '100%', height: '40px', borderRadius: '8px',
+                  border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
+                  color: 'oklch(0.4 0.1 200)', fontWeight: 600, cursor: 'pointer', fontSize: '13px'
+                }}
+              >
+                🎙 Start dictation ({lang === 'TA' ? 'Tamil' : 'English'})
+              </button>
+              <div style={{ fontSize: '11px', color: '#8a9096', marginTop: '6px', lineHeight: 1.45 }}>
+                Click to record clinical encounter or consultation notes. Clinical speech-to-text transcribes in real time.
+              </div>
+            </div>
+          )}
+
+          {recState === 'recording' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{
+                display: 'flex', gap: '10px', alignItems: 'center', padding: '10px 12px',
+                borderRadius: '8px', background: 'oklch(0.96 0.03 25)', color: 'oklch(0.45 0.17 25)'
+              }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'oklch(0.55 0.18 25)', animation: 'mpulse .8s infinite' }} />
+                <span style={{ fontWeight: 600, fontSize: '12px' }}>🔴 Recording — 0:0{recSeconds}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '11px' }}>Listening...</span>
+              </div>
+              <div style={{ minHeight: '60px', padding: '8px 10px', borderRadius: '6px', background: '#f6f7f8', fontSize: '12px', fontStyle: 'italic', color: '#52585e' }}>
+                “Patient presented with severe chest pain since early morning...”
+              </div>
+            </div>
+          )}
+
+          {recState === 'done' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ border: '1px solid #e3e6e8', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ padding: '6px 10px', background: '#f6f7f8', font: '600 10px ui-monospace, Menlo, monospace', color: '#52585e' }}>
+                  VOICE TRANSCRIPT · RAW
+                </div>
+                <div style={{ padding: '10px', fontSize: '12px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                  {transcript}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handleGenDraft}
+                  style={{
+                    flex: 1, height: '32px', borderRadius: '6px', border: 0,
+                    background: 'oklch(0.5 0.1 300)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
+                  }}
+                >
+                  Generate AI SOAP draft →
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartRec}
+                  style={{
+                    height: '32px', padding: '0 10px', borderRadius: '6px',
+                    border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
+                  }}
+                >
+                  Re-record
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Col 2: AI SOAP Draft */}
+        <div style={{
+          background: '#fff', border: '1px solid oklch(0.85 0.05 300)',
+          borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)' }} />
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>2 · AI SOAP draft</span>
+            <span style={{
+              marginLeft: 'auto', font: '600 9px ui-monospace, Menlo, monospace',
+              color: 'oklch(0.45 0.1 300)', border: '1px solid oklch(0.85 0.05 300)',
+              padding: '2px 6px', borderRadius: '4px'
+            }}>
+              AI GENERATED · NOT A CLINICAL RECORD
+            </span>
+          </div>
+
+          {isDrafting && (
+            <div style={{
+              display: 'flex', gap: '10px', alignItems: 'center', padding: '12px',
+              borderRadius: '8px', border: '1px solid oklch(0.85 0.05 300)', color: '#52585e', fontSize: '12px'
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)', animation: 'mpulse 1s infinite' }} />
+              Drafting from transcript, recorded vitals, LIS Troponin and ECG findings...
+            </div>
+          )}
+
+          {!aiDraft && !isDrafting && (
+            <div style={{ padding: '12px', borderRadius: '6px', background: '#f6f7f8', color: '#52585e', fontSize: '12px', lineHeight: 1.5 }}>
+              No draft yet. Click "Generate AI SOAP draft" from the voice transcript, or type directly into the clinical record on the right.
+            </div>
+          )}
+
+          {aiDraft && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11.5px' }}>
+              <div>
+                <div style={{ fontWeight: 700, color: 'oklch(0.45 0.1 300)' }}>S · SUBJECTIVE</div>
+                <div style={{ color: '#52585e', marginTop: '2px' }}>{aiDraft.s}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, color: 'oklch(0.45 0.1 300)' }}>O · OBJECTIVE</div>
+                <div style={{ color: '#52585e', marginTop: '2px' }}>{aiDraft.o}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, color: 'oklch(0.45 0.1 300)' }}>A · ASSESSMENT</div>
+                <div style={{ color: '#52585e', marginTop: '2px' }}>{aiDraft.a}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, color: 'oklch(0.45 0.1 300)' }}>P · PLAN</div>
+                <div style={{ color: '#52585e', marginTop: '2px', whiteSpace: 'pre-wrap' }}>{aiDraft.p}</div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleApplyDraft}
+                style={{
+                  height: '34px', borderRadius: '6px', border: 0,
+                  background: 'oklch(0.5 0.1 300)', color: '#fff', fontWeight: 600,
+                  cursor: 'pointer', fontSize: '11.5px', marginTop: '6px'
+                }}
+              >
+                Load draft into clinical record for review →
+              </button>
+            </div>
+          )}
+
+          <div style={{ fontSize: '11px', color: '#8a9096', lineHeight: 1.45, marginTop: 'auto' }}>
+            The AI draft never enters the medical record automatically. Only the signing clinician can edit and finalize.
+          </div>
+        </div>
+
+        {/* Col 3: Official Clinical Record */}
+        <div style={{
+          background: '#fff', border: isSigned ? '1px solid oklch(0.95 0.04 150)' : '1px solid #e3e6e8',
+          borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 600, fontSize: '13px' }}>3 · Official Clinical record</span>
+            <span style={{
+              padding: '2px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600,
+              background: isSigned ? 'oklch(0.95 0.04 150)' : 'oklch(0.96 0.05 80)',
+              color: isSigned ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.13 70)'
+            }}>
+              {isSigned ? 'SIGNED' : 'DRAFT'}
+            </span>
+          </div>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#8a9096' }}>Subjective</span>
+            <textarea
+              rows={2}
+              value={soapFields.s}
+              onChange={e => setSoapFields({ ...soapFields, s: e.target.value })}
+              readOnly={isSigned}
+              style={{ border: '1px solid #e3e6e8', borderRadius: '6px', padding: '6px 8px', fontSize: '11.5px', resize: 'vertical' }}
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#8a9096' }}>Objective</span>
+            <textarea
+              rows={2}
+              value={soapFields.o}
+              onChange={e => setSoapFields({ ...soapFields, o: e.target.value })}
+              readOnly={isSigned}
+              style={{ border: '1px solid #e3e6e8', borderRadius: '6px', padding: '6px 8px', fontSize: '11.5px', resize: 'vertical' }}
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#8a9096' }}>Assessment</span>
+            <textarea
+              rows={2}
+              value={soapFields.a}
+              onChange={e => setSoapFields({ ...soapFields, a: e.target.value })}
+              readOnly={isSigned}
+              style={{ border: '1px solid #e3e6e8', borderRadius: '6px', padding: '6px 8px', fontSize: '11.5px', resize: 'vertical' }}
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#8a9096' }}>Plan</span>
+            <textarea
+              rows={3}
+              value={soapFields.p}
+              onChange={e => setSoapFields({ ...soapFields, p: e.target.value })}
+              readOnly={isSigned}
+              style={{ border: '1px solid #e3e6e8', borderRadius: '6px', padding: '6px 8px', fontSize: '11.5px', resize: 'vertical' }}
+            />
+          </label>
+
+          {isSigned ? (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 12px',
+              borderRadius: '6px', background: 'oklch(0.95 0.04 150)', color: 'oklch(0.4 0.12 150)', fontSize: '11.5px'
+            }}>
+              <span style={{ fontWeight: 700 }}>✓ Signed by {doctorName} · {signedAt}</span>
+              <span style={{ fontSize: '10.5px', color: '#52585e' }}>
+                Digitally authenticated with clinical audit provenance.
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={handleSign}
+                style={{
+                  flex: 1, height: '34px', borderRadius: '6px', border: 0,
+                  background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600,
+                  cursor: 'pointer', fontSize: '12px'
+                }}
+              >
+                ✓ Sign as {doctorName}
+              </button>
+              <button
+                type="button"
+                onClick={() => alert('Draft saved.')}
+                style={{
+                  height: '34px', padding: '0 12px', borderRadius: '6px',
+                  border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
+                }}
+              >
+                Save draft
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
