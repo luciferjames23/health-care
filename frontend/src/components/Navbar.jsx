@@ -18,14 +18,13 @@ export default function Navbar({ healthInfo, onRefresh, loading }) {
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h1 className="text-lg font-bold text-white tracking-tight">HealthPulse Gold</h1>
+                <h1 className="text-lg font-bold text-white tracking-tight">HealthPulse</h1>
                 <span className="bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-2 py-0.5 rounded-full">
                   v1.0
                 </span>
               </div>
               <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                <Database className="w-3 h-3 text-cyan-400" />
-                Databricks Catalog: <span className="font-mono text-cyan-300">health_care.gold</span>
+                Clinical Intelligence Platform
               </p>
             </div>
           </div>
@@ -53,7 +52,7 @@ export default function Navbar({ healthInfo, onRefresh, loading }) {
             onClick={onRefresh}
             disabled={loading}
             className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-800 text-slate-200 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs font-medium transition-all shadow-sm disabled:opacity-50"
-            title="Refresh Databricks Metadata"
+            title="Refresh Data"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh Sync</span>

@@ -17,13 +17,13 @@ import {
 export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRecords }) {
   const navItems = [
     { id: 'dashboard', label: 'Executive Dashboard', icon: LayoutDashboard, badge: null },
-    { id: 'revenue', label: 'Revenue Predictions', icon: TrendingUp, badge: 'dim_revenue' },
-    { id: 'beds', label: '7-Day Bed Forecast', icon: Activity, badge: 'fact_bed' },
+    { id: 'revenue', label: 'Revenue Predictions', icon: TrendingUp, badge: 'Live' },
+    { id: 'beds', label: '7-Day Bed Forecast', icon: Activity, badge: 'Live' },
     { id: 'tables', label: 'Schema Explorer', icon: TableProperties, badge: totalTables ? `${totalTables} Tables` : null },
     { id: 'explorer', label: 'Data Grid Viewer', icon: Database, badge: 'Live Data' },
     { id: 'sql', label: 'SQL Sandbox', icon: Terminal, badge: 'Query' },
     { id: 'analytics', label: 'Analytics & Insights', icon: BarChart3, badge: 'AI Charts' },
-    { id: 'settings', label: 'Databricks Settings', icon: Sliders, badge: null },
+    { id: 'settings', label: 'System Settings', icon: Sliders, badge: null },
   ];
 
   return (
@@ -34,7 +34,7 @@ export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRec
         <div>
           <p className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase mb-3 px-3 flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            Gold Analytics Suite
+            Clinical Analytics Suite
           </p>
           <nav className="space-y-1">
             {navItems.map((item) => {
@@ -77,13 +77,13 @@ export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRec
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Gold Catalog Metrics
+              Clinical Data Summary
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2">
               <div className="text-sm font-bold font-mono text-cyan-400">{totalTables || 8}</div>
-              <div className="text-[10px] text-slate-400">Gold Tables</div>
+              <div className="text-[10px] text-slate-400">Data Sets</div>
             </div>
             <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2">
               <div className="text-sm font-bold font-mono text-emerald-400">
@@ -98,12 +98,10 @@ export default function Sidebar({ activeTab, setActiveTab, totalTables, totalRec
       {/* Footer Info */}
       <div className="pt-4 border-t border-slate-800/80 text-[11px] text-slate-400 flex flex-col gap-1">
         <div className="flex justify-between items-center">
-          <span>Engine: Databricks SQL</span>
+          <span>Real-time clinical data</span>
           <span className="font-mono text-cyan-400">Delta Lake</span>
         </div>
-        <div className="text-[10px] text-slate-400">
-          Target: <span className="text-slate-300 font-mono">health_care.gold</span>
-        </div>
+          Health Information System
       </div>
     </aside>
   );

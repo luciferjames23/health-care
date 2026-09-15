@@ -35,13 +35,13 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
               <Activity className="w-3.5 h-3.5 text-cyan-400" />
-              Databricks Healthcare Gold Layer Active
+              Healthcare Clinical Intelligence Active
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              Healthcare Analytics & Gold Schema Hub
+              Healthcare Analytics Command Centre
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Query curated Delta Lake analytics tables: department revenue predictions (<span className="text-cyan-300 font-mono">dim_revenue_predictions</span>), 7-day bed demand forecasts (<span className="text-cyan-300 font-mono">fact_bed_demand_forecast_7day_detailed</span>), encounters, and claims directly from <span className="text-cyan-300 font-mono">health_care.gold</span>.
+              Access curated analytics: department revenue predictions, 7-day bed demand forecasts, patient encounters, and claims data — all in real-time.
             </p>
           </div>
 
@@ -81,7 +81,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              dim_revenue_predictions
+              Predictive financial forecast
             </p>
           </div>
         </div>
@@ -150,9 +150,9 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <Layers className="w-4 h-4 text-cyan-400" />
-              Healthcare Gold Tables Directory
+              Healthcare Clinical Datasets Directory
             </h3>
-            <p className="text-xs text-slate-400">Curated, business-ready healthcare datasets in Databricks</p>
+            <p className="text-xs text-slate-400">Curated, business-ready healthcare datasets</p>
           </div>
           <button
             onClick={() => onNavigateTab('tables')}
@@ -198,13 +198,13 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
                   </div>
 
                   <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                    {t.description || "Healthcare Gold layer analytical dataset."}
+                    {t.description || "Healthcare curated analytical dataset."}
                   </p>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
                   <span className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">
-                    gold.{t.table_name}
+                    {t.table_name}
                   </span>
                   <div className="flex space-x-2">
                     <button

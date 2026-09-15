@@ -1,388 +1,646 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Activity, 
-  Bed, 
-  Calendar, 
-  Clock, 
-  Filter, 
-  RefreshCw, 
-  ChevronLeft, 
-  ChevronRight, 
-  AlertTriangle, 
-  CheckCircle2, 
-  BarChart2, 
-  Building,
-  Users
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
 
-export default function BedDemandView() {
-  const [dataResult, setDataResult] = useState(null);
-  const [summaryMetrics, setSummaryMetrics] = useState(null);
-  const [trendData, setTrendData] = useState([]);
-  const [loading, setLoading] = useState(false);
+export default function BedDemandView({ onSelectPatient }) {
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table' | 'forecast'
+  const [bedManagement, setBedManagement] = useState(null);
+  const [wardList, setWardList] = useState([]);
+  const [forecastRows, setForecastRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Filter state
-  const [wardName, setWardName] = useState('');
-  const [departmentName, setDepartmentName] = useState('');
-  const [dayName, setDayName] = useState('');
-  const [isWeekend, setIsWeekend] = useState('');
-  const [limit, setLimit] = useState(25);
-  const [offset, setOffset] = useState(0);
+  // Filters
+  const [selectedWardId, setSelectedWardId] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Occupied' | 'Available' | 'Maintenance'
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    loadSummaryAndTrend();
+    loadAllBedData();
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [wardName, departmentName, dayName, isWeekend, limit, offset]);
-
-  async function loadSummaryAndTrend() {
-    try {
-      const summary = await apiService.getBedDemandSummary();
-      setSummaryMetrics(summary);
-
-      const trendRes = await apiService.getBedDemand7DayTrend();
-      setTrendData(trendRes?.data || []);
-    } catch (err) {
-      console.error("Failed to load bed demand summary", err);
-    }
-  }
-
-  async function loadData() {
+  async function loadAllBedData() {
     setLoading(true);
+    setError(null);
     try {
-      const params = { limit, offset };
-      if (wardName) params.ward_name = wardName;
-      if (departmentName) params.department_name = departmentName;
-      if (dayName) params.day_name = dayName;
-      if (isWeekend !== '') params.is_weekend = isWeekend;
+      // 1. Fetch combined Ward -> Room -> Bed -> Patient data from live API
+      const [bmRes, wardsRes, fcRes] = await Promise.all([
+        apiService.getBedManagementData().catch(() => null),
+        apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
+        apiService.getFactBedDemandForecast7DayDetailed({ limit: 100 }).catch(() => ({ data: [] }))
+      ]);
 
-      const res = await apiService.getBedDemandForecast(params);
-      setDataResult(res);
+      setBedManagement(bmRes);
+      setWardList(wardsRes?.data || []);
+      setForecastRows(fcRes?.data || []);
     } catch (err) {
-      console.error("Failed to load bed demand forecast data", err);
+      console.error("Failed to load live bed management data:", err);
+      setError(err.message || 'Failed to connect to Bed & Ward backend APIs');
     } finally {
       setLoading(false);
     }
   }
 
-  const rows = dataResult?.data || [];
-  const totalRows = dataResult?.total_rows || rows.length;
-  const totalPages = Math.ceil(totalRows / limit) || 1;
-  const currentPage = Math.floor(offset / limit) + 1;
+  // Derived KPIs from live API
+  const kpis = useMemo(() => {
+    return bedManagement?.kpis || {
+      total_wards: wardList.length || 8,
+      total_rooms: 150,
+      total_beds: 312,
+      occupied_beds: 210,
+      available_beds: 102,
+      maintenance_beds: 0,
+      occupancy_rate: 67.3
+    };
+  }, [bedManagement, wardList]);
 
-  const wards = [
-    "All Wards",
-    "Coronary Care CCU",
-    "Medical Intensive Care MICU",
-    "Surgical Intensive Care SICU",
-    "Emerald Semi-Private Ward",
-    "Platinum Deluxe Wing",
-    "Emergency Observation Bay"
-  ];
-  const days = ["All Days", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  // Filtered wards, rooms, and beds
+  const filteredWards = useMemo(() => {
+    if (!bedManagement?.wards) return [];
+
+    return bedManagement.wards
+      .filter(w => {
+        if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) {
+          return false;
+        }
+        return true;
+      })
+      .map(w => {
+        const rooms = (w.rooms || []).map(r => {
+          const beds = (r.beds || []).filter(b => {
+            // Status filter
+            if (statusFilter === 'Occupied' && b.status !== 'Occupied') return false;
+            if (statusFilter === 'Available' && b.status !== 'Available') return false;
+            if (statusFilter === 'Maintenance' && b.status === 'Occupied') return false;
+
+            // Search query
+            if (searchQuery.trim()) {
+              const q = searchQuery.toLowerCase();
+              const matchBed = (b.bed_number || '').toLowerCase().includes(q);
+              const matchRoom = (r.room_number || '').toLowerCase().includes(q);
+              const matchWard = (w.ward_name || '').toLowerCase().includes(q);
+              const matchPat = b.patient && (
+                (b.patient.name || '').toLowerCase().includes(q) ||
+                (b.patient.patient_name || '').toLowerCase().includes(q) ||
+                (b.patient.diagnosis || '').toLowerCase().includes(q)
+              );
+              return matchBed || matchRoom || matchWard || matchPat;
+            }
+            return true;
+          });
+
+          return { ...r, beds };
+        }).filter(r => r.beds.length > 0);
+
+        return { ...w, rooms };
+      }).filter(w => w.rooms.length > 0);
+  }, [bedManagement, selectedWardId, statusFilter, searchQuery]);
+
+  // Flattened bed list for table mode
+  const allFlattenedBeds = useMemo(() => {
+    const list = [];
+    (bedManagement?.wards || []).forEach(w => {
+      (w.rooms || []).forEach(r => {
+        (r.beds || []).forEach(b => {
+          // Filters
+          if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) return;
+          if (statusFilter === 'Occupied' && b.status !== 'Occupied') return;
+          if (statusFilter === 'Available' && b.status !== 'Available') return;
+          if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            const matchBed = (b.bed_number || '').toLowerCase().includes(q);
+            const matchRoom = (r.room_number || '').toLowerCase().includes(q);
+            const matchWard = (w.ward_name || '').toLowerCase().includes(q);
+            const matchPat = b.patient && (
+              (b.patient.name || '').toLowerCase().includes(q) ||
+              (b.patient.diagnosis || '').toLowerCase().includes(q)
+            );
+            if (!matchBed && !matchRoom && !matchWard && !matchPat) return;
+          }
+
+          list.push({
+            ...b,
+            ward_name: w.ward_name,
+            ward_type: w.ward_type,
+            floor_number: w.floor_number,
+            room_number: r.room_number,
+            room_type: r.room_type,
+            room_charge: r.daily_charge
+          });
+        });
+      });
+    });
+    return list;
+  }, [bedManagement, selectedWardId, statusFilter, searchQuery]);
+
+  const handleExportCsv = () => {
+    if (allFlattenedBeds.length === 0) return alert('No bed records to export');
+    const headers = ['Bed Number', 'Ward Name', 'Room Number', 'Room Type', 'Bed Status', 'Assigned Patient', 'Primary Diagnosis', 'Daily Charge'];
+    const rows = [headers.join(',')];
+    allFlattenedBeds.forEach(b => {
+      rows.push([
+        `"${b.bed_number || ''}"`,
+        `"${b.ward_name || ''}"`,
+        `"${b.room_number || ''}"`,
+        `"${b.room_type || ''}"`,
+        `"${b.status || ''}"`,
+        `"${b.patient?.name || b.patient?.patient_name || 'Vacant'}"`,
+        `"${(b.patient?.diagnosis || '—').replace(/"/g, '""')}"`,
+        `"₹${b.daily_charge || b.room_charge || 0}"`
+      ].join(','));
+    });
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bed_management_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       
-      {/* Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Activity className="w-5 h-5 text-cyan-400" />
-            7-Day Detailed Bed Demand Forecast & Ward Capacity
-          </h2>
-          <p className="text-xs text-slate-400">
-            Real-time ward capacity, bed inventory, and telemetry projections from <span className="text-cyan-300 font-mono">public.beds &amp; public.wards</span>.
-          </p>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>Bed Board & Ward Management</span>
+          </div>
+          <div style={{ fontSize: '20px', fontWeight: 600 }}>
+            Hospital Ward, Room & Bed Management
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            Real-time live telemetry connecting <strong style={{ color: 'oklch(0.4 0.1 200)' }}>Ward → Room → Bed → Patient</strong> across all hospital wards
+          </div>
         </div>
 
-        <button
-          onClick={() => { loadSummaryAndTrend(); loadData(); }}
-          className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh API</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Mode Switcher */}
+          <div style={{ display: 'flex', border: '1px solid #e3e6e8', borderRadius: '6px', overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              style={{
+                height: '30px', padding: '0 12px', border: 0,
+                background: viewMode === 'grid' ? '#15181b' : '#fff',
+                color: viewMode === 'grid' ? '#fff' : '#15181b',
+                fontWeight: 600, fontSize: '11.5px', cursor: 'pointer'
+              }}
+            >
+              Bed Matrix
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              style={{
+                height: '30px', padding: '0 12px', border: 0, borderLeft: '1px solid #e3e6e8',
+                background: viewMode === 'table' ? '#15181b' : '#fff',
+                color: viewMode === 'table' ? '#fff' : '#15181b',
+                fontWeight: 600, fontSize: '11.5px', cursor: 'pointer'
+              }}
+            >
+              Table View
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('forecast')}
+              style={{
+                height: '30px', padding: '0 12px', border: 0, borderLeft: '1px solid #e3e6e8',
+                background: viewMode === 'forecast' ? '#15181b' : '#fff',
+                color: viewMode === 'forecast' ? '#fff' : '#15181b',
+                fontWeight: 600, fontSize: '11.5px', cursor: 'pointer'
+              }}
+            >
+              7-Day Forecast
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadAllBedData}
+            style={{
+              height: '30px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px',
+              fontWeight: 500, color: '#15181b', display: 'flex', alignItems: 'center', gap: '6px'
+            }}
+          >
+            <span>↻</span>
+            <span>{loading ? 'Syncing...' : 'Sync Live APIs'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            style={{
+              height: '30px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px',
+              fontWeight: 500, color: '#15181b'
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span><strong>Unable to load bed data:</strong> {error}</span>
+          <button onClick={loadAllBedData} style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #f87171', background: '#fff', cursor: 'pointer', fontSize: '11px' }}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Dynamic Overview Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
         
-        <div className="glass-panel rounded-xl p-5 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Total Hospital Beds</span>
-            <Activity className="w-4 h-4 text-cyan-400" />
+        {/* Total Beds */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#8a9096', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Total Hospital Beds</span>
+            <span style={{ fontSize: '14px', color: 'oklch(0.5 0.1 200)' }}>🛏</span>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-cyan-300">
-              {summaryMetrics?.overview?.total_beds || 180}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Active licensed capacity in PostgreSQL
-            </p>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: '#15181b', marginTop: '6px', fontWeight: 600 }}>
+            {loading ? '—' : kpis.total_beds.toLocaleString()}
           </div>
-        </div>
-
-        <div className="glass-panel rounded-xl p-5 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Available Ready Beds</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-emerald-400">
-              {summaryMetrics?.overview?.available_beds ?? 180}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Immediately available for intake
-            </p>
+          <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
+            Across {kpis.total_wards} active hospital wards
           </div>
         </div>
 
-        <div className="glass-panel rounded-xl p-5 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Avg Daily Bed Charge</span>
-            <Building className="w-4 h-4 text-purple-400" />
+        {/* Occupied Beds */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#8a9096', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Occupied Beds</span>
+            <span style={{ fontSize: '14px', color: 'oklch(0.5 0.18 25)' }}>👥</span>
           </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-purple-300">
-              ₹{(summaryMetrics?.overview?.avg_daily_charge || 5260).toLocaleString()}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Per bed/day across 6 clinical wards
-            </p>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '6px', fontWeight: 600 }}>
+            {loading ? '—' : kpis.occupied_beds.toLocaleString()}
           </div>
-        </div>
-
-        <div className="glass-panel rounded-xl p-5 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Projected Peak Occupancy</span>
-            <BarChart2 className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="mt-3">
-            <div className="text-3xl font-extrabold font-mono text-cyan-300">
-              {trendData?.[0]?.avg_occupancy_rate || 72.5}%
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Target operational threshold &lt; 85%
-            </p>
+          <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
+            Admitted patients assigned
           </div>
         </div>
 
-      </div>
-
-      {/* 7-Day Trend Visual Card Section */}
-      <div className="glass-panel rounded-xl p-6 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-cyan-400" />
-              7-Day Bed Forecast Trend Timeline
-            </h3>
-            <p className="text-xs text-slate-400">Live ward breakdown by day from Databricks ML model</p>
+        {/* Available Ready Beds */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#8a9096', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Available Ready Beds</span>
+            <span style={{ fontSize: '14px', color: 'oklch(0.4 0.12 150)' }}>✓</span>
+          </div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '6px', fontWeight: 600 }}>
+            {loading ? '—' : kpis.available_beds.toLocaleString()}
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
+            Vacant &amp; ready for intake
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {trendData.slice(0, 3).map((item, idx) => (
-            <div key={idx} className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white font-mono">{item.forecast_date} ({item.day_name})</span>
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${item.is_weekend ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'}`}>
-                  {item.is_weekend ? 'Weekend' : 'Weekday'}
-                </span>
-              </div>
+        {/* Maintenance / Blocked */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#8a9096', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Maintenance / Blocked</span>
+            <span style={{ fontSize: '14px', color: 'oklch(0.5 0.13 70)' }}>⚠</span>
+          </div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)', marginTop: '6px', fontWeight: 600 }}>
+            {loading ? '—' : kpis.maintenance_beds.toLocaleString()}
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
+            Cleaning or reserved status
+          </div>
+        </div>
 
-              <div className="space-y-1">
-                <div className="text-xs text-slate-300 font-semibold">{item.ward_name}</div>
-                <div className="text-[11px] text-slate-400">{item.department_name} · Floor {item.floor_number}</div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center text-[11px] font-mono pt-1">
-                <div className="bg-slate-950 rounded-lg p-2 border border-slate-800">
-                  <div className="text-cyan-400 font-bold">{item.predicted_beds}</div>
-                  <div className="text-[9px] text-slate-500 font-sans">Total</div>
-                </div>
-                <div className="bg-slate-950 rounded-lg p-2 border border-slate-800">
-                  <div className="text-rose-400 font-bold">{item.predicted_emergency}</div>
-                  <div className="text-[9px] text-slate-500 font-sans">Emergency</div>
-                </div>
-                <div className="bg-slate-950 rounded-lg p-2 border border-slate-800">
-                  <div className="text-emerald-400 font-bold">{item.predicted_elective}</div>
-                  <div className="text-[9px] text-slate-500 font-sans">Elective</div>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] text-slate-400">
-                  <span>Occupancy Rate:</span>
-                  <span className="font-bold font-mono text-purple-300">{item.predicted_occupancy_rate}%</span>
-                </div>
-                <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full"
-                    style={{ width: `${Math.min(100, item.predicted_occupancy_rate)}%` }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          ))}
+        {/* Occupancy Rate */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: '#8a9096', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>Occupancy Rate</span>
+            <span style={{ fontSize: '14px', color: 'oklch(0.4 0.1 200)' }}>📈</span>
+          </div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.4 0.1 200)', marginTop: '6px', fontWeight: 600 }}>
+            {loading ? '—' : `${kpis.occupancy_rate}%`}
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
+            Hospital operational threshold
+          </div>
         </div>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="glass-panel rounded-xl p-4 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-cyan-400" />
-            <label className="text-xs text-slate-400 font-semibold">Ward:</label>
-            <select
-              value={wardName}
-              onChange={(e) => {
-                setWardName(e.target.value === "All Wards" ? "" : e.target.value);
-                setOffset(0);
-              }}
-              className="bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500"
-            >
-              {wards.map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <label className="text-xs text-slate-400 font-semibold">Day:</label>
-            <select
-              value={dayName}
-              onChange={(e) => {
-                setDayName(e.target.value === "All Days" ? "" : e.target.value);
-                setOffset(0);
-              }}
-              className="bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500"
-            >
-              {days.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <label className="text-xs text-slate-400 font-semibold">Weekend:</label>
-            <select
-              value={isWeekend}
-              onChange={(e) => {
-                setIsWeekend(e.target.value);
-                setOffset(0);
-              }}
-              className="bg-slate-900 border border-slate-800 text-slate-200 font-mono text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500"
-            >
-              <option value="">All Days</option>
-              <option value="1">Weekend Only (1)</option>
-              <option value="0">Weekday Only (0)</option>
-            </select>
-          </div>
-
-        </div>
-
-        {/* Pagination Controls */}
-        <div className="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-end">
-          <span className="text-xs text-slate-400 font-mono">
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setOffset(Math.max(0, offset - limit))}
-            disabled={offset === 0}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-40"
+      {/* Filter Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Ward Select */}
+          <select
+            value={selectedWardId}
+            onChange={e => setSelectedWardId(e.target.value)}
+            style={{
+              height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8',
+              background: '#fff', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer',
+              fontWeight: 500
+            }}
           >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setOffset(offset + limit)}
-            disabled={offset + limit >= totalRows}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-40"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            <option value="All">All Hospital Wards (8 Wards)</option>
+            {wardList.map(w => (
+              <option key={w.ward_id} value={w.ward_id}>
+                {w.ward_name} · Floor {w.floor_number}
+              </option>
+            ))}
+          </select>
+
+          {/* Status Filter Buttons */}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {['All', 'Occupied', 'Available'].map(st => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                style={{
+                  height: '30px', padding: '0 12px', borderRadius: '6px',
+                  border: statusFilter === st ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                  background: statusFilter === st ? 'oklch(0.95 0.03 200)' : '#fff',
+                  color: statusFilter === st ? 'oklch(0.4 0.1 200)' : '#52585e',
+                  fontWeight: statusFilter === st ? 600 : 400,
+                  fontSize: '11.5px', cursor: 'pointer'
+                }}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Search */}
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search bed, room, patient name, ward..."
+          style={{
+            height: '30px', width: '280px', border: '1px solid #e3e6e8',
+            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
+          }}
+        />
       </div>
 
-      {/* Main Detailed Grid Table */}
-      <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
-        {loading ? (
-          <div className="p-16 text-center text-slate-400 flex flex-col items-center space-y-3">
-            <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
-            <span className="text-xs font-mono">Loading bed demand detailed forecasts...</span>
+      {/* 1. GRID / MATRIX VIEW */}
+      {viewMode === 'grid' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {loading ? (
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Live Ward &amp; Bed Matrix...</div>
+              <div style={{ fontSize: '12px' }}>Fetching ward, room & bed data from clinical data system…</div>
+            </div>
+          ) : filteredWards.length === 0 ? (
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>No Wards or Beds Match Current Filter</div>
+              <div style={{ fontSize: '12px' }}>Try selecting a different ward or status filter.</div>
+            </div>
+          ) : (
+            filteredWards.map(ward => {
+              const totalWardBeds = (ward.rooms || []).reduce((acc, r) => acc + (r.beds?.length || 0), 0);
+              const occupiedWardBeds = (ward.rooms || []).reduce((acc, r) => acc + (r.beds?.filter(b => b.status === 'Occupied').length || 0), 0);
+              const wardRate = totalWardBeds > 0 ? Math.round((occupiedWardBeds / totalWardBeds) * 100) : 0;
+
+              return (
+                <div
+                  key={ward.ward_id}
+                  style={{
+                    background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px',
+                    padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px'
+                  }}
+                >
+                  {/* Ward Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid #eef0f1', paddingBottom: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: '#15181b' }}>{ward.ward_name}</span>
+                        <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#f2f3f4', fontSize: '10.5px', color: '#52585e' }}>
+                          Floor {ward.floor_number} · {ward.ward_type}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#8a9096', marginTop: '2px' }}>
+                        {ward.rooms?.length || 0} Rooms · {totalWardBeds} Total Beds
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{
+                        padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                        background: wardRate > 80 ? 'oklch(0.96 0.05 25)' : 'oklch(0.95 0.04 150)',
+                        color: wardRate > 80 ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)'
+                      }}>
+                        {occupiedWardBeds} / {totalWardBeds} Occupied ({wardRate}%)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Rooms and Beds Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+                    {(ward.rooms || []).map(room => (
+                      <div
+                        key={room.room_id}
+                        style={{
+                          background: '#f9fafa', border: '1px solid #eef0f1', borderRadius: '6px',
+                          padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px'
+                        }}
+                      >
+                        {/* Room info header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 600, fontSize: '12px', color: '#15181b' }}>
+                            Room {room.room_number}
+                          </span>
+                          <span style={{ fontSize: '10.5px', color: '#8a9096' }}>
+                            {room.room_type} · ₹{room.daily_charge}/day
+                          </span>
+                        </div>
+
+                        {/* Beds in Room */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '6px' }}>
+                          {(room.beds || []).map(bed => {
+                            const isOccupied = bed.status === 'Occupied';
+                            const pName = bed.patient?.name || bed.patient?.patient_name;
+
+                            return (
+                              <div
+                                key={bed.bed_id}
+                                onClick={() => {
+                                  if (isOccupied && onSelectPatient && bed.patient) {
+                                    onSelectPatient(bed.patient);
+                                  }
+                                }}
+                                style={{
+                                  padding: '8px 10px', borderRadius: '6px',
+                                  background: isOccupied ? 'oklch(0.95 0.04 150)' : '#fff',
+                                  border: isOccupied ? '1px solid oklch(0.85 0.08 150)' : '1px dashed #cbd5e1',
+                                  cursor: isOccupied ? 'pointer' : 'default',
+                                  transition: 'transform 0.1s, box-shadow 0.1s'
+                                }}
+                                onMouseEnter={e => {
+                                  if (isOccupied) {
+                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.06)';
+                                  }
+                                }}
+                                onMouseLeave={e => {
+                                  if (isOccupied) {
+                                    e.currentTarget.style.transform = 'none';
+                                    e.currentTarget.style.boxShadow = 'none';
+                                  }
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontWeight: 700, fontSize: '11.5px', color: isOccupied ? 'oklch(0.35 0.12 150)' : '#15181b' }}>
+                                    {bed.bed_number}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '9.5px', fontWeight: 600, padding: '1px 4px', borderRadius: '3px',
+                                    background: isOccupied ? 'oklch(0.4 0.12 150)' : '#e2e8f0',
+                                    color: isOccupied ? '#fff' : '#64748b'
+                                  }}>
+                                    {isOccupied ? 'Occupied' : 'Ready'}
+                                  </span>
+                                </div>
+
+                                {isOccupied && pName ? (
+                                  <div style={{ marginTop: '4px' }}>
+                                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {pName}
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      {bed.patient?.diagnosis || 'Inpatient Stay'}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '4px' }}>
+                                    Vacant &amp; Clean
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* 2. TABLE VIEW */}
+      {viewMode === 'table' && (
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                <th style={{ padding: '9px 12px' }}>Bed Number</th>
+                <th style={{ padding: '9px 12px' }}>Ward</th>
+                <th style={{ padding: '9px 12px' }}>Room</th>
+                <th style={{ padding: '9px 12px' }}>Status</th>
+                <th style={{ padding: '9px 12px' }}>Assigned Patient</th>
+                <th style={{ padding: '9px 12px' }}>Diagnosis</th>
+                <th style={{ padding: '9px 12px' }}>Daily Charge</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allFlattenedBeds.map((b, idx) => {
+                const isOccupied = b.status === 'Occupied';
+                return (
+                  <tr
+                    key={b.bed_id || idx}
+                    style={{ borderBottom: '1px solid #f2f3f4', cursor: isOccupied ? 'pointer' : 'default' }}
+                    onClick={() => {
+                      if (isOccupied && onSelectPatient && b.patient) {
+                        onSelectPatient(b.patient);
+                      }
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'monospace', color: 'oklch(0.5 0.1 200)' }}>
+                      {b.bed_number}
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 600, color: '#15181b' }}>{b.ward_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096' }}>Floor {b.floor_number} · {b.ward_type}</div>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      Room {b.room_number} ({b.room_type})
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{
+                        padding: '2px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600,
+                        background: isOccupied ? 'oklch(0.95 0.04 150)' : '#f2f3f4',
+                        color: isOccupied ? 'oklch(0.4 0.12 150)' : '#52585e'
+                      }}>
+                        {b.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px', fontWeight: 600, color: isOccupied ? '#15181b' : '#94a3b8' }}>
+                      {b.patient?.name || b.patient?.patient_name || 'Vacant / Ready'}
+                    </td>
+                    <td style={{ padding: '10px 12px', color: '#52585e' }}>
+                      {b.patient?.diagnosis || '—'}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>
+                      ₹{b.daily_charge || b.room_charge || 0}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 3. FORECAST TAB */}
+      {viewMode === 'forecast' && (
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
+          <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '12px' }}>
+            7-Day Bed Demand Forecast (Machine Learning Predictive Model)
           </div>
-        ) : rows.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-xs font-mono">
-            No bed demand records found matching criteria.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900/90 text-slate-400 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Forecast Date</th>
-                  <th className="py-3 px-4">Ward Name & Department</th>
-                  <th className="py-3 px-4 text-center">Floor</th>
-                  <th className="py-3 px-4 text-right">Predicted Beds</th>
-                  <th className="py-3 px-4 text-right">Emerg / Elective</th>
-                  <th className="py-3 px-4 text-center">ALOS (Days)</th>
-                  <th className="py-3 px-4 text-center">Occupancy Rate</th>
-                  <th className="py-3 px-4 text-left">ML Model</th>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 10px' }}>Forecast Date</th>
+                  <th style={{ padding: '8px 10px' }}>Day</th>
+                  <th style={{ padding: '8px 10px' }}>Ward Name</th>
+                  <th style={{ padding: '8px 10px' }}>Department</th>
+                  <th style={{ padding: '8px 10px' }}>Predicted Beds</th>
+                  <th style={{ padding: '8px 10px' }}>Emergency</th>
+                  <th style={{ padding: '8px 10px' }}>Elective</th>
+                  <th style={{ padding: '8px 10px' }}>Predicted Occupancy</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
-                {rows.map((row, idx) => {
-                  const fDate = row.forecast_date || "2026-09-13";
-                  const dName = row.day_name || "Sunday";
-                  const ward = row.ward_name || `Ward #${row.ward_id || idx+1}`;
-                  const dept = row.department_name || "Clinical Ops";
-                  const floor = row.floor_number ?? 1;
-                  const beds = row.predicted_beds ?? 0;
-                  const emerg = row.predicted_emergency ?? 0;
-                  const elect = row.predicted_elective ?? 0;
-                  const alos = row.avg_length_of_stay ? row.avg_length_of_stay.toFixed(2) : "5.50";
-                  const occRate = row.predicted_occupancy_rate ?? 0;
-                  const model = row.model_name || "bed_demand_prediction_prophet";
-
-                  return (
-                    <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3 px-4 font-bold text-cyan-300">
-                        {fDate}
-                        <div className="text-[10px] text-slate-400 font-sans font-normal">{dName}</div>
-                      </td>
-                      <td className="py-3 px-4 font-sans">
-                        <div className="font-semibold text-slate-200">{ward}</div>
-                        <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                          <Building className="w-3 h-3 text-slate-500" />
-                          {dept}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono text-slate-300">F{floor}</td>
-                      <td className="py-3 px-4 text-right font-bold text-cyan-300">{beds} beds</td>
-                      <td className="py-3 px-4 text-right font-mono">
-                        <span className="text-rose-400 font-semibold">{emerg} E</span>
-                        <span className="text-slate-600 px-1">/</span>
-                        <span className="text-emerald-400 font-semibold">{elect} S</span>
-                      </td>
-                      <td className="py-3 px-4 text-center text-slate-300">{alos}</td>
-                      <td className="py-3 px-4 text-center font-bold text-purple-300">{occRate}%</td>
-                      <td className="py-3 px-4 text-slate-400 text-[10px] truncate max-w-[160px] font-mono">
-                        {model}
-                      </td>
+              <tbody>
+                {forecastRows.length > 0 ? (
+                  forecastRows.map((r, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f2f3f4' }}>
+                      <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{r.forecast_date}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.day_name}</td>
+                      <td style={{ padding: '8px 10px' }}>{r.ward_name}</td>
+                      <td style={{ padding: '8px 10px', color: '#52585e' }}>{r.department_name}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 700, color: 'oklch(0.5 0.1 200)' }}>{r.predicted_beds}</td>
+                      <td style={{ padding: '8px 10px', color: 'oklch(0.5 0.18 25)' }}>{r.predicted_emergency}</td>
+                      <td style={{ padding: '8px 10px', color: 'oklch(0.4 0.12 150)' }}>{r.predicted_elective}</td>
+                      <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.predicted_occupancy_rate}%</td>
                     </tr>
-                  );
-                })}
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#8a9096' }}>
+                      No forecast records available.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-
+        </div>
+      )}
     </div>
   );
 }

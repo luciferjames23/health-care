@@ -1,5 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, parseDischargeSummaryRecord } from '../services/api';
+
+const Spinner = () => (
+  <span style={{
+    display: 'inline-block',
+    width: '18px', height: '18px',
+    border: '2px solid #e3e6e8',
+    borderTop: '2px solid oklch(0.5 0.1 200)',
+    borderRadius: '50%',
+    animation: 'kpi-spin 0.7s linear infinite',
+    verticalAlign: 'middle',
+    marginTop: '6px'
+  }} />
+);
+
+/* Keyframes injected once */
+if (typeof document !== 'undefined' && !document.getElementById('kpi-spin-style')) {
+  const s = document.createElement('style');
+  s.id = 'kpi-spin-style';
+  s.textContent = '@keyframes kpi-spin { to { transform: rotate(360deg); } }';
+  document.head.appendChild(s);
+}
 
 export default function CommandCentreView({ onNavigate, onAskAi }) {
   const [liveKpis, setLiveKpis] = useState(null);
@@ -12,41 +33,58 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     async function loadCommandCentre() {
       setLoading(true);
       try {
-        const res = await apiService.getCommandCentreData();
-        if (res?.kpis) {
-          setLiveKpis(res.kpis);
-        }
-        if (res?.ward_occupancy) {
-          setLiveWards(res.ward_occupancy);
+        const [admRes, disRes, bmRes] = await Promise.all([
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getBedManagementData().catch(() => null)
+        ]);
+
+        const admissions = admRes?.data || [];
+        const discharges = (disRes?.data || []).map(parseDischargeSummaryRecord).filter(Boolean);
+        const kpisObj = bmRes?.kpis || {};
+        const wardsList = bmRes?.wards || [];
+
+        setLiveKpis({
+          active_admissions: admissions.length,
+          discharged_patients: discharges.length,
+          total_beds: kpisObj.total_beds || 312,
+          occupied_beds: kpisObj.occupied_beds || 210,
+          available_beds: kpisObj.available_beds || 102,
+          maintenance_beds: kpisObj.maintenance_beds || 0,
+          occupancy_rate: kpisObj.occupancy_rate || 67.3,
+          total_wards: wardsList.length || 8,
+          total_rooms: kpisObj.total_rooms || 150
+        });
+
+        if (wardsList.length > 0) {
+          setLiveWards(wardsList);
         }
 
-        // Fetch live discharge candidates to populate exceptions & approvals from PostgreSQL
-        const disRes = await apiService.getDischargeCandidates({ limit: 6 }).catch(() => null);
-        const candidates = disRes?.data || disRes?.candidates || [];
-        if (candidates.length > 0) {
-          const exList = candidates.map((c, i) => ({
-            ref: `${c.patient_name || 'Patient'} · ${c.bed_number || 'Bed'}`.trim(),
-            owner: c.doctor_name || c.primary_consultant || 'Attending Physician',
-            age: `${(i + 1) * 28} m`,
-            pri: i < 2 ? 'High' : 'Medium',
-            priC: i < 2 ? 'oklch(0.5 0.18 25)' : 'oklch(0.5 0.13 70)',
-            reason: c.diagnoses ? `${c.diagnoses.slice(0, 45)}...` : 'Discharge clearance dependencies pending',
-            next: 'Review clearance',
+        // Build live exceptions from active discharge cases
+        if (discharges.length > 0) {
+          const exList = discharges.slice(0, 5).map((c) => ({
+            ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
+            owner: c.doctor || 'Attending Physician',
+            age: 'Live Record',
+            pri: c.approval_status === 'Approved' ? 'Low' : 'High',
+            priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
+            reason: c.diagnoses ? (c.diagnoses.length > 55 ? `${c.diagnoses.slice(0, 55)}...` : c.diagnoses) : 'Clinical summary review',
+            next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
             target: 'discharge'
           }));
           setLiveExceptions(exList);
 
-          const appList = candidates.slice(0, 4).map((c, i) => ({
+          const appList = discharges.slice(0, 4).map(c => ({
             type: 'Discharge summary',
-            patient: c.patient_name || c.patient_number,
-            age: `${(i + 1) * 12}m`,
-            owner: c.doctor_name || 'Attending Physician',
-            agent: 'Discharge AI'
+            patient: c.patient,
+            age: c.approval_status,
+            owner: c.doctor || 'Attending Physician',
+            agent: c.model_name || 'Llama 3.3 70B'
           }));
           setLiveApprovals(appList);
         }
       } catch (err) {
-        console.warn("Using default Command Centre metrics:", err);
+        console.warn("Failed to load Command Centre metrics:", err);
       } finally {
         setLoading(false);
       }
@@ -56,137 +94,73 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
   const kpis = [
     { 
-      id: 'appts', 
-      t: 'Appointments recorded', 
-      v: liveKpis ? liveKpis.appointments_total.toLocaleString() : '15,000', 
-      sub: 'All scheduled clinical encounters in PostgreSQL', 
-      c: '#15181b', 
-      target: 'appointments' 
-    },
-    { 
-      id: 'er', 
-      t: 'Emergency load', 
-      v: liveKpis ? liveKpis.emergency_cases.toLocaleString() : '333', 
-      sub: 'Triage trauma and critical encounters', 
-      c: '#15181b', 
-      target: 'emergency' 
-    },
-    { 
       id: 'adm', 
-      t: 'Active Admissions', 
-      v: liveKpis ? liveKpis.active_admissions.toLocaleString() : '250', 
-      sub: liveKpis ? `${liveKpis.available_beds} of ${liveKpis.total_beds} beds free` : '180 beds total', 
-      c: '#15181b', 
+      t: 'Currently Admitted Patients', 
+      v: liveKpis ? String(liveKpis.active_admissions) : null, 
+      sub: 'Active inpatients across all wards', 
+      c: 'oklch(0.5 0.1 200)', 
       target: 'clinical' 
     },
     { 
       id: 'dis', 
-      t: 'Discharge candidates', 
-      v: liveKpis ? liveKpis.discharge_candidates.toLocaleString() : '250', 
-      sub: 'Discharge summaries awaiting clearance', 
-      c: '#15181b', 
+      t: 'Discharged Patient Records', 
+      v: liveKpis ? String(liveKpis.discharged_patients) : null, 
+      sub: 'Patients discharged from inpatient care', 
+      c: 'oklch(0.4 0.12 150)', 
       target: 'discharge' 
-    },
-    { 
-      id: 'ins', 
-      t: 'Insurance & Claims', 
-      v: liveKpis ? `₹${liveKpis.total_collected.toLocaleString()}` : '₹19,30,750', 
-      sub: 'Claims collected via TPA gateway', 
-      c: 'oklch(0.5 0.18 25)', 
-      target: 'billing' 
-    },
-    { 
-      id: 'bill', 
-      t: 'Total Invoiced Revenue', 
-      v: liveKpis ? `₹${liveKpis.total_revenue.toLocaleString()}` : '₹19,30,750', 
-      sub: liveKpis ? `${liveKpis.total_bills} bills generated` : '1000 bills generated', 
-      c: 'oklch(0.5 0.1 200)', 
-      target: 'revenue' 
-    },
-    { 
-      id: 'comp', 
-      t: 'Hospital Wards', 
-      v: liveWards.length ? String(liveWards.length) : '6', 
-      sub: 'Active inpatient care units', 
-      c: '#15181b', 
-      target: 'beds' 
-    },
-    { 
-      id: 'appr', 
-      t: 'Human approvals', 
-      v: '9', 
-      sub: 'clinical & discharge clearance queue', 
-      c: '#15181b', 
-      target: 'discharge' 
-    },
-    { 
-      id: 'agents', 
-      t: 'Agent runs recorded', 
-      v: liveKpis ? liveKpis.agent_runs_today.toLocaleString() : '1,000', 
-      sub: 'Live execution logs across active models', 
-      c: '#15181b', 
-      target: 'analytics' 
-    },
-    { 
-      id: 'ex', 
-      t: 'Exceptions', 
-      v: '32', 
-      sub: 'predicted pressure: High', 
-      c: 'oklch(0.5 0.18 25)', 
-      target: 'exceptions' 
-    },
-    { 
-      id: 'lab', 
-      t: 'Radiology Reports', 
-      v: liveKpis ? liveKpis.radiology_reports.toLocaleString() : '500', 
-      sub: 'Diagnostic studies & AI impressions', 
-      c: '#15181b', 
-      target: 'lab' 
     },
     { 
       id: 'inv', 
-      t: 'Total Beds Capacity', 
-      v: liveKpis ? String(liveKpis.total_beds) : '180', 
-      sub: liveKpis ? `${liveKpis.available_beds} ready for intake` : '180 beds', 
+      t: 'Total Hospital Beds', 
+      v: liveKpis ? String(liveKpis.total_beds) : '312', 
+      sub: liveKpis ? `${liveKpis.available_beds} available · ${liveKpis.occupied_beds} occupied` : 'Real-time bed census', 
       c: '#15181b', 
+      target: 'beds' 
+    },
+    { 
+      id: 'occ', 
+      t: 'Hospital Occupancy Rate', 
+      v: liveKpis ? `${liveKpis.occupancy_rate}%` : '67.3%', 
+      sub: liveKpis ? `${liveKpis.occupied_beds} of ${liveKpis.total_beds} beds in use` : 'Calculated capacity', 
+      c: 'oklch(0.5 0.18 25)', 
+      target: 'beds' 
+    },
+    { 
+      id: 'wards', 
+      t: 'Hospital Wards Count', 
+      v: liveKpis ? String(liveKpis.total_wards) : '8', 
+      sub: 'Across all floors and departments', 
+      c: '#15181b', 
+      target: 'beds' 
+    },
+    { 
+      id: 'rooms', 
+      t: 'Hospital Rooms Count', 
+      v: liveKpis ? String(liveKpis.total_rooms) : '150', 
+      sub: 'Across all wards and care units', 
+      c: '#15181b', 
+      target: 'beds' 
+    },
+    { 
+      id: 'avail', 
+      t: 'Available Vacant Beds', 
+      v: liveKpis ? String(liveKpis.available_beds) : '102', 
+      sub: 'Immediate intake capacity', 
+      c: 'oklch(0.4 0.12 150)', 
       target: 'beds' 
     },
   ];
 
-  const defaultWards = [
-    { name: 'Cardiology Ward (C)', o: 18, n: 20, pct: 90, color: 'oklch(0.5 0.18 25)' },
-    { name: 'CTICU (Intensive)', o: 11, n: 12, pct: 92, color: 'oklch(0.5 0.18 25)' },
-    { name: 'Orthopaedic (O)', o: 14, n: 18, pct: 78, color: 'oklch(0.5 0.13 70)' },
-    { name: 'General Surgery (S)', o: 16, n: 24, pct: 67, color: 'oklch(0.5 0.1 200)' },
-    { name: 'Nephrology (N)', o: 8, n: 14, pct: 57, color: 'oklch(0.5 0.1 200)' },
-    { name: 'Oncology (ON)', o: 5, n: 10, pct: 50, color: 'oklch(0.5 0.1 200)' },
-  ];
-
-  const displayWards = liveWards.length > 0 ? liveWards.map(w => ({
+  const displayWards = liveWards.map(w => ({
     name: w.ward_name,
     o: w.occupied_beds,
     n: w.total_beds,
     pct: w.occupancy_rate || 0,
-    color: (w.occupancy_rate > 80) ? 'oklch(0.5 0.18 25)' : (w.occupancy_rate > 50) ? 'oklch(0.5 0.13 70)' : 'oklch(0.5 0.1 200)'
-  })) : defaultWards;
+    color: (w.occupancy_rate > 80) ? 'oklch(0.5 0.18 25)' : (w.occupancy_rate > 50) ? 'oklch(0.5 0.13 70)' : 'oklch(0.4 0.12 150)'
+  }));
 
-  const defaultExceptions = [
-    { ref: 'Kavitha Raman · C-412', owner: 'Dr. Arjun Menon', age: '1 h 42 m', pri: 'High', priC: 'oklch(0.5 0.18 25)', reason: 'Star Health insurance enhancement pending ₹1,42,000', next: 'TPA escalation', target: 'discharge' },
-    { ref: 'Fathima Begum · O-207', owner: 'Dr. Deepa Krishnan', age: '52 m', pri: 'High', priC: 'oklch(0.5 0.18 25)', reason: 'Enoxaparin medication verification in pharmacy', next: 'Pharmacy pack', target: 'discharge' },
-    { ref: 'Murugan Selvam · CTICU-04', owner: 'Dr. Vikram Bose', age: '2 h 17 m', pri: 'High', priC: 'oklch(0.5 0.18 25)', reason: 'Awaiting consultant surgeon sign-off for release', next: 'Surgeon review', target: 'clinical' },
-    { ref: 'Lakshmi Narayanan · N-305', owner: 'Dr. Ramesh Pillai', age: '25 m', pri: 'Medium', priC: 'oklch(0.5 0.13 70)', reason: 'Renal function test in analyzer queue #14', next: 'Lab expedite', target: 'clinical' },
-    { ref: 'Ananya Deshmukh · CCU-01', owner: 'Dr. Arjun Menon', age: '30 m', pri: 'Medium', priC: 'oklch(0.5 0.13 70)', reason: 'Preliminary ECG report awaiting attending sign-off', next: 'Sign note', target: 'soap' },
-  ];
-
-  const defaultApprovals = [
-    { type: 'Discharge summary', patient: 'Kavitha Raman', age: '14m', owner: 'Dr. Arjun Menon', agent: 'Discharge Agent' },
-    { type: 'Preauth enhancement', patient: 'Murugan Selvam', age: '22m', owner: 'R. Sundar (TPA Desk)', agent: 'Insurance Agent' },
-    { type: 'Radiology sign-off', patient: 'Lakshmi Narayanan', age: '35m', owner: 'Dr. Hemalatha Devi', agent: 'Radiology AI' },
-    { type: 'Medication change', patient: 'Fathima Begum', age: '48m', owner: 'Dr. Deepa Krishnan', agent: 'Clinical Agent' },
-  ];
-
-  const exceptions = liveExceptions.length > 0 ? liveExceptions : defaultExceptions;
-  const approvals = liveApprovals.length > 0 ? liveApprovals : defaultApprovals;
+  const exceptions = liveExceptions;
+  const approvals = liveApprovals;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -244,9 +218,10 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
             <div style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>{k.t}</div>
             <div style={{
               fontFamily: 'Newsreader, Georgia, serif', fontSize: '28px',
-              lineHeight: 1.15, color: k.c, margin: '2px 0'
+              lineHeight: 1.15, color: k.c, margin: '2px 0',
+              minHeight: '34px', display: 'flex', alignItems: 'center'
             }}>
-              {k.v}
+              {k.v === null ? <Spinner /> : k.v}
             </div>
             <div style={{ color: '#52585e', fontSize: '11px', lineHeight: 1.35 }}>{k.sub}</div>
           </div>

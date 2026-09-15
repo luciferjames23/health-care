@@ -7,6 +7,8 @@ import ClinicalWorkspaceView from './components/ClinicalWorkspaceView';
 import DischargeCommandCentre from './components/DischargeCommandCentre';
 import SoapNoteView from './components/SoapNoteView';
 import Patient360View from './components/Patient360View';
+import PatientsView from './components/PatientsView';
+import AdmissionsView from './components/AdmissionsView';
 import HospitalAssistantView from './components/HospitalAssistantView';
 import MobileSimulatorModal from './components/MobileSimulatorModal';
 
@@ -132,12 +134,30 @@ export default function App() {
             />
           )}
 
+          {activePage === 'patients' && (
+            <PatientsView
+              onSelectPatient={handleSelectPatient}
+              onOpenSoap={handleOpenSoap}
+              onNavigate={setActivePage}
+            />
+          )}
+
+          {activePage === 'admissions' && (
+            <AdmissionsView
+              onSelectPatient={handleSelectPatient}
+              onOpenSoap={handleOpenSoap}
+              onNavigate={setActivePage}
+            />
+          )}
+
+          {activePage === 'bedboard' && <BedDemandView onSelectPatient={handleSelectPatient} />}
+
           {activePage === 'assistant' && (
             <HospitalAssistantView onNavigate={setActivePage} defaultQuery={aiPrompt} />
           )}
 
           {activePage === 'revenue' && <RevenueView />}
-          {activePage === 'beds' && <BedDemandView />}
+          {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}
           {activePage === 'tables' && <SchemaExplorerView />}
           {activePage === 'explorer' && <DataExplorerView />}
           {activePage === 'sql' && <SqlSandboxView />}
@@ -146,7 +166,7 @@ export default function App() {
 
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
-            'command', 'clinical', 'discharge', 'soap', 'patient360',
+            'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
             'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

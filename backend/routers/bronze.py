@@ -78,6 +78,37 @@ BRONZE_TABLES_META = {
             {"column_name": "emergency_contact_phone", "data_type": "STRING", "is_primary": False},
             {"column_name": "ingested_at", "data_type": "TIMESTAMP", "is_primary": False}
         ]
+    },
+    "wards": {
+        "table_name": "wards",
+        "primary_key": "ward_id",
+        "domain": "Hospital Facility & Ward Units",
+        "description": "Hospital ward facilities, department associations, ward types, and floor allocations.",
+        "schema": [
+            {"column_name": "ward_id", "data_type": "BIGINT", "is_primary": True},
+            {"column_name": "ward_name", "data_type": "STRING", "is_primary": False},
+            {"column_name": "department_id", "data_type": "BIGINT", "is_primary": False},
+            {"column_name": "ward_type", "data_type": "STRING", "is_primary": False},
+            {"column_name": "floor_number", "data_type": "INT", "is_primary": False},
+            {"column_name": "status", "data_type": "STRING", "is_primary": False},
+            {"column_name": "ingestion_timestamp", "data_type": "TIMESTAMP", "is_primary": False}
+        ]
+    },
+    "rooms": {
+        "table_name": "rooms",
+        "primary_key": "room_id",
+        "domain": "Hospital Room & Cubicle Inventory",
+        "description": "Hospital room master records, ward associations, room types, capacities, and daily room charges.",
+        "schema": [
+            {"column_name": "room_id", "data_type": "BIGINT", "is_primary": True},
+            {"column_name": "room_number", "data_type": "STRING", "is_primary": False},
+            {"column_name": "ward_id", "data_type": "BIGINT", "is_primary": False},
+            {"column_name": "room_type", "data_type": "STRING", "is_primary": False},
+            {"column_name": "capacity", "data_type": "INT", "is_primary": False},
+            {"column_name": "daily_charge", "data_type": "DOUBLE", "is_primary": False},
+            {"column_name": "status", "data_type": "STRING", "is_primary": False},
+            {"column_name": "ingestion_timestamp", "data_type": "TIMESTAMP", "is_primary": False}
+        ]
     }
 }
 
@@ -171,7 +202,7 @@ def get_bronze_beds(
     bed_type: Optional[str] = Query(None, description="Filter by bed_type (e.g. ICU, Standard Inpatient, Pediatric)"),
     occupancy_status: Optional[str] = Query(None, description="Filter by occupancy_status (Occupied, Available, Maintenance)"),
     patient_id: Optional[int] = Query(None, description="Filter by patient_id"),
-    limit: Optional[int] = Query(default=400, ge=1, description="Max records to return. Defaults to 400."),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit for full data."),
     offset: int = Query(default=0, ge=0)
 ):
     """Query `health_care.bronze.beds` table with optional filters and pagination."""
@@ -182,9 +213,8 @@ def get_bronze_beds(
     if occupancy_status: filters["occupancy_status"] = occupancy_status
     if patient_id is not None: filters["patient_id"] = patient_id
 
-    limit_val = limit if limit is not None else 400
     try:
-        res = db_connector.query_bronze_table("beds", filters=filters, limit=limit_val, offset=offset)
+        res = db_connector.query_bronze_table("beds", filters=filters, limit=limit, offset=offset)
         discharged_ids = _get_discharged_patient_ids()
         if discharged_ids and "data" in res:
             for b in res["data"]:
@@ -325,7 +355,7 @@ def get_bronze_doctors(
     hospital_affiliation: Optional[str] = Query(None, description="Filter by hospital_affiliation"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     npi_number: Optional[str] = Query(None, description="Filter by NPI number"),
-    limit: Optional[int] = Query(default=400, ge=1, description="Max records to return. Defaults to 400."),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0)
 ):
     """Query `health_care.bronze.doctors` table with optional filters and pagination."""
@@ -336,9 +366,8 @@ def get_bronze_doctors(
     if is_active is not None: filters["is_active"] = is_active
     if npi_number: filters["npi_number"] = npi_number
 
-    limit_val = limit if limit is not None else 400
     try:
-        return db_connector.query_bronze_table("doctors", filters=filters, limit=limit_val, offset=offset)
+        return db_connector.query_bronze_table("doctors", filters=filters, limit=limit, offset=offset)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query bronze doctors: {str(e)}")
 
@@ -411,7 +440,7 @@ def get_bronze_patients(
     blood_type: Optional[str] = Query(None, description="Filter by blood_type (e.g. A+, O-)"),
     primary_insurance: Optional[str] = Query(None, description="Filter by primary_insurance"),
     patient_number: Optional[str] = Query(None, description="Filter by patient_number (e.g. PAT-10892)"),
-    limit: Optional[int] = Query(default=400, ge=1, description="Max records to return. Defaults to 400."),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0)
 ):
     """Query `health_care.bronze.patients` table with optional filters and pagination."""
@@ -423,9 +452,8 @@ def get_bronze_patients(
     if primary_insurance: filters["primary_insurance"] = primary_insurance
     if patient_number: filters["patient_number"] = patient_number
 
-    limit_val = limit if limit is not None else 400
     try:
-        return db_connector.query_bronze_table("patients", filters=filters, limit=limit_val, offset=offset)
+        return db_connector.query_bronze_table("patients", filters=filters, limit=limit, offset=offset)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query bronze patients: {str(e)}")
 
@@ -492,21 +520,110 @@ def get_bronze_patient_by_id(patient_id: str):
 
 
 # ---------------------------------------------------------------------------
+# WARDS ENDPOINTS
+# ---------------------------------------------------------------------------
+@router.get("/wards", summary="Query health_care.bronze.wards Table")
+def get_bronze_wards(
+    ward_id: Optional[int] = Query(None, description="Filter by ward_id"),
+    ward_name: Optional[str] = Query(None, description="Filter by ward_name"),
+    ward_type: Optional[str] = Query(None, description="Filter by ward_type (e.g. Private Deluxe, Single Private)"),
+    status: Optional[str] = Query(None, description="Filter by status (Active, Inactive)"),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit to fetch full data."),
+    offset: int = Query(default=0, ge=0)
+):
+    """Query `health_care.bronze.wards` table with optional filters and pagination."""
+    filters = {}
+    if ward_id is not None: filters["ward_id"] = ward_id
+    if ward_name: filters["ward_name"] = ward_name
+    if ward_type: filters["ward_type"] = ward_type
+    if status: filters["status"] = status
+
+    try:
+        return db_connector.query_bronze_table("wards", filters=filters, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query bronze wards: {str(e)}")
+
+
+@router.get("/wards/{ward_id}", summary="Get Single Bronze Ward Record")
+def get_bronze_ward_by_id(ward_id: str):
+    """Retrieve a single ward record by ward_id or ward_name."""
+    try:
+        int_id = int(ward_id)
+        res = db_connector.query_bronze_table("wards", filters={"ward_id": int_id}, limit=1)
+        data = res.get("data", [])
+    except ValueError:
+        data = []
+
+    if not data:
+        res = db_connector.query_bronze_table("wards", filters={"ward_name": ward_id}, limit=1)
+        data = res.get("data", [])
+
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Bronze ward record '{ward_id}' not found.")
+    return data[0]
+
+
+# ---------------------------------------------------------------------------
+# ROOMS ENDPOINTS
+# ---------------------------------------------------------------------------
+@router.get("/rooms", summary="Query health_care.bronze.rooms Table")
+def get_bronze_rooms(
+    room_id: Optional[int] = Query(None, description="Filter by room_id"),
+    room_number: Optional[str] = Query(None, description="Filter by room_number (e.g. RM-001)"),
+    ward_id: Optional[int] = Query(None, description="Filter by ward_id"),
+    room_type: Optional[str] = Query(None, description="Filter by room_type"),
+    status: Optional[str] = Query(None, description="Filter by status (Available, Occupied, Maintenance)"),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit to fetch full data."),
+    offset: int = Query(default=0, ge=0)
+):
+    """Query `health_care.bronze.rooms` table with optional filters and pagination."""
+    filters = {}
+    if room_id is not None: filters["room_id"] = room_id
+    if room_number: filters["room_number"] = room_number
+    if ward_id is not None: filters["ward_id"] = ward_id
+    if room_type: filters["room_type"] = room_type
+    if status: filters["status"] = status
+
+    try:
+        return db_connector.query_bronze_table("rooms", filters=filters, limit=limit, offset=offset)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query bronze rooms: {str(e)}")
+
+
+@router.get("/rooms/{room_id}", summary="Get Single Bronze Room Record")
+def get_bronze_room_by_id(room_id: str):
+    """Retrieve a single room record by room_id or room_number."""
+    try:
+        int_id = int(room_id)
+        res = db_connector.query_bronze_table("rooms", filters={"room_id": int_id}, limit=1)
+        data = res.get("data", [])
+    except ValueError:
+        data = []
+
+    if not data:
+        res = db_connector.query_bronze_table("rooms", filters={"room_number": room_id}, limit=1)
+        data = res.get("data", [])
+
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Bronze room record '{room_id}' not found.")
+    return data[0]
+
+
+# ---------------------------------------------------------------------------
 # DYNAMIC BRONZE TABLE QUERY ENDPOINT
 # ---------------------------------------------------------------------------
 @router.get("/table/{table_name}", summary="Dynamic Query Endpoint for Bronze Tables")
 def query_dynamic_bronze_table(
     table_name: str,
-    limit: Optional[int] = Query(default=400, ge=1, description="Max records to return. Defaults to 400."),
+    limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0)
 ):
     """Dynamic pagination and retrieval for Bronze tables."""
-    valid_tables = ["beds", "doctors", "patients"]
+    valid_tables = ["beds", "doctors", "patients", "wards", "rooms"]
     if table_name not in valid_tables:
         raise HTTPException(status_code=400, detail=f"Table '{table_name}' is not supported in Bronze layer. Valid Bronze tables: {valid_tables}")
 
-    limit_val = limit if limit is not None else 400
     try:
-        return db_connector.query_bronze_table(table_name, limit=limit_val, offset=offset)
+        return db_connector.query_bronze_table(table_name, limit=limit, offset=offset)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query Bronze table '{table_name}': {str(e)}")

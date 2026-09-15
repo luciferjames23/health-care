@@ -1,0 +1,340 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { apiService, parseAdmissionLlmRecord } from '../services/api';
+
+export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate }) {
+  const [admissions, setAdmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [selectedType, setSelectedType] = useState('All');
+  const [selectedWard, setSelectedWard] = useState('All');
+  const [wardOptions, setWardOptions] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAdmissionsData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [admRes, bedsRes, wardsRes] = await Promise.all([
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
+          apiService.getBeds().catch(() => ({ data: [] })),
+          apiService.getWards().catch(() => ({ data: [] }))
+        ]);
+
+        if (!isMounted) return;
+
+        const bedMap = {};
+        (bedsRes?.data || []).forEach(b => {
+          if (b.patient_id) bedMap[String(b.patient_id)] = b;
+        });
+
+        const wardMap = {};
+        const wList = [];
+        (wardsRes?.data || []).forEach(w => {
+          if (w.ward_id) {
+            wardMap[w.ward_id] = w.ward_name;
+            wList.push(w.ward_name);
+          }
+        });
+        setWardOptions([...new Set(wList)]);
+
+        const list = (admRes?.data || []).map(r => {
+          const p = parseAdmissionLlmRecord(r);
+          const matchedBed = bedMap[String(p.patient_id)];
+          if (matchedBed) {
+            p.bed = matchedBed.bed_number || p.bed;
+            if (matchedBed.ward_id && wardMap[matchedBed.ward_id]) {
+              p.ward = wardMap[matchedBed.ward_id];
+            }
+          }
+          return p;
+        });
+
+        setAdmissions(list);
+      } catch (err) {
+        console.error("Failed to load admissions data:", err);
+        if (isMounted) setError(err.message || 'Failed to fetch admissions');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadAdmissionsData();
+    return () => { isMounted = false; };
+  }, []);
+
+  const filteredAdmissions = useMemo(() => {
+    return admissions.filter(item => {
+      // Type filter
+      if (selectedType !== 'All' && item.admission_type !== selectedType) {
+        return false;
+      }
+      // Ward filter
+      if (selectedWard !== 'All' && item.ward !== selectedWard) {
+        return false;
+      }
+      // Search
+      if (!search.trim()) return true;
+      const s = search.toLowerCase();
+      return (item.name && item.name.toLowerCase().includes(s)) ||
+             (item.mrn && item.mrn.toLowerCase().includes(s)) ||
+             (item.doctor && item.doctor.toLowerCase().includes(s)) ||
+             (item.reason_for_admission && item.reason_for_admission.toLowerCase().includes(s)) ||
+             (item.diagnosis && item.diagnosis.toLowerCase().includes(s)) ||
+             (item.bed && item.bed.toLowerCase().includes(s)) ||
+             (item.ward && item.ward.toLowerCase().includes(s));
+    });
+  }, [admissions, selectedType, selectedWard, search]);
+
+  // KPIs
+  const totalAdmissions = admissions.length;
+  const emergencyCount = admissions.filter(a => a.admission_source?.includes('Emergency') || a.admission_type === 'Emergency').length;
+  const referralCount = admissions.filter(a => a.admission_type === 'Referral').length;
+  const highEwsCount = admissions.filter(a => a.ewsType === 'red').length;
+
+  const handleExportCsv = () => {
+    if (admissions.length === 0) return alert('No admission records to export');
+    const headers = ['Admission ID / MRN', 'Patient Name', 'Admission Date', 'Admission Type', 'Source', 'Ward', 'Bed', 'Attending Doctor', 'Specialization', 'Reason for Admission', 'EWS Score'];
+    const rows = [headers.join(',')];
+    admissions.forEach(a => {
+      rows.push([
+        `"${a.mrn || a.admission_number || ''}"`,
+        `"${a.name || ''}"`,
+        `"${a.admission_date || ''}"`,
+        `"${a.admission_type || ''}"`,
+        `"${a.admission_source || ''}"`,
+        `"${a.ward || ''}"`,
+        `"${a.bed || ''}"`,
+        `"${a.doctor || ''}"`,
+        `"${a.doctor_specialty || ''}"`,
+        `"${(a.reason_for_admission || a.diagnosis || '').replace(/"/g, '""')}"`,
+        `"${a.ews || ''}"`
+      ].join(','));
+    });
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `inpatient_admissions_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Top Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+        <div>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>Inpatient Admissions</span>
+          </div>
+          <div style={{ fontSize: '20px', fontWeight: 600 }}>
+            Inpatient Admissions & Bed Allocation
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            Active patient admission streams, attending clinical consultant allocation, and telemetry monitoring
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            style={{
+              height: '32px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
+              fontWeight: 500, color: '#15181b'
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px' }}>
+          <strong>Unable to load records:</strong> {error}
+        </div>
+      )}
+
+      {/* KPI Cards */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Inpatient Admissions</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
+            {loading ? '—' : totalAdmissions}
+          </div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Emergency Bay Intakes</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
+            {loading ? '—' : emergencyCount}
+          </div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Referral Admissions</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)', marginTop: '2px' }}>
+            {loading ? '—' : referralCount}
+          </div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>High EWS Critical Care</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
+            {loading ? '—' : highEwsCount}
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Admission Type Dropdown */}
+          <select
+            value={selectedType}
+            onChange={e => setSelectedType(e.target.value)}
+            style={{
+              height: '30px', padding: '0 8px', borderRadius: '6px', border: '1px solid #e3e6e8',
+              background: '#fff', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer'
+            }}
+          >
+            <option value="All">All Admission Types</option>
+            <option value="Referral">Referral</option>
+            <option value="Emergency">Emergency</option>
+            <option value="Elective">Elective</option>
+          </select>
+
+          {/* Ward Dropdown */}
+          <select
+            value={selectedWard}
+            onChange={e => setSelectedWard(e.target.value)}
+            style={{
+              height: '30px', padding: '0 8px', borderRadius: '6px', border: '1px solid #e3e6e8',
+              background: '#fff', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer'
+            }}
+          >
+            <option value="All">All Wards (8 Wards)</option>
+            {wardOptions.map(w => (
+              <option key={w} value={w}>{w}</option>
+            ))}
+          </select>
+        </div>
+
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search patient, admission #, doctor, bed..."
+          style={{
+            height: '30px', width: '280px', border: '1px solid #e3e6e8',
+            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
+          }}
+        />
+      </div>
+
+      {/* Admissions Table */}
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Inpatient Admissions...</div>
+            <div style={{ fontSize: '12px' }}>Fetching live admission records from clinical data system…</div>
+          </div>
+        ) : filteredAdmissions.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>No Admissions Found</div>
+            <div style={{ fontSize: '12px' }}>{search ? `No records matching "${search}"` : 'Zero active admission records.'}</div>
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                <th style={{ padding: '9px 12px', minWidth: '180px' }}>Patient Name & MRN</th>
+                <th style={{ padding: '9px 12px', width: '120px' }}>Admission No.</th>
+                <th style={{ padding: '9px 12px', minWidth: '130px' }}>Type & Source</th>
+                <th style={{ padding: '9px 12px', minWidth: '140px' }}>Ward & Bed</th>
+                <th style={{ padding: '9px 12px', minWidth: '170px' }}>Attending Physician</th>
+                <th style={{ padding: '9px 12px', minWidth: '220px' }}>Reason for Admission</th>
+                <th style={{ padding: '9px 12px', width: '110px' }}>Telemetry / EWS</th>
+                <th style={{ padding: '9px 12px', width: '120px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAdmissions.map((a, idx) => (
+                <tr
+                  key={a.id || idx}
+                  onClick={() => onSelectPatient && onSelectPatient(a)}
+                  style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600, color: '#15181b', fontSize: '12.5px' }}>{a.name}</div>
+                    <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                      {a.age} Yrs / {a.sex} · Blood: {a.bloodGroup}
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
+                    {a.mrn || `ADM-${a.admission_id}`}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600, color: '#15181b' }}>{a.admission_type || 'Inpatient'}</div>
+                    <div style={{ fontSize: '10.5px', color: '#8a9096' }}>{a.admission_source || 'Referral'}</div>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 600, color: '#15181b' }}>{a.bed}</div>
+                    <div style={{ fontSize: '11px', color: '#8a9096' }}>{a.ward}</div>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ fontWeight: 500, color: '#15181b' }}>{a.doctor}</div>
+                    <div style={{ fontSize: '10.5px', color: '#8a9096' }}>{a.doctor_specialty}</div>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#334155' }}>
+                    <span style={{ display: 'inline-block', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {a.reason_for_admission || a.diagnosis}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600,
+                      background: a.ewsType === 'red' ? 'oklch(0.96 0.05 25)' : 'oklch(0.95 0.04 150)',
+                      color: a.ewsType === 'red' ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)'
+                    }}>
+                      {a.ews}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectPatient && onSelectPatient(a)}
+                        style={{
+                          height: '24px', padding: '0 8px', borderRadius: '4px',
+                          border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
+                          color: 'oklch(0.4 0.1 200)', cursor: 'pointer', fontSize: '11px', fontWeight: 600
+                        }}
+                      >
+                        Dossier 360
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenSoap && onOpenSoap(a)}
+                        style={{
+                          height: '24px', padding: '0 6px', borderRadius: '4px',
+                          border: '1px solid #e3e6e8', background: '#fff',
+                          color: '#52585e', cursor: 'pointer', fontSize: '11px'
+                        }}
+                      >
+                        SOAP
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

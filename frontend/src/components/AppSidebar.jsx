@@ -40,7 +40,7 @@ export const NAV_GROUPS = [
       { id: 'billing', label: 'Billing & Clearance' },
       { id: 'insurance', label: 'Insurance & Claims' },
       { id: 'revenue', label: 'Revenue Predictions', badge: 'Gold' },
-      { id: 'beds', label: '7-Day Bed Forecast', badge: 'Databricks' },
+      { id: 'beds', label: '7-Day Bed Forecast', badge: 'Live' },
     ]
   },
   {
@@ -59,7 +59,7 @@ export const NAV_GROUPS = [
       { id: 'tables', label: 'Schema Explorer' },
       { id: 'explorer', label: 'Data Grid Viewer' },
       { id: 'sql', label: 'SQL Sandbox' },
-      { id: 'settings', label: 'Databricks Settings' },
+      { id: 'settings', label: 'System Settings' },
     ]
   }
 ];

@@ -1,77 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, parseDischargeSummaryRecord } from '../services/api';
 
 export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) {
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'kanban'
   const [search, setSearch] = useState('');
   const [selectedCase, setSelectedCase] = useState(null);
   const [simState, setSimState] = useState({});
-  const [loading, setLoading] = useState(false);
-
-  const initialMockCases = [
-    {
-      id: 'DC-01', patient: 'Kavitha Raman', bed: 'C-412', doctor: 'Dr. Arjun Menon',
-      insurer: 'Star Health', intent: '09:02', eta: '4:20 PM',
-      cp: 'billing → insurance → transport', pending: 5,
-      owner: 'Insurance desk · R. Sundar', age: '2 h 20 m',
-      status: 'Blocked · insurance', statusType: 'red',
-      deps: [
-        { label: 'Doctor intent', note: 'Consultant recorded intent in EMR', status: 'Done', at: '09:02', done: true },
-        { label: 'Pending investigations', note: 'ECHO & Blood cultures reported normal', status: 'Done', at: '09:45', done: true },
-        { label: 'Pharmacy clearance', note: 'Discharge kit & inhalers verified', status: 'Done', at: '10:15', done: true },
-        { label: 'Insurance preauth enhancement', note: 'Provisional bill ₹1,42,000 submitted; awaiting Star Health approval', status: 'In Query', at: '10:30', done: false, active: true },
-        { label: 'Billing finalisation', note: 'Patient liability calculation pending TPA response', status: 'Pending', at: '—', done: false },
-        { label: 'Discharge summary signature', note: 'AI draft composed; awaiting Dr. Arjun Menon sign-off', status: 'Pending sign', at: '—', done: false },
-        { label: 'Ward release & housekeeping', note: 'Bed C-412 clean notification scheduled', status: 'Pending', at: '—', done: false },
-      ]
-    }
-  ];
-
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [liveCases, setLiveCases] = useState([]);
 
   useEffect(() => {
     async function loadDischargeCandidates() {
       setLoading(true);
+      setError(null);
       try {
-        const res = await apiService.getDischargeCandidates({ limit: 100 });
-        const list = res?.candidates || res?.data || [];
+        // Fetch real discharged patients from Gold generated-discharge-summaries API
+        const res = await apiService.getDischargedPatients();
+        const list = res?.data || [];
         if (list.length > 0) {
           const mapped = list.map((c) => {
-            const hasPending = (c.pending_dependencies_count || 0) > 0;
-            const liveDeps = (c.dependencies && Array.isArray(c.dependencies) && c.dependencies.length > 0)
-              ? c.dependencies
-              : [
-                  { label: 'Consultant Discharge Summary', note: c.diagnoses || 'Summary generated', status: 'Done', at: '09:00', done: true },
-                  { label: 'Patient Condition', note: c.patient_condition || 'Clinically stable for discharge', status: 'Done', at: '10:00', done: true },
-                  { label: 'Department Clearances', note: `${c.pending_dependencies_count || 0} items pending clearance`, status: hasPending ? 'Pending' : 'Done', at: '10:30', done: !hasPending, active: hasPending }
-                ];
+            const parsed = parseDischargeSummaryRecord(c);
+            const liveDeps = [
+              { label: 'AI Discharge Summary Generation', note: `Generated via ${parsed.model_name}`, status: 'Completed', at: parsed.intent, done: true },
+              { label: 'Clinical Course & Investigations', note: parsed.investigations ? parsed.investigations.slice(0, 60) + '...' : 'Clinical investigations verified', status: 'Completed', at: parsed.intent, done: true },
+              { label: 'Attending Physician Approval', note: `Consultant: ${parsed.doctor} · Status: ${parsed.approval_status}`, status: parsed.approval_status, at: parsed.eta, done: parsed.approval_status === 'Approved', active: parsed.approval_status !== 'Approved' },
+              { label: 'Discharge Medications & Advice', note: parsed.discharge_advice ? parsed.discharge_advice.slice(0, 60) + '...' : 'Take-home medications documented', status: 'Verified', at: parsed.eta, done: true },
+              { label: 'Hospital Bed Release', note: `${parsed.bed} released and cleaned`, status: 'Ready', at: '—', done: true }
+            ];
 
             return {
-              id: `DC-${String(c.summary_id).padStart(2, '0')}`,
-              summary_id: c.summary_id,
-              patient_id: c.patient_id,
-              patient: c.patient_name,
-              bed: c.bed_number || 'OP',
-              doctor: c.doctor_name || c.primary_consultant || 'Dr. Arjun Menon',
-              insurer: c.insurance_provider || c.insurer || 'Comprehensive Cashless Mediclaim',
-              policyNumber: c.policy_number,
-              intent: c.admission_date ? new Date(c.admission_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
-              eta: c.discharge_date ? new Date(c.discharge_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Today',
-              cp: hasPending ? 'clearance → pharmacy' : 'Clear',
-              pending: c.pending_dependencies_count || 0,
-              owner: c.primary_consultant || 'Consultant',
-              age: '1 h 15 m',
-              status: hasPending ? 'Blocked · clearance' : 'Ready',
-              statusType: hasPending ? 'amber' : 'green',
-              diagnoses: c.diagnoses,
-              condition: c.patient_condition,
+              ...parsed,
+              cp: parsed.approval_status === 'Approved' ? 'Summary Approved → Bed Released' : 'Pending Physician Approval',
+              pending: parsed.approval_status === 'Approved' ? 0 : 1,
+              owner: parsed.doctor,
+              age: 'Clinical Review',
               deps: liveDeps
             };
           });
           setLiveCases(mapped);
+        } else {
+          setLiveCases([]);
         }
       } catch (err) {
-        console.warn("Using default discharge cases:", err);
+        console.error("Failed to load discharge summaries:", err);
+        setError(err.message || 'Failed to connect to Generated Discharge Summaries API');
       } finally {
         setLoading(false);
       }
@@ -82,26 +55,26 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
   const filtered = liveCases.filter(c => {
     if (!search.trim()) return true;
     const s = search.toLowerCase();
-    return c.patient.toLowerCase().includes(s) ||
-           c.bed.toLowerCase().includes(s) ||
-           c.doctor.toLowerCase().includes(s) ||
-           c.insurer.toLowerCase().includes(s) ||
-           c.status.toLowerCase().includes(s);
+    return (c.patient && c.patient.toLowerCase().includes(s)) ||
+           (c.bed && c.bed.toLowerCase().includes(s)) ||
+           (c.doctor && c.doctor.toLowerCase().includes(s)) ||
+           (c.diagnoses && c.diagnoses.toLowerCase().includes(s)) ||
+           (c.status && c.status.toLowerCase().includes(s));
   });
 
   const handleSimApprove = (cId) => {
     setSimState(prev => ({ ...prev, [cId]: 'approved' }));
-    alert('Simulated TPA Webhook: Star Health approval granted for ₹1,35,000. Final bill cleared.');
+    alert('Physician Sign-Off: Discharge summary formally approved and finalized.');
   };
 
   const handleSimReject = (cId) => {
-    setSimState(prev => ({ ...prev, [cId]: 'rejected' }));
-    alert('Simulated TPA Webhook: Enhancement query sent by Star Health: "Provide ICU stay clinical justification". Exception created in Exception Centre.');
+    setSimState(prev => ({ ...prev, [cId]: 'query' }));
+    alert('Physician Query: Revision requested for discharge summary.');
   };
 
   const handleReleaseBed = (cId) => {
     setSimState(prev => ({ ...prev, [cId]: 'released' }));
-    alert('Patient successfully discharged! Bed released and notification sent to Housekeeping.');
+    alert('Patient successfully cleared! Bed release notification broadcast to Housekeeping.');
     setSelectedCase(null);
   };
 
@@ -120,34 +93,48 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
         </div>
       </div>
 
+      {error && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span><strong>Unable to load records:</strong> {error}</span>
+          <button 
+            onClick={() => window.location.reload()}
+            style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #f87171', background: '#fff', cursor: 'pointer', fontSize: '11px' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* KPI Stats */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Inpatient Cases</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b' }}>{liveCases.length || 250}</div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Ready for Discharge</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)' }}>
-            {liveCases.filter(c => c.statusType === 'green').length}
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Discharged Records</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b' }}>
+            {loading ? '—' : liveCases.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Clearance Pending</div>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Approved Summaries</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)' }}>
+            {loading ? '—' : liveCases.filter(c => c.approval_status === 'Approved').length}
+          </div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending Sign-Off</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)' }}>
-            {liveCases.filter(c => c.statusType === 'amber' || c.pending > 0).length}
+            {loading ? '—' : liveCases.filter(c => c.approval_status !== 'Approved').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Insurer Preauth Active</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)' }}>
-            {liveCases.filter(c => c.insurer && c.insurer !== 'Self-pay').length}
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>AI Model Engine</div>
+          <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
+            Llama 3.3 70B Instruct
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Discharged Today</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)' }}>
-            {Object.values(simState).filter(s => s === 'released').length + 3}
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Live API Source</div>
+          <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
+            Gold / Generated Discharges
           </div>
         </div>
       </div>
@@ -186,15 +173,38 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search discharged patient, doctor, diagnosis..."
             style={{
-              height: '30px', width: '220px', border: '1px solid #e3e6e8',
+              height: '30px', width: '280px', border: '1px solid #e3e6e8',
               borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
             }}
           />
           <button
             type="button"
-            onClick={() => alert('Exported discharge report as CSV')}
+            onClick={() => {
+              if (!liveCases.length) return alert('No discharged records to export');
+              const headers = ['Summary ID', 'Patient Name', 'Attending Physician', 'Discharge Date', 'Diagnoses', 'Condition at Discharge', 'Approval Status'];
+              const csvRows = [headers.join(',')];
+              liveCases.forEach(c => {
+                csvRows.push([
+                  `"${c.summary_id || ''}"`,
+                  `"${c.patient || ''}"`,
+                  `"${c.doctor || ''}"`,
+                  `"${c.discharge_date || ''}"`,
+                  `"${(c.diagnoses || '').replace(/"/g, '""')}"`,
+                  `"${(c.patient_condition || '').replace(/"/g, '""')}"`,
+                  `"${c.approval_status || ''}"`
+                ].join(','));
+              });
+              const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.setAttribute('href', url);
+              link.setAttribute('download', `discharged_patients_${new Date().toISOString().slice(0,10)}.csv`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}
             style={{
               height: '30px', padding: '0 10px', borderRadius: '6px',
               border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px'
@@ -208,73 +218,103 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
       {/* Table Mode */}
       {viewMode === 'table' && (
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                <th style={{ padding: '8px 12px', minWidth: '160px' }}>Patient · Bed</th>
-                <th style={{ padding: '8px 12px', minWidth: '130px' }}>Doctor</th>
-                <th style={{ padding: '8px 12px', width: '110px' }}>Insurer</th>
-                <th style={{ padding: '8px 12px', width: '70px' }}>Intent</th>
-                <th style={{ padding: '8px 12px', width: '110px' }}>Predicted Ready</th>
-                <th style={{ padding: '8px 12px', minWidth: '180px' }}>Critical Path</th>
-                <th style={{ padding: '8px 12px', width: '60px' }}>Pending</th>
-                <th style={{ padding: '8px 12px', minWidth: '130px' }}>Owner</th>
-                <th style={{ padding: '8px 12px', width: '70px' }}>Age</th>
-                <th style={{ padding: '8px 12px', width: '160px' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => {
-                const isApproved = simState[c.id] === 'approved';
-                const isReleased = simState[c.id] === 'released';
-                const currentStatus = isReleased ? 'Discharged · bed released' : isApproved ? 'Ready · insurer approved' : c.status;
-                const currentType = isReleased ? 'green' : isApproved ? 'green' : c.statusType;
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Discharged Patient Summaries...</div>
+              <div style={{ fontSize: '12px' }}>Connecting to backend Gold Generated Discharge Summaries API</div>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>No Discharged Patient Records Found</div>
+              <div style={{ fontSize: '12px' }}>{search ? `No records matching "${search}"` : 'Zero discharge summary records in the database.'}</div>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  <th style={{ padding: '8px 12px', minWidth: '160px' }}>Patient</th>
+                  <th style={{ padding: '8px 12px', minWidth: '140px' }}>Attending Doctor</th>
+                  <th style={{ padding: '8px 12px', minWidth: '220px' }}>Discharge Diagnosis</th>
+                  <th style={{ padding: '8px 12px', width: '110px' }}>Discharge Date</th>
+                  <th style={{ padding: '8px 12px', minWidth: '180px' }}>Patient Condition</th>
+                  <th style={{ padding: '8px 12px', width: '120px' }}>Approval Status</th>
+                  <th style={{ padding: '8px 12px', width: '90px' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => {
+                  const isApproved = simState[c.id] === 'approved' || c.approval_status === 'Approved';
+                  const isReleased = simState[c.id] === 'released';
+                  const currentStatus = isReleased ? 'Discharged · Released' : isApproved ? 'Approved' : 'Pending Review';
+                  const currentType = isReleased ? 'green' : isApproved ? 'green' : 'amber';
 
-                return (
-                  <tr
-                    key={c.id}
-                    onClick={() => setSelectedCase(c)}
-                    style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <td style={{ padding: '9px 12px', fontWeight: 600 }}>
-                      {c.patient} · <span style={{ color: '#52585e' }}>{c.bed}</span>
-                    </td>
-                    <td style={{ padding: '9px 12px', color: '#15181b' }}>{c.doctor}</td>
-                    <td style={{ padding: '9px 12px', color: '#52585e' }}>{c.insurer}</td>
-                    <td style={{ padding: '9px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px' }}>{c.intent}</td>
-                    <td style={{ padding: '9px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', fontWeight: 600 }}>
-                      {isReleased ? 'Done' : isApproved ? '11:45 AM' : c.eta}
-                    </td>
-                    <td style={{ padding: '9px 12px', color: '#52585e', fontSize: '11.5px' }}>{c.cp}</td>
-                    <td style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 600 }}>{isReleased ? 0 : isApproved ? 1 : c.pending}</td>
-                    <td style={{ padding: '9px 12px', color: '#52585e' }}>{c.owner}</td>
-                    <td style={{ padding: '9px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px' }}>{c.age}</td>
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{
-                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
-                        background: currentType === 'red' ? 'oklch(0.96 0.03 25)' : currentType === 'green' ? 'oklch(0.95 0.04 150)' : 'oklch(0.96 0.05 80)',
-                        color: currentType === 'red' ? 'oklch(0.45 0.17 25)' : currentType === 'green' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.13 70)'
-                      }}>
-                        {currentStatus}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => setSelectedCase(c)}
+                      style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '9px 12px', fontWeight: 600 }}>
+                        <div style={{ color: '#15181b' }}>{c.patient}</div>
+                        <div style={{ fontSize: '10.5px', color: '#8a9096', fontWeight: 400 }}>{c.ward || 'Inpatient Wing'} · {c.bed || 'Released Bed'}</div>
+                      </td>
+                      <td style={{ padding: '9px 12px', color: '#15181b' }}>{c.doctor}</td>
+                      <td style={{ padding: '9px 12px', color: '#334155' }}>
+                        <span style={{ display: 'inline-block', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.diagnoses}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px' }}>
+                        {c.eta}
+                      </td>
+                      <td style={{ padding: '9px 12px', color: '#52585e', fontSize: '11.5px' }}>
+                        <span style={{ display: 'inline-block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.patient_condition}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 12px' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                          background: currentType === 'green' ? 'oklch(0.95 0.04 150)' : 'oklch(0.96 0.05 80)',
+                          color: currentType === 'green' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.13 70)'
+                        }}>
+                          {currentStatus}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 12px' }} onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCase(c)}
+                          style={{
+                            height: '24px', padding: '0 8px', borderRadius: '4px',
+                            border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
+                            color: 'oklch(0.4 0.1 200)', cursor: 'pointer', fontSize: '11px', fontWeight: 600
+                          }}
+                        >
+                          View Summary
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
       {/* Kanban Mode */}
       {viewMode === 'kanban' && (
         <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '8px' }}>
-          {['Blocked', 'Approval required', 'In progress', 'Ready'].map((col) => {
-            const colCases = filtered.filter(c => c.status.toLowerCase().includes(col.toLowerCase()));
+          {['Pending Review', 'Approved'].map((col) => {
+            const colCases = filtered.filter(c => {
+              if (col === 'Approved') return c.approval_status === 'Approved' || simState[c.id] === 'approved';
+              return c.approval_status !== 'Approved' && simState[c.id] !== 'approved';
+            });
             return (
-              <div key={col} style={{ flex: '0 0 260px', background: '#f3f4f5', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div key={col} style={{ flex: '0 0 300px', background: '#f3f4f5', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 600, fontSize: '12px' }}>{col}</span>
                   <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>{colCases.length}</span>
@@ -288,9 +328,10 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
                       padding: '10px', cursor: 'pointer'
                     }}
                   >
-                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{c.patient} · {c.bed}</div>
+                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{c.patient}</div>
                     <div style={{ color: '#52585e', fontSize: '11.5px', marginTop: '2px' }}>{c.doctor}</div>
-                    <div style={{ color: '#8a9096', fontSize: '10.5px', marginTop: '4px' }}>ETA: {c.eta} · {c.insurer}</div>
+                    <div style={{ color: '#0f172a', fontSize: '11px', marginTop: '4px', fontWeight: 500 }}>{c.diagnoses}</div>
+                    <div style={{ color: '#8a9096', fontSize: '10.5px', marginTop: '4px' }}>Discharged: {c.eta}</div>
                   </div>
                 ))}
               </div>
@@ -387,6 +428,47 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Clinical Discharge Summary Details */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.05em', color: '#64748b', fontWeight: 600 }}>
+                Clinical Discharge Summary (Llama 3.3 70B AI Draft)
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>Diagnosis:</div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{selectedCase.diagnoses}</div>
+              </div>
+              {selectedCase.case_history && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Case History:</div>
+                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.case_history}</div>
+                </div>
+              )}
+              {selectedCase.investigations && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Investigations & Labs:</div>
+                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.investigations}</div>
+                </div>
+              )}
+              {selectedCase.treatment && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Treatment & Procedures:</div>
+                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.treatment}</div>
+                </div>
+              )}
+              {selectedCase.discharge_advice && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Discharge Advice:</div>
+                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.discharge_advice}</div>
+                </div>
+              )}
+              {selectedCase.patient_condition && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>Condition at Discharge:</div>
+                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4, fontWeight: 500 }}>{selectedCase.patient_condition}</div>
+                </div>
+              )}
             </div>
 
             {/* WhatsApp Family preview */}
