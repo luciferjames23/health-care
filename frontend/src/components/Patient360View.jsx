@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord } from '../services/api';
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds } from '../services/api';
 
 export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, onBack }) {
   const [activeTab, setActiveTab] = useState('Overview');
@@ -8,13 +8,22 @@ export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, o
   const [selectedPatientData, setSelectedPatientData] = useState(null);
   const [selectedPid, setSelectedPid] = useState(patient?.patient_id || patient?.id || '');
 
-  // 1. Fetch live currently admitted patients list from Gold Delta table
+  // 1. Fetch live currently admitted patients list from Gold Delta table (excluding discharged patients)
   useEffect(() => {
     let isMounted = true;
     async function loadInpatientOptions() {
       try {
-        const res = await apiService.getCurrentAdmissions();
-        const list = (res?.data || []).map(parseAdmissionLlmRecord).filter(Boolean);
+        const [admRes, dcRes] = await Promise.all([
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] }))
+        ]);
+        const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
+        const rawAdmissions = admRes?.data || [];
+        const list = rawAdmissions
+          .filter(r => !dischargedTracker.has(r))
+          .map(parseAdmissionLlmRecord)
+          .filter(Boolean);
+
         if (isMounted && list.length > 0) {
           setAdmittedPatients(list);
           // If no initial patient selected, default to first live patient

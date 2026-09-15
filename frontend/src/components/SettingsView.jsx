@@ -117,8 +117,8 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
               <span className="text-[10px] text-slate-500 font-sans">Revenue Projections</span>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/bed-demand-forecast</span>
-              <span className="text-[10px] text-slate-500 font-sans">7-Day Bed Forecast</span>
+              <span className="text-cyan-300">GET /api/v1/gold/bed-management</span>
+              <span className="text-[10px] text-slate-500 font-sans">Hospital Bed Management</span>
             </div>
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
               <span className="text-cyan-300">GET /api/v1/gold/tables</span>

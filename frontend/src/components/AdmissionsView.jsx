@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiService, parseAdmissionLlmRecord } from '../services/api';
+import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from '../services/api';
 
 export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate }) {
   const [admissions, setAdmissions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedType, setSelectedType] = useState('All');
@@ -12,17 +12,23 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
 
   useEffect(() => {
     let isMounted = true;
-    async function loadAdmissionsData() {
-      setLoading(true);
+    async function loadAdmissionsData(isSilent = false) {
+      if (!isSilent && admissions.length === 0) {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const [admRes, bedsRes, wardsRes] = await Promise.all([
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-          apiService.getBeds().catch(() => ({ data: [] })),
-          apiService.getWards().catch(() => ({ data: [] }))
+        const [admRes, bedsRes, wardsRes, dcRes] = await Promise.all([
+          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getBeds({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getWards({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] }))
         ]);
 
         if (!isMounted) return;
+
+        // Discharge API is the source of truth for discharged patients
+        const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
 
         const bedMap = {};
         (bedsRes?.data || []).forEach(b => {
@@ -39,7 +45,11 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
         });
         setWardOptions([...new Set(wList)]);
 
-        const list = (admRes?.data || []).map(r => {
+        // Filter out any patient who is in the discharge API
+        const rawAdmissions = admRes?.data || [];
+        const actualAdmittedRaw = rawAdmissions.filter(r => !dischargedTracker.has(r));
+
+        const list = actualAdmittedRaw.map(r => {
           const p = parseAdmissionLlmRecord(r);
           const matchedBed = bedMap[String(p.patient_id)];
           if (matchedBed) {
@@ -61,7 +71,19 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
     }
 
     loadAdmissionsData();
-    return () => { isMounted = false; };
+
+    const timer = setInterval(() => {
+      loadAdmissionsData(true);
+    }, 6000);
+
+    const handleUpdate = () => loadAdmissionsData(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
   }, []);
 
   const filteredAdmissions = useMemo(() => {
@@ -164,25 +186,25 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Inpatient Admissions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
-            {loading ? '—' : totalAdmissions}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : totalAdmissions}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Emergency Bay Intakes</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
-            {loading ? '—' : emergencyCount}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : emergencyCount}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Referral Admissions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)', marginTop: '2px' }}>
-            {loading ? '—' : referralCount}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : referralCount}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>High EWS Critical Care</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
-            {loading ? '—' : highEwsCount}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : highEwsCount}
           </div>
         </div>
       </div>
@@ -235,7 +257,7 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
 
       {/* Admissions Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
-        {loading ? (
+        {loading && admissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Inpatient Admissions...</div>
             <div style={{ fontSize: '12px' }}>Fetching live admission records from clinical data system…</div>

@@ -50,7 +50,9 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'patien
   useEffect(() => {
     async function loadSchema() {
       if (!selectedTable) return;
-      setLoading(true);
+      if (!schemaData) {
+        setLoading(true);
+      }
       try {
         const res = await apiService.getTableSchema(selectedTable);
         setSchemaData(res);

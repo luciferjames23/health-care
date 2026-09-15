@@ -196,7 +196,7 @@ export default function AuthScreen({ onLoginSuccess }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {DEMO_ROLES.map((r) => (
                 <button
-                  key={r.role}
+                  key={r.username}
                   type="button"
                   onClick={() => handleSelectRole(r)}
                   style={{

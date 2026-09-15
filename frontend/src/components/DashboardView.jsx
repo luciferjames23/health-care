@@ -41,7 +41,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
               Healthcare Analytics Command Centre
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Access curated analytics: department revenue predictions, 7-day bed demand forecasts, patient encounters, and claims data — all in real-time.
+              Access curated analytics: department revenue predictions, hospital bed management, patient encounters, and claims data — all in real-time.
             </p>
           </div>
 
@@ -54,11 +54,11 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
               Revenue Predictions
             </button>
             <button
-              onClick={() => onNavigateTab('beds')}
+              onClick={() => onNavigateTab('bedboard')}
               className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all"
             >
               <Activity className="w-4 h-4 text-cyan-400" />
-              7-Day Bed Forecast
+              Bed Board & Ward Management
             </button>
           </div>
         </div>
@@ -86,21 +86,21 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           </div>
         </div>
 
-        {/* Card 2: Bed Demand Forecast */}
+        {/* Card 2: Hospital Bed Census */}
         <div className="glass-panel glass-panel-hover rounded-xl p-5 border border-slate-800 relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">7-Day Demanded Beds</span>
+            <span className="text-xs font-medium text-slate-400">Hospital Bed Capacity</span>
             <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center">
               <Activity className="w-4 h-4 text-cyan-400" />
             </div>
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-cyan-300 tracking-tight">
-              {bedKpis.total_predicted_beds_demanded || 26} beds
+              312 beds
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3 text-cyan-400" />
-              {bedKpis.avg_predicted_occupancy_rate_pct || 36.87}% avg occupancy
+              102 available · 210 occupied
             </p>
           </div>
         </div>

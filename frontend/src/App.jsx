@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { apiService } from './services/api';
+import { ROLE_PAGE_ACCESS } from './services/meridianData';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
 import AppSidebar from './components/AppSidebar';
@@ -21,20 +23,42 @@ import SqlSandboxView from './components/SqlSandboxView';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsView from './components/SettingsView';
 
+// Enterprise AI & Agents Views
+import AgentStudioView from './components/AgentStudioView';
+import ApprovalsView from './components/ApprovalsView';
+import AiCommandCentreView from './components/AiCommandCentreView';
+import OrchestratorView from './components/OrchestratorView';
+import AgentRunsView from './components/AgentRunsView';
+import GovernedKnowledgeView from './components/GovernedKnowledgeView';
+import AiGovernanceView from './components/AiGovernanceView';
+import DischargeAgentView from './components/DischargeAgentView';
+
 export default function App() {
+  useEffect(() => {
+    // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
+    apiService.preloadAllGoldData();
+  }, []);
   const [auth, setAuth] = useState({
-    username: 'arjun.menon',
-    name: 'Dr. Arjun Menon',
-    role: 'Doctor',
-    dept: 'Cardiology'
+    username: 'meera.iyer',
+    name: 'Meera Iyer',
+    role: 'Hospital Management',
+    dept: 'Administration'
   });
 
-  const [role, setRole] = useState('Doctor');
+  const [role, setRoleState] = useState('Hospital Management');
   const [activePage, setActivePage] = useState('command');
   const [clockMins, setClockMins] = useState(11 * 60 + 20); // 11:20 AM
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+
+  const setRole = (newRole) => {
+    setRoleState(newRole);
+    const allowed = ROLE_PAGE_ACCESS[newRole];
+    if (allowed !== null && allowed !== undefined && !allowed.includes(activePage)) {
+      setActivePage(allowed[0] || 'patients');
+    }
+  };
 
   // Clock format
   const hours = Math.floor(clockMins / 60) % 24;
@@ -94,7 +118,7 @@ export default function App() {
 
       {/* Main App Layout: Sidebar + Workspace View */}
       <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
-        <AppSidebar activePage={activePage} setActivePage={setActivePage} />
+        <AppSidebar activePage={activePage} setActivePage={setActivePage} userRole={role} />
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
           {activePage === 'command' && (
@@ -113,6 +137,7 @@ export default function App() {
             <DischargeCommandCentre
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
+              onNavigate={setActivePage}
             />
           )}
 
@@ -164,10 +189,27 @@ export default function App() {
           {activePage === 'analytics' && <AnalyticsView />}
           {activePage === 'settings' && <SettingsView />}
 
+          {/* AI & Agents Platform Views */}
+          {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
+          {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} />}
+          {activePage === 'discharge-agent' && <DischargeAgentView onNavigate={setActivePage} />}
+          {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} />}
+          {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
+          {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
+          {activePage === 'knowledge' && <GovernedKnowledgeView />}
+          {activePage === 'ai-analytics' && <AnalyticsView />}
+          {[
+            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
+          ].includes(activePage) && (
+            <AiGovernanceView initialTab={activePage} />
+          )}
+
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
             'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
-            'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings'
+            'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
+            'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
+            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -179,7 +221,7 @@ export default function App() {
                     {activePage} Management
                   </div>
                   <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-                    Governed enterprise records · live Databricks Medallion Layer
+                    Governed enterprise records · live clinical data platform
                   </div>
                 </div>
                 <button
@@ -199,7 +241,7 @@ export default function App() {
                   {activePage.charAt(0).toUpperCase() + activePage.slice(1)} Workspace
                 </div>
                 <div style={{ color: '#52585e', fontSize: '12.5px', maxWidth: '520px', margin: '0 auto 16px', lineHeight: 1.5 }}>
-                  Active operational stream synchronized with Databricks Lakehouse storage. Permitted actions and audit entries are tracked under {auth.name}.
+                  Active operational stream synchronized with the clinical data platform. Permitted actions and audit entries are tracked under {auth.name}.
                 </div>
                 <button
                   type="button"

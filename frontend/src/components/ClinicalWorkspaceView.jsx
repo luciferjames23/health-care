@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseAdmissionLlmRecord } from '../services/api';
+import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from '../services/api';
 
 export default function ClinicalWorkspaceView({
   doctorName = 'Dr. Arjun Menon',
@@ -8,23 +8,28 @@ export default function ClinicalWorkspaceView({
 }) {
   const [search, setSearch] = useState('');
   const [patientList, setPatientList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     async function loadInpatients() {
-      setLoading(true);
+      if (patientList.length === 0) {
+        setLoading(true);
+      }
       setError(null);
       try {
-        // 1. Fetch Current Admitted Patients from primary API
-        const admRes = await apiService.getCurrentAdmissions();
-        const list = admRes?.data || [];
-
-        // 2. Fetch beds and wards to resolve ward/room/bed information
-        const [bedsRes, wardsRes] = await Promise.all([
+        // 1. Fetch Current Admitted Patients, Discharges, beds, and wards
+        const [admRes, dcRes, bedsRes, wardsRes] = await Promise.all([
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
           apiService.getBeds().catch(() => ({ data: [] })),
           apiService.getWards().catch(() => ({ data: [] }))
         ]);
+
+        // Discharge API is source of truth: filter out discharged patients
+        const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
+        const rawAdmissions = admRes?.data || [];
+        const actualAdmitted = rawAdmissions.filter(r => !dischargedTracker.has(r));
 
         const bedMap = {};
         (bedsRes?.data || []).forEach(b => {
@@ -37,8 +42,8 @@ export default function ClinicalWorkspaceView({
           if (w.ward_id) wardMap[w.ward_id] = w.ward_name;
         });
 
-        if (list.length > 0) {
-          const mapped = list.map(rawRecord => {
+        if (actualAdmitted.length > 0) {
+          const mapped = actualAdmitted.map(rawRecord => {
             const p = parseAdmissionLlmRecord(rawRecord);
             // Resolve bed and ward if matched
             const matchedBed = bedMap[String(p.patient_id)];
@@ -156,7 +161,7 @@ export default function ClinicalWorkspaceView({
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Inpatients</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1 }}>
-            {loading ? '—' : patientList.length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
@@ -168,13 +173,13 @@ export default function ClinicalWorkspaceView({
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Critical / Alert EWS</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)' }}>
-            {loading ? '—' : patientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Prescriptions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)' }}>
-            {loading ? '—' : patientList.filter(p => p.rx && p.rx !== '—').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.rx && p.rx !== '—').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
@@ -187,7 +192,7 @@ export default function ClinicalWorkspaceView({
 
       {/* Patient Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
-        {loading ? (
+        {loading && patientList.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Currently Admitted Patients...</div>
             <div style={{ fontSize: '12px' }}>Fetching currently admitted patients from clinical data system…</div>

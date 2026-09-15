@@ -10,9 +10,32 @@ from config.config import Config
 
 class DatabricksConnector:
     _connection_failed_until: float = 0.0
+    _query_cache: dict = {}
+    _CACHE_TTL_SECONDS: int = 15  # 15s cache to prevent query flooding
 
     def __init__(self):
         self.config = Config
+
+    @classmethod
+    def get_cached_result(cls, cache_key: str):
+        if cache_key in cls._query_cache:
+            entry = cls._query_cache[cache_key]
+            if time.time() - entry["timestamp"] < cls._CACHE_TTL_SECONDS:
+                return entry["data"]
+            else:
+                del cls._query_cache[cache_key]
+        return None
+
+    @classmethod
+    def set_cached_result(cls, cache_key: str, data: any):
+        cls._query_cache[cache_key] = {
+            "timestamp": time.time(),
+            "data": data
+        }
+
+    @classmethod
+    def clear_cache(cls):
+        cls._query_cache.clear()
 
     @classmethod
     def is_connection_available(cls) -> bool:
@@ -120,8 +143,8 @@ class DatabricksConnector:
 
         conn = self.get_connection()
         cursor = conn.cursor()
-        catalog = self.config.DATABRICKS_CATALOG
-        schema = self.config.DATABRICKS_SCHEMA
+        catalog = self.config.DATABRICKS_CATALOG or "health_care"
+        schema = self.config.DATABRICKS_SCHEMA or "gold"
         full_table_name = f"`{catalog}`.`{schema}`.`{table_name}`"
 
         escaped_cols = ", ".join([f"`{col}`" for col in col_names])
@@ -135,10 +158,24 @@ class DatabricksConnector:
                 val_tuples.append(tuple_str)
             
             sql_stmt = f"INSERT INTO {full_table_name} ({escaped_cols}) VALUES " + ", ".join(val_tuples)
-            cursor.execute(sql_stmt)
+            try:
+                cursor.execute(sql_stmt)
+            except Exception as insert_err:
+                if "TABLE_OR_VIEW_NOT_FOUND" in str(insert_err):
+                    # Auto-create table with STRING / BIGINT columns dynamically
+                    col_defs = []
+                    for c in col_names:
+                        col_type = "BIGINT" if "id" in c.lower() and "summary" not in c.lower() else "STRING"
+                        col_defs.append(f"`{c}` {col_type}")
+                    create_sql = f"CREATE TABLE IF NOT EXISTS {full_table_name} (\n  " + ",\n  ".join(col_defs) + "\n) USING DELTA;"
+                    cursor.execute(create_sql)
+                    cursor.execute(sql_stmt)
+                else:
+                    raise insert_err
 
         cursor.close()
         conn.close()
+
 
     def get_row_count(self, table_name: str, schema: str = None) -> int:
         """Retrieves exact dynamic row count for a table from Databricks."""
@@ -251,6 +288,11 @@ class DatabricksConnector:
         """Query rows from Databricks table with dynamic pagination."""
         catalog = self.config.DATABRICKS_CATALOG
         schema = schema or self.config.DATABRICKS_SCHEMA
+        cache_key = f"table:{catalog}:{schema}:{table_name}:{limit}:{offset}"
+        cached = self.get_cached_result(cache_key)
+        if cached is not None:
+            return cached
+
         full_table_name = f"`{catalog}`.`{schema}`.`{table_name}`"
 
         offset = max(0, offset)
@@ -279,7 +321,7 @@ class DatabricksConnector:
                     row_dict[col_name] = self._serialize_val(val)
                 records.append(row_dict)
 
-            return {
+            res = {
                 "table_name": table_name,
                 "catalog": catalog,
                 "schema": schema,
@@ -290,6 +332,8 @@ class DatabricksConnector:
                 "data": records,
                 "source": "databricks"
             }
+            self.set_cached_result(cache_key, res)
+            return res
         except Exception as e:
             return {
                 "table_name": table_name,
@@ -309,6 +353,12 @@ class DatabricksConnector:
         filters = filters or {}
         catalog = self.config.DATABRICKS_CATALOG
         schema = self.config.DATABRICKS_SCHEMA or "gold"
+        filter_str = json.dumps(filters, sort_keys=True)
+        cache_key = f"gold:{catalog}:{schema}:{table_name}:{filter_str}:{limit}:{offset}"
+        cached = self.get_cached_result(cache_key)
+        if cached is not None:
+            return cached
+
         full_table_name = f"`{catalog}`.`{schema}`.`{table_name}`"
 
         offset = max(0, offset)
@@ -364,7 +414,7 @@ class DatabricksConnector:
                     row_dict[col_name] = self._serialize_val(val)
                 records.append(row_dict)
 
-            return {
+            res = {
                 "table_name": table_name,
                 "catalog": catalog,
                 "schema": schema,
@@ -376,6 +426,8 @@ class DatabricksConnector:
                 "applied_filters": filters,
                 "source": "databricks"
             }
+            self.set_cached_result(cache_key, res)
+            return res
         except Exception as e:
             return {
                 "table_name": table_name,
@@ -396,6 +448,12 @@ class DatabricksConnector:
         filters = filters or {}
         catalog = self.config.DATABRICKS_CATALOG
         schema = "bronze"
+        filter_str = json.dumps(filters, sort_keys=True)
+        cache_key = f"bronze:{catalog}:{schema}:{table_name}:{filter_str}:{limit}:{offset}"
+        cached = self.get_cached_result(cache_key)
+        if cached is not None:
+            return cached
+
         full_table_name = f"`{catalog}`.`{schema}`.`{table_name}`"
 
         offset = max(0, offset)
@@ -451,7 +509,7 @@ class DatabricksConnector:
                     row_dict[col_name] = self._serialize_val(val)
                 records.append(row_dict)
 
-            return {
+            res = {
                 "table_name": table_name,
                 "catalog": catalog,
                 "schema": schema,
@@ -463,6 +521,8 @@ class DatabricksConnector:
                 "applied_filters": filters,
                 "source": "databricks"
             }
+            self.set_cached_result(cache_key, res)
+            return res
         except Exception as e:
             return {
                 "table_name": table_name,
@@ -522,11 +582,12 @@ class DatabricksConnector:
             f"Please provide the absolute path (e.g. /Users/.../NotebookName)."
         )
 
-    def run_databricks_notebook(self, notebook_path_or_id: str, parameters: dict = None, timeout_seconds: int = 300) -> dict:
-        """Executes a Databricks Job or Notebook dynamically via Jobs API v2.1 and returns execution output."""
+    def run_databricks_notebook(self, notebook_path_or_id: str = "2865138219507461", parameters: dict = None, timeout_seconds: int = 300) -> dict:
+        """Executes a Databricks Notebook directly via runs/submit API (or Job if job_id specified) and returns execution output."""
         parameters = parameters or {}
         hostname = self.config.DATABRICKS_SERVER_HOSTNAME
         token    = self.config.DATABRICKS_ACCESS_TOKEN
+        workspace_id = self.config.DATABRICKS_WORKSPACE_ID or "7474647603878213"
 
         if not hostname or not token:
             raise RuntimeError("Databricks credentials missing in configuration.")
@@ -536,39 +597,57 @@ class DatabricksConnector:
             "Content-Type":  "application/json"
         }
 
-        patient_id = parameters.get("patient_id", "unknown")
-        target_str = str(notebook_path_or_id).strip()
-        is_registered_job = target_str.isdigit() and len(target_str) >= 14
+        patient_id = str(parameters.get("patient_id", "unknown")).strip()
+        target_str = str(notebook_path_or_id or "2865138219507461").strip()
 
-        if is_registered_job:
+        # Known notebook IDs mapped to their workspace paths
+        KNOWN_NOTEBOOKS = {
+            "2865138219507461": "/Users/jamesrubert02@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation",
+            "3655906645282312": "/Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation",
+        }
+
+        # Check if target is explicitly a registered Job ID (e.g. 63391549950619)
+        if target_str == "63391549950619":
             job_id_int = int(target_str)
             payload = {
                 "job_id": job_id_int,
-                "job_parameters": parameters
+                "job_parameters": {str(k): str(v) for k, v in parameters.items()}
             }
             submit_resp = requests.post(
                 f"https://{hostname}/api/2.1/jobs/run-now",
-                headers=headers, json=payload, timeout=15
+                headers=headers, json=payload, timeout=25
             )
             nb_path = f"Job ID {job_id_int}"
         else:
-            nb_path = self._resolve_notebook_path(notebook_path_or_id)
+            # Execute the Notebook directly
+            if target_str in KNOWN_NOTEBOOKS:
+                nb_path = KNOWN_NOTEBOOKS[target_str]
+            elif target_str.startswith("/"):
+                nb_path = target_str
+            else:
+                try:
+                    nb_path = self._resolve_notebook_path(target_str)
+                except Exception:
+                    nb_path = KNOWN_NOTEBOOKS.get("2865138219507461")
+
             payload = {
-                "run_name": f"API Notebook Run - patient_id={patient_id}",
+                "run_name": f"Discharge Summary Notebook Run - patient_id={patient_id}",
                 "tasks": [
                     {
-                        "task_key": "discharge_summary_task",
+                        "task_key": "discharge_summary_notebook_task",
                         "notebook_task": {
                             "notebook_path": nb_path,
-                            "base_parameters": parameters
+                            "base_parameters": {str(k): str(v) for k, v in parameters.items()},
+                            "source": "WORKSPACE"
                         }
                     }
                 ]
             }
             submit_resp = requests.post(
                 f"https://{hostname}/api/2.1/jobs/runs/submit",
-                headers=headers, json=payload, timeout=15
+                headers=headers, json=payload, timeout=25
             )
+
 
         if submit_resp.status_code != 200:
             raise RuntimeError(f"Jobs API submission failed ({submit_resp.status_code}): {submit_resp.text}")
@@ -578,17 +657,21 @@ class DatabricksConnector:
         start_ts  = time.time()
         final_lc  = "RUNNING"
         final_rs  = ""
+        run_page_url = f"https://{hostname}/?o={workspace_id}#job/runs/{run_id}"
 
         while time.time() - start_ts < timeout_seconds:
-            time.sleep(5)
+            time.sleep(4)
             poll = requests.get(
                 f"https://{hostname}/api/2.1/jobs/runs/get",
                 headers=headers, params={"run_id": run_id}, timeout=15
             )
             if poll.status_code == 200:
-                state = poll.json().get("state", {})
+                poll_json = poll.json()
+                state = poll_json.get("state", {})
                 final_lc = state.get("life_cycle_state", "RUNNING")
                 final_rs = state.get("result_state", "")
+                if poll_json.get("run_page_url"):
+                    run_page_url = poll_json.get("run_page_url")
                 if final_lc in ["TERMINATED", "SKIPPED", "INTERNAL_ERROR"]:
                     break
 
@@ -603,7 +686,10 @@ class DatabricksConnector:
         )
         task_run_id = None
         if run_detail.status_code == 200:
-            tasks = run_detail.json().get("tasks", [])
+            detail_json = run_detail.json()
+            if detail_json.get("run_page_url"):
+                run_page_url = detail_json.get("run_page_url")
+            tasks = detail_json.get("tasks", [])
             if tasks:
                 task_run_id = tasks[0].get("run_id")
 
@@ -623,8 +709,8 @@ class DatabricksConnector:
                         output_data = {"raw_output": nb_output}
 
         return {
-            "status":            "success" if final_rs == "SUCCESS" else "completed_with_issues",
-            "notebook_id":       notebook_path_or_id,
+            "status":            "success" if final_rs == "SUCCESS" else ("running" if final_lc in ["RUNNING", "QUEUED", "PENDING"] else "completed_with_issues"),
+            "notebook_id":       target_str,
             "notebook_path":     nb_path,
             "run_id":            run_id,
             "task_run_id":       task_run_id,
@@ -632,10 +718,11 @@ class DatabricksConnector:
             "execution_state":   final_rs or final_lc,
             "duration_seconds":  duration,
             "parameters_supplied": parameters,
-            "output_type":       "discharge_summary_notebook",
+            "output_type":       "discharge_summary_generation",
             "error":             error_msg,
             "data":              output_data.get("data", []) if isinstance(output_data, dict) else [],
             "result":            output_data,
             "source":            "databricks_jobs_api",
-            "databricks_run_url": f"https://{hostname}/#job/runs/{run_id}"
+            "databricks_run_url": run_page_url
         }
+

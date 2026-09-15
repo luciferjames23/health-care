@@ -3,18 +3,119 @@
 export const DEMO_PASSWORD = 'Hospital@2026';
 export const DEMO_OTP = '246810';
 
-export const DEMO_ROLES = [
-  { role: 'Doctor', name: 'Dr. Arjun Menon', username: 'arjun.menon', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Nurse', name: 'Anitha Kumar', username: 'anitha.kumar', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Laboratory', name: 'M. Ganesh', username: 'm.ganesh', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Radiologist', name: 'Jancy Selvam', username: 'jancy.selvam', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Pharmacy', name: 'S. Devi', username: 's.devi', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Billing', name: 'K. Meena', username: 'k.meena', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Insurance', name: 'R. Sundar', username: 'r.sundar', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Front Office', name: 'Bhavani Kumar', username: 'bhavani.kumar', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'Hospital Management', name: 'Meera Iyer', username: 'meera.iyer', bg: '#f6f7f8', bd: '#e3e6e8' },
-  { role: 'IT Administrator', name: 'S. Prabhu', username: 's.prabhu', bg: '#f6f7f8', bd: '#e3e6e8' },
+export const ALL_ROLES = [
+  'Patient',
+  'Doctor',
+  'Nurse',
+  'Front Office',
+  'Billing',
+  'Finance Manager',
+  'Insurance',
+  'Radiologist',
+  'Laboratory',
+  'Pathologist',
+  'Pharmacy',
+  'Store Manager',
+  'Procurement Officer',
+  'HR Manager',
+  'Canteen Manager',
+  'Hospital Management',
+  'AI Administrator',
+  'Governance Officer',
+  'IT Administrator',
+  'Auditor'
 ];
+
+export const DEMO_ROLES = [
+  { role: 'Patient', name: 'Kavitha Raman', username: 'kavitha.raman', title: 'Patient', dept: 'Patient Portal', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Doctor', name: 'Dr. Arjun Menon', username: 'arjun.menon', title: 'Consultant Cardiologist', dept: 'Cardiology', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Doctor', name: 'Dr. Priya Narayanan', username: 'priya.narayanan', title: 'Attending Physician', dept: 'Internal Medicine', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Nurse', name: 'Anitha Kumar', username: 'anitha.kumar', title: 'Staff Nurse', dept: 'Nursing', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Nurse', name: 'K. Selvi', username: 'k.selvi', title: 'Charge Nurse', dept: 'Inpatient Wards', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Front Office', name: 'Bhavani Kumar', username: 'bhavani.kumar', title: 'Front Desk Lead', dept: 'Front Office', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Billing', name: 'K. Meena', username: 'k.meena', title: 'Billing Executive', dept: 'Billing & Clearance', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Finance Manager', name: 'T. Venkat', username: 't.venkat', title: 'Finance Manager', dept: 'Finance & Accounts', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Insurance', name: 'R. Sundar', username: 'r.sundar', title: 'TPA Coordinator', dept: 'Insurance & Claims', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Radiologist', name: 'Jancy Selvam', username: 'jancy.selvam', title: 'Senior Radiologist', dept: 'Radiology / PACS', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Laboratory', name: 'M. Ganesh', username: 'm.ganesh', title: 'Senior Lab Technician', dept: 'Laboratory / LIS', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Pathologist', name: 'Dr. Senthil Nathan', username: 'senthil.nathan', title: 'Consultant Pathologist', dept: 'Pathology', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Pharmacy', name: 'S. Devi', username: 's.devi', title: 'Chief Pharmacist', dept: 'Pharmacy', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Store Manager', name: 'A. Murugan', username: 'a.murugan', title: 'Central Store Manager', dept: 'Central Stores', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Procurement Officer', name: 'N. Ramesh', username: 'n.ramesh', title: 'Procurement Lead', dept: 'Procurement', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'HR Manager', name: 'L. Revathi', username: 'l.revathi', title: 'HR Manager', dept: 'Human Resources', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Canteen Manager', name: 'P. Ganesan', username: 'p.ganesan', title: 'Dietary & Canteen Lead', dept: 'Dietary Services', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Hospital Management', name: 'Meera Iyer', username: 'meera.iyer', title: 'Hospital Administrator', dept: 'Administration', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'AI Administrator', name: 'Dr. Sanjay Gupta', username: 'sanjay.gupta', title: 'Chief AI Architect', dept: 'AI & Systems Governance', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Governance Officer', name: 'V. Lakshmi', username: 'v.lakshmi', title: 'Ethics & Compliance Officer', dept: 'Clinical Governance', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'IT Administrator', name: 'S. Prabhu', username: 's.prabhu', title: 'IT Systems Admin', dept: 'IT Infrastructure', bg: '#f6f7f8', bd: '#e3e6e8' },
+  { role: 'Auditor', name: 'G. Balaji', username: 'g.balaji', title: 'Chief Internal Auditor', dept: 'Internal Audit', bg: '#f6f7f8', bd: '#e3e6e8' },
+];
+
+export const ROLE_PAGE_ACCESS = {
+  'Hospital Management': null, // Full platform access
+  'AI Administrator': null, // Full platform access
+  'Doctor': [
+    'command', 'patients', 'appointments', 'admissions', 'bedboard', 'emergency', 'schedules',
+    'clinical', 'discharge', 'discharge-agent', 'soap', 'patient360', 'sbar', 'lab', 'radiology', 'approvals', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Nurse': [
+    'command', 'patients', 'admissions', 'bedboard', 'emergency',
+    'nursing', 'medications', 'bloodbank', 'discharge', 'discharge-agent', 'sbar', 'soap', 'patient360', 'approvals', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Front Office': [
+    'command', 'patients', 'appointments', 'admissions', 'bedboard', 'emergency', 'schedules',
+    'patient360', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Billing': [
+    'command', 'patients', 'admissions', 'billing', 'insurance', 'revenue', 'discharge-agent',
+    'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant'
+  ],
+  'Finance Manager': [
+    'command', 'billing', 'insurance', 'revenue', 'analytics', 'exceptions', 'audit', 'explorer',
+    'approvals', 'cost', 'discharge-agent', 'assistant'
+  ],
+  'Insurance': [
+    'patients', 'admissions', 'insurance', 'billing', 'discharge', 'discharge-agent', 'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant'
+  ],
+  'Radiologist': [
+    'patients', 'radiology', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Laboratory': [
+    'patients', 'lab', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Pathologist': [
+    'patients', 'lab', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
+  ],
+  'Pharmacy': [
+    'patients', 'medications', 'patient360', 'exceptions', 'knowledge', 'assistant'
+  ],
+  'Store Manager': [
+    'settings', 'explorer', 'exceptions', 'assistant'
+  ],
+  'Procurement Officer': [
+    'billing', 'settings', 'explorer', 'approvals', 'exceptions', 'assistant'
+  ],
+  'HR Manager': [
+    'schedules', 'settings', 'trainer', 'approvals', 'assistant'
+  ],
+  'Canteen Manager': [
+    'patients', 'settings', 'assistant'
+  ],
+  'Governance Officer': [
+    'command', 'ai-command', 'agents', 'orchestrator', 'runs', 'approvals', 'exceptions', 'knowledge',
+    'evals', 'observability', 'cost', 'incidents', 'risk', 'governance', 'audit', 'trainer',
+    'tables', 'explorer', 'analytics', 'settings', 'assistant'
+  ],
+  'IT Administrator': [
+    'command', 'ai-command', 'observability', 'incidents', 'tables', 'explorer', 'sql', 'settings', 'audit', 'analytics', 'assistant'
+  ],
+  'Auditor': [
+    'command', 'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'revenue', 'tables', 'explorer', 'assistant'
+  ],
+  'Patient': [
+    'patients', 'appointments', 'billing', 'assistant'
+  ]
+};
 
 let cachedInstance = null;
 

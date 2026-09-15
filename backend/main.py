@@ -15,6 +15,8 @@ from routers.gold import router as gold_router
 from routers.bronze import router as bronze_router
 from routers.notebook import router as notebook_router
 from routers.jobrun import router as jobrun_router
+from routers.discharge_agent import router as discharge_agent_router
+from routers.discharge_summary_llm import router as discharge_summary_llm_router
 
 app = FastAPI(
     title="Databricks Healthcare Lakehouse API",
@@ -34,6 +36,8 @@ app.include_router(gold_router)
 app.include_router(bronze_router)
 app.include_router(notebook_router)
 app.include_router(jobrun_router)
+app.include_router(discharge_agent_router)
+app.include_router(discharge_summary_llm_router)
 
 db_connector = DatabricksConnector()
 

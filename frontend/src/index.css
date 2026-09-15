@@ -27,6 +27,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   outline-offset:2px;
 }
 @keyframes mpulse{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes kpi-spin{to{transform:rotate(360deg)}}
 ::selection{background:oklch(0.95 0.03 200); color:oklch(0.4 0.1 200);}
 
 /* Masthead */

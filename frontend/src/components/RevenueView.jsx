@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -50,7 +50,9 @@ export default function RevenueView() {
   }
 
   async function loadData() {
-    setLoading(true);
+    if (!dataResult) {
+      setLoading(true);
+    }
     try {
       const params = {
         limit,
@@ -86,15 +88,21 @@ export default function RevenueView() {
   const totalPages = Math.ceil(totalRows / limit) || 1;
   const currentPage = Math.floor(offset / limit) + 1;
 
-  const departments = [
-    "All Departments", "General Medicine", "Cardiology", "Orthopedics", 
-    "Pediatrics", "Neurology", "Gynecology", "Surgery", "Emergency"
-  ];
+  const dynamicDepartments = useMemo(() => {
+    const set = new Set(["General Medicine", "Cardiology", "Orthopedics", "Pediatrics", "Neurology", "Gynecology", "Surgery", "Emergency"]);
+    (dataResult?.data || []).forEach(r => {
+      const d = r.department || r.department_name;
+      if (d) set.add(d);
+    });
+    return ["All Departments", ...Array.from(set)];
+  }, [dataResult]);
 
-  const totalGross = summaryMetrics?.total_gross || 1930750;
-  const totalNet = summaryMetrics?.total_net || 1930750;
-  const totalCollected = summaryMetrics?.total_collected || 1930750;
-  const totalBills = summaryMetrics?.total_bills || 1000;
+  const departments = dynamicDepartments;
+
+  const totalGross = summaryMetrics?.total_gross || summaryMetrics?.total_predicted_revenue_usd || 0;
+  const totalNet = summaryMetrics?.total_net || summaryMetrics?.total_actual_net_amount_usd || 0;
+  const totalCollected = summaryMetrics?.total_collected || totalNet;
+  const totalBills = summaryMetrics?.total_bills || summaryMetrics?.total_records || rows.length;
 
   return (
     <div className="space-y-6">
@@ -249,7 +257,7 @@ export default function RevenueView() {
 
       {/* Main Table Grid */}
       <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
-        {loading ? (
+        {loading && !dataResult ? (
           <div className="p-16 text-center text-slate-400 flex flex-col items-center space-y-3">
             <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
             <span className="text-xs font-mono">Loading revenue predictions from backend API...</span>
@@ -263,45 +271,45 @@ export default function RevenueView() {
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-900/90 text-slate-400 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Prediction ID</th>
-                  <th className="py-3 px-4">Department / Facility</th>
-                  <th className="py-3 px-4">Target Period</th>
+                  <th className="py-3 px-4">Bill Number / ID</th>
+                  <th className="py-3 px-4">Patient / Department</th>
+                  <th className="py-3 px-4">Bill Date</th>
                   <th className="py-3 px-4 text-right">Predicted Rev</th>
                   <th className="py-3 px-4 text-right">Actual Net</th>
-                  <th className="py-3 px-4 text-center">Accuracy / Growth</th>
-                  <th className="py-3 px-4 text-center">Risk Level</th>
+                  <th className="py-3 px-4 text-center">Variance / Model</th>
+                  <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
                 {rows.map((row, idx) => {
-                  const predId = row.prediction_id || row.revenue_prediction_id || `REV-${idx+1}`;
-                  const dept = row.department || row.department_name || "General";
-                  const facility = row.facility_name || "St. Aloysius Hospital";
-                  const target = row.target_period || row.prediction_date || "2026-Q1";
+                  const predId = row.bill_number || (row.revenue_prediction_id ? `REV-${row.revenue_prediction_id}` : `REV-${idx+1}`);
+                  const patientOrDept = row.patient_name || row.department_name || row.department || "Clinical Care";
+                  const patientNum = row.patient_number || row.facility_name || "St. Aloysius Hospital";
+                  const billDate = row.bill_date ? new Date(row.bill_date).toLocaleDateString() : (row.prediction_date ? new Date(row.prediction_date).toLocaleDateString() : "2026-Q1");
                   const predAmt = row.predicted_revenue ?? row.predicted_amount ?? 0;
-                  const actAmt = row.actual_revenue ?? row.actual_net_amount ?? null;
-                  const accuracy = row.accuracy_pct ? `${row.accuracy_pct}%` : "Pending";
-                  const growth = row.growth_rate_pct ? `+${row.growth_rate_pct}%` : null;
-                  const risk = row.risk_level || "LOW";
+                  const actAmt = row.actual_net_amount ?? row.actual_revenue ?? null;
+                  const status = row.bill_status || "Settled";
+                  const variance = row.prediction_variance !== undefined ? (Number(row.prediction_variance) >= 0 ? `+$${Number(row.prediction_variance).toFixed(2)}` : `-$${Math.abs(Number(row.prediction_variance)).toFixed(2)}`) : null;
+                  const modelName = row.model_name || "rev-forecast-v1";
 
-                  const riskColor = {
-                    LOW: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-                    MEDIUM: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-                    HIGH: "bg-rose-500/15 text-rose-400 border-rose-500/30"
-                  }[risk] || "bg-slate-800 text-slate-300";
+                  const statusColor = {
+                    Settled: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+                    Pending: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+                    Draft: "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                  }[status] || "bg-slate-800 text-slate-300";
 
                   return (
                     <tr key={idx} className="hover:bg-slate-800/40 transition-colors">
                       <td className="py-3 px-4 font-bold text-cyan-300">{predId}</td>
                       <td className="py-3 px-4 font-sans">
-                        <div className="font-semibold text-slate-200">{dept}</div>
+                        <div className="font-semibold text-slate-200">{patientOrDept}</div>
                         <div className="text-[10px] text-slate-400 flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-slate-500" />
-                          {facility}
+                          {patientNum}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-slate-300">{target}</td>
+                      <td className="py-3 px-4 text-slate-300">{billDate}</td>
                       <td className="py-3 px-4 text-right font-bold text-emerald-400">
                         ${Number(predAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -309,12 +317,12 @@ export default function RevenueView() {
                         {actAmt !== null ? `$${Number(actAmt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : <span className="text-slate-500 italic">—</span>}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <div className="text-slate-200">{accuracy}</div>
-                        {growth && <div className="text-[10px] text-emerald-400 font-semibold">{growth}</div>}
+                        <div className="text-slate-200">{variance || 'Aligned'}</div>
+                        <div className="text-[10px] text-slate-400">{modelName}</div>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${riskColor}`}>
-                          {risk}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusColor}`}>
+                          {status}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -352,10 +360,10 @@ export default function RevenueView() {
               </div>
               <div>
                 <h3 className="text-lg font-bold font-mono text-white">
-                  {selectedRecord.prediction_id || selectedRecord.revenue_prediction_id}
+                  {selectedRecord.bill_number || `REV-${selectedRecord.revenue_prediction_id || selectedRecord.prediction_id}`}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  {selectedRecord.department} · {selectedRecord.facility_name}
+                  {selectedRecord.patient_name || selectedRecord.department_name || 'Patient'} · {selectedRecord.patient_number || 'Record'}
                 </p>
               </div>
             </div>
@@ -364,28 +372,28 @@ export default function RevenueView() {
               <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
                 <span className="text-[10px] text-slate-500 uppercase font-sans">Predicted Revenue</span>
                 <div className="text-emerald-400 text-base font-bold">
-                  ${Number(selectedRecord.predicted_revenue || 0).toLocaleString()}
+                  ${Number(selectedRecord.predicted_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-sans">Actual Settled</span>
+                <span className="text-[10px] text-slate-500 uppercase font-sans">Actual Net Settled</span>
                 <div className="text-cyan-300 text-base font-bold">
-                  {selectedRecord.actual_revenue ? `$${Number(selectedRecord.actual_revenue).toLocaleString()}` : 'Pending'}
+                  {selectedRecord.actual_net_amount !== null && selectedRecord.actual_net_amount !== undefined ? `$${Number(selectedRecord.actual_net_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Pending'}
                 </div>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-sans">95% Confidence Bounds</span>
+                <span className="text-[10px] text-slate-500 uppercase font-sans">Prediction Variance</span>
                 <div className="text-slate-300">
-                  ${Number(selectedRecord.confidence_lower_bound || 0).toLocaleString()} - ${Number(selectedRecord.confidence_upper_bound || 0).toLocaleString()}
+                  {selectedRecord.prediction_variance !== undefined ? `$${Number(selectedRecord.prediction_variance).toFixed(2)}` : 'Aligned'}
                 </div>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-sans">ML Model Version</span>
+                <span className="text-[10px] text-slate-500 uppercase font-sans">AI Model Name</span>
                 <div className="text-purple-300 font-semibold">
-                  {selectedRecord.model_version || 'REV-PROJ-v2.4'}
+                  {selectedRecord.model_name || 'rev-forecast-v1'}
                 </div>
               </div>
             </div>

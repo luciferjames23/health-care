@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { apiService } from '../services/api';
+import { apiService, extractDischargedPatientIds } from '../services/api';
 
 export default function HospitalAssistantView({ onNavigate, defaultQuery = '' }) {
   const [input, setInput] = useState(defaultQuery);
@@ -56,20 +56,20 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
 
     try {
       if (lowerQ.includes('discharge') || lowerQ.includes('blocked') || lowerQ.includes('kavitha')) {
-        const dischargeData = await apiService.getDischargeCandidates({ limit: 10 }).catch(() => null);
-        const candidates = dischargeData?.data || [];
-        const blockedCases = candidates.filter(c => c.blocked_reasons && c.blocked_reasons.length > 0);
+        const dischargeRes = await apiService.getDischargedPatients({ limit: 10 }).catch(() => ({ data: [] }));
+        const candidates = dischargeRes?.data || [];
 
         if (candidates.length > 0) {
+          const first = candidates[0];
+          const name = first.patient_name || first.patient || 'Patient';
           aiResponse = {
             who: 'ai',
             intent: 'discharge.live_pipeline',
             conf: '98%',
             ts: timeStr,
-            text: `There are currently ${candidates.length} active discharge candidates in the PostgreSQL database. ${blockedCases.length} case(s) have active clearance blockers (primarily pending TPA insurance and pharmacy discharge reviews). Top candidate: ${candidates[0].patient_name} (${candidates[0].bed_number}, ${candidates[0].ward_name}) with status "${candidates[0].overall_clearance_status}".`,
+            text: `There are currently ${candidates.length} recorded discharge summaries in the Gold database layer. Latest completed case: ${name} (${first.bed_number || 'Released Bed'}, ${first.ward_name || 'Inpatient Wing'}) with diagnosis "${first.diagnoses || first.diagnosis_name || 'Clinical Care'}" under ${first.primary_consultant || first.doctor_name || 'Attending Physician'}.`,
             sources: [
-              { label: 'PostgreSQL public.discharge_summaries', v: 'live', eff: 'Real-time' },
-              { label: 'PostgreSQL public.discharge_dependencies', v: 'live', eff: 'Real-time' }
+              { label: 'Gold: dim_generated_discharge_summaries', v: 'live', eff: 'Real-time' }
             ],
             actions: [
               { label: 'Open Discharge Command Centre', target: 'discharge' }
@@ -77,17 +77,17 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           };
         }
       } else if (lowerQ.includes('bed') || lowerQ.includes('occupancy') || lowerQ.includes('ward')) {
-        const cmdData = await apiService.getCommandCentreData().catch(() => null);
-        const kpis = cmdData?.kpis;
-        const wards = cmdData?.wards || [];
+        const bmData = await apiService.getBedManagementData().catch(() => null);
+        const kpis = bmData?.kpis;
+        const wards = bmData?.wards || [];
         aiResponse = {
           who: 'ai',
           intent: 'hospital.bed_occupancy',
           conf: '97%',
           ts: timeStr,
-          text: `Live Bed Status from PostgreSQL: ${kpis?.total_beds || 70} total operational beds across ${wards.length} wards. Current occupancy is ${kpis?.occupancy_rate || 71.4}% with ${kpis?.available_beds || 20} available beds. Wards include: ${wards.slice(0, 3).map(w => `${w.ward_name} (${w.occupied_beds}/${w.total_beds})`).join(', ')}.`,
+          text: `Live Bed Status from Clinical Gold Layer: ${kpis?.total_beds || 0} total hospital beds across ${wards.length} wards. Current active occupancy is ${kpis?.occupancy_rate || 0}% (${kpis?.occupied_beds || 0} occupied beds, ${kpis?.available_beds || 0} available vacant beds). Wards include: ${wards.slice(0, 4).map(w => `${w.ward_name} (${w.occupied_beds}/${w.total_beds} beds)`).join(', ')}.`,
           sources: [
-            { label: 'PostgreSQL public.beds & public.wards', v: 'live', eff: 'Real-time' }
+            { label: 'Gold: Live Bed Management & Ward Census', v: 'live', eff: 'Real-time' }
           ],
           actions: [
             { label: 'Open Bed Demand Analytics', target: 'beds' },
@@ -95,32 +95,35 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           ]
         };
       } else if (lowerQ.includes('revenue') || lowerQ.includes('bill') || lowerQ.includes('claim')) {
-        const revData = await apiService.getRevenueAnalytics({ limit: 5 }).catch(() => null);
-        const summary = revData?.summary;
+        const revSummary = await apiService.getRevenuePredictionsSummary().catch(() => null);
         aiResponse = {
           who: 'ai',
           intent: 'finance.revenue_status',
           conf: '96%',
           ts: timeStr,
-          text: `Live Revenue Analytics from PostgreSQL: Total Billed Amount is $${summary?.total_billed?.toLocaleString() || '1,930,750'} across ${summary?.total_bills || 1000} bills. Settled billing rate is 100% with average bill amount of $${summary?.avg_bill_amount?.toLocaleString() || '1,930'}.`,
+          text: `Live Revenue Analytics from Gold Layer: Total Net Actual Revenue is $${(revSummary?.total_actual_net_amount_usd || 0).toLocaleString()} with Total Predicted Revenue of $${(revSummary?.total_predicted_revenue_usd || 0).toLocaleString()} across ${revSummary?.total_records || 0} prediction records.`,
           sources: [
-            { label: 'PostgreSQL public.bills & payments', v: 'live', eff: 'Real-time' }
+            { label: 'Gold: dim_revenue_predictions', v: 'live', eff: 'Real-time' }
           ],
           actions: [
             { label: 'Open Revenue Analytics', target: 'revenue' }
           ]
         };
-      } else if (lowerQ.includes('patient') || lowerQ.includes('inpatient')) {
-        const patData = await apiService.getClinicalPatients({ limit: 5 }).catch(() => null);
-        const patients = patData?.data || [];
+      } else if (lowerQ.includes('patient') || lowerQ.includes('inpatient') || lowerQ.includes('admission')) {
+        const admRes = await apiService.getCurrentAdmissions({ limit: 10 }).catch(() => ({ data: [] }));
+        const disRes = await apiService.getDischargedPatients({ limit: 50 }).catch(() => ({ data: [] }));
+        const dischargedTracker = extractDischargedPatientIds(disRes?.data || []);
+        const rawAdmissions = admRes?.data || [];
+        const activeAdmissions = rawAdmissions.filter(r => !dischargedTracker.has(r));
+
         aiResponse = {
           who: 'ai',
           intent: 'clinical.active_patients',
           conf: '95%',
           ts: timeStr,
-          text: `There are ${patData?.total_rows || 250} admitted inpatients in the PostgreSQL database. First active patient on file is ${patients[0]?.first_name} ${patients[0]?.last_name} (${patients[0]?.patient_number}), admitted to ${patients[0]?.bed_number} (${patients[0]?.ward_name}) with primary diagnosis "${patients[0]?.primary_diagnosis}".`,
+          text: `There are ${activeAdmissions.length} active currently admitted inpatients across all wards. First active patient on file is ${activeAdmissions[0]?.patient_name || 'Patient'} (${activeAdmissions[0]?.patient_number || 'PAT-001'}), admitted with primary indication "${activeAdmissions[0]?.admission_reason || 'Inpatient Stay'}" under ${activeAdmissions[0]?.attending_physician || 'Attending Physician'}.`,
           sources: [
-            { label: 'PostgreSQL public.patients & admissions', v: 'live', eff: 'Real-time' }
+            { label: 'Gold: dim_admission_inputs', v: 'live', eff: 'Real-time' }
           ],
           actions: [
             { label: 'Open Clinical Workspace', target: 'clinical' }

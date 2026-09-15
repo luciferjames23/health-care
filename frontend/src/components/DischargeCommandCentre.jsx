@@ -1,23 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, parseDischargeSummaryRecord } from '../services/api';
 
-export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) {
+export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, onNavigate }) {
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'kanban'
   const [search, setSearch] = useState('');
   const [selectedCase, setSelectedCase] = useState(null);
   const [simState, setSimState] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [liveCases, setLiveCases] = useState([]);
 
   useEffect(() => {
-    async function loadDischargeCandidates() {
-      setLoading(true);
+    let isMounted = true;
+
+    async function loadDischargeCandidates(isSilent = false) {
+      if (!isSilent && liveCases.length === 0) {
+        setLoading(true);
+      }
       setError(null);
       try {
         // Fetch real discharged patients from Gold generated-discharge-summaries API
-        const res = await apiService.getDischargedPatients();
+        const res = await apiService.getDischargedPatients({}, { forceRefresh: true });
         const list = res?.data || [];
+        if (!isMounted) return;
+
         if (list.length > 0) {
           const mapped = list.map((c) => {
             const parsed = parseDischargeSummaryRecord(c);
@@ -44,12 +50,27 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
         }
       } catch (err) {
         console.error("Failed to load discharge summaries:", err);
-        setError(err.message || 'Failed to connect to Generated Discharge Summaries API');
+        if (isMounted) setError(err.message || 'Failed to connect to Generated Discharge Summaries API');
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
+
     loadDischargeCandidates();
+
+    // Auto-refresh periodically to pick up newly inserted DB records immediately
+    const timer = setInterval(() => {
+      loadDischargeCandidates(true);
+    }, 6000);
+
+    const handleUpdate = () => loadDischargeCandidates(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
   }, []);
 
   const filtered = liveCases.filter(c => {
@@ -89,7 +110,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
           Discharge command centre
         </div>
         <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-          25 active cases · dependency graph, predicted ready time and critical path by Discharge Orchestration Agent v3.0.2
+          {liveCases.length} active discharge cases · dependency graph, predicted ready time and critical path by Discharge Orchestration Agent v3.0.2
         </div>
       </div>
 
@@ -110,31 +131,19 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Discharged Records</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b' }}>
-            {loading ? '—' : liveCases.length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Approved Summaries</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)' }}>
-            {loading ? '—' : liveCases.filter(c => c.approval_status === 'Approved').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.4 0.12 150)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.filter(c => c.approval_status === 'Approved').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending Sign-Off</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)' }}>
-            {loading ? '—' : liveCases.filter(c => c.approval_status !== 'Approved').length}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>AI Model Engine</div>
-          <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
-            Llama 3.3 70B Instruct
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Live API Source</div>
-          <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-            Gold / Generated Discharges
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.filter(c => c.approval_status !== 'Approved').length}
           </div>
         </div>
       </div>
@@ -212,13 +221,26 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap }) 
           >
             Export CSV
           </button>
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('discharge-agent')}
+              style={{
+                height: '30px', padding: '0 12px', borderRadius: '6px',
+                border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff',
+                cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px'
+              }}
+            >
+              <span>⚡ Discharge Agent (AG-19)</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Table Mode */}
       {viewMode === 'table' && (
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
-          {loading ? (
+          {loading && liveCases.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Discharged Patient Summaries...</div>
               <div style={{ fontSize: '12px' }}>Connecting to backend Gold Generated Discharge Summaries API</div>

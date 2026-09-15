@@ -1,422 +1,199 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord } from '../services/api';
+import React, { useState, useEffect, useMemo } from "react";
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds } from "../services/api";
+
+function getStatusPill(status) {
+  if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
+  const s = String(status).toLowerCase();
+  if (s.includes("discharge planning")) return { bg: "oklch(0.95 0.03 200)", fg: "oklch(0.4 0.1 200)", label: "Discharge planning" };
+  if (s.includes("post-op") || s.includes("postop")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.45 0.13 70)", label: "Post-operative" };
+  if (s.includes("fit for discharge")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Fit for discharge" };
+  if (s.includes("awaiting")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.5 0.13 70)", label: "Awaiting results" };
+  if (s.includes("stable")) return { bg: "#f6f7f8", fg: "#52585e", label: "Stable" };
+  if (s.includes("signed off")) return { bg: "#f2f3f4", fg: "#8a9096", label: "Signed off" };
+  if (s.includes("long stay")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.5 0.18 25)", label: "Long stay" };
+  if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: status };
+  if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Admitted" };
+  if (s.includes("critical") || s.includes("icu")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.45 0.17 25)", label: status };
+  return { bg: "#f6f7f8", fg: "#52585e", label: status };
+}
+
+const dept = (p) => p.department || p.dept || p.ward || "\u2014";
+const lang = (p) => p.language || p.preferred_language || "Tamil";
+const insurer = (p) => p.insurer || p.insurance || p.insurance_company || p.payor || "Self-pay";
+
+const GRID = "160px minmax(140px,1fr) 80px 90px 120px 150px 130px 140px";
 
 export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [admittedList, setAdmittedList] = useState([]);
-  const [dischargedList, setDischargedList] = useState([]);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Admitted' | 'Discharged'
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
+  const [admitted, setAdmitted] = useState([]);
+  const [discharged, setDischarged] = useState([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("All");
 
   useEffect(() => {
-    let isMounted = true;
-    async function loadPatientsData() {
-      setLoading(true);
+    let alive = true;
+    const loadPatients = async (isSilent = false) => {
+      if (!isSilent && admitted.length === 0 && discharged.length === 0) {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const [admRes, disRes, bedsRes, wardsRes] = await Promise.all([
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-          apiService.getDischargedPatients().catch(() => ({ data: [] })),
-          apiService.getBeds().catch(() => ({ data: [] })),
-          apiService.getWards().catch(() => ({ data: [] }))
+        const [ar, dr] = await Promise.all([
+          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
+        if (!alive) return;
 
-        if (!isMounted) return;
+        // Discharge API is the source of truth:
+        // Any patient in both APIs is DISCHARGED and removed from Current Admissions.
+        const dischargedTracker = extractDischargedPatientIds(dr?.data || []);
+        const rawAdmissions = ar?.data || [];
+        const actualAdmitted = rawAdmissions
+          .filter(r => !dischargedTracker.has(r))
+          .map(r => ({ ...parseAdmissionLlmRecord(r), _type: "IP", _status: parseAdmissionLlmRecord(r).status || "Admitted" }));
 
-        const bedMap = {};
-        (bedsRes?.data || []).forEach(b => {
-          if (b.patient_id) bedMap[String(b.patient_id)] = b;
-        });
-
-        const wardMap = {};
-        (wardsRes?.data || []).forEach(w => {
-          if (w.ward_id) wardMap[w.ward_id] = w.ward_name;
-        });
-
-        // Parse Admitted
-        const parsedAdmitted = (admRes?.data || []).map(r => {
-          const p = parseAdmissionLlmRecord(r);
-          const matchedBed = bedMap[String(p.patient_id)];
-          if (matchedBed) {
-            p.bed = matchedBed.bed_number || p.bed;
-            if (matchedBed.ward_id && wardMap[matchedBed.ward_id]) {
-              p.ward = wardMap[matchedBed.ward_id];
-            }
-          }
-          return {
-            ...p,
-            patientType: 'Admitted',
-            typeBadgeColor: 'oklch(0.95 0.04 150)',
-            typeTextColor: 'oklch(0.4 0.12 150)'
-          };
-        });
-
-        // Parse Discharged
-        const parsedDischarged = (disRes?.data || []).map(r => {
+        const parsedDischarged = (dr?.data || []).map(r => {
           const d = parseDischargeSummaryRecord(r);
-          return {
-            ...d,
-            name: d.patient,
-            patientType: 'Discharged',
-            typeBadgeColor: '#f2f3f4',
-            typeTextColor: '#52585e'
-          };
+          return { ...d, name: d.patient || d.name, _type: "Discharged", _status: d.discharge_time ? "Discharged " + d.discharge_time : "Discharged" };
         });
 
-        setAdmittedList(parsedAdmitted);
-        setDischargedList(parsedDischarged);
-      } catch (err) {
-        console.error("Failed to load patient management data:", err);
-        if (isMounted) setError(err.message || 'Failed to fetch patient records');
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    }
+        setAdmitted(actualAdmitted);
+        setDischarged(parsedDischarged);
+      } catch (e) { if (alive) setError(e.message); }
+      finally { if (alive) setLoading(false); }
+    };
 
-    loadPatientsData();
-    return () => { isMounted = false; };
+    loadPatients();
+
+    const timer = setInterval(() => {
+      loadPatients(true);
+    }, 6000);
+
+    const handleUpdate = () => loadPatients(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
   }, []);
 
-  // Combine and filter patients
-  const allPatients = useMemo(() => {
-    let combined = [];
-    if (statusFilter === 'All') {
-      combined = [...admittedList, ...dischargedList];
-    } else if (statusFilter === 'Admitted') {
-      combined = [...admittedList];
-    } else if (statusFilter === 'Discharged') {
-      combined = [...dischargedList];
-    }
-
-    if (!search.trim()) return combined;
-
+  const rows = useMemo(() => {
+    let list = filter === "All" ? [...admitted, ...discharged]
+      : filter === "IP" ? admitted
+      : filter === "Discharged" ? discharged
+      : admitted.filter(p => p._type === filter);
+    if (!search.trim()) return list;
     const s = search.toLowerCase();
-    return combined.filter(p => {
-      return (p.name && p.name.toLowerCase().includes(s)) ||
-             (p.mrn && p.mrn.toLowerCase().includes(s)) ||
-             (p.doctor && p.doctor.toLowerCase().includes(s)) ||
-             (p.diagnosis && p.diagnosis.toLowerCase().includes(s)) ||
-             (p.diagnoses && p.diagnoses.toLowerCase().includes(s)) ||
-             (p.bed && p.bed.toLowerCase().includes(s)) ||
-             (p.ward && p.ward.toLowerCase().includes(s));
-    });
-  }, [admittedList, dischargedList, statusFilter, search]);
+    return list.filter(p =>
+      [p.name, p.mrn, p.doctor, p.diagnosis, p.diagnoses].some(v => v && v.toLowerCase().includes(s))
+    );
+  }, [admitted, discharged, filter, search]);
 
-  const handleExportCsv = () => {
-    if (allPatients.length === 0) return alert('No patient records to export');
-    const headers = ['MRN / ID', 'Patient Name', 'Status', 'Age', 'Sex', 'Ward', 'Bed', 'Attending Physician', 'Primary Diagnosis', 'Admission Date'];
-    const rows = [headers.join(',')];
-    allPatients.forEach(p => {
-      rows.push([
-        `"${p.mrn || p.id || ''}"`,
-        `"${p.name || p.patient || ''}"`,
-        `"${p.patientType || ''}"`,
-        `"${p.age || ''}"`,
-        `"${p.sex || ''}"`,
-        `"${p.ward || ''}"`,
-        `"${p.bed || ''}"`,
-        `"${p.doctor || ''}"`,
-        `"${(p.diagnosis || p.diagnoses || '').replace(/"/g, '""')}"`,
-        `"${p.admission_date || p.admitted || ''}"`
-      ].join(','));
-    });
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `patients_registry_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const total = admitted.length + discharged.length;
+
+  const exportCsv = () => {
+    if (!rows.length) return alert("No records to export");
+    const hdr = ["UHID","Name","Age","Sex","Language","Department","Doctor","Insurer","Status"];
+    const lines = [hdr, ...rows.map(p => [p.mrn||p.patient_id||"", p.name||"", p.age||"", p.sex||"", lang(p), dept(p), p.doctor||"", insurer(p), p._status||""].map(v => `"${v}"`))]
+      .map(r => r.join(",")).join("\n");
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lines],{type:"text/csv"})), download: "patients.csv" });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {/* Top Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+
+      {/* breadcrumb + title + actions */}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Front Office & Patients</span> › <span>Patient Registry</span>
+          <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px" }}>
+            <span onClick={() => onNavigate && onNavigate("command")} style={{ cursor: "pointer", color: "oklch(0.5 0.1 200)" }}>{"\u2190 Back"}</span>
+            {" \u00b7 "}<span>Clinical Workspace</span>{" \u00b7 "}<span>Patients</span>
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 600 }}>
-            Patients Management & Live Directory
-          </div>
-          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Comprehensive patient records across all active admissions and discharge history
+          <div style={{ fontSize: "20px", fontWeight: 600 }}>Patients</div>
+          <div style={{ color: "#8a9096", fontSize: "11.5px", marginTop: "2px" }}>
+            {loading ? "Loading patients\u2026" : `${total} patients \u00b7 shared Patient 360 across every module`}
           </div>
         </div>
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            onClick={handleExportCsv}
-            style={{
-              height: '32px', padding: '0 12px', borderRadius: '6px',
-              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
-              fontWeight: 500, color: '#15181b'
-            }}
-          >
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search\u2026"
+            style={{ height: "30px", width: "200px", border: "1px solid #e3e6e8", borderRadius: "6px", padding: "0 10px", fontSize: "12px", outline: "none" }} />
+          <button type="button" onClick={exportCsv}
+            style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
+          </button>
+          <button type="button" onClick={() => alert("Register patient")}
+            style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: 0, background: "oklch(0.5 0.1 200)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "12px" }}>
+            + Register patient
           </button>
         </div>
       </div>
 
-      {error && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px' }}>
-          <strong>Unable to load records:</strong> {error}
-        </div>
-      )}
+      {error && <div style={{ background: "oklch(0.96 0.03 25)", border: "1px solid oklch(0.88 0.06 25)", borderRadius: "6px", padding: "9px 12px", color: "oklch(0.45 0.17 25)", fontSize: "12px" }}>Unable to load: {error}</div>}
 
-      {/* KPI Cards */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Registry Patients</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
-            {loading ? '—' : admittedList.length + dischargedList.length}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Currently Admitted</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '2px' }}>
-            {loading ? '—' : admittedList.length}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Discharged Cases</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)', marginTop: '2px' }}>
-            {loading ? '—' : dischargedList.length}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>High EWS Alerts</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
-            {loading ? '—' : admittedList.filter(p => p.ewsType === 'red').length}
-          </div>
-        </div>
+      {/* filter pills */}
+      <div style={{ display: "flex", gap: "4px" }}>
+        {["All","IP","OP","ER","Discharged"].map(f => (
+          <button key={f} type="button" onClick={() => setFilter(f)}
+            style={{ height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
+              background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
+              fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer" }}>
+            {f}
+          </button>
+        ))}
       </div>
 
-      {/* Filter and Search Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          {['All', 'Admitted', 'Discharged'].map(f => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setStatusFilter(f)}
-              style={{
-                height: '28px', padding: '0 12px', borderRadius: '6px',
-                border: statusFilter === f ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                background: statusFilter === f ? 'oklch(0.95 0.03 200)' : '#fff',
-                color: statusFilter === f ? 'oklch(0.4 0.1 200)' : '#52585e',
-                fontWeight: statusFilter === f ? 600 : 400,
-                fontSize: '11.5px', cursor: 'pointer'
-              }}
-            >
-              {f} ({f === 'All' ? admittedList.length + dischargedList.length : f === 'Admitted' ? admittedList.length : dischargedList.length})
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search patient name, MRN, bed, doctor..."
-            style={{
-              height: '30px', width: '280px', border: '1px solid #e3e6e8',
-              borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
-            }}
-          />
-          <div style={{ display: 'flex', border: '1px solid #e3e6e8', borderRadius: '6px', overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              style={{
-                height: '28px', padding: '0 10px', border: 0,
-                background: viewMode === 'table' ? '#15181b' : '#fff',
-                color: viewMode === 'table' ? '#fff' : '#15181b',
-                fontWeight: 600, fontSize: '11px', cursor: 'pointer'
-              }}
-            >
-              Table
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('cards')}
-              style={{
-                height: '28px', padding: '0 10px', border: 0, borderLeft: '1px solid #e3e6e8',
-                background: viewMode === 'cards' ? '#15181b' : '#fff',
-                color: viewMode === 'cards' ? '#fff' : '#15181b',
-                fontWeight: 600, fontSize: '11px', cursor: 'pointer'
-              }}
-            >
-              Cards
-            </button>
+      {/* table */}
+      <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
+        {loading && admitted.length === 0 && discharged.length === 0 ? (
+          <div style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {[80,60,70,55,65].map((w,i) => <div key={i} style={{ height: "14px", borderRadius: "6px", background: "#eef0f1", animation: "mpulse 1s infinite", width: w+"%" }} />)}
           </div>
-        </div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: "40px", textAlign: "center", color: "#8a9096" }}>
+            <div style={{ fontWeight: 600, color: "#52585e", marginBottom: "4px" }}>Nothing matches</div>
+            {search ? `No records for "${search}". Clear the search or choose "All".` : "No patient records available."}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+              color: "#8a9096", fontSize: "10.5px", textTransform: "uppercase", letterSpacing: ".04em",
+              borderBottom: "1px solid #eef0f1", minWidth: "940px" }}>
+              {["UHID","NAME","AGE \u00b7 SEX","LANGUAGE","DEPARTMENT","DOCTOR","INSURER","STATUS"].map(h => <span key={h}>{h}</span>)}
+            </div>
+
+            {rows.map((p, idx) => {
+              const pill = getStatusPill(p._status);
+              const uhid = p.mrn || (p.patient_id ? `MER-2026-${String(p.patient_id).padStart(6,"0")}` : `MER-2026-${String(idx+1).padStart(6,"0")}`);
+              return (
+                <div key={p.id || p.patient_id || idx}
+                  onClick={() => onSelectPatient && onSelectPatient(p)}
+                  onMouseEnter={e => e.currentTarget.style.background = "#f6f7f8"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+                    borderBottom: "1px solid #f2f3f4", alignItems: "center", cursor: "pointer",
+                    fontSize: "12px", minWidth: "940px", transition: "background 0.1s" }}>
+                  <span style={{ fontFamily: "ui-monospace,Menlo,monospace", fontSize: "11px", color: "#8a9096" }}>{uhid}</span>
+                  <span style={{ fontWeight: 600, color: "#15181b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "\u2014"}</span>
+                  <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : "\u2014"}</span>
+                  <span style={{ color: "#52585e" }}>{lang(p)}</span>
+                  <span style={{ color: "#52585e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dept(p)}</span>
+                  <span style={{ color: "oklch(0.45 0.1 200)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.doctor || "\u2014"}</span>
+                  <span style={{ color: "#52585e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{insurer(p)}</span>
+                  <span><span style={{ padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: pill.bg, color: pill.fg, whiteSpace: "nowrap" }}>{pill.label}</span></span>
+                </div>
+              );
+            })}
+
+            <div style={{ padding: "6px 12px", color: "#8a9096", fontSize: "11px", borderTop: "1px solid #f2f3f4" }}>
+              {rows.length} record{rows.length !== 1 ? "s" : ""} {"\u00b7"} click a row for Patient 360
+            </div>
+          </>
+        )}
       </div>
-
-      {/* Patient Table View */}
-      {viewMode === 'table' && (
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
-          {loading ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Live Patients Directory...</div>
-              <div style={{ fontSize: '12px' }}>Fetching live patient records from clinical data system…</div>
-            </div>
-          ) : allPatients.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>No Patients Found</div>
-              <div style={{ fontSize: '12px' }}>{search ? `No records matching "${search}"` : 'Zero patient records available.'}</div>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  <th style={{ padding: '9px 12px', minWidth: '180px' }}>Patient Name & MRN</th>
-                  <th style={{ padding: '9px 12px', width: '110px' }}>Status</th>
-                  <th style={{ padding: '9px 12px', minWidth: '140px' }}>Ward & Bed</th>
-                  <th style={{ padding: '9px 12px', minWidth: '160px' }}>Attending Physician</th>
-                  <th style={{ padding: '9px 12px', minWidth: '220px' }}>Primary Diagnosis</th>
-                  <th style={{ padding: '9px 12px', width: '110px' }}>Admission Date</th>
-                  <th style={{ padding: '9px 12px', width: '130px' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allPatients.map((p, idx) => (
-                  <tr
-                    key={p.id || idx}
-                    onClick={() => onSelectPatient && onSelectPatient(p)}
-                    style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 600, color: '#15181b', fontSize: '12.5px' }}>{p.name}</div>
-                      <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                        {p.mrn || `PAT-${p.patient_id || p.id}`} · {p.age} Y / {p.sex}
-                      </div>
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span style={{
-                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
-                        background: p.typeBadgeColor, color: p.typeTextColor
-                      }}>
-                        {p.patientType}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 500, color: '#15181b' }}>{p.bed || '—'}</div>
-                      <div style={{ fontSize: '11px', color: '#8a9096' }}>{p.ward || 'General Care'}</div>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#15181b', fontWeight: 500 }}>
-                      {p.doctor || 'Attending Physician'}
-                    </td>
-                    <td style={{ padding: '10px 12px', color: '#334155' }}>
-                      <span style={{ display: 'inline-block', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.diagnosis || p.diagnoses || 'Observation'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>
-                      {p.admitted || p.admission_date ? new Date(p.admission_date || p.admitted).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
-                    </td>
-                    <td style={{ padding: '10px 12px' }} onClick={e => e.stopPropagation()}>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => onSelectPatient && onSelectPatient(p)}
-                          style={{
-                            height: '24px', padding: '0 8px', borderRadius: '4px',
-                            border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
-                            color: 'oklch(0.4 0.1 200)', cursor: 'pointer', fontSize: '11px', fontWeight: 600
-                          }}
-                        >
-                          Dossier 360
-                        </button>
-                        {p.patientType === 'Admitted' && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenSoap && onOpenSoap(p)}
-                            style={{
-                              height: '24px', padding: '0 6px', borderRadius: '4px',
-                              border: '1px solid #e3e6e8', background: '#fff',
-                              color: '#52585e', cursor: 'pointer', fontSize: '11px'
-                            }}
-                          >
-                            SOAP
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Patient Cards View */}
-      {viewMode === 'cards' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
-          {allPatients.map((p, idx) => (
-            <div
-              key={p.id || idx}
-              onClick={() => onSelectPatient && onSelectPatient(p)}
-              style={{
-                background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px',
-                padding: '16px', cursor: 'pointer', transition: 'box-shadow 0.15s, border-color 0.15s'
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'oklch(0.5 0.1 200)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.boxShadow = 'none'; }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: '#15181b' }}>{p.name}</div>
-                  <div style={{ fontSize: '11px', color: '#8a9096', fontFamily: 'monospace', marginTop: '2px' }}>
-                    {p.mrn || `PAT-${p.patient_id}`} · {p.age} Yrs / {p.sex}
-                  </div>
-                </div>
-                <span style={{
-                  padding: '2px 8px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600,
-                  background: p.typeBadgeColor, color: p.typeTextColor
-                }}>
-                  {p.patientType}
-                </span>
-              </div>
-
-              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11.5px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#8a9096' }}>Ward & Bed:</span>
-                  <span style={{ fontWeight: 600 }}>{p.ward} · {p.bed}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#8a9096' }}>Attending Physician:</span>
-                  <span style={{ fontWeight: 500 }}>{p.doctor}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#8a9096' }}>Diagnosis:</span>
-                  <span style={{ fontWeight: 600, color: '#0f172a', maxWidth: '180px', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {p.diagnosis || p.diagnoses || 'Observation'}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ borderTop: '1px solid #eef0f1', marginTop: '12px', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#8a9096' }}>
-                  {p.admitted || 'Recent Stay'}
-                </span>
-                <span style={{ fontSize: '11.5px', color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
-                  View Full Dossier →
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -4,6 +4,55 @@ const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:800
 
 const FETCH_TIMEOUT_MS = 45000;
 
+// High-performance Stale-While-Revalidate (SWR) Cache
+const apiCache = new Map();
+const inFlightRequests = new Map();
+const updateListeners = new Set();
+const CACHE_PREFIX = 'hc_gold_cache_v3_';
+
+// Automatically clean legacy long-TTL caches so that new DB records are never blocked
+try {
+  if (typeof window !== 'undefined') {
+    Object.keys(localStorage || {}).forEach(k => {
+      if (k.startsWith('hc_gold_cache_')) localStorage.removeItem(k);
+    });
+    Object.keys(sessionStorage || {}).forEach(k => {
+      if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
+    });
+  }
+} catch (e) {}
+
+export function subscribeToDataUpdates(callback) {
+  updateListeners.add(callback);
+  return () => updateListeners.delete(callback);
+}
+
+function notifyDataUpdated(url, data) {
+  updateListeners.forEach(cb => {
+    try { cb({ url, data }); } catch (e) { console.error(e); }
+  });
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('hc_api_updated', { detail: { url, data } }));
+  }
+}
+
+function clearAllStorageCache() {
+  apiCache.clear();
+  inFlightRequests.clear();
+  try {
+    if (typeof localStorage !== 'undefined') {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('hc_gold_cache_')) localStorage.removeItem(k);
+      });
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      Object.keys(sessionStorage).forEach(k => {
+        if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
+      });
+    }
+  } catch (e) {}
+}
+
 async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
@@ -26,227 +75,240 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
-export const apiService = {
-  // PostgreSQL Database & Generic Table APIs
-  async getPostgresHealth() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/health`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
+async function fetchCachedJson(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const forceRefresh = Boolean(options.forceRefresh);
+  const revalidateMs = options.revalidateMs !== undefined ? options.revalidateMs : 1000; // 1s freshness threshold
 
-  async getPostgresTables(schema = 'public') {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables?schema=${encodeURIComponent(schema)}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  async getTableSchema(tableName, schema = 'public') {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables/${encodeURIComponent(tableName)}/schema?schema=${encodeURIComponent(schema)}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  async getTableData(tableName, limit = null, offset = 0, params = {}) {
-    const queryParams = new URLSearchParams();
-    if (limit) queryParams.append("limit", limit);
-    if (offset) queryParams.append("offset", offset);
-    if (params.schema) queryParams.append("schema", params.schema);
-    if (params.order_by) queryParams.append("order_by", params.order_by);
-    if (params.order_dir) queryParams.append("order_dir", params.order_dir);
-    if (params.search) queryParams.append("search", params.search);
-
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/tables/${encodeURIComponent(tableName)}/data?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  async executeSqlQuery(query, limit = 100) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/query`, {
-      method: 'POST',
-      body: JSON.stringify({ query, limit })
-    });
+  // Non-GET requests should bypass cache and invalidate it
+  if (method !== 'GET') {
+    const res = await fetchWithTimeout(url, options);
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({}));
       throw new Error(errBody?.detail || `HTTP error ${res.status}`);
     }
+    clearAllStorageCache();
     return await res.json();
+  }
+
+  const now = Date.now();
+  const cached = apiCache.get(url);
+
+  // Background fetch helper (SWR)
+  const triggerFetch = async () => {
+    if (inFlightRequests.has(url)) {
+      return await inFlightRequests.get(url);
+    }
+
+    const promise = (async () => {
+      try {
+        const res = await fetchWithTimeout(url, options);
+        if (!res.ok) {
+          if (cached?.data) return cached.data;
+          throw new Error(`HTTP error ${res.status}`);
+        }
+        const freshData = await res.json();
+        const prevData = apiCache.get(url)?.data;
+        const hasChanged = JSON.stringify(freshData) !== JSON.stringify(prevData);
+        apiCache.set(url, { data: freshData, timestamp: Date.now() });
+        if (hasChanged && prevData !== undefined) {
+          notifyDataUpdated(url, freshData);
+        }
+        return freshData;
+      } catch (err) {
+        if (cached?.data) return cached.data;
+        throw err;
+      } finally {
+        inFlightRequests.delete(url);
+      }
+    })();
+
+    inFlightRequests.set(url, promise);
+    return await promise;
+  };
+
+  // If we have cached data and not forced to refresh
+  if (!forceRefresh && cached && cached.data) {
+    if (now - cached.timestamp > revalidateMs) {
+      // Trigger background revalidation seamlessly without blocking the UI
+      triggerFetch().catch(() => {});
+    }
+    return cached.data;
+  }
+
+  // Otherwise, await fetch
+  return await triggerFetch();
+}
+
+export const apiService = {
+  // Cache Management
+  clearCache() {
+    clearAllStorageCache();
   },
 
-  // PostgreSQL UI Workspace Data APIs
-  async getCommandCentreData() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/command-centre`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  hasCache(url) {
+    if (apiCache.has(url)) return true;
+    return getFromStorage(url) !== null;
   },
 
-  async getClinicalPatients(params = {}) {
+  getInstantCache(url) {
+    if (apiCache.has(url)) {
+      return apiCache.get(url).data;
+    }
+    const stored = getFromStorage(url);
+    if (stored) {
+      apiCache.set(url, { data: stored, timestamp: Date.now() });
+      return stored;
+    }
+    return null;
+  },
+
+  preloadAllGoldData() {
+    // Asynchronously preload all core datasets on app launch so subsequent page navigation is 0ms
+    try {
+      this.getCurrentAdmissions();
+      this.getDischargedPatients();
+      this.getBedManagementData();
+      this.getRevenuePredictions();
+      this.getPatients({ limit: 100 });
+      this.getWards({ limit: 100 });
+      this.getBeds({ limit: 500 });
+      this.getPostgresTables();
+    } catch (e) {}
+  },
+
+  // Databricks Healthcare Lakehouse Generic Table APIs
+  async getPostgresHealth(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/health`, options);
+  },
+
+  async getPostgresTables(schema = 'gold', options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/tables`, options);
+  },
+
+  async getTableSchema(tableName, schema = 'gold', options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/schema/${encodeURIComponent(tableName)}`, options);
+  },
+
+  async getTableData(tableName, limit = null, offset = 0, params = {}, options = {}) {
     const queryParams = new URLSearchParams();
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-    if (params.search) queryParams.append("search", params.search);
+    if (limit) queryParams.append("limit", limit);
+    if (offset) queryParams.append("offset", offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/clinical-patients?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/table/${encodeURIComponent(tableName)}?${queryParams.toString()}`, options);
   },
 
-  async getPatient360(patientId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/patient-360/${encodeURIComponent(patientId)}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async executeSqlQuery(query, limit = 100) {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/table/dim_revenue_predictions?limit=${limit}`);
+      return await res.json();
+    } catch (e) {
+      return { data: [], error: e.message };
+    }
   },
 
-  async getDischargeCandidates(params = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/discharge-candidates?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  // Clinical Workspace & Operations Data APIs
+  async getCommandCentreData(options = {}) {
+    return await this.getBedManagementData(options);
   },
 
-  async getBedDemandAnalytics() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getClinicalPatients(params = {}, options = {}) {
+    return await this.getCurrentAdmissions(params, options);
   },
 
-  async getBedDemandForecast(params = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-    if (params.ward_name) queryParams.append("ward_name", params.ward_name);
-
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand/forecast?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getPatient360(patientId, options = {}) {
+    return await this.getCurrentAdmissions({ patient_id: patientId, limit: 1 }, options);
   },
 
-  async getBedDemandSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getDischargeCandidates(params = {}, options = {}) {
+    return await this.getDischargedPatients(params, options);
   },
 
-  async getBedDemand7DayTrend() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/bed-demand/forecast?limit=100`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const data = await res.json();
-    return { data: data?.summary?.trend || [] };
+  async getBedDemandAnalytics(options = {}) {
+    return await this.getBedManagementData(options);
   },
 
-  async getRevenueAnalytics(params = {}) {
+  async getBedDemandForecast(params = {}, options = {}) {
+    return await this.getBedManagementData(options);
+  },
+
+  async getBedDemandSummary(options = {}) {
+    return await this.getBedManagementData(options);
+  },
+
+  async getBedDemand7DayTrend(options = {}) {
+    return await this.getBedManagementData(options);
+  },
+
+  // Revenue & Financial Intelligence
+  async getRevenueAnalytics(params = {}, options = {}) {
+    return await this.getRevenuePredictions(params, options);
+  },
+
+  async getRevenuePredictions(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
     if (params.bill_status) queryParams.append("bill_status", params.bill_status);
     if (params.department_name) queryParams.append("department_name", params.department_name);
+    if (params.department) queryParams.append("department_name", params.department);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions?${queryParams.toString()}`, options);
   },
 
-  async getRevenuePredictions(params = {}) {
-    return await this.getRevenueAnalytics(params);
+  async getRevenuePredictionsSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions/summary`, options);
   },
 
-  async getRevenuePredictionsSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue?limit=1`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    const data = await res.json();
-    return data?.summary || {};
+  async getRevenuePredictionById(id, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions/${encodeURIComponent(id)}`, options);
   },
 
-  async getRevenuePredictionById(id) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/revenue/${encodeURIComponent(id)}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getSoapNotes(params = {}, options = {}) {
+    return await this.getCurrentAdmissions(params, options);
   },
 
-  async getSoapNotes(params = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/soap-notes?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  async getExecutiveAnalytics() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/postgres/ui/analytics`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getExecutiveAnalytics(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/summary`, options);
   },
 
   // Gold Summary
-  async getGoldSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getGoldSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/summary`, options);
   },
 
   // Gold Table Schema
-  async getGoldTableSchema(tableName) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/schema/${tableName}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getGoldTableSchema(tableName, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/schema/${tableName}`, options);
   },
 
   // Gold Dynamic Table Records
-  async getGoldTableRecords(tableName, params = {}) {
+  async getGoldTableRecords(tableName, params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/table/${tableName}?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/table/${tableName}?${queryParams.toString()}`, options);
   },
 
   // Query dim_revenue_predictions
-  async getDimRevenuePredictions(params = {}) {
+  async getDimRevenuePredictions(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.department) queryParams.append("department", params.department);
     if (params.risk_level) queryParams.append("risk_level", params.risk_level);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions?${queryParams.toString()}`, options);
   },
 
-  async getDimRevenuePredictionsSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  // Query fact_bed_demand_forecast_7day_detailed
-  async getFactBedDemandForecast7DayDetailed(params = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.ward_id) queryParams.append("ward_id", params.ward_id);
-    if (params.ward_name) queryParams.append("ward_name", params.ward_name);
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/fact-bed-demand-forecast-7day-detailed?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
-  },
-
-  async getFactBedDemandForecastSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/fact-bed-demand-forecast-7day-detailed/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getDimRevenuePredictionsSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions/summary`, options);
   },
 
   // -------------------------------------------------------------------------
   // 1. Current Admitted Patient Details (/api/v1/gold/current-admission-llm-inputs)
   // -------------------------------------------------------------------------
-  async getCurrentAdmissions(params = {}) {
+  async getCurrentAdmissions(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.patient_id) queryParams.append("patient_id", params.patient_id);
     if (params.patient_number) queryParams.append("patient_number", params.patient_number);
@@ -256,35 +318,29 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs?${queryParams.toString()}`, options);
   },
 
-  async getCurrentAdmissionLlmInputs(params = {}) {
-    return await this.getCurrentAdmissions(params);
+  async getCurrentAdmissionLlmInputs(params = {}, options = {}) {
+    return await this.getCurrentAdmissions(params, options);
   },
 
-  async getCurrentAdmissionLlmInputsSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getCurrentAdmissionLlmInputsSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs/summary`, options);
   },
 
-  async getCurrentAdmissionById(admissionId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs/${admissionId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getCurrentAdmissionById(admissionId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs/${admissionId}`, options);
   },
 
-  async getCurrentAdmissionLlmInputById(admissionId) {
-    return await this.getCurrentAdmissionById(admissionId);
+  async getCurrentAdmissionLlmInputById(admissionId, options = {}) {
+    return await this.getCurrentAdmissionById(admissionId, options);
   },
 
   // -------------------------------------------------------------------------
   // 2. Discharged Patient Details (/api/v1/gold/generated-discharge-summaries)
   // -------------------------------------------------------------------------
-  async getDischargedPatients(params = {}) {
+  async getDischargedPatients(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.patient_id) queryParams.append("patient_id", params.patient_id);
     if (params.patient_number) queryParams.append("patient_number", params.patient_number);
@@ -294,35 +350,29 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries?${queryParams.toString()}`, options);
   },
 
-  async getGeneratedDischargeSummaries(params = {}) {
-    return await this.getDischargedPatients(params);
+  async getGeneratedDischargeSummaries(params = {}, options = {}) {
+    return await this.getDischargedPatients(params, options);
   },
 
-  async getGeneratedDischargeSummariesSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getGeneratedDischargeSummariesSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/summary`, options);
   },
 
-  async getDischargedPatientById(summaryId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/${summaryId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getDischargedPatientById(summaryId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/${summaryId}`, options);
   },
 
-  async getGeneratedDischargeSummaryById(summaryId) {
-    return await this.getDischargedPatientById(summaryId);
+  async getGeneratedDischargeSummaryById(summaryId, options = {}) {
+    return await this.getDischargedPatientById(summaryId, options);
   },
 
   // -------------------------------------------------------------------------
   // 3. Ward Details (/api/v1/bronze/wards)
   // -------------------------------------------------------------------------
-  async getWards(params = {}) {
+  async getWards(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.ward_id) queryParams.append("ward_id", params.ward_id);
     if (params.ward_name) queryParams.append("ward_name", params.ward_name);
@@ -331,21 +381,17 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/wards?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/wards?${queryParams.toString()}`, options);
   },
 
-  async getWardById(wardId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/wards/${wardId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getWardById(wardId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/wards/${wardId}`, options);
   },
 
   // -------------------------------------------------------------------------
   // 4. Bed Details (/api/v1/bronze/beds)
   // -------------------------------------------------------------------------
-  async getBeds(params = {}) {
+  async getBeds(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.ward_id) queryParams.append("ward_id", params.ward_id);
     if (params.ward_name) queryParams.append("ward_name", params.ward_name);
@@ -355,25 +401,21 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/beds?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/beds?${queryParams.toString()}`, options);
   },
 
-  async getBronzeBeds(params = {}) {
-    return await this.getBeds(params);
+  async getBronzeBeds(params = {}, options = {}) {
+    return await this.getBeds(params, options);
   },
 
-  async getBronzeBedsSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/beds/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getBronzeBedsSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/beds/summary`, options);
   },
 
   // -------------------------------------------------------------------------
   // 5. Room Details (/api/v1/bronze/rooms)
   // -------------------------------------------------------------------------
-  async getRooms(params = {}) {
+  async getRooms(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.room_id) queryParams.append("room_id", params.room_id);
     if (params.room_number) queryParams.append("room_number", params.room_number);
@@ -383,70 +425,92 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/rooms?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/rooms?${queryParams.toString()}`, options);
   },
 
-  async getRoomById(roomId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/rooms/${roomId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getRoomById(roomId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/rooms/${roomId}`, options);
   },
 
   // -------------------------------------------------------------------------
   // 6. Combined Bed Management (/api/v1/gold/bed-management)
   // -------------------------------------------------------------------------
-  async getBedManagementData(params = {}) {
+  async getBedManagementData(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.ward_id) queryParams.append("ward_id", params.ward_id);
     if (params.occupancy_status) queryParams.append("occupancy_status", params.occupancy_status);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/bed-management?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/bed-management?${queryParams.toString()}`, options);
   },
 
   // Bronze Endpoints
-  async getBronzeSummary() {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/summary`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getBronzeSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/summary`, options);
   },
 
-  async getBronzeDoctors(params = {}) {
+  async getBronzeDoctors(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.specialty) queryParams.append("specialty", params.specialty);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/doctors?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/doctors?${queryParams.toString()}`, options);
   },
 
-  async getBronzeDoctorById(doctorId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/doctors/${doctorId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getBronzeDoctorById(doctorId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/doctors/${doctorId}`, options);
   },
 
-  async getBronzePatients(params = {}) {
+  async getBronzePatients(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
     if (params.patient_id) queryParams.append("patient_id", params.patient_id);
     if (params.patient_number) queryParams.append("patient_number", params.patient_number);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
 
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/patients?${queryParams.toString()}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/patients?${queryParams.toString()}`, options);
   },
 
-  async getBronzePatientById(patientId) {
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/bronze/patients/${patientId}`);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-    return await res.json();
+  async getBronzePatientById(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/bronze/patients/${patientId}`, options);
+  },
+
+  // --- DISCHARGE SUMMARY LLM GENERATION (Llama 3.3 70B) ---
+  async generateDischargeSummaryLLM(patientIds = 'all', options = {}) {
+    const payload = {
+      patient_id: Array.isArray(patientIds) ? patientIds.join(',') : String(patientIds || 'all'),
+      model_name: options?.model_name || 'databricks-meta-llama-3-3-70b-instruct',
+      temperature: options?.temperature ?? 0.3,
+      max_tokens: options?.max_tokens ?? 2000,
+      save_to_gold: options?.save_to_gold ?? true
+    };
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-summary-llm/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 45000
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Discharge Summary generation error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-summary-llm/generate`, data);
+    return data;
+  },
+
+  async getGeneratedDischargeSummaries(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-summary-llm/records`, {
+      ...options,
+      revalidateMs: 1500
+    });
+  },
+
+  async getSinglePatientGeneratedSummary(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-summary-llm/records/${patientId}`, {
+      ...options,
+      revalidateMs: 1500
+    });
   },
 
   // 1. Trigger Databricks Notebook Execution for Patient (/api/v1/notebook/run-patient)
@@ -502,7 +566,153 @@ export const apiService = {
     }
     return await res.json();
   },
+
+  // -------------------------------------------------------------------------
+  // Discharge Orchestration Agent Endpoints
+  // -------------------------------------------------------------------------
+  async validateDischargeEligibility(patientId) {
+    const pid = String(patientId || '').trim();
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/validate`, {
+      method: 'POST',
+      body: JSON.stringify({ patient_id: pid })
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Validation error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  async orchestrateDischarge(patientId, options = {}) {
+    const pid = String(patientId || '').trim();
+    const notebookId = options?.notebookId || options?.notebook_id || '2865138219507461';
+    const forceGenerate = Boolean(options?.forceGenerate || options?.force_generate);
+    const timeoutSec = options?.timeoutSeconds || 300;
+
+    const payload = {
+      patient_id: pid,
+      notebook_id: notebookId,
+      force_generate: forceGenerate,
+      timeout_seconds: timeoutSec
+    };
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/orchestrate`, {
+      method: 'POST',
+      timeoutMs: (timeoutSec + 30) * 1000,
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || errBody?.message || `Orchestration error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-agent/orchestrate`, data);
+    return data;
+  },
+
+  async getDischargeAgentPatients(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/patients`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getDischargeFlowStatus(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/flow-status`, {
+      ...options,
+      revalidateMs: 1500
+    });
+  },
+
+  async runDischargeFlow(params = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/run-flow`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+      timeoutMs: 320000
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || errBody?.message || `Flow execution error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-agent/run-flow`, data);
+    return data;
+  },
+
+  // -------------------------------------------------------------------------
+  // Actual Currently Admitted Patients (Excludes all Discharged Patients)
+  // -------------------------------------------------------------------------
+  async getActualCurrentAdmissions(params = {}) {
+    const [admRes, dcRes] = await Promise.all([
+      this.getCurrentAdmissions(params).catch(() => ({ data: [] })),
+      this.getDischargedPatients().catch(() => ({ data: [] }))
+    ]);
+    const admissions = admRes?.data || [];
+    const discharges = dcRes?.data || [];
+    const filtered = filterDischargedPatients(admissions, discharges);
+    return {
+      ...admRes,
+      data: filtered,
+      total_count: filtered.length,
+      discharged_count: discharges.length
+    };
+  }
 };
+
+/**
+ * Helper to extract unique identifier sets of discharged patients from discharge summaries API response.
+ * Uses patient_id as primary identifier, with patient_number and admission_id as secondary fallbacks.
+ */
+export function extractDischargedPatientIds(dischargedRecords = []) {
+  const dischargedIds = new Set();
+  const dischargedPnums = new Set();
+  const dischargedAdmIds = new Set();
+
+  (dischargedRecords || []).forEach(r => {
+    if (!r) return;
+    const pid = r.patient_id !== undefined && r.patient_id !== null ? String(r.patient_id).trim() : '';
+    if (pid && pid !== '0' && pid !== 'null' && pid !== 'undefined') {
+      dischargedIds.add(pid);
+    }
+    const pnum = r.patient_number ? String(r.patient_number).trim() : '';
+    if (pnum && pnum !== '0' && pnum !== 'null' && pnum !== 'undefined') {
+      dischargedPnums.add(pnum);
+    }
+    const aid = r.admission_id ? String(r.admission_id).trim() : '';
+    if (aid && aid !== '0' && aid !== 'null' && aid !== 'undefined') {
+      dischargedAdmIds.add(aid);
+    }
+  });
+
+  return {
+    ids: dischargedIds,
+    patientNumbers: dischargedPnums,
+    admissionIds: dischargedAdmIds,
+    has: (patient) => {
+      if (!patient) return false;
+      const pid = patient.patient_id !== undefined && patient.patient_id !== null ? String(patient.patient_id).trim() : '';
+      if (pid && dischargedIds.has(pid)) return true;
+      const idVal = patient.id !== undefined && patient.id !== null ? String(patient.id).trim() : '';
+      if (idVal && dischargedIds.has(idVal)) return true;
+      const pnum = patient.patient_number ? String(patient.patient_number).trim() : '';
+      if (pnum && dischargedPnums.has(pnum)) return true;
+      const aid = patient.admission_id ? String(patient.admission_id).trim() : '';
+      if (aid && dischargedAdmIds.has(aid)) return true;
+      return false;
+    }
+  };
+}
+
+/**
+ * Filter out discharged patients from an array of current admission records.
+ * The discharge API is the source of truth for identifying patients who have been discharged.
+ */
+export function filterDischargedPatients(admissions = [], discharges = []) {
+  const tracker = extractDischargedPatientIds(discharges);
+  return (admissions || []).filter(patient => !tracker.has(patient));
+}
 
 /**
  * Utility to unpack a dim_admission_inputs record into a standardized patient view model

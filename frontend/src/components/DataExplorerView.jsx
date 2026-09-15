@@ -51,7 +51,9 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
   useEffect(() => {
     async function loadData() {
       if (!selectedTable) return;
-      setLoading(true);
+      if (!dataResult) {
+        setLoading(true);
+      }
       try {
         const res = await apiService.getTableData(selectedTable, limit, offset);
         setDataResult(res);

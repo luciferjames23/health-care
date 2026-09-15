@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseDischargeSummaryRecord } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds } from '../services/api';
 
 const Spinner = () => (
   <span style={{
@@ -14,14 +14,6 @@ const Spinner = () => (
   }} />
 );
 
-/* Keyframes injected once */
-if (typeof document !== 'undefined' && !document.getElementById('kpi-spin-style')) {
-  const s = document.createElement('style');
-  s.id = 'kpi-spin-style';
-  s.textContent = '@keyframes kpi-spin { to { transform: rotate(360deg); } }';
-  document.head.appendChild(s);
-}
-
 export default function CommandCentreView({ onNavigate, onAskAi }) {
   const [liveKpis, setLiveKpis] = useState(null);
   const [liveWards, setLiveWards] = useState([]);
@@ -30,28 +22,45 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    async function loadCommandCentre() {
-      setLoading(true);
+    let isMounted = true;
+
+    async function loadCommandCentre(isSilent = false) {
+      if (!isSilent && !liveKpis) {
+        setLoading(true);
+      }
       try {
         const [admRes, disRes, bmRes] = await Promise.all([
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-          apiService.getDischargedPatients().catch(() => ({ data: [] })),
-          apiService.getBedManagementData().catch(() => null)
+          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getBedManagementData({}, { forceRefresh: true }).catch(() => null)
         ]);
 
-        const admissions = admRes?.data || [];
-        const discharges = (disRes?.data || []).map(parseDischargeSummaryRecord).filter(Boolean);
+        if (!isMounted) return;
+
+        const rawAdmissions = admRes?.data || [];
+        const rawDischarges = disRes?.data || [];
+        const dischargedTracker = extractDischargedPatientIds(rawDischarges);
+        
+        // Discharge API is source of truth: remove discharged patients from current admissions
+        const actualAdmissions = rawAdmissions.filter(p => !dischargedTracker.has(p));
+        const discharges = rawDischarges.map(parseDischargeSummaryRecord).filter(Boolean);
         const kpisObj = bmRes?.kpis || {};
         const wardsList = bmRes?.wards || [];
 
+        let totalBeds = kpisObj.total_beds || 312;
+        let occupiedBeds = kpisObj.occupied_beds !== undefined ? kpisObj.occupied_beds : actualAdmissions.length;
+        let maintenanceBeds = kpisObj.maintenance_beds || 0;
+        let availableBeds = kpisObj.available_beds !== undefined ? kpisObj.available_beds : Math.max(0, totalBeds - occupiedBeds - maintenanceBeds);
+        let occupancyRate = totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 0;
+
         setLiveKpis({
-          active_admissions: admissions.length,
+          active_admissions: actualAdmissions.length,
           discharged_patients: discharges.length,
-          total_beds: kpisObj.total_beds || 312,
-          occupied_beds: kpisObj.occupied_beds || 210,
-          available_beds: kpisObj.available_beds || 102,
-          maintenance_beds: kpisObj.maintenance_beds || 0,
-          occupancy_rate: kpisObj.occupancy_rate || 67.3,
+          total_beds: totalBeds,
+          occupied_beds: occupiedBeds,
+          available_beds: availableBeds,
+          maintenance_beds: maintenanceBeds,
+          occupancy_rate: occupancyRate,
           total_wards: wardsList.length || 8,
           total_rooms: kpisObj.total_rooms || 150
         });
@@ -86,10 +95,24 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       } catch (err) {
         console.warn("Failed to load Command Centre metrics:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
+
     loadCommandCentre();
+
+    const timer = setInterval(() => {
+      loadCommandCentre(true);
+    }, 6000);
+
+    const handleUpdate = () => loadCommandCentre(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
   }, []);
 
   const kpis = [
@@ -97,7 +120,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'adm', 
       t: 'Currently Admitted Patients', 
       v: liveKpis ? String(liveKpis.active_admissions) : null, 
-      sub: 'Active inpatients across all wards', 
+      sub: liveKpis ? `Active inpatients across ${liveKpis.total_wards} wards` : 'Active inpatients across all wards', 
       c: 'oklch(0.5 0.1 200)', 
       target: 'clinical' 
     },
@@ -112,7 +135,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     { 
       id: 'inv', 
       t: 'Total Hospital Beds', 
-      v: liveKpis ? String(liveKpis.total_beds) : '312', 
+      v: liveKpis ? String(liveKpis.total_beds) : null, 
       sub: liveKpis ? `${liveKpis.available_beds} available · ${liveKpis.occupied_beds} occupied` : 'Real-time bed census', 
       c: '#15181b', 
       target: 'beds' 
@@ -120,7 +143,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     { 
       id: 'occ', 
       t: 'Hospital Occupancy Rate', 
-      v: liveKpis ? `${liveKpis.occupancy_rate}%` : '67.3%', 
+      v: liveKpis ? `${liveKpis.occupancy_rate}%` : null, 
       sub: liveKpis ? `${liveKpis.occupied_beds} of ${liveKpis.total_beds} beds in use` : 'Calculated capacity', 
       c: 'oklch(0.5 0.18 25)', 
       target: 'beds' 
@@ -128,7 +151,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     { 
       id: 'wards', 
       t: 'Hospital Wards Count', 
-      v: liveKpis ? String(liveKpis.total_wards) : '8', 
+      v: liveKpis ? String(liveKpis.total_wards) : null, 
       sub: 'Across all floors and departments', 
       c: '#15181b', 
       target: 'beds' 
@@ -136,7 +159,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     { 
       id: 'rooms', 
       t: 'Hospital Rooms Count', 
-      v: liveKpis ? String(liveKpis.total_rooms) : '150', 
+      v: liveKpis ? String(liveKpis.total_rooms) : null, 
       sub: 'Across all wards and care units', 
       c: '#15181b', 
       target: 'beds' 
@@ -144,7 +167,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     { 
       id: 'avail', 
       t: 'Available Vacant Beds', 
-      v: liveKpis ? String(liveKpis.available_beds) : '102', 
+      v: liveKpis ? String(liveKpis.available_beds) : null, 
       sub: 'Immediate intake capacity', 
       c: 'oklch(0.4 0.12 150)', 
       target: 'beds' 
@@ -172,7 +195,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600 }}>Command Centre</div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Fri 12 Sep 2026 · 11:20 · live from shared synthetic dataset · every number opens the workflow behind it
+            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Live Clinical Operational Intelligence
           </div>
         </div>
 

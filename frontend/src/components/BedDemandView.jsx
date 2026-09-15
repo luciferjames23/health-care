@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { apiService } from '../services/api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { apiService, extractDischargedPatientIds } from '../services/api';
 
 export default function BedDemandView({ onSelectPatient }) {
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table' | 'forecast'
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   const [bedManagement, setBedManagement] = useState(null);
   const [wardList, setWardList] = useState([]);
-  const [forecastRows, setForecastRows] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Filters
@@ -14,42 +13,122 @@ export default function BedDemandView({ onSelectPatient }) {
   const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Occupied' | 'Available' | 'Maintenance'
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadAllBedData();
-  }, []);
-
-  async function loadAllBedData() {
-    setLoading(true);
+  const loadAllBedData = useCallback(async (isSilent = false) => {
+    if (!isSilent && !bedManagement) {
+      setLoading(true);
+    }
     setError(null);
     try {
-      // 1. Fetch combined Ward -> Room -> Bed -> Patient data from live API
-      const [bmRes, wardsRes, fcRes] = await Promise.all([
-        apiService.getBedManagementData().catch(() => null),
+      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from live APIs
+      const [bmRes, wardsRes, dcRes] = await Promise.all([
+        apiService.getBedManagementData({}, { forceRefresh: isSilent }).catch(() => null),
         apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
-        apiService.getFactBedDemandForecast7DayDetailed({ limit: 100 }).catch(() => ({ data: [] }))
+        apiService.getDischargedPatients().catch(() => ({ data: [] }))
       ]);
+
+      const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
+
+      // Reconcile bed status with discharge records
+      if (bmRes?.wards) {
+        bmRes.wards.forEach(w => {
+          (w.rooms || []).forEach(r => {
+            (r.beds || []).forEach(b => {
+              const p = b.assigned_patient || b.patient;
+              if (p) {
+                b.patient = p;
+                b.assigned_patient = p;
+              }
+              const pid = b.patient_id || p?.patient_id || p?.id;
+              const pnum = b.patient_number || p?.patient_number;
+              const aid = b.admission_id || p?.admission_id;
+
+              const isDischarged = dischargedTracker.has({ patient_id: pid, patient_number: pnum, admission_id: aid });
+              if (isDischarged || !p) {
+                b.status = 'Available';
+                b.is_occupied = false;
+                b.assigned_patient = null;
+                b.patient = null;
+              } else {
+                b.status = 'Occupied';
+                b.is_occupied = true;
+              }
+            });
+          });
+        });
+      }
 
       setBedManagement(bmRes);
       setWardList(wardsRes?.data || []);
-      setForecastRows(fcRes?.data || []);
     } catch (err) {
       console.error("Failed to load live bed management data:", err);
       setError(err.message || 'Failed to connect to Bed & Ward backend APIs');
     } finally {
       setLoading(false);
     }
-  }
+  }, [bedManagement]);
 
-  // Derived KPIs from live API
+  useEffect(() => {
+    loadAllBedData();
+
+    const timer = setInterval(() => {
+      loadAllBedData(true);
+    }, 6000);
+
+    const handleUpdate = () => loadAllBedData(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
+  }, [loadAllBedData]);
+
+  // Derived KPIs dynamically calculated from actual bed states
   const kpis = useMemo(() => {
-    return bedManagement?.kpis || {
-      total_wards: wardList.length || 8,
-      total_rooms: 150,
-      total_beds: 312,
-      occupied_beds: 210,
-      available_beds: 102,
-      maintenance_beds: 0,
-      occupancy_rate: 67.3
+    if (!bedManagement?.wards || bedManagement.wards.length === 0) {
+      return {
+        total_wards: wardList.length || 8,
+        total_rooms: 150,
+        total_beds: 312,
+        occupied_beds: 0,
+        available_beds: 312,
+        maintenance_beds: 0,
+        occupancy_rate: 0
+      };
+    }
+
+    let totalBeds = 0;
+    let occupiedBeds = 0;
+    let availableBeds = 0;
+    let maintenanceBeds = 0;
+    let totalRooms = 0;
+
+    bedManagement.wards.forEach(w => {
+      (w.rooms || []).forEach(r => {
+        totalRooms += 1;
+        (r.beds || []).forEach(b => {
+          totalBeds += 1;
+          if (b.status === 'Occupied' || b.is_occupied) {
+            occupiedBeds += 1;
+          } else if (b.status === 'Maintenance') {
+            maintenanceBeds += 1;
+          } else {
+            availableBeds += 1;
+          }
+        });
+      });
+    });
+
+    const occRate = totalBeds > 0 ? ((occupiedBeds / totalBeds) * 100).toFixed(1) : 0;
+
+    return {
+      total_wards: bedManagement.wards.length || wardList.length || 8,
+      total_rooms: totalRooms || 150,
+      total_beds: totalBeds,
+      occupied_beds: occupiedBeds,
+      available_beds: availableBeds,
+      maintenance_beds: maintenanceBeds,
+      occupancy_rate: occRate
     };
   }, [bedManagement, wardList]);
 
@@ -202,18 +281,6 @@ export default function BedDemandView({ onSelectPatient }) {
             >
               Table View
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('forecast')}
-              style={{
-                height: '30px', padding: '0 12px', border: 0, borderLeft: '1px solid #e3e6e8',
-                background: viewMode === 'forecast' ? '#15181b' : '#fff',
-                color: viewMode === 'forecast' ? '#fff' : '#15181b',
-                fontWeight: 600, fontSize: '11.5px', cursor: 'pointer'
-              }}
-            >
-              7-Day Forecast
-            </button>
           </div>
 
           <button
@@ -262,7 +329,7 @@ export default function BedDemandView({ onSelectPatient }) {
             <span style={{ fontSize: '14px', color: 'oklch(0.5 0.1 200)' }}>🛏</span>
           </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: '#15181b', marginTop: '6px', fontWeight: 600 }}>
-            {loading ? '—' : kpis.total_beds.toLocaleString()}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : kpis.total_beds.toLocaleString()}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
             Across {kpis.total_wards} active hospital wards
@@ -276,7 +343,7 @@ export default function BedDemandView({ onSelectPatient }) {
             <span style={{ fontSize: '14px', color: 'oklch(0.5 0.18 25)' }}>👥</span>
           </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '6px', fontWeight: 600 }}>
-            {loading ? '—' : kpis.occupied_beds.toLocaleString()}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : kpis.occupied_beds.toLocaleString()}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
             Admitted patients assigned
@@ -290,7 +357,7 @@ export default function BedDemandView({ onSelectPatient }) {
             <span style={{ fontSize: '14px', color: 'oklch(0.4 0.12 150)' }}>✓</span>
           </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '6px', fontWeight: 600 }}>
-            {loading ? '—' : kpis.available_beds.toLocaleString()}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.4 0.12 150)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : kpis.available_beds.toLocaleString()}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
             Vacant &amp; ready for intake
@@ -304,7 +371,7 @@ export default function BedDemandView({ onSelectPatient }) {
             <span style={{ fontSize: '14px', color: 'oklch(0.5 0.13 70)' }}>⚠</span>
           </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)', marginTop: '6px', fontWeight: 600 }}>
-            {loading ? '—' : kpis.maintenance_beds.toLocaleString()}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.13 70)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : kpis.maintenance_beds.toLocaleString()}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
             Cleaning or reserved status
@@ -318,7 +385,7 @@ export default function BedDemandView({ onSelectPatient }) {
             <span style={{ fontSize: '14px', color: 'oklch(0.4 0.1 200)' }}>📈</span>
           </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '26px', lineHeight: 1.1, color: 'oklch(0.4 0.1 200)', marginTop: '6px', fontWeight: 600 }}>
-            {loading ? '—' : `${kpis.occupancy_rate}%`}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : `${kpis.occupancy_rate}%`}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '4px' }}>
             Hospital operational threshold
@@ -385,7 +452,7 @@ export default function BedDemandView({ onSelectPatient }) {
       {/* 1. GRID / MATRIX VIEW */}
       {viewMode === 'grid' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {loading ? (
+          {loading && !bedManagement ? (
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Live Ward &amp; Bed Matrix...</div>
               <div style={{ fontSize: '12px' }}>Fetching ward, room & bed data from clinical data system…</div>
@@ -592,53 +659,6 @@ export default function BedDemandView({ onSelectPatient }) {
               })}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* 3. FORECAST TAB */}
-      {viewMode === 'forecast' && (
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
-          <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '12px' }}>
-            7-Day Bed Demand Forecast (Machine Learning Predictive Model)
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '8px 10px' }}>Forecast Date</th>
-                  <th style={{ padding: '8px 10px' }}>Day</th>
-                  <th style={{ padding: '8px 10px' }}>Ward Name</th>
-                  <th style={{ padding: '8px 10px' }}>Department</th>
-                  <th style={{ padding: '8px 10px' }}>Predicted Beds</th>
-                  <th style={{ padding: '8px 10px' }}>Emergency</th>
-                  <th style={{ padding: '8px 10px' }}>Elective</th>
-                  <th style={{ padding: '8px 10px' }}>Predicted Occupancy</th>
-                </tr>
-              </thead>
-              <tbody>
-                {forecastRows.length > 0 ? (
-                  forecastRows.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f2f3f4' }}>
-                      <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{r.forecast_date}</td>
-                      <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.day_name}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.ward_name}</td>
-                      <td style={{ padding: '8px 10px', color: '#52585e' }}>{r.department_name}</td>
-                      <td style={{ padding: '8px 10px', fontWeight: 700, color: 'oklch(0.5 0.1 200)' }}>{r.predicted_beds}</td>
-                      <td style={{ padding: '8px 10px', color: 'oklch(0.5 0.18 25)' }}>{r.predicted_emergency}</td>
-                      <td style={{ padding: '8px 10px', color: 'oklch(0.4 0.12 150)' }}>{r.predicted_elective}</td>
-                      <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.predicted_occupancy_rate}%</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#8a9096' }}>
-                      No forecast records available.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
     </div>
