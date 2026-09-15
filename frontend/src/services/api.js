@@ -513,6 +513,20 @@ export const apiService = {
     });
   },
 
+  async updateDischargeSummary(summaryId, payload = {}) {
+    const sid = encodeURIComponent(String(summaryId || '').trim());
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-summary-llm/update/${sid}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Update error ${res.status}`);
+    }
+    clearAllStorageCache();
+    return await res.json();
+  },
+
   // 1. Trigger Databricks Notebook Execution for Patient (/api/v1/notebook/run-patient)
   async runPatientNotebook(patientId, options = {}) {
     const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id) 

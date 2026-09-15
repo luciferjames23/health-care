@@ -176,6 +176,45 @@ class DatabricksConnector:
         cursor.close()
         conn.close()
 
+    def update_record(self, table_name: str, key_field: str, key_value: any, updates: dict, schema: str = None) -> dict:
+        """Updates one or more fields of a row dynamically in Databricks Delta table and clears cache."""
+        if not updates:
+            return {"status": "no_op", "message": "No fields to update"}
+
+        catalog = self.config.DATABRICKS_CATALOG or "health_care"
+        schema = schema or self.config.DATABRICKS_SCHEMA or "gold"
+        full_table_name = f"`{catalog}`.`{schema}`.`{table_name}`"
+
+        set_clauses = []
+        for col, val in updates.items():
+            quoted_val = self._sql_quote(val)
+            set_clauses.append(f"`{col}` = {quoted_val}")
+
+        set_sql = ", ".join(set_clauses)
+        quoted_key = self._sql_quote(key_value)
+
+        sql_stmt = f"UPDATE {full_table_name} SET {set_sql} WHERE `{key_field}` = {quoted_key}"
+
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql_stmt)
+        cursor.close()
+        conn.close()
+
+        self.clear_cache()
+
+        # Query updated row
+        updated_res = self.query_gold_table(table_name, filters={key_field: key_value}, limit=1)
+        updated_data = updated_res.get("data", [])
+        return {
+            "status": "success",
+            "table_name": table_name,
+            "key_field": key_field,
+            "key_value": key_value,
+            "updated_fields": list(updates.keys()),
+            "data": updated_data[0] if updated_data else None
+        }
+
 
     def get_row_count(self, table_name: str, schema: str = None) -> int:
         """Retrieves exact dynamic row count for a table from Databricks."""

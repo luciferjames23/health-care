@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
@@ -511,6 +512,107 @@ def get_generated_discharge_summary_by_id(summary_id: str):
         if m:
             rec["patient_name"] = m.group(1).strip()
     return rec
+
+
+class DischargeSummaryUpdateRequest(BaseModel):
+    approval_status: Optional[str] = Field(None, description="Approval status: Approved, Pending Approval, Rejected, Under Revision, Signed, etc.")
+    approved_by: Optional[str] = Field(None, description="Approving physician/reviewer name")
+    hospital_course_summary: Optional[str] = Field(None, description="Updated hospital course summary narrative")
+    discharge_diagnosis: Optional[str] = Field(None, description="Updated primary/final discharge diagnosis")
+    discharge_medications: Optional[str] = Field(None, description="Updated medications list with dosages and frequencies")
+    followup_instructions: Optional[str] = Field(None, description="Updated follow-up instructions and precautions")
+    attending_physician: Optional[str] = Field(None, description="Updated attending physician name")
+    admission_reason: Optional[str] = Field(None, description="Updated chief complaint or admission reason")
+    discharge_date: Optional[str] = Field(None, description="Updated discharge date timestamp")
+    llm_generated_summary_text: Optional[str] = Field(None, description="Full formatted discharge summary document")
+    model_name: Optional[str] = Field(None, description="Model identifier")
+    patient_name: Optional[str] = Field(None, description="Patient name")
+
+
+@router.put("/generated-discharge-summaries/{summary_id}", summary="Edit Content & Approval Status in dim_generated_discharge_summaries")
+@router.patch("/generated-discharge-summaries/{summary_id}", summary="Edit Content & Approval Status in dim_generated_discharge_summaries (Partial)")
+def update_dim_generated_discharge_summary(
+    summary_id: str,
+    payload: DischargeSummaryUpdateRequest
+):
+    """
+    Updates content fields (course summary, diagnosis, medications, follow-up instructions)
+    and governance status (`approval_status`, `approved_by`) in `health_care.gold.dim_generated_discharge_summaries`.
+    Lookup matches `summary_id`, `patient_id`, `patient_number`, or `admission_id`.
+    """
+    id_str = str(summary_id).strip()
+    if not id_str:
+        raise HTTPException(status_code=400, detail="Discharge summary identifier is required.")
+
+    # 1. Locate record using strict priority matching
+    res = db_connector.query_gold_table("dim_generated_discharge_summaries", limit=1000)
+    data = res.get("data", [])
+    matched = None
+
+    # Priority 1: Exact summary_id match (e.g. "DS-87224") or "DS-{id}"
+    for row in data:
+        sid = str(row.get("summary_id", "")).strip().lower()
+        if sid == id_str.lower() or sid == f"ds-{id_str}".lower():
+            matched = row
+            break
+
+    # Priority 2: Exact patient_id match (e.g. 87224)
+    if not matched:
+        for row in data:
+            if str(row.get("patient_id", "")).strip() == id_str:
+                matched = row
+                break
+
+    # Priority 3: Exact patient_number match (e.g. "MER-PAT-0087224")
+    if not matched:
+        for row in data:
+            if str(row.get("patient_number", "")).strip().lower() == id_str.lower():
+                matched = row
+                break
+
+    # Priority 4: Exact admission_id match (e.g. "ADM-87224")
+    if not matched:
+        for row in data:
+            if str(row.get("admission_id", "")).strip().lower() == id_str.lower():
+                matched = row
+                break
+
+    if not matched:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Discharge summary '{id_str}' not found in health_care.gold.dim_generated_discharge_summaries."
+        )
+
+    actual_sid = matched.get("summary_id")
+    update_dict = {k: v for k, v in payload.dict().items() if v is not None}
+
+    if not update_dict:
+        return {
+            "status": "no_change",
+            "message": "No fields provided to update.",
+            "summary_id": actual_sid,
+            "data": matched
+        }
+
+    try:
+        upd_res = db_connector.update_record(
+            table_name="dim_generated_discharge_summaries",
+            key_field="summary_id",
+            key_value=actual_sid,
+            updates=update_dict
+        )
+        return {
+            "status": "success",
+            "message": f"Discharge summary '{actual_sid}' successfully updated in gold.dim_generated_discharge_summaries.",
+            "summary_id": actual_sid,
+            "patient_id": matched.get("patient_id"),
+            "patient_name": matched.get("patient_name"),
+            "updated_fields": list(update_dict.keys()),
+            "data": upd_res.get("data") or {**matched, **update_dict}
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update discharge summary: {str(e)}")
+
 
 
 # ---------------------------------------------------------------------------

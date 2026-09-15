@@ -10,6 +10,81 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
   const [error, setError] = useState(null);
   const [liveCases, setLiveCases] = useState([]);
 
+  // Discharge Summary Edit State
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState(null);
+  const [editForm, setEditForm] = useState({
+    approval_status: 'Approved',
+    approved_by: '',
+    discharge_diagnosis: '',
+    hospital_course_summary: '',
+    discharge_medications: '',
+    followup_instructions: '',
+    patient_condition: ''
+  });
+
+  const handleOpenCase = (c) => {
+    setSelectedCase(c);
+    setIsEditingSummary(false);
+    setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
+    setEditForm({
+      approval_status: c.approval_status || 'Pending Approval',
+      approved_by: c.doctor || c.attending_physician || 'Dr. Meenakshi Nair, MBBS, MD (General Physician)',
+      discharge_diagnosis: c.diagnoses || c.discharge_diagnosis || '',
+      hospital_course_summary: c.case_history || c.hospital_course_summary || '',
+      discharge_medications: c.treatment || c.discharge_medications || '',
+      followup_instructions: c.discharge_advice || c.followup_instructions || '',
+      patient_condition: c.patient_condition || 'Clinically stable at discharge'
+    });
+  };
+
+  const handleSaveDischargeSummary = async (overrideStatus = null) => {
+    if (!selectedCase) return;
+    setSavingSummary(true);
+    setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
+
+    const summaryId = selectedCase.summary_id || (selectedCase.patient_id ? `DS-${selectedCase.patient_id}` : selectedCase.id);
+    const targetStatus = overrideStatus || editForm.approval_status || 'Approved';
+    const payload = {
+      ...editForm,
+      approval_status: targetStatus
+    };
+
+    try {
+      const res = await apiService.updateDischargeSummary(summaryId, payload);
+      setSaveSuccessMsg(`✓ Summary ${summaryId} updated successfully (Status: ${targetStatus})`);
+      setIsEditingSummary(false);
+
+      // Update selected case in UI
+      const updatedCase = {
+        ...selectedCase,
+        approval_status: targetStatus,
+        doctor: payload.approved_by || selectedCase.doctor,
+        diagnoses: payload.discharge_diagnosis || selectedCase.diagnoses,
+        case_history: payload.hospital_course_summary || selectedCase.case_history,
+        treatment: payload.discharge_medications || selectedCase.treatment,
+        discharge_advice: payload.followup_instructions || selectedCase.discharge_advice,
+        patient_condition: payload.patient_condition || selectedCase.patient_condition
+      };
+      setSelectedCase(updatedCase);
+
+      // Update in liveCases
+      setLiveCases(prev => prev.map(item => (
+        item.id === selectedCase.id ||
+        item.summary_id === selectedCase.summary_id ||
+        String(item.patient_id) === String(selectedCase.patient_id)
+      ) ? { ...item, ...updatedCase } : item));
+    } catch (err) {
+      setSaveErrorMsg(err.message || 'Failed to update discharge summary via API');
+    } finally {
+      setSavingSummary(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -273,7 +348,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => setSelectedCase(c)}
+                      onClick={() => handleOpenCase(c)}
                       style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
                       onMouseEnter={e => e.currentTarget.style.background = '#f9fafa'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -308,14 +383,14 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                       <td style={{ padding: '9px 12px' }} onClick={e => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() => setSelectedCase(c)}
+                          onClick={() => handleOpenCase(c)}
                           style={{
                             height: '24px', padding: '0 8px', borderRadius: '4px',
                             border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
                             color: 'oklch(0.4 0.1 200)', cursor: 'pointer', fontSize: '11px', fontWeight: 600
                           }}
                         >
-                          View Summary
+                          View / Edit
                         </button>
                       </td>
                     </tr>
@@ -344,7 +419,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                 {colCases.map(c => (
                   <div
                     key={c.id}
-                    onClick={() => setSelectedCase(c)}
+                    onClick={() => handleOpenCase(c)}
                     style={{
                       background: '#fff', border: '1px solid #e3e6e8', borderRadius: '6px',
                       padding: '10px', cursor: 'pointer'
@@ -362,21 +437,30 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
         </div>
       )}
 
-      {/* Case Details Drawer / Modal */}
+      {/* Case Details Drawer / Modal with Dynamic Editing & Approval */}
       {selectedCase && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
           display: 'flex', justifyContent: 'flex-end', zIndex: 100
         }}>
           <div style={{
-            width: 'min(560px, 100%)', height: '100%', background: '#fff',
+            width: 'min(620px, 100%)', height: '100%', background: '#fff',
             display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '24px', gap: '16px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontSize: '18px', fontWeight: 600 }}>{selectedCase.patient}</div>
-                <div style={{ color: '#8a9096', fontSize: '12px' }}>
-                  Bed {selectedCase.bed} · {selectedCase.doctor} · {selectedCase.insurer}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 700 }}>{selectedCase.patient}</span>
+                  <span style={{
+                    fontSize: '10.5px', padding: '2px 8px', borderRadius: '4px', fontWeight: 700,
+                    background: selectedCase.approval_status === 'Approved' ? 'oklch(0.92 0.05 150)' : 'oklch(0.95 0.06 70)',
+                    color: selectedCase.approval_status === 'Approved' ? 'oklch(0.35 0.14 150)' : 'oklch(0.45 0.15 60)'
+                  }}>
+                    {selectedCase.approval_status || 'Pending Approval'}
+                  </span>
+                </div>
+                <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+                  ID: <code style={{ fontFamily: 'monospace' }}>{selectedCase.summary_id || selectedCase.patient_id}</code> · Bed {selectedCase.bed} · {selectedCase.doctor}
                 </div>
               </div>
               <button
@@ -390,6 +474,18 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                 ✕
               </button>
             </div>
+
+            {/* Save feedback banners */}
+            {saveSuccessMsg && (
+              <div style={{ background: 'oklch(0.96 0.04 150)', border: '1px solid oklch(0.7 0.1 150)', borderRadius: '6px', padding: '8px 12px', color: 'oklch(0.3 0.14 150)', fontSize: '12px', fontWeight: 600 }}>
+                {saveSuccessMsg}
+              </div>
+            )}
+            {saveErrorMsg && (
+              <div style={{ background: '#fff5f5', border: '1px solid #fed7d7', borderRadius: '6px', padding: '8px 12px', color: '#c53030', fontSize: '12px', fontWeight: 600 }}>
+                <strong>Error:</strong> {saveErrorMsg}
+              </div>
+            )}
 
             {/* Status & ETA */}
             <div style={{
@@ -405,102 +501,279 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                 <div style={{ fontWeight: 600 }}>{selectedCase.age}</div>
               </div>
               <div>
-                <div style={{ color: '#8a9096' }}>Owner</div>
-                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCase.owner}</div>
+                <div style={{ color: '#8a9096' }}>Attending Doctor</div>
+                <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCase.doctor}</div>
               </div>
               <div>
-                <div style={{ color: '#8a9096' }}>Predicted Ready</div>
-                <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '16px', fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
-                  {simState[selectedCase.id] === 'approved' ? '11:45 AM' : selectedCase.eta}
+                <div style={{ color: '#8a9096' }}>Approval Status</div>
+                <div style={{ fontFamily: 'sans-serif', fontSize: '12.5px', fontWeight: 700, color: selectedCase.approval_status === 'Approved' ? 'oklch(0.4 0.14 150)' : 'oklch(0.5 0.15 60)' }}>
+                  {selectedCase.approval_status || 'Pending'}
                 </div>
               </div>
             </div>
 
-            {/* Dependency Graph */}
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px' }}>
-                Dependency graph · Multi-department workflow
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {selectedCase.deps.map((d, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto',
-                      gap: '10px', alignItems: 'center', padding: '7px 10px', borderRadius: '6px',
-                      background: d.done ? '#fbfbfc' : d.active ? 'oklch(0.96 0.05 80)' : '#fff',
-                      border: '1px solid #eef0f1'
-                    }}
-                  >
-                    <span style={{
-                      width: '18px', height: '18px', borderRadius: '50%',
-                      background: d.done ? 'oklch(0.95 0.04 150)' : d.active ? 'oklch(0.5 0.18 25)' : '#eef0f1',
-                      color: d.done ? 'oklch(0.4 0.12 150)' : '#fff',
-                      fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700
-                    }}>
-                      {d.done ? '✓' : '!'}
-                    </span>
-                    <div style={{ fontSize: '11.5px' }}>
-                      <span style={{ fontWeight: 600 }}>{d.label}</span>
-                      <span style={{ color: '#52585e' }}> · {d.note}</span>
-                    </div>
-                    <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '10.5px', color: '#8a9096' }}>
-                      {d.status}
-                    </span>
+            {/* Clinical Discharge Summary Card with Toggleable Edit Form */}
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                    Clinical Discharge Summary
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ fontSize: '10.5px', color: '#64748b', fontFamily: 'monospace' }}>
+                    /api/v1/discharge-summary-llm/update/{selectedCase.summary_id || selectedCase.patient_id}
+                  </div>
+                </div>
 
-            {/* Clinical Discharge Summary Details */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.05em', color: '#64748b', fontWeight: 600 }}>
-                Clinical Discharge Summary (Llama 3.3 70B AI Draft)
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {!isEditingSummary ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingSummary(true)}
+                        style={{
+                          height: '28px', padding: '0 10px', borderRadius: '5px',
+                          border: '1px solid #cbd5e1', background: '#f8fafc',
+                          color: '#334155', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: '4px'
+                        }}
+                      >
+                        <span>✏️</span> Edit Summary
+                      </button>
+                      {selectedCase.approval_status !== 'Approved' && (
+                        <button
+                          type="button"
+                          onClick={() => handleSaveDischargeSummary('Approved')}
+                          disabled={savingSummary}
+                          style={{
+                            height: '28px', padding: '0 12px', borderRadius: '5px',
+                            border: 0, background: 'oklch(0.5 0.14 150)',
+                            color: '#fff', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '4px'
+                          }}
+                        >
+                          {savingSummary ? 'Saving...' : '✓ Approve & Sign-Off'}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingSummary(false)}
+                        disabled={savingSummary}
+                        style={{
+                          height: '28px', padding: '0 10px', borderRadius: '5px',
+                          border: '1px solid #cbd5e1', background: '#fff',
+                          color: '#64748b', fontSize: '11.5px', cursor: 'pointer'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveDischargeSummary()}
+                        disabled={savingSummary}
+                        style={{
+                          height: '28px', padding: '0 14px', borderRadius: '5px',
+                          border: 0, background: 'oklch(0.5 0.1 200)',
+                          color: '#fff', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: '4px'
+                        }}
+                      >
+                        {savingSummary ? 'Saving to Gold...' : '💾 Save Changes'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div>
-                <div style={{ fontSize: '11px', color: '#64748b' }}>Diagnosis:</div>
-                <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{selectedCase.diagnoses}</div>
-              </div>
-              {selectedCase.case_history && (
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Case History:</div>
-                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.case_history}</div>
-                </div>
-              )}
-              {selectedCase.investigations && (
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Investigations & Labs:</div>
-                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.investigations}</div>
-                </div>
-              )}
-              {selectedCase.treatment && (
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Treatment & Procedures:</div>
-                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.treatment}</div>
-                </div>
-              )}
-              {selectedCase.discharge_advice && (
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Discharge Advice:</div>
-                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.discharge_advice}</div>
-                </div>
-              )}
-              {selectedCase.patient_condition && (
-                <div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>Condition at Discharge:</div>
-                  <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4, fontWeight: 500 }}>{selectedCase.patient_condition}</div>
-                </div>
-              )}
-            </div>
 
-            {/* WhatsApp Family preview */}
-            <div style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '12px' }}>
-              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a9096', marginBottom: '4px' }}>
-                Family status update · WhatsApp notification draft
-              </div>
-              <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#15181b' }}>
-                “Dear family of {selectedCase.patient}, your discharge process is in step 4 of 6 (TPA final enhancement). Expected release time is {simState[selectedCase.id] === 'approved' ? '11:45 AM' : selectedCase.eta}. Please meet the discharge desk once the nurse hands over take-home medications.”
-              </div>
+              {/* VIEW MODE */}
+              {!isEditingSummary && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b' }}>Diagnosis:</div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{selectedCase.diagnoses}</div>
+                  </div>
+                  {selectedCase.case_history && (
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Hospital Course / Case History:</div>
+                      <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4 }}>{selectedCase.case_history}</div>
+                    </div>
+                  )}
+                  {selectedCase.treatment && (
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Treatment & Discharge Medications:</div>
+                      <pre style={{ fontSize: '11px', color: '#334155', background: '#f8fafc', padding: '8px', borderRadius: '4px', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                        {selectedCase.treatment}
+                      </pre>
+                    </div>
+                  )}
+                  {selectedCase.discharge_advice && (
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Discharge Advice & Follow-Up Plan:</div>
+                      <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4, background: '#f8fafc', padding: '8px', borderRadius: '4px', whiteSpace: 'pre-wrap' }}>
+                        {selectedCase.discharge_advice}
+                      </div>
+                    </div>
+                  )}
+                  {selectedCase.patient_condition && (
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Condition at Discharge:</div>
+                      <div style={{ fontSize: '11.5px', color: '#334155', fontWeight: 500 }}>{selectedCase.patient_condition}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* EDIT MODE (Doctor Interactive Form) */}
+              {isEditingSummary && (
+                <form onSubmit={(e) => { e.preventDefault(); handleSaveDischargeSummary(); }} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  
+                  {/* Approval Status & Doctor Name Row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                        Approval Status:
+                      </label>
+                      <select
+                        value={editForm.approval_status}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, approval_status: e.target.value }))}
+                        style={{
+                          width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                          border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff'
+                        }}
+                      >
+                        <option value="Approved">Approved</option>
+                        <option value="Pending Approval">Pending Approval</option>
+                        <option value="Under Revision">Under Revision</option>
+                        <option value="Rejected">Rejected</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                        Attending Physician / Signee:
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.approved_by}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, approved_by: e.target.value }))}
+                        style={{
+                          width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                          border: '1px solid #cbd5e1', fontSize: '11.5px'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Discharge Diagnosis */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Discharge Diagnosis:
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.discharge_diagnosis}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, discharge_diagnosis: e.target.value }))}
+                      style={{
+                        width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', fontSize: '11.5px'
+                      }}
+                    />
+                  </div>
+
+                  {/* Hospital Course Summary */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Hospital Course / Clinical Case History:
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={editForm.hospital_course_summary}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, hospital_course_summary: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '6px 8px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', fontSize: '11.5px', fontFamily: 'inherit', lineHeight: 1.4
+                      }}
+                    />
+                  </div>
+
+                  {/* Discharge Medications */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Discharge Medications (Dosage & Frequency):
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={editForm.discharge_medications}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, discharge_medications: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '6px 8px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace', lineHeight: 1.4
+                      }}
+                    />
+                  </div>
+
+                  {/* Follow-up Instructions */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Follow-up Advice & Patient Care Instructions:
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={editForm.followup_instructions}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, followup_instructions: e.target.value }))}
+                      style={{
+                        width: '100%', padding: '6px 8px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', fontSize: '11.5px', fontFamily: 'inherit', lineHeight: 1.4
+                      }}
+                    />
+                  </div>
+
+                  {/* Condition at Discharge */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                      Patient Condition at Discharge:
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.patient_condition}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, patient_condition: e.target.value }))}
+                      style={{
+                        width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', fontSize: '11.5px'
+                      }}
+                    />
+                  </div>
+
+                  {/* Save Button inside form */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSummary(false)}
+                      disabled={savingSummary}
+                      style={{
+                        height: '32px', padding: '0 12px', borderRadius: '5px',
+                        border: '1px solid #cbd5e1', background: '#fff', fontSize: '11.5px', cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingSummary}
+                      style={{
+                        height: '32px', padding: '0 16px', borderRadius: '5px', border: 0,
+                        background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '12px',
+                        fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                      }}
+                    >
+                      {savingSummary ? '⏳ Saving...' : '💾 Save to Lakehouse Gold Table'}
+                    </button>
+                  </div>
+
+                </form>
+              )}
             </div>
 
             {/* Action buttons */}
@@ -539,29 +812,6 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
               >
                 Discharge patient · release bed
               </button>
-
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button
-                  type="button"
-                  onClick={() => handleSimApprove(selectedCase.id)}
-                  style={{
-                    flex: 1, height: '30px', border: '1px solid #e3e6e8',
-                    borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
-                  }}
-                >
-                  Simulate insurer: approve
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSimReject(selectedCase.id)}
-                  style={{
-                    flex: 1, height: '30px', border: '1px solid #e3e6e8',
-                    borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
-                  }}
-                >
-                  Simulate insurer: query
-                </button>
-              </div>
             </div>
 
           </div>

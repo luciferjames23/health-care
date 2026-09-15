@@ -28,6 +28,62 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
   const [flowRunResult, setFlowRunResult] = useState(null);
   const [flowRunProgress, setFlowRunProgress] = useState(0);
 
+  // Summary Edit & Approval State
+  const [agentEditMode, setAgentEditMode] = useState(false);
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentSaveSuccess, setAgentSaveSuccess] = useState(null);
+  const [agentSaveError, setAgentSaveError] = useState(null);
+  const [agentEditForm, setAgentEditForm] = useState({
+    approval_status: 'Approved',
+    approved_by: '',
+    discharge_diagnosis: '',
+    hospital_course_summary: '',
+    discharge_medications: '',
+    followup_instructions: '',
+    patient_condition: ''
+  });
+
+  const handleStartAgentEdit = (summary) => {
+    setAgentEditMode(true);
+    setAgentSaveSuccess(null);
+    setAgentSaveError(null);
+    setAgentEditForm({
+      approval_status: summary.approval_status || 'Pending Approval',
+      approved_by: summary.attending_physician || summary.approved_by || 'Dr. Meenakshi Nair, MBBS, MD',
+      discharge_diagnosis: summary.discharge_diagnosis || summary.admission_reason || '',
+      hospital_course_summary: summary.hospital_course_summary || '',
+      discharge_medications: summary.discharge_medications || '',
+      followup_instructions: summary.followup_instructions || '',
+      patient_condition: summary.patient_condition || 'Clinically stable at discharge'
+    });
+  };
+
+  const handleSaveAgentSummary = async (summary, overrideStatus = null) => {
+    if (!summary) return;
+    setAgentSaving(true);
+    setAgentSaveSuccess(null);
+    setAgentSaveError(null);
+
+    const summaryId = summary.summary_id || (summary.patient_id ? `DS-${summary.patient_id}` : selectedPatientId);
+    const targetStatus = overrideStatus || agentEditForm.approval_status || 'Approved';
+    const payload = {
+      ...agentEditForm,
+      approval_status: targetStatus
+    };
+
+    try {
+      const res = await apiService.updateDischargeSummary(summaryId, payload);
+      setAgentSaveSuccess(`✓ Summary ${summaryId} updated successfully (Status: ${targetStatus})`);
+      setAgentEditMode(false);
+      // Re-validate or update local state
+      if (selectedPatientId) runValidation(selectedPatientId);
+    } catch (err) {
+      setAgentSaveError(err.message || 'Failed to update summary');
+    } finally {
+      setAgentSaving(false);
+    }
+  };
+
   // Load flow status & patients list
   useEffect(() => {
     let isMounted = true;
@@ -942,20 +998,23 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               </div>
             )}
 
-            {/* Generated Discharge Summary Viewer */}
+            {/* Generated Discharge Summary Viewer with Dynamic Edit & Approval */}
             {(orchestrationResult?.discharge_summary || validationResult?.existing_summary) && (
               <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px' }}>
                 {(() => {
                   const summary = orchestrationResult?.discharge_summary || validationResult?.existing_summary;
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f2f4', paddingBottom: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f2f4', paddingBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
                         <div>
                           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#8a9096', fontWeight: 600 }}>
                             Gold Layer Record · {summary.summary_id}
                           </div>
                           <div style={{ fontSize: '16px', fontWeight: 700, color: '#15181b' }}>
                             Generated Clinical Discharge Summary
+                          </div>
+                          <div style={{ fontSize: '10.5px', color: '#64748b', fontFamily: 'monospace' }}>
+                            /api/v1/discharge-summary-llm/update/{summary.summary_id}
                           </div>
                         </div>
 
@@ -967,56 +1026,258 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                           }}>
                             Status: {summary.approval_status || 'Pending Approval'}
                           </span>
+
+                          {!agentEditMode ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleStartAgentEdit(summary)}
+                                style={{
+                                  height: '28px', padding: '0 10px', borderRadius: '5px',
+                                  border: '1px solid #cbd5e1', background: '#f8fafc',
+                                  color: '#334155', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer',
+                                  display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                              >
+                                <span>✏️</span> Edit Summary
+                              </button>
+                              {summary.approval_status !== 'Approved' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleStartAgentEdit(summary);
+                                    handleSaveAgentSummary(summary, 'Approved');
+                                  }}
+                                  disabled={agentSaving}
+                                  style={{
+                                    height: '28px', padding: '0 12px', borderRadius: '5px',
+                                    border: 0, background: 'oklch(0.5 0.14 150)',
+                                    color: '#fff', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                  }}
+                                >
+                                  {agentSaving ? 'Saving...' : '✓ Approve & Sign-Off'}
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setAgentEditMode(false)}
+                                disabled={agentSaving}
+                                style={{
+                                  height: '28px', padding: '0 10px', borderRadius: '5px',
+                                  border: '1px solid #cbd5e1', background: '#fff',
+                                  color: '#64748b', fontSize: '11.5px', cursor: 'pointer'
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveAgentSummary(summary)}
+                                disabled={agentSaving}
+                                style={{
+                                  height: '28px', padding: '0 14px', borderRadius: '5px',
+                                  border: 0, background: 'oklch(0.5 0.1 200)',
+                                  color: '#fff', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                                  display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                              >
+                                {agentSaving ? 'Saving...' : '💾 Save Changes'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', background: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '11px' }}>
-                        <div>
-                          <span style={{ color: '#64748b' }}>Attending Physician:</span>
-                          <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.attending_physician || 'Dr. Priya Narayanan'}</div>
+                      {agentSaveSuccess && (
+                        <div style={{ background: 'oklch(0.96 0.04 150)', border: '1px solid oklch(0.7 0.1 150)', borderRadius: '6px', padding: '8px 12px', color: 'oklch(0.3 0.14 150)', fontSize: '12px', fontWeight: 600 }}>
+                          {agentSaveSuccess}
                         </div>
-                        <div>
-                          <span style={{ color: '#64748b' }}>Discharge Diagnosis:</span>
-                          <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.discharge_diagnosis || summary.admission_reason}</div>
+                      )}
+                      {agentSaveError && (
+                        <div style={{ background: '#fff5f5', border: '1px solid #fed7d7', borderRadius: '6px', padding: '8px 12px', color: '#c53030', fontSize: '12px', fontWeight: 600 }}>
+                          <strong>Error:</strong> {agentSaveError}
                         </div>
-                        <div>
-                          <span style={{ color: '#64748b' }}>Model Pipeline:</span>
-                          <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.model_name || 'Discharge Summary AI (Llama-3-70B)'}</div>
-                        </div>
-                      </div>
+                      )}
 
-                      <div>
-                        <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
-                          1. Hospital Course Summary
-                        </div>
-                        <div style={{ fontSize: '11.5px', color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px', lineHeight: 1.5 }}>
-                          {summary.hospital_course_summary}
-                        </div>
-                      </div>
+                      {!agentEditMode ? (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', background: '#f8fafc', padding: '10px', borderRadius: '6px', fontSize: '11px' }}>
+                            <div>
+                              <span style={{ color: '#64748b' }}>Attending Physician:</span>
+                              <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.attending_physician || 'Dr. Priya Narayanan'}</div>
+                            </div>
+                            <div>
+                              <span style={{ color: '#64748b' }}>Discharge Diagnosis:</span>
+                              <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.discharge_diagnosis || summary.admission_reason}</div>
+                            </div>
+                            <div>
+                              <span style={{ color: '#64748b' }}>Model Pipeline:</span>
+                              <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.model_name || 'Discharge Summary AI (Llama-3-70B)'}</div>
+                            </div>
+                          </div>
 
-                      <div>
-                        <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
-                          2. Discharge Medications
-                        </div>
-                        <pre style={{
-                          fontSize: '11px', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0',
-                          borderRadius: '6px', padding: '10px', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap'
-                        }}>
-                          {summary.discharge_medications}
-                        </pre>
-                      </div>
+                          <div>
+                            <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
+                              1. Hospital Course Summary
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: '#334155', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px', lineHeight: 1.5 }}>
+                              {summary.hospital_course_summary}
+                            </div>
+                          </div>
 
-                      <div>
-                        <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
-                          3. Follow-up & Bilingual Home Instructions (Tamil + English)
-                        </div>
-                        <pre style={{
-                          fontSize: '11px', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0',
-                          borderRadius: '6px', padding: '10px', margin: 0, fontFamily: 'system-ui, -apple-system, sans-serif', whiteSpace: 'pre-wrap', lineHeight: 1.5
-                        }}>
-                          {summary.followup_instructions}
-                        </pre>
-                      </div>
+                          <div>
+                            <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
+                              2. Discharge Medications
+                            </div>
+                            <pre style={{
+                              fontSize: '11px', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0',
+                              borderRadius: '6px', padding: '10px', margin: 0, fontFamily: 'monospace', whiteSpace: 'pre-wrap'
+                            }}>
+                              {summary.discharge_medications}
+                            </pre>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
+                              3. Follow-up & Bilingual Home Instructions (Tamil + English)
+                            </div>
+                            <pre style={{
+                              fontSize: '11px', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0',
+                              borderRadius: '6px', padding: '10px', margin: 0, fontFamily: 'system-ui, -apple-system, sans-serif', whiteSpace: 'pre-wrap', lineHeight: 1.5
+                            }}>
+                              {summary.followup_instructions}
+                            </pre>
+                          </div>
+                        </>
+                      ) : (
+                        <form onSubmit={(e) => { e.preventDefault(); handleSaveAgentSummary(summary); }} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                                Approval Status:
+                              </label>
+                              <select
+                                value={agentEditForm.approval_status}
+                                onChange={(e) => setAgentEditForm(prev => ({ ...prev, approval_status: e.target.value }))}
+                                style={{
+                                  width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                                  border: '1px solid #cbd5e1', fontSize: '11.5px', background: '#fff'
+                                }}
+                              >
+                                <option value="Approved">Approved</option>
+                                <option value="Pending Approval">Pending Approval</option>
+                                <option value="Under Revision">Under Revision</option>
+                                <option value="Rejected">Rejected</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                                Attending Physician / Signee:
+                              </label>
+                              <input
+                                type="text"
+                                value={agentEditForm.approved_by}
+                                onChange={(e) => setAgentEditForm(prev => ({ ...prev, approved_by: e.target.value }))}
+                                style={{
+                                  width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                                  border: '1px solid #cbd5e1', fontSize: '11.5px'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                              Discharge Diagnosis:
+                            </label>
+                            <input
+                              type="text"
+                              value={agentEditForm.discharge_diagnosis}
+                              onChange={(e) => setAgentEditForm(prev => ({ ...prev, discharge_diagnosis: e.target.value }))}
+                              style={{
+                                width: '100%', height: '32px', padding: '0 8px', borderRadius: '5px',
+                                border: '1px solid #cbd5e1', fontSize: '11.5px'
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                              Hospital Course Summary:
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={agentEditForm.hospital_course_summary}
+                              onChange={(e) => setAgentEditForm(prev => ({ ...prev, hospital_course_summary: e.target.value }))}
+                              style={{
+                                width: '100%', padding: '6px 8px', borderRadius: '5px',
+                                border: '1px solid #cbd5e1', fontSize: '11.5px', fontFamily: 'inherit', lineHeight: 1.4
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                              Discharge Medications:
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={agentEditForm.discharge_medications}
+                              onChange={(e) => setAgentEditForm(prev => ({ ...prev, discharge_medications: e.target.value }))}
+                              style={{
+                                width: '100%', padding: '6px 8px', borderRadius: '5px',
+                                border: '1px solid #cbd5e1', fontSize: '11px', fontFamily: 'monospace', lineHeight: 1.4
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '3px' }}>
+                              Follow-up & Instructions:
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={agentEditForm.followup_instructions}
+                              onChange={(e) => setAgentEditForm(prev => ({ ...prev, followup_instructions: e.target.value }))}
+                              style={{
+                                width: '100%', padding: '6px 8px', borderRadius: '5px',
+                                border: '1px solid #cbd5e1', fontSize: '11.5px', fontFamily: 'inherit', lineHeight: 1.4
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setAgentEditMode(false)}
+                              disabled={agentSaving}
+                              style={{
+                                height: '32px', padding: '0 12px', borderRadius: '5px',
+                                border: '1px solid #cbd5e1', background: '#fff', fontSize: '11.5px', cursor: 'pointer'
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={agentSaving}
+                              style={{
+                                height: '32px', padding: '0 16px', borderRadius: '5px', border: 0,
+                                background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '12px',
+                                fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                              }}
+                            >
+                              {agentSaving ? 'Saving...' : '💾 Save Changes'}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
                     </div>
                   );
                 })()}
