@@ -73,13 +73,6 @@ export default function AuthScreen({ onLoginSuccess }) {
           </div>
         </div>
 
-        <div style={{
-          font: '600 9px ui-monospace, Menlo, monospace', letterSpacing: '.04em',
-          color: 'oklch(0.8 0.1 25)', border: '1px solid oklch(0.5 0.12 25)',
-          padding: '4px 7px', borderRadius: '4px', alignSelf: 'flex-start'
-        }}>
-          DEMO ENVIRONMENT • SYNTHETIC DATA • NOT FOR CLINICAL USE
-        </div>
       </aside>
 
       {/* Right sign-in container */}

@@ -8,15 +8,29 @@ export default function TopHeader({
   setUser,
   clock,
   advanceClock,
-  alertsCount = 9,
+  alertsCount = 26,
   onSignOut,
   onOpenMobile,
   onAskAi,
   onOpenModal,
 }) {
   const [askInput, setAskInput] = React.useState('');
-  const [showDemo, setShowDemo] = React.useState(false);
   const [showNewMenu, setShowNewMenu] = React.useState(false);
+
+  // Dynamic real-time live clock and calendar date
+  const [now, setNow] = React.useState(new Date());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const liveDateStr = `${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  const liveTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
   const handleAskSubmit = (e) => {
     e.preventDefault();
@@ -76,27 +90,10 @@ export default function TopHeader({
           </button>
         </form>
 
-        {/* Demo env pill */}
-        <span style={{
-          font: '600 9px ui-monospace, Menlo, monospace', letterSpacing: '.04em',
-          color: 'oklch(0.5 0.18 25)', border: '1px solid oklch(0.88 0.06 25)',
-          padding: '3px 6px', borderRadius: '4px', whiteSpace: 'nowrap'
-        }}>
-          DEMO ENVIRONMENT • SYNTHETIC DATA • NOT FOR CLINICAL USE
-        </span>
-
-        {/* Clock */}
+        {/* Dynamic Real-time Live Clock */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>
-          <span>{new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
-          <span style={{ fontWeight: 600, color: '#15181b' }}>{clock}</span>
-          <button
-            type="button"
-            onClick={advanceClock}
-            style={{ height: '24px', padding: '0 7px', border: '1px solid #e3e6e8', borderRadius: '5px', background: '#fff', cursor: 'pointer', fontSize: '11px' }}
-            title="Advance simulated clock 15 minutes"
-          >
-            +15 m
-          </button>
+          <span>{liveDateStr}</span>
+          <span style={{ fontWeight: 600, color: '#15181b' }}>{liveTimeStr}</span>
         </div>
 
         {/* + New Master Modal Action Menu */}
@@ -225,19 +222,6 @@ export default function TopHeader({
             </div>
           )}
         </div>
-
-        {/* Demo controls button */}
-        <button
-          type="button"
-          onClick={() => setShowDemo(v => !v)}
-          style={{
-            height: '28px', padding: '0 9px', border: '1px solid #e3e6e8',
-            borderRadius: '6px', background: showDemo ? '#eef0f1' : '#fff',
-            cursor: 'pointer', fontWeight: 600, fontSize: '11.5px'
-          }}
-        >
-          Demo controls
-        </button>
 
         {/* Alerts badge */}
         <button

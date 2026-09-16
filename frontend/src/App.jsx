@@ -81,7 +81,6 @@ export default function App() {
 
   const [role, setRoleState] = useState('Hospital Management');
   const [activePage, setActivePage] = useState('command');
-  const [clockMins, setClockMins] = useState(11 * 60 + 20); // 11:20 AM
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -95,15 +94,6 @@ export default function App() {
     if (allowed !== null && allowed !== undefined && !allowed.includes(activePage)) {
       setActivePage(allowed[0] || 'patients');
     }
-  };
-
-  // Clock format
-  const hours = Math.floor(clockMins / 60) % 24;
-  const minutes = clockMins % 60;
-  const formattedClock = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
-  const advanceClock = () => {
-    setClockMins(m => m + 15);
   };
 
   const handleSignOut = () => {
@@ -145,9 +135,7 @@ export default function App() {
         setRole={setRole}
         user={auth}
         setUser={setAuth}
-        clock={formattedClock}
-        advanceClock={advanceClock}
-        alertsCount={9}
+        alertsCount={26}
         onSignOut={handleSignOut}
         onOpenMobile={() => setShowMobile(true)}
         onAskAi={handleAskAi}

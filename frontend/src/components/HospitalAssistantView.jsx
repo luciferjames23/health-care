@@ -230,13 +230,6 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           <span style={{ color: '#8a9096', fontSize: '11.5px' }}>
             · grounded in governed knowledge and permitted records
           </span>
-          <span style={{
-            marginLeft: 'auto', font: '600 9px ui-monospace, Menlo, monospace',
-            color: 'oklch(0.5 0.18 25)', border: '1px solid oklch(0.88 0.06 25)',
-            padding: '2px 6px', borderRadius: '4px'
-          }}>
-            SYNTHETIC DATA
-          </span>
         </div>
 
         {/* Message Thread */}
