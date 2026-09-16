@@ -178,8 +178,15 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     {ohif && <div onClick={() => setOhif(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '97vw', height: '94vh', background: '#fff', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ height: 42, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', borderBottom: '1px solid #ddd' }}>
-          <b style={{ fontSize: 12 }}>OHIF Viewer · Demo PACS</b><button type="button" style={btn} onClick={() => setOhif(null)}>Close</button>
+        <div style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: '1px solid #ddd', background: '#fcfdfe' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <b style={{ fontSize: 12 }}>OHIF Viewer · Demo PACS</b>
+            <span style={{ fontSize: 11, color: '#697077' }}>Target: <code>{OHIF_BASE_URL}</code> (Requires Docker: <code>docker compose up -d</code> in <code>radiology_ohif_demo/</code>)</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <a href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(ohif)}`} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', fontSize: 11 }}>Open Direct ↗</a>
+            <button type="button" style={btn} onClick={() => setOhif(null)}>Close</button>
+          </div>
         </div>
         <iframe title="OHIF Viewer" src={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(ohif)}`} style={{ border: 0, flex: 1, width: '100%' }} />
       </div>
