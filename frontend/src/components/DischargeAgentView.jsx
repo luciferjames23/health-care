@@ -101,14 +101,21 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
         ]);
 
         if (isMounted) {
-          const list = patientsRes?.data || [];
+          const list = (patientsRes?.data || []).filter(p => !p.has_generated_summary);
           setPatientsList(list);
           if (flowRes) setFlowStatus(flowRes);
-          if (!initialPatientId && list.length > 0) {
-            const firstEligible = list.find(p => p.is_eligible) || list[0];
-            const firstId = firstEligible.patient_id;
-            setPatientIdInput(String(firstId));
-            setSelectedPatientId(String(firstId));
+          if (list.length > 0) {
+            const hasMatch = list.some(p => String(p.patient_id) === String(selectedPatientId));
+            if (!hasMatch) {
+              const firstEligible = list.find(p => p.is_eligible) || list[0];
+              const firstId = firstEligible.patient_id;
+              setPatientIdInput(String(firstId));
+              setSelectedPatientId(String(firstId));
+            }
+          } else {
+            setPatientIdInput('');
+            setSelectedPatientId('');
+            setValidationResult(null);
           }
         }
       } catch (err) {
@@ -174,9 +181,28 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
       setExecStep(5);
       setOrchestrationResult(res);
       await runValidation(selectedPatientId);
-      // Refresh flow status
-      const updatedFlow = await apiService.getDischargeFlowStatus();
-      setFlowStatus(updatedFlow);
+      
+      // Refresh flow status and patients list so written patient is immediately removed from AG-19
+      const [updatedFlow, updatedPatients] = await Promise.all([
+        apiService.getDischargeFlowStatus().catch(() => null),
+        apiService.getDischargeAgentPatients().catch(() => ({ data: [] }))
+      ]);
+      if (updatedFlow) setFlowStatus(updatedFlow);
+      const remainingList = (updatedPatients?.data || []).filter(p => !p.has_generated_summary);
+      setPatientsList(remainingList);
+
+      // Transition to next pending patient after 2.5s for clean UX
+      setTimeout(() => {
+        if (remainingList.length > 0) {
+          const next = remainingList.find(p => p.is_eligible) || remainingList[0];
+          setSelectedPatientId(String(next.patient_id));
+          setPatientIdInput(String(next.patient_id));
+        } else {
+          setSelectedPatientId('');
+          setPatientIdInput('');
+          setValidationResult(null);
+        }
+      }, 2500);
     } catch (err) {
       clearInterval(stepInterval);
       setOrchestrationError(err.message || 'Orchestration execution failed');
@@ -204,9 +230,25 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
       clearInterval(progTimer);
       setFlowRunProgress(100);
       setFlowRunResult(res);
-      // Refresh flow status
-      const updatedFlow = await apiService.getDischargeFlowStatus();
-      setFlowStatus(updatedFlow);
+
+      // Refresh flow status and patients list so written patients are immediately removed from AG-19
+      const [updatedFlow, updatedPatients] = await Promise.all([
+        apiService.getDischargeFlowStatus().catch(() => null),
+        apiService.getDischargeAgentPatients().catch(() => ({ data: [] }))
+      ]);
+      if (updatedFlow) setFlowStatus(updatedFlow);
+      const remainingList = (updatedPatients?.data || []).filter(p => !p.has_generated_summary);
+      setPatientsList(remainingList);
+
+      if (remainingList.length > 0) {
+        const next = remainingList.find(p => p.is_eligible) || remainingList[0];
+        setSelectedPatientId(String(next.patient_id));
+        setPatientIdInput(String(next.patient_id));
+      } else {
+        setSelectedPatientId('');
+        setPatientIdInput('');
+        setValidationResult(null);
+      }
     } catch (err) {
       clearInterval(progTimer);
       setFlowError(err.message || 'Automated flow execution failed');
@@ -216,6 +258,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
   };
 
   const filteredPatients = patientsList.filter(p => {
+    if (p.has_generated_summary) return false;
     if (!searchFilter.trim()) return true;
     const s = searchFilter.toLowerCase();
     return (p.patient_name && p.patient_name.toLowerCase().includes(s)) ||
@@ -390,7 +433,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                   Vital Signs Evaluation
                 </div>
                 <div style={{ fontSize: '11.5px', color: '#52585e', lineHeight: 1.4 }}>
-                  Evaluates SpO2 (&ge;96%), Heart Rate (60-100 bpm), Temperature (&lt;100.0&deg;F), Blood Pressure (&le;140/90 mmHg), and clinical flags.
+                  Evaluates SpO2 (&ge;92%), Heart Rate (50&ndash;110 bpm), Temperature (&lt;100.4&deg;F / 38&deg;C), Blood Pressure (90&ndash;160 / 50&ndash;100 mmHg), and physiological flags.
                 </div>
                 <div style={{ marginTop: '4px', fontSize: '11px', color: step2Unstable > 0 ? 'oklch(0.4 0.16 25)' : '#64748b', fontWeight: step2Unstable > 0 ? 600 : 400 }}>
                   • {step2Normal} Hemodynamically Stable · ⚠️ {step2Unstable} Flagged Unstable
@@ -555,78 +598,90 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               </span>
             </div>
 
-            <div style={{ overflowX: 'auto', marginTop: '10px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '10.5px', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '8px 10px' }}>Patient ID</th>
-                    <th style={{ padding: '8px 10px' }}>Patient Name</th>
-                    <th style={{ padding: '8px 10px' }}>Primary Diagnosis</th>
-                    <th style={{ padding: '8px 10px' }}>Bill Status (Step 1)</th>
-                    <th style={{ padding: '8px 10px' }}>Vitals Status (Step 2)</th>
-                    <th style={{ padding: '8px 10px' }}>Summary Status (Step 3)</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {readyPatients.map((p) => (
-                    <tr key={p.patient_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 700, color: '#15181b' }}>
-                        {p.patient_id}
-                      </td>
-                      <td style={{ padding: '10px', fontWeight: 600, color: '#15181b' }}>
-                        {p.patient_name}
-                      </td>
-                      <td style={{ padding: '10px', color: '#475569' }}>
-                        {cleanDiagnosis(p.primary_diagnosis) || 'Inpatient Evaluation'}
-                      </td>
-                      <td style={{ padding: '10px' }}>
-                        <span style={{
-                          fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
-                          background: 'oklch(0.92 0.05 150)', color: 'oklch(0.35 0.14 150)'
-                        }}>
-                          ✓ Paid (₹{p.bill_net_amount?.toLocaleString()})
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px' }}>
-                        <span style={{
-                          fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
-                          background: 'oklch(0.92 0.05 150)', color: 'oklch(0.35 0.14 150)'
-                        }}>
-                          ✓ Stable ({p.vital_signs_summary})
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px' }}>
-                        <span style={{
-                          fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
-                          background: p.has_generated_summary ? 'oklch(0.94 0.04 200)' : '#f1f5f9',
-                          color: p.has_generated_summary ? 'oklch(0.4 0.12 200)' : '#64748b'
-                        }}>
-                          {p.has_generated_summary ? 'Summary Stored' : 'Ready to Run'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px', textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedPatientId(String(p.patient_id));
-                            setPatientIdInput(String(p.patient_id));
-                            setActiveTab('inspector');
-                          }}
-                          style={{
-                            height: '26px', padding: '0 10px', borderRadius: '4px',
-                            border: '1px solid #d0d5dd', background: '#fff', fontSize: '11px',
-                            fontWeight: 600, cursor: 'pointer'
-                          }}
-                        >
-                          View Details →
-                        </button>
-                      </td>
+            {readyPatients.length === 0 ? (
+              <div style={{
+                padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px',
+                background: '#f8fafc', borderRadius: '6px', border: '1px dashed #cbd5e1', marginTop: '10px'
+              }}>
+                ✓ All eligible inpatient discharge summaries have been written and generated.
+                <div style={{ marginTop: '6px', fontSize: '11px', color: '#8a9096' }}>
+                  Patients with written summaries are managed in the <strong>Discharge Command Centre</strong> for Attending Physician Sign-off and Bed Release.
+                </div>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '10.5px', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 10px' }}>Patient ID</th>
+                      <th style={{ padding: '8px 10px' }}>Patient Name</th>
+                      <th style={{ padding: '8px 10px' }}>Primary Diagnosis</th>
+                      <th style={{ padding: '8px 10px' }}>Bill Status (Step 1)</th>
+                      <th style={{ padding: '8px 10px' }}>Vitals Status (Step 2)</th>
+                      <th style={{ padding: '8px 10px' }}>Summary Status (Step 3)</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {readyPatients.map((p) => (
+                      <tr key={p.patient_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 700, color: '#15181b' }}>
+                          {p.patient_id}
+                        </td>
+                        <td style={{ padding: '10px', fontWeight: 600, color: '#15181b' }}>
+                          {p.patient_name}
+                        </td>
+                        <td style={{ padding: '10px', color: '#475569' }}>
+                          {cleanDiagnosis(p.primary_diagnosis) || 'Inpatient Evaluation'}
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          <span style={{
+                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
+                            background: 'oklch(0.92 0.05 150)', color: 'oklch(0.35 0.14 150)'
+                          }}>
+                            ✓ Paid (₹{p.bill_net_amount?.toLocaleString()})
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          <span style={{
+                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
+                            background: 'oklch(0.92 0.05 150)', color: 'oklch(0.35 0.14 150)'
+                          }}>
+                            ✓ Stable ({p.vital_signs_summary})
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          <span style={{
+                            fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
+                            background: '#f1f5f9',
+                            color: '#64748b'
+                          }}>
+                            Ready to Run
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedPatientId(String(p.patient_id));
+                              setPatientIdInput(String(p.patient_id));
+                              setActiveTab('inspector');
+                            }}
+                            style={{
+                              height: '26px', padding: '0 10px', borderRadius: '4px',
+                              border: '1px solid #d0d5dd', background: '#fff', fontSize: '11px',
+                              fontWeight: 600, cursor: 'pointer'
+                            }}
+                          >
+                            View Details →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
         </div>
@@ -699,8 +754,10 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                 </div>
               )}
               {!loadingPatients && filteredPatients.length === 0 && (
-                <div style={{ fontSize: '11px', color: '#8a9096', padding: '8px', textAlign: 'center' }}>
-                  No matching patients found.
+                <div style={{ fontSize: '11px', color: '#8a9096', padding: '12px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+                  {patientsList.length === 0
+                    ? '✓ All inpatients have completed discharge summaries written. None pending in AG-19.'
+                    : 'No matching inpatients found.'}
                 </div>
               )}
               {filteredPatients.map((p) => {

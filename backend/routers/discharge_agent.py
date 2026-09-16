@@ -113,6 +113,106 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
     }
 
 
+def check_patient_vitals_stability(
+    temp_val: Any,
+    hr_val: Any,
+    sbp_val: Any,
+    dbp_val: Any,
+    spo2_val: Any,
+    vitals_summary: Optional[str] = ""
+) -> tuple:
+    """
+    Evaluates patient vital signs against evidence-based clinical discharge criteria:
+    - SpO2: Safe discharge room air >= 92.0% (Clinical hypoxia alert if < 92.0%)
+    - Heart Rate: Safe discharge range 50 - 110 bpm (Severe bradycardia < 50, Tachycardia > 110 bpm)
+    - Body Temperature: Safe range 95.0°F - 100.4°F (Fever alert >= 100.4°F / 38.0°C, Hypothermia < 95.0°F)
+    - Blood Pressure: SBP 90 - 160 mmHg, DBP 50 - 100 mmHg
+      (Severe hypertension: SBP > 160 or DBP > 100 mmHg; Hypotension: SBP < 90 or DBP < 50 mmHg)
+    - Critical alert flags: Checks for clinical terms like "severe desaturation", "critical hypoxia", "shock"
+    """
+    issues = []
+    
+    # 1. SpO2 Check
+    spo2_f = None
+    if spo2_val is not None:
+        try:
+            spo2_f = float(spo2_val)
+        except Exception:
+            spo2_f = None
+    if spo2_f is not None and spo2_f < 92.0:
+        issues.append(f"SpO2 low: {spo2_f:.1f}% (Discharge threshold: >=92.0%)")
+
+    # 2. Heart Rate Check
+    hr_i = None
+    if hr_val is not None:
+        try:
+            hr_i = int(hr_val)
+        except Exception:
+            hr_i = None
+    if hr_i is not None:
+        if hr_i < 50:
+            issues.append(f"Bradycardia: {hr_i} bpm (Normal: 50-110 bpm)")
+        elif hr_i > 110:
+            issues.append(f"Tachycardia: {hr_i} bpm (Normal: 50-110 bpm)")
+
+    # 3. Temperature Check (normalized to Fahrenheit)
+    temp_f = None
+    if temp_val is not None:
+        try:
+            t = float(temp_val)
+            temp_f = round((t * 9 / 5) + 32, 1) if t < 50.0 else round(t, 1)
+        except Exception:
+            temp_f = None
+    if temp_f is not None:
+        if temp_f >= 100.4:
+            issues.append(f"Febrile: Temp {temp_f:.1f}°F (Fever: >=100.4°F / 38°C)")
+        elif temp_f < 95.0:
+            issues.append(f"Hypothermia: Temp {temp_f:.1f}°F (<95.0°F)")
+
+    # 4. Blood Pressure Check
+    sbp_i = None
+    if sbp_val is not None:
+        try:
+            sbp_i = int(sbp_val)
+        except Exception:
+            sbp_i = None
+    if sbp_i is not None:
+        if sbp_i > 160:
+            issues.append(f"Severe Hypertension: SBP {sbp_i} mmHg (>160 mmHg)")
+        elif sbp_i < 90:
+            issues.append(f"Hypotension: SBP {sbp_i} mmHg (<90 mmHg)")
+
+    dbp_i = None
+    if dbp_val is not None:
+        try:
+            dbp_i = int(dbp_val)
+        except Exception:
+            dbp_i = None
+    if dbp_i is not None:
+        if dbp_i > 100:
+            issues.append(f"Severe Hypertension: DBP {dbp_i} mmHg (>100 mmHg)")
+        elif dbp_i < 50:
+            issues.append(f"Hypotension: DBP {dbp_i} mmHg (<50 mmHg)")
+
+    # 5. Critical physiological alert keywords in summary
+    summary_lower = (vitals_summary or "").lower()
+    unstable_kws = ["severe desaturation", "critical hypoxia <85", "high fever >103", "severe tachycardia >160", "shock", "cardiac arrest"]
+    for kw in unstable_kws:
+        if kw in summary_lower:
+            issues.append(f"Critical clinical warning: '{kw}' flagged")
+            break
+
+    # 6. Check if vitals are recorded
+    is_recorded = bool(summary_lower and summary_lower not in ["none", "null", ""]) or (
+        spo2_f is not None or hr_i is not None or temp_f is not None or sbp_i is not None
+    )
+    if not is_recorded:
+        issues.append("Required vital signs summary missing")
+
+    is_normal = (len(issues) == 0) and is_recorded
+    return is_normal, issues
+
+
 def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
     """
     Evaluates the 4 mandatory discharge eligibility conditions for a given patient:
@@ -357,56 +457,15 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
 
     # --- GATE 4: VITALS ---
     vitals_summary = str(patient_info.get("vital_signs_summary") or "").strip()
-    spo2_val = patient_info.get("latest_oxygen_saturation")
-    hr_val = patient_info.get("latest_heart_rate")
-    temp_val = patient_info.get("latest_temperature")
-
-    try:
-        spo2_float = float(spo2_val) if spo2_val is not None else None
-    except Exception:
-        spo2_float = None
-
-    try:
-        hr_int = int(hr_val) if hr_val is not None else None
-    except Exception:
-        hr_int = None
-
-    try:
-        temp_float = float(temp_val) if temp_val is not None else None
-        if temp_float is not None and temp_float < 50.0:
-            temp_float = (temp_float * 9 / 5) + 32
-    except Exception:
-        temp_float = None
-
-    sbp_val = patient_info.get("latest_systolic_bp")
-    dbp_val = patient_info.get("latest_diastolic_bp")
-
-    try:
-        sbp_int = int(sbp_val) if sbp_val is not None else None
-    except Exception:
-        sbp_int = None
-
-    try:
-        dbp_int = int(dbp_val) if dbp_val is not None else None
-    except Exception:
-        dbp_int = None
-
-    is_vitals_recorded = bool(vitals_summary and vitals_summary.lower() not in ["none", "null", ""])
-    vitals_unstable_keywords = ["severe desaturation", "critical hypoxia <85", "high fever >103", "severe tachycardia >160"]
-    has_unstable_flags = any(kw in vitals_summary.lower() for kw in vitals_unstable_keywords)
-
-    # Standard clinical discharge parameters:
-    # 1. SpO2 >= 96.0%
-    spo2_ok = (spo2_float >= 96.0) if spo2_float is not None else True
-    # 2. Heart rate 60 - 100 bpm
-    hr_ok = (60 <= hr_int <= 100) if hr_int is not None else True
-    # 3. Temperature < 100.0°F
-    temp_ok = (temp_float < 100.0) if temp_float is not None else True
-    # 4. Blood pressure <= 140/90 mmHg
-    sbp_ok = (sbp_int <= 140) if sbp_int is not None else True
-    dbp_ok = (dbp_int <= 90) if dbp_int is not None else True
-
-    is_vitals_stable = is_vitals_recorded and (not has_unstable_flags) and spo2_ok and hr_ok and temp_ok and sbp_ok and dbp_ok
+    # --- GATE 4: VITAL SIGNS STABILITY ---
+    is_vitals_stable, vitals_fail_reasons = check_patient_vitals_stability(
+        temp_val=patient_info.get("latest_temperature"),
+        hr_val=patient_info.get("latest_heart_rate"),
+        sbp_val=patient_info.get("latest_systolic_bp"),
+        dbp_val=patient_info.get("latest_diastolic_bp"),
+        spo2_val=patient_info.get("latest_oxygen_saturation"),
+        vitals_summary=vitals_summary
+    )
 
     if is_vitals_stable:
         gates["vitals"] = {
@@ -417,30 +476,14 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
             "details": f"Recorded Vitals: {vitals_summary}. Hemodynamically stable.",
             "metadata": {
                 "vital_signs_summary": vitals_summary,
-                "spo2": spo2_float,
-                "heart_rate": hr_int,
-                "temperature": temp_float,
-                "systolic_bp": sbp_int,
-                "diastolic_bp": dbp_int
+                "spo2": patient_info.get("latest_oxygen_saturation"),
+                "heart_rate": patient_info.get("latest_heart_rate"),
+                "temperature": patient_info.get("latest_temperature"),
+                "systolic_bp": patient_info.get("latest_systolic_bp"),
+                "diastolic_bp": patient_info.get("latest_diastolic_bp")
             }
         }
     else:
-        vitals_fail_reasons = []
-        if not is_vitals_recorded:
-            vitals_fail_reasons.append("Required vital signs summary missing")
-        if spo2_float is not None and spo2_float < 96.0:
-            vitals_fail_reasons.append(f"SpO2 low: {spo2_float:.1f}% (<96% threshold)")
-        if hr_int is not None and (hr_int < 60 or hr_int > 100):
-            vitals_fail_reasons.append(f"Heart rate abnormal: {hr_int} bpm (Normal: 60-100 bpm)")
-        if temp_float is not None and temp_float >= 100.0:
-            vitals_fail_reasons.append(f"Febrile: Temp {temp_float:.1f}°F (>=100.0°F)")
-        if sbp_int is not None and sbp_int > 140:
-            vitals_fail_reasons.append(f"Hypertension: SBP {sbp_int} mmHg (>140 mmHg)")
-        if dbp_int is not None and dbp_int > 90:
-            vitals_fail_reasons.append(f"Hypertension: DBP {dbp_int} mmHg (>90 mmHg)")
-        if has_unstable_flags:
-            vitals_fail_reasons.append("Unstable physiological alerts flagged")
-
         gates["vitals"] = {
             "name": "Vital Signs Stability",
             "status": "FAILED",
@@ -452,7 +495,7 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
                 "reasons": vitals_fail_reasons
             }
         }
-        pending_requirements.append("Vital signs not stable")
+        pending_requirements.append("Vital signs not stable: " + ", ".join(vitals_fail_reasons))
 
     # Overall Eligibility
     is_eligible = (len(pending_requirements) == 0)
@@ -499,12 +542,27 @@ def list_discharge_agent_patients():
         admissions = adm_res.get("data", [])
 
         ds_res = db_connector.query_gold_table("dim_generated_discharge_summaries", limit=None)
-        ds_pids = {str(d.get("patient_id")) for d in ds_res.get("data", [])}
+        ds_rows = ds_res.get("data", [])
+        ds_pids = set()
+        ds_adms = set()
+        for d in ds_rows:
+            if d.get("patient_id"):
+                ds_pids.add(str(d["patient_id"]).strip())
+            if d.get("patient_number"):
+                ds_pids.add(str(d["patient_number"]).strip().lower())
+            if d.get("admission_id"):
+                ds_adms.add(str(d["admission_id"]).strip())
 
         enriched_patients = []
         for adm in admissions:
-            pid = str(adm.get("patient_id"))
+            pid = str(adm.get("patient_id") or "").strip()
             p_info = _extract_patient_from_admission(adm, pid)
+            p_num = str(p_info.get("patient_number") or "").strip().lower()
+            adm_id = str(p_info.get("admission_id") or "").strip()
+
+            # Exclude patients whose discharge summary has already been written
+            if pid in ds_pids or (p_num and p_num in ds_pids) or (adm_id and adm_id in ds_adms):
+                continue
             
             # Quick Gate checks
             bill_cleared = (
@@ -514,51 +572,18 @@ def list_discharge_agent_patients():
             )
             has_diag = bool(p_info["primary_diagnosis"] and p_info["primary_diagnosis"].lower() not in ["none", "null", ""])
             
-            spo2_val = p_info.get("latest_oxygen_saturation")
-            try:
-                spo2_val = float(spo2_val) if spo2_val is not None else None
-            except Exception:
-                spo2_val = None
-            spo2_ok = (spo2_val >= 96.0) if spo2_val is not None else True
-
-            hr_val = p_info.get("latest_heart_rate")
-            try:
-                hr_val = int(hr_val) if hr_val is not None else None
-            except Exception:
-                hr_val = None
-            hr_ok = (60 <= hr_val <= 100) if hr_val is not None else True
-
-            temp_val = p_info.get("latest_temperature")
-            try:
-                temp_val = float(temp_val) if temp_val is not None else None
-                if temp_val is not None and temp_val < 50.0:
-                    temp_val = (temp_val * 9 / 5) + 32
-            except Exception:
-                temp_val = None
-            temp_ok = (temp_val < 100.0) if temp_val is not None else True
-
-            sbp_val = p_info.get("latest_systolic_bp")
-            try:
-                sbp_val = int(sbp_val) if sbp_val is not None else None
-            except Exception:
-                sbp_val = None
-            sbp_ok = (sbp_val <= 140) if sbp_val is not None else True
-
-            dbp_val = p_info.get("latest_diastolic_bp")
-            try:
-                dbp_val = int(dbp_val) if dbp_val is not None else None
-            except Exception:
-                dbp_val = None
-            dbp_ok = (dbp_val <= 90) if dbp_val is not None else True
-
-            vitals_unstable_keywords = ["severe desaturation", "critical hypoxia <85", "high fever >103", "severe tachycardia >160"]
-            has_unstable_flags = any(kw in (p_info.get("vital_signs_summary") or "").lower() for kw in vitals_unstable_keywords)
-
-            has_vitals = bool(p_info["vital_signs_summary"]) and (not has_unstable_flags) and spo2_ok and hr_ok and temp_ok and sbp_ok and dbp_ok
+            vitals_normal, vitals_issues = check_patient_vitals_stability(
+                temp_val=p_info.get("latest_temperature"),
+                hr_val=p_info.get("latest_heart_rate"),
+                sbp_val=p_info.get("latest_systolic_bp"),
+                dbp_val=p_info.get("latest_diastolic_bp"),
+                spo2_val=p_info.get("latest_oxygen_saturation"),
+                vitals_summary=p_info.get("vital_signs_summary")
+            )
             
             is_stable = bool(p_info["clinical_notes_text"]) and (p_info["risk_score"] <= 0.88)
             
-            is_ready = bill_cleared and has_diag and has_vitals and is_stable
+            is_ready = bill_cleared and has_diag and vitals_normal and is_stable
             
             enriched_patients.append({
                 "patient_id": pid,
@@ -570,12 +595,19 @@ def list_discharge_agent_patients():
                 "admission_date": p_info["admission_date"],
                 "primary_diagnosis": p_info["primary_diagnosis"],
                 "vital_signs_summary": p_info["vital_signs_summary"],
+                "latest_temperature": p_info.get("latest_temperature"),
+                "latest_heart_rate": p_info.get("latest_heart_rate"),
+                "latest_systolic_bp": p_info.get("latest_systolic_bp"),
+                "latest_diastolic_bp": p_info.get("latest_diastolic_bp"),
+                "latest_oxygen_saturation": p_info.get("latest_oxygen_saturation"),
                 "bill_status": p_info["bill_status"],
                 "bill_net_amount": p_info["bill_net_amount"],
                 "outstanding_balance": p_info["outstanding_balance"],
                 "is_bill_cleared": bill_cleared,
+                "is_vitals_normal": vitals_normal,
+                "vitals_issues": vitals_issues,
                 "is_eligible": is_ready,
-                "has_generated_summary": pid in ds_pids,
+                "has_generated_summary": False,
                 "risk_score": p_info["risk_score"]
             })
 
@@ -649,6 +681,10 @@ def orchestrate_discharge(request: PatientDischargeOrchestrateRequest):
     # Step 3 & 4: Execute discharge summary generation locally and persist into Gold table
     eligible_pids_str = ",".join(str(vp["patient_id"]) for vp in validated_patients) if validated_patients else raw_pid
     gen_res = generate_and_persist_discharge_summaries(eligible_pids_str)
+    try:
+        db_connector.clear_cache()
+    except Exception:
+        pass
     generated_summaries = gen_res.get("data", [])
 
     first_summary = generated_summaries[0] if generated_summaries else None
@@ -703,7 +739,16 @@ def get_flow_status():
         admissions = adm_res.get("data", [])
 
         ds_res = db_connector.query_gold_table("dim_generated_discharge_summaries", limit=None)
-        ds_pids = {str(d.get("patient_id")) for d in ds_res.get("data", [])}
+        ds_rows = ds_res.get("data", [])
+        ds_pids = set()
+        ds_adms = set()
+        for d in ds_rows:
+            if d.get("patient_id"):
+                ds_pids.add(str(d["patient_id"]).strip())
+            if d.get("patient_number"):
+                ds_pids.add(str(d["patient_number"]).strip().lower())
+            if d.get("admission_id"):
+                ds_adms.add(str(d["admission_id"]).strip())
 
         step_1_bills_paid = []
         step_1_bills_pending = []
@@ -712,10 +757,19 @@ def get_flow_status():
         step_2_vitals_unstable = []
 
         step_3_ready_for_notebook = []
+        pending_candidates_count = 0
 
         for adm in admissions:
-            pid = str(adm.get("patient_id"))
+            pid = str(adm.get("patient_id") or "").strip()
             p_info = _extract_patient_from_admission(adm, pid)
+            p_num = str(p_info.get("patient_number") or "").strip().lower()
+            adm_id = str(p_info.get("admission_id") or "").strip()
+
+            # Exclude patients whose discharge summary has already been written
+            if pid in ds_pids or (p_num and p_num in ds_pids) or (adm_id and adm_id in ds_adms):
+                continue
+
+            pending_candidates_count += 1
             
             # Step 1: Bill Status Check
             bill_cleared = (
@@ -725,64 +779,14 @@ def get_flow_status():
             )
 
             # Step 2: Vitals Status Check
-            spo2_val = p_info.get("latest_oxygen_saturation")
-            try:
-                spo2_float = float(spo2_val) if spo2_val is not None else None
-            except Exception:
-                spo2_float = None
-            spo2_ok = (spo2_float >= 96.0) if spo2_float is not None else True
-
-            hr_val = p_info.get("latest_heart_rate")
-            try:
-                hr_int = int(hr_val) if hr_val is not None else None
-            except Exception:
-                hr_int = None
-            hr_ok = (60 <= hr_int <= 100) if hr_int is not None else True
-
-            temp_val = p_info.get("latest_temperature")
-            try:
-                temp_float = float(temp_val) if temp_val is not None else None
-                if temp_float is not None and temp_float < 50.0:
-                    temp_float = (temp_float * 9 / 5) + 32
-            except Exception:
-                temp_float = None
-            temp_ok = (temp_float < 100.0) if temp_float is not None else True
-
-            sbp_val = p_info.get("latest_systolic_bp")
-            try:
-                sbp_int = int(sbp_val) if sbp_val is not None else None
-            except Exception:
-                sbp_int = None
-            sbp_ok = (sbp_int <= 140) if sbp_int is not None else True
-
-            dbp_val = p_info.get("latest_diastolic_bp")
-            try:
-                dbp_int = int(dbp_val) if dbp_val is not None else None
-            except Exception:
-                dbp_int = None
-            dbp_ok = (dbp_int <= 90) if dbp_int is not None else True
-
-            vitals_recorded = bool(p_info.get("vital_signs_summary"))
-            vitals_unstable_keywords = ["severe desaturation", "critical hypoxia <85", "high fever >103", "severe tachycardia >160"]
-            has_unstable_flags = any(kw in (p_info.get("vital_signs_summary") or "").lower() for kw in vitals_unstable_keywords)
-
-            vitals_normal = vitals_recorded and (not has_unstable_flags) and spo2_ok and hr_ok and temp_ok and sbp_ok and dbp_ok
-
-            vitals_issues = []
-            if not vitals_recorded:
-                vitals_issues.append("Vital signs not recorded")
-            if spo2_float is not None and spo2_float < 96.0:
-                vitals_issues.append(f"SpO2 low: {spo2_float:.1f}% (<96% threshold)")
-            if hr_int is not None and (hr_int < 60 or hr_int > 100):
-                vitals_issues.append(f"Heart rate abnormal: {hr_int} bpm (Normal: 60-100 bpm)")
-            if temp_float is not None and temp_float >= 100.0:
-                vitals_issues.append(f"Febrile: Temp {temp_float:.1f}°F (>=100.0°F)")
-            if sbp_int is not None and sbp_int > 140:
-                vitals_issues.append(f"Hypertension: SBP {sbp_int} mmHg (>140 mmHg)")
-            if dbp_int is not None and dbp_int > 90:
-                vitals_issues.append(f"Hypertension: DBP {dbp_int} mmHg (>90 mmHg)")
-            if has_unstable_flags:
-                vitals_issues.append("Unstable physiological alerts flagged")
+            vitals_normal, vitals_issues = check_patient_vitals_stability(
+                temp_val=p_info.get("latest_temperature"),
+                hr_val=p_info.get("latest_heart_rate"),
+                sbp_val=p_info.get("latest_systolic_bp"),
+                dbp_val=p_info.get("latest_diastolic_bp"),
+                spo2_val=p_info.get("latest_oxygen_saturation"),
+                vitals_summary=p_info.get("vital_signs_summary")
+            )
 
             has_diag = bool(p_info["primary_diagnosis"] and p_info["primary_diagnosis"].lower() not in ["none", "null", ""])
 
@@ -796,6 +800,11 @@ def get_flow_status():
                 "admission_date": p_info["admission_date"],
                 "primary_diagnosis": p_info["primary_diagnosis"],
                 "vital_signs_summary": p_info["vital_signs_summary"],
+                "latest_temperature": p_info.get("latest_temperature"),
+                "latest_heart_rate": p_info.get("latest_heart_rate"),
+                "latest_systolic_bp": p_info.get("latest_systolic_bp"),
+                "latest_diastolic_bp": p_info.get("latest_diastolic_bp"),
+                "latest_oxygen_saturation": p_info.get("latest_oxygen_saturation"),
                 "bill_number": p_info["bill_number"],
                 "bill_status": p_info["bill_status"],
                 "bill_net_amount": p_info["bill_net_amount"],
@@ -803,7 +812,7 @@ def get_flow_status():
                 "is_bill_paid": bill_cleared,
                 "is_vitals_normal": vitals_normal,
                 "vitals_issues": vitals_issues,
-                "has_generated_summary": pid in ds_pids,
+                "has_generated_summary": False,
                 "is_ready_for_notebook": bill_cleared and vitals_normal and has_diag
             }
 
@@ -826,7 +835,8 @@ def get_flow_status():
 
         return {
             "status": "success",
-            "total_admitted_patients": len(admissions),
+            "total_admitted_patients": pending_candidates_count,
+            "total_all_admissions": len(admissions),
             "step_1_bills_summary": {
                 "paid_or_completed_count": len(step_1_bills_paid),
                 "unpaid_or_pending_count": len(step_1_bills_pending),

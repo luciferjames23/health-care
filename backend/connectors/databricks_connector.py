@@ -175,6 +175,7 @@ class DatabricksConnector:
 
         cursor.close()
         conn.close()
+        self.clear_cache()
 
     def update_record(self, table_name: str, key_field: str, key_value: any, updates: dict, schema: str = None) -> dict:
         """Updates one or more fields of a row dynamically in Databricks Delta table and clears cache."""
