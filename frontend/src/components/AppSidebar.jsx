@@ -39,6 +39,19 @@ export const NAV_GROUPS = [
     ]
   },
   {
+    title: 'PHARMACY & SUPPLY CHAIN',
+    items: [
+      { id: 'prescriptions', label: 'Prescriptions' },
+      { id: 'drugs', label: 'Drug Master' },
+      { id: 'pharmacy', label: 'Pharmacy' },
+      { id: 'inventory', label: 'Inventory' },
+      { id: 'stores', label: 'Stores' },
+      { id: 'procurement', label: 'Procurement' },
+      { id: 'vendors', label: 'Vendors' },
+      { id: 'cssd', label: 'CSSD' },
+    ]
+  },
+  {
     title: 'FINANCIAL & REVENUE',
     items: [
       { id: 'billing', label: 'Billing & Clearance' },
@@ -49,12 +62,41 @@ export const NAV_GROUPS = [
     ]
   },
   {
+    title: 'PEOPLE',
+    items: [
+      { id: 'hr-dashboard', label: 'HR & Employee Service' },
+      { id: 'employees', label: 'Employees' },
+      { id: 'attendance', label: 'Attendance' },
+      { id: 'credentials', label: 'Staff Credentials' },
+      { id: 'staff', label: 'Staff Roster' },
+      { id: 'canteen', label: 'Canteen' },
+    ]
+  },
+  {
+    title: 'ADMINISTRATION',
+    items: [
+      { id: 'integration-arch', label: 'Integration Architecture' },
+      { id: 'notifications', label: 'Notifications', badge: '26', badgeColor: 'oklch(0.45 0.17 25)' },
+      { id: 'config', label: 'Configuration' },
+      { id: 'reports', label: 'Reports' },
+      { id: 'users', label: 'Users' },
+      { id: 'roles', label: 'Roles' },
+      { id: 'permissions', label: 'Permissions' },
+      { id: 'identity', label: 'Identity' },
+      { id: 'departments', label: 'Departments' },
+      { id: 'services', label: 'Services' },
+      { id: 'insurers', label: 'Insurers' },
+      { id: 'payment-methods', label: 'Payment Methods' },
+      { id: 'facilities', label: 'Facilities & Housekeeping' },
+      { id: 'integrations', label: 'Integrations' },
+    ]
+  },
+  {
     title: 'AI PLATFORM',
     items: [
       { id: 'assistant', label: 'Hospital Assistant' },
       { id: 'ai-command', label: 'AI Command Centre' },
       { id: 'agents', label: 'Agents' },
-      { id: 'discharge-agent', label: 'Discharge Agent', badge: 'AG-19', badgeColor: 'oklch(0.5 0.1 200)' },
       { id: 'orchestrator', label: 'Orchestrator' },
       { id: 'runs', label: 'Agent Runs' },
       { id: 'approvals', label: 'Approval Centre', badge: '8', badgeColor: 'oklch(0.45 0.17 25)' },

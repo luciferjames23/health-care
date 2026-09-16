@@ -285,7 +285,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Hospital Operating Platform</span> › <span>AI PLATFORM</span> › <span style={{ color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>DISCHARGE ORCHESTRATION AGENT (AG-19)</span>
+            <span>Hospital Operating Platform</span> › <span>AI PLATFORM</span> › <span style={{ color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>DISCHARGE SUMMARY AGENT (AG-19)</span>
           </div>
           <div style={{ fontSize: '22px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span>Discharge Orchestration Agent</span>

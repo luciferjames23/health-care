@@ -16,6 +16,8 @@ import MobileSimulatorModal from './components/MobileSimulatorModal';
 import ResultsCriticalValuesView from './components/ResultsCriticalValuesView';
 import DiagnosticsView from './components/DiagnosticsView';
 import RadiologyView from './components/RadiologyView';
+import DetailDrawer from './components/DetailDrawer';
+import MasterModal from './components/MasterModal';
 
 // Databricks Gold Layer Views
 import RevenueView from './components/RevenueView';
@@ -54,7 +56,15 @@ import {
   DeathMlcView,
   AuditTrailView,
   DataDomainView,
-  ExceptionsView
+  ExceptionsView,
+  PrescriptionsView,
+  DrugMasterView,
+  PharmacyView,
+  HrEmployeeView,
+  NotificationsView,
+  ConfigurationView,
+  ReportsView,
+  AdminSystemView
 } from './components/DummyDomainViews';
 
 export default function App() {
@@ -76,6 +86,8 @@ export default function App() {
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
+  const [drawer, setDrawer] = useState(null);
+  const [modal, setModal] = useState(null);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
@@ -139,6 +151,7 @@ export default function App() {
         onSignOut={handleSignOut}
         onOpenMobile={() => setShowMobile(true)}
         onAskAi={handleAskAi}
+        onOpenModal={setModal}
       />
 
       {/* Main App Layout: Sidebar + Workspace View */}
@@ -180,7 +193,10 @@ export default function App() {
               patient={selectedPatient}
               onOpenDischarge={() => setActivePage('discharge')}
               onOpenSoap={handleOpenSoap}
-              onBack={() => setActivePage('clinical')}
+              onBack={() => setActivePage('patients')}
+              onNavigate={setActivePage}
+              onOpenDrawer={setDrawer}
+              onOpenModal={setModal}
             />
           )}
 
@@ -216,12 +232,12 @@ export default function App() {
 
           {/* AI & Agents Platform Views */}
           {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
-          {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} />}
-          {activePage === 'discharge-agent' && <DischargeAgentView onNavigate={setActivePage} />}
-          {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} />}
+          {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} onOpenModal={setModal} />}
+          {activePage === 'discharge-agent' && <AgentStudioView initialAgentId="AG-19" onNavigate={setActivePage} onOpenModal={setModal} />}
+          {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
           {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
           {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
-          {activePage === 'knowledge' && <GovernedKnowledgeView />}
+          {activePage === 'knowledge' && <GovernedKnowledgeView onOpenModal={setModal} />}
           {activePage === 'ai-analytics' && <AnalyticsView />}
           {[
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
@@ -239,32 +255,56 @@ export default function App() {
             <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
           )}
 
-          {/* Operational, Clinical, Diagnostic & Revenue Domain Dummy Views */}
-          {activePage === 'appointments' && <AppointmentsView />}
-          {activePage === 'emergency' && <EmergencyView />}
-          {activePage === 'schedules' && <SchedulesView />}
-          {activePage === 'nursing' && <NursingWorkspaceView />}
-          {activePage === 'medications' && <MedicationAdminView />}
-          {(activePage === 'surgery' || activePage === 'otschedule') && <SurgeryOTView />}
-          {activePage === 'bloodbank' && <BloodBankView />}
-          {activePage === 'deathmlc' && <DeathMlcView />}
-          {activePage === 'sbar' && <SbarView />}
-          {activePage === 'lab' && <LabDashboardView />}
-          {activePage === 'billing' && <BillingView />}
-          {activePage === 'insurance' && <InsuranceView />}
-          {activePage === 'claims' && <ClaimsView />}
-          {activePage === 'finance' && <FinanceDashboardView />}
-          {activePage === 'tax' && <TaxConfigView />}
-          {activePage === 'exceptions' && <ExceptionsView />}
-          {activePage === 'audit' && <AuditTrailView />}
-          {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" />}
-          {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" />}
-          {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" />}
-          {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" />}
-          {activePage === 'data-quality' && <DataDomainView domain="Automated Data Quality & Rules" />}
-          {activePage === 'forecasting' && <DataDomainView domain="Predictive Inpatient Census & Demand" />}
-          {activePage === 'scenario' && <DataDomainView domain="Hospital Capacity & Surge Simulator" />}
-          {activePage === 'beforeafter' && <DataDomainView domain="Pre vs Post AI Intervention Outcomes" />}
+          {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
+          {activePage === 'appointments' && <AppointmentsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'emergency' && <EmergencyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'schedules' && <SchedulesView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {(activePage === 'surgery' || activePage === 'otschedule') && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'bloodbank' && <BloodBankView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'billing' && <BillingView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'insurance' && <InsuranceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'claims' && <ClaimsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'finance' && <FinanceDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'tax' && <TaxConfigView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'audit' && <AuditTrailView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          
+          {/* Pharmacy & Supply Chain Domain Views */}
+          {activePage === 'prescriptions' && <PrescriptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'drugs' && <DrugMasterView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'pharmacy' && <PharmacyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {['inventory', 'stores', 'procurement', 'vendors', 'cssd'].includes(activePage) && (
+            <AdminSystemView module={activePage === 'inventory' ? 'Inventory Catalog & Stock' : activePage === 'procurement' ? 'Procurement & 3-Way Purchase Orders' : activePage === 'vendors' ? 'Vendor Management & Contracts' : activePage === 'cssd' ? 'CSSD Sterilization Register' : 'Central Stores & Depots'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
+          )}
+
+          {/* People Domain Views */}
+          {(activePage === 'hr-dashboard' || activePage === 'hr') && <HrEmployeeView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {['employees', 'attendance', 'credentials', 'staff', 'canteen'].includes(activePage) && (
+            <AdminSystemView module={activePage === 'employees' ? 'Employee Master Directory' : activePage === 'attendance' ? 'Biometric Attendance & Overtime' : activePage === 'credentials' ? 'Staff Credentialing & Medical Licensing' : activePage === 'canteen' ? 'Staff Dining & Canteen Operations' : 'Predictive Nurse & Staff Roster'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
+          )}
+
+          {/* Administration Domain Views */}
+          {activePage === 'notifications' && <NotificationsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'config' && <ConfigurationView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'reports' && <ReportsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {['integration-arch', 'users', 'roles', 'permissions', 'identity', 'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations'].includes(activePage) && (
+            <AdminSystemView module={activePage === 'integration-arch' ? 'Integration Architecture' : activePage === 'users' ? 'User Accounts & MFA Security' : activePage === 'permissions' ? 'RBAC & ABAC Policy Permission Matrix' : activePage === 'identity' ? 'Patient Identity Resolution & Consent Master' : activePage === 'departments' ? 'Clinical Departments & Specialty Services' : activePage === 'facilities' ? 'Facilities & Housekeeping Bed Management' : activePage === 'integrations' ? 'Interface Connectors (HL7 / FHIR / ASTM)' : 'Enterprise Master Data'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
+          )}
+
+          {/* Lakehouse Data Views */}
+          {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'data-quality' && <DataDomainView domain="Automated Data Quality & Rules" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'forecasting' && <DataDomainView domain="Predictive Inpatient Census & Demand" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'scenario' && <DataDomainView domain="Hospital Capacity & Surge Simulator" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'beforeafter' && <DataDomainView domain="Pre vs Post AI Intervention Outcomes" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
 
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
@@ -276,6 +316,10 @@ export default function App() {
             'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
             'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
             'exceptions', 'audit',
+            'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',
+            'hr-dashboard', 'hr', 'employees', 'attendance', 'credentials', 'staff', 'canteen',
+            'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
+            'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
             'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
             'forecasting', 'scenario', 'beforeafter'
           ].includes(activePage) && (
@@ -327,6 +371,23 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Slide-over Detail Drawer */}
+      {drawer && (
+        <DetailDrawer
+          drawer={drawer}
+          onClose={() => setDrawer(null)}
+        />
+      )}
+
+      {/* Master Modal System */}
+      {modal && (
+        <MasterModal
+          modal={modal}
+          onClose={() => setModal(null)}
+          role={role}
+        />
+      )}
 
       {/* iOS Liquid Glass Mobile Simulator Modal */}
       {showMobile && (

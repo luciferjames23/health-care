@@ -653,9 +653,9 @@ export const AGENTS_DATA = ALL_21_AGENTS.map((a, idx) => ({
   runs: a.runs !== undefined ? a.runs : (42 + (idx * 7) % 180)
 }));
 
-export default function AgentStudioView({ onNavigate }) {
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
-  const [activeTab, setActiveTab] = useState('Identity');
+export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentId = 'AG-19' }) {
+  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId || 'AG-19');
+  const [activeTab, setActiveTab] = useState('Memory');
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQ, setSearchQ] = useState('');
 
@@ -664,7 +664,7 @@ export default function AgentStudioView({ onNavigate }) {
   const [playRunning, setPlayRunning] = useState(false);
   const [playResult, setPlayResult] = useState(null);
 
-  const selectedAgent = ALL_21_AGENTS.find(a => a.id === selectedAgentId);
+  const selectedAgent = ALL_21_AGENTS.find(a => a.id === selectedAgentId) || (selectedAgentId ? ALL_21_AGENTS.find(a => a.id === 'AG-19') : null);
 
   const filteredAgents = ALL_21_AGENTS.filter(a => {
     if (filterStatus !== 'All') {
@@ -717,111 +717,115 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
   if (selectedAgent) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {/* Top Breadcrumb Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <div>
-            <div style={{ fontSize: '11.5px', color: '#8a9096', marginBottom: '4px' }}>
-              <span onClick={() => setSelectedAgentId(null)} style={{ cursor: 'pointer', color: 'oklch(0.4 0.1 200)', fontWeight: 600 }}>← Back</span>
-              {' '}·{' '}
-              <span onClick={() => onNavigate('command')} style={{ cursor: 'pointer' }}>Command Centre</span> › <span onClick={() => setSelectedAgentId(null)} style={{ cursor: 'pointer' }}>Agents</span> › <strong style={{ color: '#15181b' }}>{selectedAgent.name}</strong>
-            </div>
-          </div>
-          <button
-            type="button"
+        {/* Top Breadcrumb Header Matching Screenshot: ← Back · Command Centre › Agent builder › AG-19 */}
+        <div style={{ fontSize: '11.5px', color: '#8a9096', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span
             onClick={() => setSelectedAgentId(null)}
-            style={{
-              height: '30px', padding: '0 12px', borderRadius: '6px', border: '1px solid #e3e6e8',
-              background: '#fff', fontSize: '11.5px', cursor: 'pointer'
-            }}
+            style={{ cursor: 'pointer', color: '#0f766e', fontWeight: 500 }}
           >
-            ← Back to Agents List
-          </button>
+            ← Back
+          </span>
+          <span style={{ color: '#8a9096' }}>·</span>
+          <span
+            onClick={() => onNavigate && onNavigate('command')}
+            style={{ cursor: 'pointer', color: '#8a9096' }}
+          >
+            Command Centre
+          </span>
+          <span style={{ color: '#8a9096' }}>›</span>
+          <span
+            onClick={() => setSelectedAgentId(null)}
+            style={{ cursor: 'pointer', color: '#8a9096' }}
+          >
+            Agent builder
+          </span>
+          <span style={{ color: '#8a9096' }}>›</span>
+          <span style={{ color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+            {selectedAgent.id}
+          </span>
         </div>
 
-        {/* Builder Studio Header */}
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 18px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '20px', fontWeight: 700 }}>{selectedAgent.name}</span>
-                <span style={{
-                  fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px',
-                  background: selectedAgent.status === 'Published' ? 'oklch(0.95 0.04 150)' : selectedAgent.status === 'Disabled' || selectedAgent.status === 'Suspended' ? 'oklch(0.96 0.03 25)' : 'oklch(0.96 0.03 300)',
-                  color: selectedAgent.status === 'Published' ? 'oklch(0.4 0.12 150)' : selectedAgent.status === 'Disabled' || selectedAgent.status === 'Suspended' ? 'oklch(0.45 0.17 25)' : 'oklch(0.45 0.1 300)'
-                }}>
-                  {selectedAgent.status}
-                </span>
-                <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', background: '#eef0f1', color: '#15181b', fontFamily: 'monospace' }}>
-                  v{selectedAgent.v}
-                </span>
-                <span style={{
-                  fontSize: '11px', fontWeight: 600,
-                  color: selectedAgent.tier === 'High' ? 'oklch(0.45 0.17 25)' : selectedAgent.tier === 'Medium' ? 'oklch(0.5 0.13 70)' : 'oklch(0.4 0.12 150)'
-                }}>
-                  Risk tier {selectedAgent.tier}
-                </span>
-              </div>
-              <div style={{ color: '#8a9096', fontSize: '12px', marginTop: '4px' }}>
-                {selectedAgent.id} · Owner: {selectedAgent.owner} · Approval: {selectedAgent.humanApproval} · Success: {selectedAgent.success}
-              </div>
+        {/* Builder Studio Header Card Matching Screenshot */}
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px 20px 0' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '24px', fontWeight: 600, color: '#15181b', letterSpacing: '-0.01em' }}>
+                {selectedAgent.name}
+              </span>
+              <span style={{
+                fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px',
+                background: '#dcfce7',
+                color: '#15803d'
+              }}>
+                {selectedAgent.status}
+              </span>
+              <span style={{
+                fontSize: '11px', fontWeight: 600,
+                color: selectedAgent.tier === 'High' ? '#b91c1c' : selectedAgent.tier === 'Medium' ? 'oklch(0.5 0.13 70)' : 'oklch(0.4 0.12 150)'
+              }}>
+                Risk tier {selectedAgent.tier}
+              </span>
             </div>
-
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                type="button"
-                onClick={() => alert(`Saved draft of ${selectedAgent.name}`)}
-                style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', cursor: 'pointer' }}
-              >
-                Save draft
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('Playground')}
-                style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', cursor: 'pointer' }}
-              >
-                Test
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('Evaluate')}
-                style={{ height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', cursor: 'pointer' }}
-              >
-                Evaluate
-              </button>
-              <button
-                type="button"
-                onClick={() => alert(`Published version ${selectedAgent.v} to Production!`)}
-                style={{ height: '30px', padding: '0 12px', borderRadius: '6px', border: 0, background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Publish
-              </button>
+            <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '6px', marginBottom: '14px' }}>
+              {selectedAgent.id} · {selectedAgent.type} · v{selectedAgent.v} · {selectedAgent.owner} · Read-only · configuration requires AI Administrator
             </div>
           </div>
 
-          {/* Builder Tabs */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '14px', borderTop: '1px solid #f2f3f4', paddingTop: '4px' }}>
+          {/* Builder Tabs Matching Screenshot: Identity Instructions Knowledge Tools Memory Access Model Playground Evaluate Publish & Versions */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', borderTop: '1px solid #f1f5f9', paddingTop: '2px', fontSize: '12.5px' }}>
             {TABS.map(tab => {
               const isActive = activeTab === tab;
               return (
-                <button
+                <span
                   key={tab}
-                  type="button"
                   onClick={() => setActiveTab(tab)}
                   style={{
-                    padding: '8px 12px', border: 0, background: 'transparent',
-                    cursor: 'pointer', fontSize: '12px', fontWeight: isActive ? 600 : 500,
-                    color: isActive ? 'oklch(0.4 0.1 200)' : '#52585e',
-                    borderBottom: isActive ? '2px solid oklch(0.5 0.1 200)' : '2px solid transparent'
+                    padding: '8px 14px',
+                    cursor: 'pointer',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? '#0f766e' : '#52585e',
+                    borderBottom: isActive ? '2px solid #0f766e' : '2px solid transparent',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   {tab}
-                </button>
+                </span>
               );
             })}
           </div>
         </div>
 
-        {/* Tab Panes */}
+        {/* Tab 5: Memory Matching User Screenshot Exactly */}
+        {activeTab === 'Memory' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 22px', maxWidth: '780px' }}>
+            {[
+              ['Session memory', 'On · 30 min'],
+              ['Patient context', 'Encounter-scoped'],
+              ['Workflow context', 'On'],
+              ['Retention', '90 days (audit) · 0 days (conversation)'],
+              ['Sensitive-data restrictions', 'No free-text PHI stored'],
+            ].map(([k, v], idx, arr) => (
+              <div
+                key={k}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '240px minmax(0, 1fr)',
+                  gap: '16px',
+                  padding: '11px 0',
+                  borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4',
+                  fontSize: '12.5px',
+                  alignItems: 'center'
+                }}
+              >
+                <span style={{ color: '#8a9096' }}>{k}</span>
+                <span style={{ color: '#15181b', fontWeight: 500 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 1: Identity */}
         {activeTab === 'Identity' && (
           <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '960px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
@@ -853,6 +857,7 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
           </div>
         )}
 
+        {/* Tab 2: Instructions */}
         {activeTab === 'Instructions' && (
           <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '960px' }}>
             <div>
@@ -865,11 +870,103 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
             </div>
             <div>
               <label style={{ fontSize: '11.5px', color: 'oklch(0.45 0.17 25)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Clinical Safety Boundaries</label>
-              <textarea defaultValue={selectedAgent.instructions?.safety || 'Strict safety rules applied.'} rows={2} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid oklch(0.85 0.08 25)', background: 'oklch(0.99 0.01 25)', fontFamily: 'monospace', fontSize: '11.5px', boxSizing: 'border-box' }} />
+              <textarea defaultValue={selectedAgent.instructions?.safety || 'CRITICAL CLINICAL BOUNDARY: The treating doctor is the sole clinical authority. AI drafts are subject to mandatory physician sign-off.'} rows={2} style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid oklch(0.85 0.08 25)', background: 'oklch(0.99 0.01 25)', fontFamily: 'monospace', fontSize: '11.5px', boxSizing: 'border-box' }} />
             </div>
           </div>
         )}
 
+        {/* Tab 3: Knowledge */}
+        {activeTab === 'Knowledge' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', maxWidth: '960px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid #eef0f1' }}>
+              <span style={{ fontWeight: 600, fontSize: '12px' }}>Connected knowledge sources · citations mandatory · retrieval top-k 6 · min score 0.72</span>
+              <button
+                type="button"
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'knowledge', title: 'Add Governed Knowledge Source' })}
+                style={{ height: '26px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px' }}
+              >
+                + Add knowledge source
+              </button>
+            </div>
+            {[
+              { t: 'NABH Clinical Documentation Standards', v: '5.0', eff: '01 Jan 2026', status: 'Published' },
+              { t: 'Inpatient Discharge SOP & Clinical Milestones', v: '3.1', eff: '01 Jul 2026', status: 'Published' },
+              { t: 'Medication Safety & Formulary High-Alert Rules', v: '4.2', eff: '15 Aug 2026', status: 'Published' },
+            ].map(k => (
+              <div key={k.t} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) 60px 110px 110px', gap: '8px', padding: '8px 14px', borderBottom: '1px solid #f2f3f4', alignItems: 'center', fontSize: '12px' }}>
+                <span style={{ fontWeight: 500 }}>{k.t}</span>
+                <span style={{ fontFamily: 'monospace', color: '#64748b' }}>v{k.v}</span>
+                <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{k.eff}</span>
+                <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: '#dcfce7', color: '#15803d', justifySelf: 'start' }}>
+                  {k.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 4: Tools */}
+        {activeTab === 'Tools' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', maxWidth: '960px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1.4fr) 60px 60px 100px 100px', gap: '8px', padding: '8px 14px', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #eef0f1' }}>
+              <span>Tool</span><span>Permission</span><span>Read</span><span>Write</span><span>Approval</span><span>Enabled</span>
+            </div>
+            {[
+              { tool: 'EMR Gateway', perm: 'Read Clinical Encounters', read: true, write: false, appr: 'None', enabled: true },
+              { tool: 'Document Generator', perm: 'Draft Discharge Summary PDF', read: true, write: true, appr: 'Doctor Sign-off', enabled: true },
+              { tool: 'LIS Results Connector', perm: 'Read Final Lab Reports', read: true, write: false, appr: 'None', enabled: true },
+              { tool: 'Pharmacy Formulary API', perm: 'Verify Discharge Prescriptions', read: true, write: false, appr: 'None', enabled: true },
+            ].map(t => (
+              <div key={t.tool} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1.4fr) 60px 60px 100px 100px', gap: '8px', padding: '7px 14px', borderBottom: '1px solid #f2f3f4', alignItems: 'center', fontSize: '12px' }}>
+                <span style={{ fontWeight: 500 }}>{t.tool}</span>
+                <span style={{ color: '#52585e' }}>{t.perm}</span>
+                <span>{t.read ? '✓' : '—'}</span>
+                <span>{t.write ? '✓' : '—'}</span>
+                <span style={{ color: 'oklch(0.5 0.13 70)' }}>{t.appr}</span>
+                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 600, fontSize: '11px', justifySelf: 'start' }}>Enabled</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 6: Access */}
+        {activeTab === 'Access' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', maxWidth: '720px' }}>
+            {[
+              ['Roles', 'Doctor, Nurse, Medical Records, Front Office'],
+              ['Departments', 'Inpatient Wards, ICU, Cardiology, General Surgery, Medical Records'],
+              ['Patients', 'Active inpatients with physician discharge order'],
+              ['Data scopes', 'Clinical observations, medication orders, procedure logs, vital telemetry'],
+              ['Environment', 'Production (HIPAA & NABH Governed)'],
+            ].map(([k, v], idx, arr) => (
+              <div key={k} style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: '8px', padding: '8px 0', borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4', fontSize: '12px' }}>
+                <span style={{ color: '#8a9096' }}>{k}</span>
+                <span style={{ color: '#15181b', fontWeight: 500 }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 7: Model */}
+        {activeTab === 'Model' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', maxWidth: '720px' }}>
+            {[
+              ['Model', 'anthropic.claude-3-5-sonnet / google.gemini-1.5-pro'],
+              ['Temperature', '0.10 (Deterministic clinical synthesis)'],
+              ['Token limit', '4,096 tokens'],
+              ['Fallback model', 'google.gemini-1.5-flash-002'],
+              ['Latency target', '< 2,500 ms'],
+              ['Cost estimate', '₹0.38 / invocation'],
+            ].map(([k, v], idx, arr) => (
+              <div key={k} style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: '8px', padding: '8px 0', borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4', fontSize: '12px' }}>
+                <span style={{ color: '#8a9096' }}>{k}</span>
+                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#15181b' }}>{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 8: Playground */}
         {activeTab === 'Playground' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '14px', alignItems: 'start' }}>
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
@@ -910,10 +1007,52 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
           </div>
         )}
 
-        {!['Identity', 'Instructions', 'Playground'].includes(activeTab) && (
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
-            <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{activeTab} Settings</div>
-            <div style={{ color: '#52585e', fontSize: '12px' }}>Enterprise configuration verified under AI Governance standards.</div>
+        {/* Tab 9: Evaluate */}
+        {activeTab === 'Evaluate' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 60px 90px 60px 70px 70px 60px 60px 70px 70px', gap: '8px', padding: '8px 14px', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #eef0f1' }}>
+              <span>Run</span><span>Ver</span><span>When</span><span>Cases</span><span>Accuracy</span><span>Grounded</span><span>Halluc.</span><span>Refusal</span><span>Latency</span><span>Result</span>
+            </div>
+            {[
+              { id: 'EV-8801', ver: 'v1.1.0', when: '12 Sep', cases: 120, acc: '97.4%', ground: '99.1%', hall: '0.2%', ref: '100%', lat: '1.42s', res: 'Pass' },
+              { id: 'EV-8742', ver: 'v1.0.5', when: '28 Aug', cases: 120, acc: '95.8%', ground: '98.2%', hall: '0.5%', ref: '100%', lat: '1.65s', res: 'Pass' },
+            ].map(e => (
+              <div key={e.id} style={{ display: 'grid', gridTemplateColumns: '80px 60px 90px 60px 70px 70px 60px 60px 70px 70px', gap: '8px', padding: '7px 14px', borderBottom: '1px solid #f2f3f4', fontFamily: 'monospace', fontSize: '11px', alignItems: 'center' }}>
+                <span style={{ fontWeight: 600 }}>{e.id}</span>
+                <span>{e.ver}</span>
+                <span>{e.when}</span>
+                <span>{e.cases}</span>
+                <span>{e.acc}</span>
+                <span>{e.ground}</span>
+                <span>{e.hall}</span>
+                <span>{e.ref}</span>
+                <span>{e.lat}</span>
+                <span style={{ padding: '1px 6px', borderRadius: '4px', fontWeight: 600, background: '#dcfce7', color: '#15803d', justifySelf: 'start', fontFamily: 'inherit' }}>{e.res}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 10: Publish & Versions */}
+        {activeTab === 'Publish & Versions' && (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '70px 130px 150px minmax(0,1fr) 60px 90px', gap: '8px', padding: '8px 14px', color: '#8a9096', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #eef0f1' }}>
+              <span>Version</span><span>Created</span><span>Author</span><span>Changes</span><span>Score</span><span>State</span>
+            </div>
+            {[
+              { v: 'v1.1.0', ts: '12 Sep 2026 09:00', author: 'Dr. Sanjay Gupta', changes: 'Added Tamil bilingual patient instructions; calibrated LOINC mappings', score: '97.4', state: 'Published', bg: '#dcfce7', fg: '#15803d' },
+              { v: 'v1.0.5', ts: '28 Aug 2026 14:15', author: 'Dr. Sanjay Gupta', changes: 'ICD-10 secondary diagnostic hierarchy improvements', score: '95.8', state: 'Archived', bg: '#f1f5f9', fg: '#475569' },
+              { v: 'v1.0.0', ts: '15 Jul 2026 10:00', author: 'Dr. Sanjay Gupta', changes: 'Initial production deployment with doctor sign-off gate', score: '94.2', state: 'Archived', bg: '#f1f5f9', fg: '#475569' },
+            ].map(v => (
+              <div key={v.v} style={{ display: 'grid', gridTemplateColumns: '70px 130px 150px minmax(0,1fr) 60px 90px', gap: '8px', padding: '7px 14px', borderBottom: '1px solid #f2f3f4', fontSize: '11.5px', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{v.v}</span>
+                <span style={{ color: '#64748b' }}>{v.ts}</span>
+                <span>{v.author}</span>
+                <span style={{ color: '#52585e' }}>{v.changes}</span>
+                <span style={{ fontFamily: 'monospace' }}>{v.score}</span>
+                <span style={{ padding: '2px 7px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: v.bg, color: v.fg, justifySelf: 'start' }}>{v.state}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>

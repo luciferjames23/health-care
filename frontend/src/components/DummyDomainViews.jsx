@@ -21,7 +21,7 @@ const pillStyle = (bg, color) => ({
   whiteSpace: 'nowrap'
 });
 
-function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV' }) {
+function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel = '+ New Record' }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
       <div>
@@ -40,28 +40,53 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV' }
           {subtitle}
         </div>
       </div>
-      {onExport && (
-        <button
-          type="button"
-          onClick={onExport}
-          style={{
-            height: '32px',
-            padding: '0 14px',
-            borderRadius: '6px',
-            border: '1px solid #cbd5e1',
-            background: '#ffffff',
-            color: '#334155',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }}
-        >
-          <span>📥</span> {exportLabel}
-        </button>
-      )}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {onNew && (
+          <button
+            type="button"
+            onClick={onNew}
+            style={{
+              height: '32px',
+              padding: '0 14px',
+              borderRadius: '6px',
+              border: 'none',
+              background: 'oklch(0.5 0.1 200)',
+              color: '#ffffff',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
+            }}
+          >
+            {newLabel}
+          </button>
+        )}
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            style={{
+              height: '32px',
+              padding: '0 14px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#334155',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <span>📥</span> {exportLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -94,7 +119,7 @@ const INITIAL_APPOINTMENTS = [
   { id: 'APT-1008', token: 'T-08', patient: 'Deepa Natarajan', uhid: 'MER-PAT-0087242', doctor: 'Dr. Anita Roy', dept: 'Pediatrics', time: '11:15 AM', room: 'OPD-101', status: 'Checked In', type: 'Vaccination' },
 ];
 
-export function AppointmentsView() {
+export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState(INITIAL_APPOINTMENTS);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
@@ -112,12 +137,42 @@ export function AppointmentsView() {
     setData(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
   };
 
+  const handleRowClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.token} · ${row.patient}`,
+      sub: `Consultant: ${row.doctor} · ${row.dept} · Room ${row.room}`,
+      badges: [
+        { t: row.status, bg: row.status === 'Completed' ? '#dcfce7' : row.status === 'In Consultation' ? '#fef3c7' : '#dbeafe', fg: row.status === 'Completed' ? '#15803d' : row.status === 'In Consultation' ? '#92400e' : '#1e40af' },
+        { t: row.type, bg: '#f1f5f9', fg: '#475569' }
+      ],
+      facts: [
+        { k: 'Token Number', v: row.token, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID / MRN', v: row.uhid },
+        { k: 'Consulting Doctor', v: row.doctor },
+        { k: 'Department', v: row.dept },
+        { k: 'Room Location', v: row.room },
+        { k: 'Time Slot', v: row.time },
+        { k: 'Appointment Type', v: row.type },
+        { k: 'Workflow Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Check In Patient', on: () => updateStatus(row.id, 'Checked In') },
+        { label: 'Start Consultation', primary: true, on: () => updateStatus(row.id, 'In Consultation') },
+        { label: 'Mark Completed', on: () => updateStatus(row.id, 'Completed') }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Consultant Appointments & OPD Token Queue"
         subtitle="Live out-patient consultation appointments, automated queue management, and doctor check-in desk"
         count={filtered.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'appt', title: 'New Outpatient Appointment' })}
+        newLabel="+ New Appointment"
         onExport={() => alert(`Exported ${filtered.length} appointments to CSV`)}
       />
 
@@ -170,7 +225,13 @@ export function AppointmentsView() {
           </thead>
           <tbody>
             {filtered.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.id}
+                onClick={() => handleRowClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>{row.token}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.patient}</div>
@@ -194,7 +255,7 @@ export function AppointmentsView() {
                     ● {row.status}
                   </span>
                 </td>
-                <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                <td style={{ padding: '10px 14px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                   {row.status === 'Waiting' && (
                     <button type="button" onClick={() => updateStatus(row.id, 'Checked In')} style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>
                       Check-in
@@ -235,13 +296,42 @@ const EMERGENCY_CASES = [
   { id: 'ER-406', bay: 'Bay 06', patient: 'Natarajan P.', age: '71M', triage: 'Yellow', complaint: 'Transient ischemic attack, left facial weakness resolved', bp: '168/96', hr: 78, spo2: '98%', doctor: 'Dr. Sanjay Gupta', elapsed: '48m', status: 'Urgent NCCT Brain Done' },
 ];
 
-export function EmergencyView() {
+export function EmergencyView({ onOpenDrawer, onOpenModal }) {
+  const handleRowClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.bay} · ${row.patient} (${row.age})`,
+      sub: `Triage Level: ${row.triage} · Attending: ${row.doctor}`,
+      badges: [
+        { t: `LEVEL ${row.triage.toUpperCase()}`, bg: row.triage === 'Red' ? '#fee2e2' : row.triage === 'Yellow' ? '#fef3c7' : '#dcfce7', fg: row.triage === 'Red' ? '#991b1b' : row.triage === 'Yellow' ? '#92400e' : '#166534' },
+        { t: row.status, bg: '#f1f5f9', fg: '#334155' }
+      ],
+      facts: [
+        { k: 'Trauma Bay', v: row.bay, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'Age / Sex', v: row.age },
+        { k: 'Chief Complaint', v: row.complaint },
+        { k: 'Vital Signs', v: `BP ${row.bp} · HR ${row.hr} bpm · SpO2 ${row.spo2}` },
+        { k: 'Elapsed Time', v: row.elapsed },
+        { k: 'Attending Doctor', v: row.doctor },
+        { k: 'Clinical Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Admit to Inpatient Bed', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'admit', title: `Admit ER Patient: ${row.patient}`, data: { patientId: row.id, name: row.patient, dept: 'Emergency', cls: 'ICU' } }) },
+        { label: 'Order Stat Radiology / CT' },
+        { label: 'Discharge / Transfer' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Emergency & Trauma Resuscitation Board"
         subtitle="Live emergency department triage, trauma bay occupancy, and vital resuscitation alerts"
         count={EMERGENCY_CASES.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
+        newLabel="+ Triage & Admit"
         onExport={() => alert('Exported ER log')}
       />
 
@@ -268,7 +358,13 @@ export function EmergencyView() {
           </thead>
           <tbody>
             {EMERGENCY_CASES.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.id}
+                onClick={() => handleRowClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.bay}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -288,7 +384,7 @@ export function EmergencyView() {
                 </td>
                 <td style={{ padding: '10px 14px' }}>{row.doctor}</td>
                 <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.elapsed}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 500, color: '#0f766e' }}>{row.status}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0284c7' }}>{row.status}</td>
               </tr>
             ))}
           </tbody>
@@ -311,17 +407,49 @@ const ROASTER = [
   { doctor: 'Dr. Meera Iyer', dept: 'Pulmonology', opd: '03:00 PM - 07:00 PM', days: 'Wed, Fri, Sat', room: 'OPD 107', onCall: 'ICU Bronchoscopy', status: 'On Leave' },
 ];
 
-export function SchedulesView() {
+export function SchedulesView({ onOpenDrawer, onOpenModal }) {
+  const handleDoctorClick = (d) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${d.doctor} · ${d.dept}`,
+      sub: `Room ${d.room} · Clinic Days: ${d.days}`,
+      badges: [
+        { t: d.status, bg: d.status === 'On Duty' ? '#dcfce7' : '#fee2e2', fg: d.status === 'On Duty' ? '#15803d' : '#991b1b' }
+      ],
+      facts: [
+        { k: 'Consultant', v: d.doctor, b: true },
+        { k: 'Specialty', v: d.dept },
+        { k: 'OPD Hours', v: `${d.opd} (${d.days})` },
+        { k: 'Room Location', v: d.room },
+        { k: 'Emergency On-Call', v: d.onCall },
+        { k: 'Current Status', v: d.status }
+      ],
+      actions: [
+        { label: 'Book Appointment', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'appt', title: `Book with ${d.doctor}`, data: { doctorId: d.doctor } }) },
+        { label: 'Request Shift Swap' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Consultant Roster & On-Call Schedules"
         subtitle="Medical consultant clinic hours, emergency on-call rotas, and leave master"
         count={ROASTER.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
+        newLabel="+ Add Doctor"
+        onExport={() => alert('Exported consultant roster')}
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
         {ROASTER.map(d => (
-          <div key={d.doctor} style={cardStyle}>
+          <div
+            key={d.doctor}
+            onClick={() => handleDoctorClick(d)}
+            style={{ ...cardStyle, cursor: 'pointer', transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.transform = 'none'; }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontWeight: 700, fontSize: '14px' }}>{d.doctor}</div>
               <span style={pillStyle(d.status === 'On Duty' ? '#dcfce7' : d.status === 'On Leave' ? '#fee2e2' : '#fef3c7', d.status === 'On Duty' ? '#15803d' : d.status === 'On Leave' ? '#991b1b' : '#92400e')}>
@@ -353,13 +481,40 @@ const NURSING_TASKS = [
   { bed: 'Bed 208-A', patient: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', task: 'Administer Inj. Cefoperazone-Sulbactam 1.5g IV', status: 'Due Now', nurse: 'Anitha Kumar', notes: 'Skin test negative confirmed' },
 ];
 
-export function NursingWorkspaceView() {
+export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
+  const handleTaskClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.bed} · ${row.patient}`,
+      sub: `Order: ${row.task} · Nurse: ${row.nurse}`,
+      badges: [
+        { t: row.status, bg: row.status === 'Due Now' ? '#fee2e2' : row.status === 'In Progress' ? '#fef3c7' : '#dcfce7', fg: row.status === 'Due Now' ? '#991b1b' : row.status === 'In Progress' ? '#92400e' : '#166534' }
+      ],
+      facts: [
+        { k: 'Bed / Room', v: row.bed, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID / MRN', v: row.uhid },
+        { k: 'Nursing Task', v: row.task },
+        { k: 'Current Status', v: row.status },
+        { k: 'Assigned Nurse', v: row.nurse },
+        { k: 'Clinical Instructions', v: row.notes }
+      ],
+      actions: [
+        { label: 'Mark Task Completed', primary: true, on: () => alert(`Task completed for ${row.patient}`) },
+        { label: 'Record Vital Signs' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Inpatient Nursing Station & Shift Tasks"
         subtitle="Live ward nurse assignment, scheduled drug administration, and clinical care checklists"
         count={NURSING_TASKS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Staff Nurse / User' })}
+        newLabel="+ Add Nurse"
+        onExport={() => alert('Exported nursing care log')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Assigned Inpatients" value="28" sub="Floor 2 Wards A & B" color="#0284c7" />
@@ -382,7 +537,7 @@ export function NursingWorkspaceView() {
           </thead>
           <tbody>
             {NURSING_TASKS.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={idx} onClick={() => handleTaskClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f766e' }}>{row.bed}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -420,13 +575,40 @@ const EMAR_SCHEDULE = [
   { time: '08:00 PM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Inj. Glargine Insulin (Lantus)', dose: '14 Units SubCut at bedtime', status: 'Scheduled', nurse: 'Night Shift Nurse', signedAt: '—' },
 ];
 
-export function MedicationAdminView() {
+export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
+  const handleEmarClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.med} · ${row.dose}`,
+      sub: `Patient: ${row.patient} (${row.bed}) · Slot: ${row.time}`,
+      badges: [
+        { t: row.status, bg: row.status === 'Given' ? '#dcfce7' : row.status === 'Due Now' ? '#fee2e2' : '#f1f5f9', fg: row.status === 'Given' ? '#15803d' : row.status === 'Due Now' ? '#991b1b' : '#475569' }
+      ],
+      facts: [
+        { k: 'Medication', v: row.med, b: true },
+        { k: 'Dose & Route', v: row.dose },
+        { k: 'Patient', v: row.patient },
+        { k: 'Bed Assignment', v: row.bed },
+        { k: 'Scheduled Round', v: row.time },
+        { k: 'Administration Status', v: row.status },
+        { k: 'Nurse Sign-off', v: `${row.nurse} (${row.signedAt})` }
+      ],
+      actions: [
+        { label: 'Confirm Barcode Admin', primary: true, on: () => alert(`Administered ${row.med} to ${row.patient}`) },
+        { label: 'Hold Dose / Report Allergy' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="eMAR · Electronic Medication Administration Record"
         subtitle="Barcode-verified drug administration rounds, nurse sign-offs, and scheduled dosages"
         count={EMAR_SCHEDULE.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drugs', title: 'Add Drug to Formulary' })}
+        newLabel="+ Add Drug"
+        onExport={() => alert('Exported eMAR log')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Doses Due Today" value="54" sub="Round 08:00, 12:00, 18:00, 22:00" color="#0284c7" />
@@ -450,7 +632,7 @@ export function MedicationAdminView() {
           </thead>
           <tbody>
             {EMAR_SCHEDULE.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={idx} onClick={() => handleEmarClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.time}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -487,13 +669,40 @@ const SURGERY_CASES = [
   { ot: 'OT-04 (Maternity/Gyn)', patient: 'Revathi S.', procedure: 'Elective Lower Segment Cesarean Section', surgeon: 'Dr. Anita Roy', anesthetist: 'Dr. Geetha V.', stage: 'Scheduled Next (12:00 PM)', start: '12:00 PM', end: 'Est 01:15 PM' },
 ];
 
-export function SurgeryOTView() {
+export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
+  const handleSurgeryClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.ot} · ${row.procedure}`,
+      sub: `Surgeon: ${row.surgeon} · Anesthetist: ${row.anesthetist}`,
+      badges: [
+        { t: row.stage, bg: row.stage.includes('PACU') ? '#dcfce7' : '#fee2e2', fg: row.stage.includes('PACU') ? '#15803d' : '#991b1b' }
+      ],
+      facts: [
+        { k: 'Operating Theatre', v: row.ot, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'Surgical Procedure', v: row.procedure },
+        { k: 'Lead Surgeon', v: row.surgeon },
+        { k: 'Anesthetist', v: row.anesthetist },
+        { k: 'Intra-Op Stage', v: row.stage },
+        { k: 'Timing', v: `${row.start} → ${row.end}` }
+      ],
+      actions: [
+        { label: 'Check into PACU', primary: true, on: () => alert(`Transferred ${row.patient} to PACU`) },
+        { label: 'Print WHO Checklist' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Operating Theatres & Surgical Suite"
         subtitle="Live OT suite tracking, intra-operative milestones, anesthesia records, and PACU recovery"
         count={SURGERY_CASES.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Surgical Service / OT Procedure' })}
+        newLabel="+ Schedule OT Case"
+        onExport={() => alert('Exported OT ledger')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Active Theatre Rooms" value="3 / 4" sub="OT 1, OT 2, OT 3 In Progress" color="#0284c7" />
@@ -517,7 +726,7 @@ export function SurgeryOTView() {
           </thead>
           <tbody>
             {SURGERY_CASES.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={idx} onClick={() => handleSurgeryClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0369a1' }}>{row.ot}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
                 <td style={{ padding: '10px 14px', color: '#0f172a' }}>{row.procedure}</td>
@@ -558,13 +767,39 @@ const BLOOD_INVENTORY = [
   { group: 'B Negative (B-)', prbc: 2, ffp: 1, platelets: 0, reserved: 1, status: 'Critical Reserve' },
 ];
 
-export function BloodBankView() {
+export function BloodBankView({ onOpenDrawer, onOpenModal }) {
+  const handleBbClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `Blood Inventory: ${row.group}`,
+      sub: `PRBC: ${row.prbc} units · FFP: ${row.ffp} units · Platelets: ${row.platelets} bags`,
+      badges: [
+        { t: row.status, bg: row.status === 'Adequate' ? '#dcfce7' : '#fee2e2', fg: row.status === 'Adequate' ? '#15803d' : '#991b1b' }
+      ],
+      facts: [
+        { k: 'ABO / Rh Group', v: row.group, b: true },
+        { k: 'Packed Cells (PRBC)', v: `${row.prbc} units` },
+        { k: 'Fresh Frozen Plasma', v: `${row.ffp} units` },
+        { k: 'Platelets Concentrate', v: `${row.platelets} bags` },
+        { k: 'Reserved for Active OT', v: `${row.reserved} units` },
+        { k: 'Stock Disposition', v: row.status }
+      ],
+      actions: [
+        { label: 'Issue Units to OT', primary: true, on: () => alert(`Issued unit of ${row.group} to OT`) },
+        { label: 'Notify Voluntary Donors' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Blood Bank Component Inventory & Cross-Match"
         subtitle="Licensed blood bank storage, component separation units, cross-match reservations and voluntary donor registry"
         count={BLOOD_INVENTORY.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendors', title: 'Add Blood Bank Supplier / Donor Org' })}
+        newLabel="+ Request Units"
+        onExport={() => alert('Exported blood bank inventory')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Total Packed Cells (PRBC)" value="63 Units" sub="4°C Monitored Refrigeration" color="#dc2626" />
@@ -588,7 +823,7 @@ export function BloodBankView() {
           </thead>
           <tbody>
             {BLOOD_INVENTORY.map(row => (
-              <tr key={row.group} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={row.group} onClick={() => handleBbClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: '13px' }}>{row.group}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.prbc} units</td>
                 <td style={{ padding: '10px 14px' }}>{row.ffp} units</td>
@@ -627,13 +862,42 @@ const LAB_ORDERS = [
   { id: 'LAB-8805', patient: 'Deepa Natarajan', uhid: 'MER-PAT-0087242', test: 'Urine Routine & Microalbumin', dept: 'Clinical Path', priority: 'Routine', tat: '30m', status: 'Sample Collected', result: 'Pending Analyzer' },
 ];
 
-export function LabDashboardView() {
+export function LabDashboardView({ onOpenDrawer, onOpenModal }) {
+  const handleLabClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.id} · ${row.test}`,
+      sub: `Patient: ${row.patient} (${row.uhid}) · Discipline: ${row.dept}`,
+      badges: [
+        { t: row.status, bg: row.status === 'Flagged Critical' ? '#fee2e2' : '#dcfce7', fg: row.status === 'Flagged Critical' ? '#991b1b' : '#15803d' },
+        { t: `TAT ${row.tat}`, bg: '#f1f5f9', fg: '#334155' }
+      ],
+      facts: [
+        { k: 'Accession ID', v: row.id, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID / MRN', v: row.uhid },
+        { k: 'Investigation', v: row.test },
+        { k: 'Discipline', v: row.dept },
+        { k: 'Turnaround Time', v: row.tat },
+        { k: 'Status', v: row.status },
+        { k: 'Laboratory Result', v: row.result }
+      ],
+      actions: [
+        { label: 'Validate & Sign Out Result', primary: true, on: () => alert(`Validated result for ${row.patient}`) },
+        { label: 'Trigger Clinical Recoll' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Laboratory Information System (LIS) Dashboard"
         subtitle="Automated analyzer interfaces, critical value verification, turnaround times, and specimen tracking"
         count={LAB_ORDERS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Diagnostic Lab Test Service' })}
+        newLabel="+ Order Lab Test"
+        onExport={() => alert('Exported LIS logs')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Specimens Processed Today" value="148" sub="Biochem, Hematology, Micro" color="#0284c7" />
@@ -657,7 +921,7 @@ export function LabDashboardView() {
           </thead>
           <tbody>
             {LAB_ORDERS.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={row.id} onClick={() => handleLabClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.id}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -697,13 +961,41 @@ const BILLING_RECORDS = [
   { inv: 'INV-2026-905', patient: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', adm: 'MER-ADM-0087229', total: 31000, tpa: 25000, patientShare: 6000, pharmacyClear: true, dischargeClear: true, status: 'Settled' },
 ];
 
-export function BillingView() {
+export function BillingView({ onOpenDrawer, onOpenModal }) {
+  const handleBillClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.inv} · ${row.patient}`,
+      sub: `Gross: ₹${row.total.toLocaleString()} · Insurance: ₹${row.tpa.toLocaleString()} · Due: ₹${row.patientShare.toLocaleString()}`,
+      badges: [
+        { t: row.status, bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
+      ],
+      facts: [
+        { k: 'Invoice Number', v: row.inv, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID / MRN', v: row.uhid },
+        { k: 'Admission Encounter', v: row.adm },
+        { k: 'Total Gross Amount', v: `₹${row.total.toLocaleString()}` },
+        { k: 'Insurance / TPA Share', v: `₹${row.tpa.toLocaleString()}` },
+        { k: 'Patient Co-Pay Balance', v: `₹${row.patientShare.toLocaleString()}` },
+        { k: 'Pharmacy Clearance', v: row.pharmacyClear ? 'Cleared' : 'Pending' },
+        { k: 'Financial Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Issue Discharge Gate Pass', primary: true, on: () => alert(`Gate pass issued for ${row.patient}`) },
+        { label: 'Collect Co-Pay Online' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Patient Billing, Invoicing & Clearance Desk"
         subtitle="Inpatient bed charges, pharmacy reconciliations, TPA co-pay settlement, and discharge financial gate passes"
         count={BILLING_RECORDS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Billable Item / Service' })}
+        newLabel="+ Generate Bill"
         onExport={() => alert('Exported financial ledger')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -729,7 +1021,7 @@ export function BillingView() {
           </thead>
           <tbody>
             {BILLING_RECORDS.map(row => (
-              <tr key={row.inv} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={row.inv} onClick={() => handleBillClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.inv}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -773,13 +1065,42 @@ const CLAIMS_DATA = [
   { claim: 'CLM-7704', patient: 'Sundaram K.', tpa: 'HDFC ERGO General', policy: 'HD-66290-FAM', sumInsured: 1000000, initialAuth: 60000, finalClaimed: 75000, status: 'Query Raised: Implant Invoice', turnaround: '4.2 hrs' },
 ];
 
-export function InsuranceView() {
+export function InsuranceView({ onOpenDrawer, onOpenModal }) {
+  const handleInsClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.claim} · ${row.patient}`,
+      sub: `${row.tpa} · Policy: ${row.policy}`,
+      badges: [
+        { t: row.status, bg: row.status.includes('Approved') ? '#dcfce7' : row.status.includes('Query') ? '#fee2e2' : '#fef3c7', fg: row.status.includes('Approved') ? '#15803d' : row.status.includes('Query') ? '#991b1b' : '#92400e' }
+      ],
+      facts: [
+        { k: 'Claim Identifier', v: row.claim, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'TPA / Insurer', v: row.tpa },
+        { k: 'Policy Number', v: row.policy },
+        { k: 'Sum Insured', v: `₹${row.sumInsured.toLocaleString()}` },
+        { k: 'Initial Auth', v: `₹${row.initialAuth.toLocaleString()}` },
+        { k: 'Final Claimed', v: `₹${row.finalClaimed.toLocaleString()}` },
+        { k: 'Turnaround Time', v: row.turnaround },
+        { k: 'Pre-auth Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Submit Enhancement', primary: true, on: () => alert(`Enhancement submitted for ${row.patient}`) },
+        { label: 'Upload Query Response' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Insurance & TPA Cashless Claims Desk"
         subtitle="Pre-authorization processing, final cashless enhancements, query resolutions, and settlement remittances"
         count={CLAIMS_DATA.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'insurers', title: 'Add Insurer / TPA Provider' })}
+        newLabel="+ Add Insurer"
+        onExport={() => alert('Exported claims desk data')}
       />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Claims Under Process" value="₹2,82,000" sub="4 Cashless IP Admissions" color="#0284c7" />
@@ -803,7 +1124,13 @@ export function InsuranceView() {
           </thead>
           <tbody>
             {CLAIMS_DATA.map(row => (
-              <tr key={row.claim} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.claim}
+                onClick={() => handleInsClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.claim}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
                 <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 600 }}>{row.tpa}</td>
@@ -835,17 +1162,48 @@ const SBAR_DATA = [
   { bed: 'Bed 202-B', patient: 'Kavitha Raman, 58F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Post-PTCA Day 2, femoral puncture site stable, dual antiplatelets active.', background: 'Presented with acute angina and hs-Troponin 53.2 pg/mL. Stented with drug-eluting stent in LAD.', assessment: 'No chest pain, puncture site clean. TPA final approval pending.', recommendation: 'Maintain telemetry monitoring until noon. Follow up with MediAssist coordinator.' },
 ];
 
-export function SbarView() {
+export function SbarView({ onOpenDrawer, onOpenModal }) {
+  const handleSbarClick = (item) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${item.bed} · ${item.patient}`,
+      sub: `Handover by: ${item.nurse}`,
+      badges: [{ t: 'SBAR Handover', bg: '#e0f2fe', fg: '#0369a1' }],
+      facts: [
+        { k: 'Bed Assignment', v: item.bed, b: true },
+        { k: 'Patient Name', v: item.patient, b: true },
+        { k: 'Handover Nurses', v: item.nurse },
+        { k: 'Situation (S)', v: item.situation },
+        { k: 'Background (B)', v: item.background },
+        { k: 'Assessment (A)', v: item.assessment },
+        { k: 'Recommendation (R)', v: item.recommendation }
+      ],
+      actions: [
+        { label: 'Acknowledge Shift Handover', primary: true, on: () => alert(`Handover acknowledged for ${item.patient}`) },
+        { label: 'Print SBAR Card' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Ward Clinical Handover · SBAR Protocol"
         subtitle="Situation, Background, Assessment, Recommendation shift-to-shift nurse and doctor handover cards"
         count={SBAR_DATA.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Add SBAR Shift Handover Note', text: 'Enter patient bed, current status, and key clinical handoff recommendations:' })}
+        newLabel="+ New Handover"
+        onExport={() => alert('Exported SBAR handover log')}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {SBAR_DATA.map((item, idx) => (
-          <div key={idx} style={cardStyle}>
+          <div
+            key={idx}
+            onClick={() => handleSbarClick(item)}
+            style={{ ...cardStyle, cursor: 'pointer', transition: 'border-color 0.15s, transform 0.1s' }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'oklch(0.5 0.1 200)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '12px' }}>
               <div>
                 <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f766e' }}>{item.bed}</span>
@@ -890,13 +1248,39 @@ const MLC_RECORDS = [
   { mlcNo: 'MLC-2026-040', date: '06 Sept 2026', patient: 'Ramesh V.', age: '52M', type: 'Suspected Accidental Poisoning', station: 'Jolarpettai PS', io: 'SI Murugan', injuryReport: 'Organophosphate compound smell, gastric lavage done', status: 'Discharged - Investigation Closed' },
 ];
 
-export function DeathMlcView() {
+export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
+  const handleMlcClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.mlcNo} · ${row.patient}`,
+      sub: `Incident: ${row.type} · Police Station: ${row.station}`,
+      badges: [{ t: row.status, bg: '#e0f2fe', fg: '#0369a1' }],
+      facts: [
+        { k: 'MLC Record No', v: row.mlcNo, b: true },
+        { k: 'Registration Date', v: row.date },
+        { k: 'Patient Details', v: `${row.patient} (${row.age})` },
+        { k: 'Incident Nature', v: row.type },
+        { k: 'Jurisdiction Station', v: row.station },
+        { k: 'Investigating Officer', v: row.io },
+        { k: 'Wound / Trauma Report', v: row.injuryReport },
+        { k: 'Statutory Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Issue Wound Certificate', primary: true, on: () => alert(`Wound certificate generated for ${row.mlcNo}`) },
+        { label: 'Print Police Intimation Form' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Medico-Legal Case (MLC) & Statutory Register"
         subtitle="Police intimations, accident wound certificates, post-mortem tracking, and statutory medico-legal compliance"
         count={MLC_RECORDS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Register Medico-Legal Case (MLC)', text: 'Specify incident details, patient identity, attending CMO, and police station intimation number:' })}
+        newLabel="+ Register MLC"
+        onExport={() => alert('Exported MLC register')}
       />
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -913,7 +1297,13 @@ export function DeathMlcView() {
           </thead>
           <tbody>
             {MLC_RECORDS.map(row => (
-              <tr key={row.mlcNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.mlcNo}
+                onClick={() => handleMlcClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>{row.mlcNo}</td>
                 <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.date}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient} ({row.age})</td>
@@ -945,13 +1335,36 @@ const AUDIT_LOGS = [
   { ts: '2026-09-16 09:15:30', user: 'Anitha Kumar', role: 'Nurse', action: 'EMAR_DRUG_ADMINISTRATION', resource: 'MER-PAT-0087227 (Insulin 8U)', ip: '10.240.15.19', outcome: 'Success' },
 ];
 
-export function AuditTrailView() {
+export function AuditTrailView({ onOpenDrawer, onOpenModal }) {
+  const handleAuditClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.action} · ${row.outcome}`,
+      sub: `Actor: ${row.user} (${row.role}) · Timestamp: ${row.ts}`,
+      badges: [{ t: row.outcome, bg: '#dcfce7', fg: '#15803d' }],
+      facts: [
+        { k: 'Timestamp (UTC+5:30)', v: row.ts, b: true },
+        { k: 'Authenticated User', v: row.user, b: true },
+        { k: 'User Role', v: row.role },
+        { k: 'Action Code', v: row.action },
+        { k: 'Target Resource', v: row.resource },
+        { k: 'Source IP Address', v: row.ip },
+        { k: 'Audit Outcome', v: row.outcome }
+      ],
+      actions: [
+        { label: 'Verify Audit Block Hash', primary: true, on: () => alert(`Audit signature verified: SHA256 matches immutable ledger`) },
+        { label: 'Download Signed Evidence' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="HIPAA & Digital Health Audit Trail"
         subtitle="Immutable electronic health record access logs, role-based authorization events, and modification entries"
         count={AUDIT_LOGS.length}
+        onExport={() => alert('Exported immutable audit trail')}
       />
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
@@ -968,7 +1381,13 @@ export function AuditTrailView() {
           </thead>
           <tbody>
             {AUDIT_LOGS.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={idx}
+                onClick={() => handleAuditClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{row.ts}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{row.user}</td>
                 <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#334155')}>{row.role}</span></td>
@@ -997,12 +1416,39 @@ const CLAIMS_RECORDS = [
   { id: 'CLM-2026-4406', patient: 'R. Murugan', uhid: 'MER-PAT-0087235', insurer: 'New India Assurance', tpa: 'MDIndia', auth: 'AUTH-NI-44109', requested: 115000, approved: 95000, paid: 0, liability: 20000, preauthStatus: 'Approved', status: 'Under Review' },
 ];
 
-export function ClaimsView() {
+export function ClaimsView({ onOpenDrawer, onOpenModal }) {
   const [filter, setFilter] = useState('All');
 
   const filtered = filter === 'All'
     ? CLAIMS_RECORDS
     : CLAIMS_RECORDS.filter(r => r.status === filter);
+
+  const handleClaimClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.id} · ${row.patient}`,
+      sub: `Insurer: ${row.insurer} · TPA: ${row.tpa}`,
+      badges: [
+        { t: row.status, bg: row.status === 'Settled' ? '#dcfce7' : row.status === 'Submitted' ? '#e0f2fe' : '#fef3c7', fg: row.status === 'Settled' ? '#15803d' : row.status === 'Submitted' ? '#0369a1' : '#92400e' }
+      ],
+      facts: [
+        { k: 'Claim Identifier', v: row.id, b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID / MRN', v: row.uhid },
+        { k: 'Insurance Company', v: row.insurer },
+        { k: 'TPA Network', v: row.tpa },
+        { k: 'Pre-auth Approval No', v: row.auth },
+        { k: 'Gross Claimed', v: `₹${row.requested.toLocaleString()}` },
+        { k: 'TPA Sanctioned', v: `₹${row.approved.toLocaleString()}` },
+        { k: 'Disallowed / Co-Pay Due', v: `₹${row.liability.toLocaleString()}` },
+        { k: 'Current Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Reconcile Remittance Batch', primary: true, on: () => alert(`Reconciled claim ${row.id}`) },
+        { label: 'File TPA Enhancement / Grievance' }
+      ]
+    });
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1010,6 +1456,8 @@ export function ClaimsView() {
         title="Insurance Claims Tracking & Settlement Desk"
         subtitle="End-to-end cashless preauthorisation claims, TPA adjudication, query handling, and remittances"
         count={filtered.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'insurers', title: 'Submit Insurance Claim Dossier' })}
+        newLabel="+ Submit Claim"
         onExport={() => alert('Exported claims tracker CSV')}
       />
 
@@ -1058,7 +1506,13 @@ export function ClaimsView() {
           </thead>
           <tbody>
             {filtered.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.id}
+                onClick={() => handleClaimClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.id}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
@@ -1100,12 +1554,34 @@ const REVENUE_TXNS = [
   { id: 'PAY-8805', patient: 'Vidal Health Remittance', bill: 'BAT-TPA-992', mode: 'RTGS Settlement', time: '08:40 AM', amount: 52000, status: 'Settled' },
 ];
 
-export function FinanceDashboardView() {
+export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
   const [modeFilter, setModeFilter] = useState('All');
 
   const filtered = modeFilter === 'All'
     ? REVENUE_TXNS
     : REVENUE_TXNS.filter(t => t.mode.toLowerCase().includes(modeFilter.toLowerCase()));
+
+  const handleTxnClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.id} · ₹${row.amount.toLocaleString()}`,
+      sub: `Payer: ${row.patient} · Tender: ${row.mode}`,
+      badges: [{ t: row.status, bg: '#dcfce7', fg: '#15803d' }],
+      facts: [
+        { k: 'Payment Reference', v: row.id, b: true },
+        { k: 'Payer / Patient', v: row.patient, b: true },
+        { k: 'Linked Bill / Batch', v: row.bill },
+        { k: 'Tender Mode', v: row.mode },
+        { k: 'Transaction Time', v: row.time },
+        { k: 'Collected Amount', v: `₹${row.amount.toLocaleString()}` },
+        { k: 'Settlement Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Print Official Receipt', primary: true, on: () => alert(`Printed payment receipt for ${row.id}`) },
+        { label: 'Generate Bank Deposit Slip' }
+      ]
+    });
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1113,6 +1589,8 @@ export function FinanceDashboardView() {
         title="Hospital Finance Dashboard & Collections Journal"
         subtitle="Direct cash collection, TPA electronic remittances, patient receivables, and daily daybook ledger"
         count={filtered.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'taxes', title: 'Add Fiscal / Tax Rule to Ledger' })}
+        newLabel="+ Add Ledger Item"
         onExport={() => alert('Exported financial daybook')}
       />
 
@@ -1160,7 +1638,13 @@ export function FinanceDashboardView() {
           </thead>
           <tbody>
             {filtered.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.id}
+                onClick={() => handleTxnClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.id}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.bill}</td>
@@ -1193,13 +1677,38 @@ const TAX_RULES = [
   { code: 'GST-18-EXEC', name: 'Executive Preventive Health Check', cgst: 9, sgst: 9, igst: 18, hsn: 'SAC 9983', category: 'Outpatient Wellness Screening', status: 'Active', inclusive: false },
 ];
 
-export function TaxConfigView() {
+export function TaxConfigView({ onOpenDrawer, onOpenModal }) {
+  const handleTaxClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.code} · ${row.name}`,
+      sub: `${row.hsn} · Category: ${row.category}`,
+      badges: [{ t: row.status, bg: '#dcfce7', fg: '#15803d' }],
+      facts: [
+        { k: 'Statutory Tax Code', v: row.code, b: true },
+        { k: 'Rule Description', v: row.name, b: true },
+        { k: 'HSN / SAC Code', v: row.hsn },
+        { k: 'Service Category', v: row.category },
+        { k: 'Central CGST', v: `${row.cgst}%` },
+        { k: 'State SGST', v: `${row.sgst}%` },
+        { k: 'Combined IGST', v: `${row.igst}%` },
+        { k: 'Statutory Rule Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Edit Tax Slab Rule', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'create', coll: 'taxes', title: 'Update Tax Schedule' }) },
+        { label: 'Verify SAC Exemption Expiry' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Central GST & Statutory Tax Configuration"
         subtitle="Centralised taxation engine configured for healthcare clinical exemptions (SAC 9993), pharmacy, and implants"
         count={TAX_RULES.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'taxes', title: 'Add Central GST Rule / SAC Exemption' })}
+        newLabel="+ Add Tax Rule"
         onExport={() => alert('Exported tax rules')}
       />
 
@@ -1241,7 +1750,13 @@ export function TaxConfigView() {
           </thead>
           <tbody>
             {TAX_RULES.map(row => (
-              <tr key={row.code} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.code}
+                onClick={() => handleTaxClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.code}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.name}</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{row.hsn}</td>
@@ -1268,7 +1783,7 @@ export function TaxConfigView() {
 // -----------------------------------------------------------------------------
 // 17. EXPANDED DATA DOMAIN VIEWS (data-patient, data-ops, data-clinical, data-financial, data-quality, forecasting, scenario, beforeafter)
 // -----------------------------------------------------------------------------
-export function DataDomainView({ domain = 'Patient' }) {
+export function DataDomainView({ domain = 'Patient', onOpenDrawer, onOpenModal }) {
   const d = domain.toLowerCase();
   const isPatient = d.includes('patient');
   const isOps = d.includes('ops') || d.includes('operation');
@@ -1338,6 +1853,27 @@ export function DataDomainView({ domain = 'Patient' }) {
     { c1: 'KPI-CRIT-ACK', c2: 'Critical Lab Value Escalation', c3: 'Patient Safety', c4: 'Before: 28 mins → After: 6.4 mins', c5: 'Zero Unacknowledged Values', c6: 'Diagnostic Alert Engine', c7: 'Benchmark Achieved' },
   ];
 
+  const handleRowClick = (r) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${r.c1} · ${r.c2}`,
+      sub: `${r.c3} · Classification: ${r.c5}`,
+      badges: [{ t: r.c7, bg: '#f0fdf4', fg: '#166534' }],
+      facts: [
+        { k: 'Record / Code', v: r.c1, b: true },
+        { k: 'Entity / Description', v: r.c2, b: true },
+        { k: 'Details / Capacity', v: r.c3 },
+        { k: 'Primary Metric', v: r.c4 },
+        { k: 'Reference Standard', v: r.c5 },
+        { k: 'Owner / Station', v: r.c6 },
+        { k: 'Status / Disposition', v: r.c7 }
+      ],
+      actions: [
+        { label: 'Export Table Slice', primary: true, on: () => alert(`Exported slice for ${r.c1}`) }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
@@ -1361,7 +1897,13 @@ export function DataDomainView({ domain = 'Patient' }) {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={i}
+                onClick={() => handleRowClick(r)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{r.c1}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{r.c2}</td>
                 <td style={{ padding: '10px 14px' }}>{r.c3}</td>
@@ -1387,13 +1929,37 @@ const EXCEPTIONS = [
   { id: 'EXP-103', type: 'Formulary Substitution', desc: 'Brand substitution for Cefixime 200mg due to pharmacy stockout', physician: 'S. Devi (Pharmacy)', reason: 'Equivalent generic bio-availability', status: 'Documented' },
 ];
 
-export function ExceptionsView() {
+export function ExceptionsView({ onOpenDrawer, onOpenModal }) {
+  const handleExClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.id} · ${row.type}`,
+      sub: `Authorized Provider: ${row.physician}`,
+      badges: [{ t: row.status, bg: '#dcfce7', fg: '#15803d' }],
+      facts: [
+        { k: 'Exception Code', v: row.id, b: true },
+        { k: 'Exception Category', v: row.type },
+        { k: 'Clinical Exception Description', v: row.desc },
+        { k: 'Authorized Provider', v: row.physician },
+        { k: 'Clinical Rationale / Protocol', v: row.reason },
+        { k: 'Compliance Audit Status', v: row.status }
+      ],
+      actions: [
+        { label: 'Sign Compliance Clearance', primary: true, on: () => alert(`Cleared exception ${row.id}`) },
+        { label: 'Refer to Clinical Ethics Committee' }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Clinical & Administrative Exception Register"
         subtitle="Monitored clinical overrides, drug formulary substitutions, and financial discount approvals"
         count={EXCEPTIONS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Raise Clinical / Operational Exception', text: 'Detail the clinical override justification, patient UHID, and supervising consultant sign-off:' })}
+        newLabel="+ Raise Exception"
+        onExport={() => alert('Exported exceptions register')}
       />
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -1409,7 +1975,13 @@ export function ExceptionsView() {
           </thead>
           <tbody>
             {EXCEPTIONS.map(row => (
-              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr
+                key={row.id}
+                onClick={() => handleExClick(row)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.id}</td>
                 <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{row.type}</span></td>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b' }}>{row.desc}</td>
@@ -1424,3 +1996,648 @@ export function ExceptionsView() {
     </div>
   );
 }
+
+// ----------------------------------------------------
+// PHARMACY & SUPPLY CHAIN VIEWS
+// ----------------------------------------------------
+
+export const DUMMY_PRESCRIPTIONS = [
+  { id: 'RX-2026-0041', patientId: 'MER-2026-007733', patient: 'Murugan Selvam', drug: 'Aspirin 75 mg + Clopidogrel 75 mg', dose: '75 mg PO OD', days: '30 d · 60 tab', doctor: 'Dr. Priya Venkatesh', checks: ['Clear · antiplatelet protocol verified'], verifiedBy: 'S. Devi, RPh', status: 'Prescribed' },
+  { id: 'RX-2026-0042', patientId: 'MER-2026-008421', patient: 'Kavitha Raman', drug: 'Enoxaparin Injection 40 mg', dose: '40 mg SC OD', days: '5 d · 5 amp', doctor: 'Dr. Arjun Menon', checks: ['Clear · renal function normal'], verifiedBy: 'S. Devi, RPh', status: 'Verified' },
+  { id: 'RX-2026-0043', patientId: 'MER-2026-009104', patient: 'Fathima Begum', drug: 'Meropenem Injection 1 g', dose: '1 g IV TDS', days: '7 d · 21 vial', doctor: 'Dr. Rajesh Kannan', checks: ['⚠ High-alert antibiotic'], verifiedBy: '—', status: 'Stock-out' },
+  { id: 'RX-2026-0044', patientId: 'MER-2026-005098', patient: 'Meenakshi Sundaram', drug: 'Ondansetron 4 mg Tab', dose: '4 mg PO BD', days: '3 d · 6 tab', doctor: 'Dr. Priya Venkatesh', checks: ['Clear · pre-chemo antiemetic'], verifiedBy: 'K. Meena, RPh', status: 'Dispensed' },
+  { id: 'RX-2026-0045', patientId: 'MER-2026-003319', patient: 'R. Sundar', drug: 'Atorvastatin 40 mg', dose: '40 mg PO HS', days: '30 d · 30 tab', doctor: 'Dr. Arjun Menon', checks: ['Clear · lipid management'], verifiedBy: 'S. Devi, RPh', status: 'Prescribed' },
+  { id: 'RX-2026-0046', patientId: 'MER-2026-001290', patient: 'Anitha Kumar', drug: 'Paracetamol 650 mg', dose: '650 mg PO QDS', days: '3 d · 12 tab', doctor: 'Dr. Sanjay Gupta', checks: ['Clear · PRN fever'], verifiedBy: 'K. Meena, RPh', status: 'Dispensed' },
+];
+
+export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
+  const [filter, setFilter] = useState('All');
+  const filtered = DUMMY_PRESCRIPTIONS.filter(r => filter === 'All' || r.status === filter);
+
+  const handleRowClick = (r) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `Rx: ${r.drug}`,
+      sub: `${r.id} · ${r.patient} · Prescribed by ${r.doctor}`,
+      badges: [{ t: r.status, bg: r.status === 'Dispensed' ? '#dcfce7' : r.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', fg: r.status === 'Dispensed' ? '#15803d' : r.status === 'Stock-out' ? '#b91c1c' : '#3730a3' }],
+      facts: [
+        { k: 'Dosage & Route', v: r.dose },
+        { k: 'Duration & Quantity', v: r.days },
+        { k: 'Safety & Interaction', v: r.checks[0] },
+        { k: 'Verification', v: r.verifiedBy },
+        { k: 'Patient UHID', v: r.patientId }
+      ],
+      actions: [
+        { label: 'Verify & Dispense', primary: true, on: () => alert(`Pharmacist verification confirmed for ${r.id}`) },
+        { label: 'Print MAR Label', on: () => alert(`MAR label queued for ${r.patient}`) }
+      ]
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Prescriptions & Pharmacy Orders"
+        subtitle="Prescription → pharmacist verification (allergy · interaction · controlled-drug checks) → dispense from mapped stock item with batch & expiry → MAR rows"
+        count={DUMMY_PRESCRIPTIONS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'prescription', title: 'New Prescription Entry' })}
+        newLabel="+ Prescribe Medication"
+        onExport={() => alert('Exported prescriptions CSV')}
+      />
+
+      {/* Stats row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
+        {[
+          ['Awaiting verification', '4', '#d97706'],
+          ['Verified · to dispense', '12', '#2563eb'],
+          ['Stock-out', '1', '#dc2626'],
+          ['Safety flags open', '2', '#dc2626'],
+          ['Dispensed today', '38', '#16a34a'],
+        ].map(([k, v, c]) => (
+          <div key={k} style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>{k}</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: c, marginTop: '2px' }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {['All', 'Prescribed', 'Verified', 'Dispensed', 'Stock-out'].map(st => (
+          <button
+            key={st}
+            type="button"
+            onClick={() => setFilter(st)}
+            style={{
+              padding: '4px 12px', borderRadius: '12px', fontSize: '11.5px', border: '1px solid #e3e6e8',
+              background: filter === st ? '#15181b' : '#fff', color: filter === st ? '#fff' : '#52585e', cursor: 'pointer'
+            }}
+          >
+            {st}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Rx ID</th>
+              <th style={{ padding: '10px 14px' }}>Patient</th>
+              <th style={{ padding: '10px 14px' }}>Drug</th>
+              <th style={{ padding: '10px 14px' }}>Dose · Route · Freq</th>
+              <th style={{ padding: '10px 14px' }}>Days · Qty</th>
+              <th style={{ padding: '10px 14px' }}>Prescriber</th>
+              <th style={{ padding: '10px 14px' }}>Safety</th>
+              <th style={{ padding: '10px 14px' }}>Verified By</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(r => (
+              <tr
+                key={r.id}
+                onClick={() => handleRowClick(r)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600 }}>{r.id}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{r.patient}</td>
+                <td style={{ padding: '10px 14px' }}>{r.drug}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{r.dose}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{r.days}</td>
+                <td style={{ padding: '10px 14px' }}>{r.doctor}</td>
+                <td style={{ padding: '10px 14px', color: r.checks[0].includes('⚠') ? '#dc2626' : '#15803d' }}>{r.checks[0]}</td>
+                <td style={{ padding: '10px 14px' }}>{r.verifiedBy}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(r.status === 'Dispensed' ? '#dcfce7' : r.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', r.status === 'Dispensed' ? '#15803d' : r.status === 'Stock-out' ? '#b91c1c' : '#3730a3')}>
+                    {r.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export const DUMMY_DRUGS = [
+  { id: 'DRUG-01', generic: 'Paracetamol', brand: 'Dolo 650', form: 'Tablet', strength: '650 mg', schedule: 'OTC', route: 'Oral', stockItem: 'TAB-PAR-650 (2,400 tab)', highAlert: false, interactions: 'None major', active: true },
+  { id: 'DRUG-02', generic: 'Enoxaparin Sodium', brand: 'Clexane', form: 'Injection', strength: '40 mg / 0.4 mL', schedule: 'Sch H', route: 'SC', stockItem: 'INJ-ENOX-40 (180 amp)', highAlert: true, interactions: 'Heparin, Warfarin, NSAIDs', active: true },
+  { id: 'DRUG-03', generic: 'Meropenem', brand: 'Meronem', form: 'Injection', strength: '1 g', schedule: 'Sch H1', route: 'IV', stockItem: 'INJ-MERO-1G (12 vial)', highAlert: true, interactions: 'Valproic acid', active: true },
+  { id: 'DRUG-04', generic: 'Atorvastatin', brand: 'Atorva 40', form: 'Tablet', strength: '40 mg', schedule: 'Sch H', route: 'Oral', stockItem: 'TAB-ATOR-40 (850 tab)', highAlert: false, interactions: 'Clarithromycin', active: true },
+  { id: 'DRUG-05', generic: 'Tramadol HCl', brand: 'Tramazac', form: 'Injection', strength: '50 mg / mL', schedule: 'Sch X', route: 'IV/IM', stockItem: 'INJ-TRAM-50 (45 amp)', highAlert: true, interactions: 'SSRIs, MAOIs, CNS depressants', active: true },
+  { id: 'DRUG-06', generic: 'Metformin HCl', brand: 'Glycomet 500', form: 'Tablet', strength: '500 mg', schedule: 'Sch H', route: 'Oral', stockItem: 'TAB-MET-500 (1,900 tab)', highAlert: false, interactions: 'Iodinated contrast media', active: true },
+];
+
+export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
+  const [filter, setFilter] = useState('All');
+  const filtered = DUMMY_DRUGS.filter(d => filter === 'All' || d.form === filter);
+
+  const handleRowClick = (d) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${d.generic} (${d.brand})`,
+      sub: `${d.id} · ${d.form} ${d.strength} · Schedule ${d.schedule}`,
+      badges: [{ t: d.active ? 'Active Formulary' : 'Inactive', bg: '#dcfce7', fg: '#15803d' }, ...(d.highAlert ? [{ t: 'High Alert', bg: '#fee2e2', fg: '#b91c1c' }] : [])],
+      facts: [
+        { k: 'Route', v: d.route },
+        { k: 'Mapped Inventory Item', v: d.stockItem },
+        { k: 'Schedule Classification', v: d.schedule },
+        { k: 'Known Drug Interactions', v: d.interactions },
+      ],
+      actions: [
+        { label: 'Check Live Inventory', primary: true, on: () => alert(`Central stock check for ${d.generic}: 420 units available`) },
+        { label: 'Edit Formulary Parameters', on: () => onOpenModal && onOpenModal({ kind: 'reason', title: 'Edit Drug Master', text: `Modify formulation or interaction alerts for ${d.generic}:` }) }
+      ]
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Drug Master & Formulary Catalog"
+        subtitle="142 formulary entries · generic, brand, form, strength, schedule (H / OTC / X), route, mapped inventory item, high-alert flag, interaction pairs"
+        count={DUMMY_DRUGS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drug', title: 'Add Formulary Drug Master' })}
+        newLabel="+ Add Formulary Drug"
+        onExport={() => alert('Exported drug formulary')}
+      />
+
+      {/* Stats row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
+        {[
+          ['Formulary entries', '142', '#0f766e'],
+          ['High-alert medications', '18', '#dc2626'],
+          ['Controlled (Sch X)', '6', '#d97706'],
+          ['Unmapped to stock', '2', '#dc2626'],
+        ].map(([k, v, c]) => (
+          <div key={k} style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>{k}</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: c, marginTop: '2px' }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>ID</th>
+              <th style={{ padding: '10px 14px' }}>Generic</th>
+              <th style={{ padding: '10px 14px' }}>Brand</th>
+              <th style={{ padding: '10px 14px' }}>Form · Strength</th>
+              <th style={{ padding: '10px 14px' }}>Schedule</th>
+              <th style={{ padding: '10px 14px' }}>Route</th>
+              <th style={{ padding: '10px 14px' }}>Stock Item</th>
+              <th style={{ padding: '10px 14px' }}>High Alert</th>
+              <th style={{ padding: '10px 14px' }}>Interactions</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(d => (
+              <tr
+                key={d.id}
+                onClick={() => handleRowClick(d)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{d.id}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{d.generic}</td>
+                <td style={{ padding: '10px 14px' }}>{d.brand}</td>
+                <td style={{ padding: '10px 14px' }}>{d.form} · {d.strength}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{d.schedule}</span></td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{d.route}</td>
+                <td style={{ padding: '10px 14px', fontSize: '11.5px', color: '#0f766e' }}>{d.stockItem}</td>
+                <td style={{ padding: '10px 14px' }}>{d.highAlert ? <span style={pillStyle('#fee2e2', '#b91c1c')}>High alert</span> : '—'}</td>
+                <td style={{ padding: '10px 14px', color: '#52585e' }}>{d.interactions}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Active</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export const DUMMY_PHARMACY_TXNS = [
+  { id: 'PH-91100', patient: 'Fathima Begum (O-207)', drug: 'Enoxaparin 40 mg', qty: 2, ward: 'Ortho Ward', time: '11:18', status: 'Stock-out' },
+  { id: 'PH-91099', patient: 'Murugan Selvam (C-104)', drug: 'Aspirin 75 mg', qty: 30, ward: 'Cardiac Ward', time: '11:05', status: 'Dispensed' },
+  { id: 'PH-91098', patient: 'Kavitha Raman (C-102)', drug: 'Atorvastatin 40 mg', qty: 15, ward: 'Cardiac Ward', time: '10:48', status: 'Dispensed' },
+  { id: 'PH-91097', patient: 'Ganesan T (S-301)', drug: 'Tramadol 50 mg Inj', qty: 2, ward: 'Surgical ICU', time: '10:30', status: 'Pending' },
+  { id: 'PH-91096', patient: 'Meenakshi Sundaram (O-205)', drug: 'Ondansetron 4 mg', qty: 6, ward: 'Oncology', time: '10:12', status: 'Dispensed' },
+  { id: 'PH-91095', patient: 'Anitha Kumar (M-101)', drug: 'Paracetamol 650 mg', qty: 10, ward: 'Medical Ward', time: '09:50', status: 'Returned' },
+];
+
+export function PharmacyView({ onOpenDrawer, onOpenModal }) {
+  const [filter, setFilter] = useState('All');
+  const filtered = DUMMY_PHARMACY_TXNS.filter(t => filter === 'All' || t.status === filter);
+
+  const handleRowClick = (p) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${p.drug} · ${p.patient}`,
+      sub: `${p.id} · ${p.ward} · Recorded ${p.time}`,
+      badges: [{ t: p.status, bg: p.status === 'Dispensed' ? '#dcfce7' : p.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', fg: p.status === 'Dispensed' ? '#15803d' : p.status === 'Stock-out' ? '#b91c1c' : '#3730a3' }],
+      facts: [
+        { k: 'Quantity Requested', v: `${p.qty} units` },
+        { k: 'Ward Location', v: p.ward },
+        { k: 'Batch & Expiry', v: `B${p.id.slice(-4)} · 03/2027` },
+        { k: 'Discharge Dependency', v: p.status === 'Stock-out' ? 'BLOCKING DISCHARGE · Transfer required' : 'Cleared' }
+      ],
+      actions: p.status === 'Stock-out' ? [
+        { label: 'Transfer from Central Pharmacy', primary: true, on: () => alert(`Initiated rapid stock transfer for ${p.drug} to ${p.ward}`) }
+      ] : [
+        { label: 'Dispense & Deduct Stock', primary: true, on: () => alert(`Dispensed transaction ${p.id}`) }
+      ]
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Central Pharmacy Operations"
+        subtitle="Discharge medication clearance and stock-outs feed the discharge dependency graph directly"
+        count={DUMMY_PHARMACY_TXNS.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'pharmacy', title: 'New Pharmacy Dispense Record' })}
+        newLabel="+ Dispense Order"
+        onExport={() => alert('Exported pharmacy transactions')}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Txn ID</th>
+              <th style={{ padding: '10px 14px' }}>Patient</th>
+              <th style={{ padding: '10px 14px' }}>Drug</th>
+              <th style={{ padding: '10px 14px' }}>Qty</th>
+              <th style={{ padding: '10px 14px' }}>Ward</th>
+              <th style={{ padding: '10px 14px' }}>Time</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(p => (
+              <tr
+                key={p.id}
+                onClick={() => handleRowClick(p)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600 }}>{p.id}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{p.patient}</td>
+                <td style={{ padding: '10px 14px' }}>{p.drug}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p.qty}</td>
+                <td style={{ padding: '10px 14px' }}>{p.ward}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p.time}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(p.status === 'Dispensed' ? '#dcfce7' : p.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', p.status === 'Dispensed' ? '#15803d' : p.status === 'Stock-out' ? '#b91c1c' : '#3730a3')}>
+                    {p.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// PEOPLE VIEWS
+// ----------------------------------------------------
+
+export const DUMMY_HR_QUERIES = [
+  { time: '11:22', employee: 'Anitha Kumar', question: 'How many casual leave days do I have left?', source: 'HR Leave Policy v5.0 §3 + HRMS', conf: '98%', outcome: 'Answered · 4 days' },
+  { time: '11:04', employee: 'R. Sundar', question: 'What is the new policy for cashless robotic surgery packages?', source: 'No authoritative source', conf: '42%', outcome: 'Refused · routed to Insurance Supervisor' },
+  { time: '10:51', employee: 'K. Meena', question: 'When is September payroll credited?', source: 'Payroll FAQ v2.1', conf: '96%', outcome: 'Answered · 30 Sep' },
+  { time: '10:25', employee: 'S. Devi', question: 'How do I replace my ID card?', source: 'Facility Handbook v1.2', conf: '93%', outcome: 'Answered · ticket raised' },
+  { time: '09:56', employee: 'P. Velu', question: 'Night shift allowance rate?', source: 'HR Leave Policy v5.0 §7', conf: '95%', outcome: 'Answered' },
+  { time: '09:05', employee: 'New joiner · Ortho', question: 'Onboarding checklist for nurses', source: 'Onboarding SOP v1.4', conf: '97%', outcome: 'Answered · 12 items' },
+];
+
+export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
+  const handleRowClick = (q) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `HR Query · ${q.employee}`,
+      sub: `Submitted at ${q.time} · Confidence ${q.conf}`,
+      badges: [{ t: q.conf.startsWith('4') ? 'Escalated' : 'AI Resolved', bg: q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', fg: q.conf.startsWith('4') ? '#b91c1c' : '#15803d' }],
+      facts: [
+        { k: 'Employee', v: q.employee },
+        { k: 'Natural Language Query', v: q.question },
+        { k: 'Knowledge Source Citation', v: q.source },
+        { k: 'Agent Outcome', v: q.outcome }
+      ],
+      actions: [
+        { label: 'View Employee HR Record', primary: true, on: () => alert(`Navigating to HR record of ${q.employee}`) },
+        { label: 'Adjust Leave Balance', on: () => onOpenModal && onOpenModal({ kind: 'reason', title: 'HR Exception Override', text: `Adjust policy or leave entitlement for ${q.employee}:` }) }
+      ]
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="HR & Employee Service"
+        subtitle="Employee Service Agent answers from governed HR knowledge (Leave Policy v5.0, Payroll FAQ). Low-confidence queries route to HR leads."
+        count={DUMMY_HR_QUERIES.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Ask Employee Service Copilot', text: 'Enter staff HR question (leave, benefits, allowances):' })}
+        newLabel="+ Submit HR Query"
+        onExport={() => alert('Exported HR query logs')}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Time</th>
+              <th style={{ padding: '10px 14px' }}>Employee</th>
+              <th style={{ padding: '10px 14px' }}>Question</th>
+              <th style={{ padding: '10px 14px' }}>Source Citation</th>
+              <th style={{ padding: '10px 14px' }}>Confidence</th>
+              <th style={{ padding: '10px 14px' }}>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DUMMY_HR_QUERIES.map((q, i) => (
+              <tr
+                key={i}
+                onClick={() => handleRowClick(q)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
+                <td style={{ padding: '10px 14px' }}>{q.question}</td>
+                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
+                    {q.outcome}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// ADMINISTRATION VIEWS
+// ----------------------------------------------------
+
+export const DUMMY_NOTIFICATIONS = [
+  { id: 'NOTIF-01', time: '11:21', pri: 'Critical', title: 'Critical lab result · Potassium 6.2 mmol/L', detail: 'Kavitha Raman (C-102) · Acknowledge timer 15 m running', src: 'LIS Connector', unread: true },
+  { id: 'NOTIF-02', time: '11:18', pri: 'High', title: 'Pharmacy stock-out blocking discharge', detail: 'Enoxaparin 40 mg for Fathima Begum (O-207) · Central transfer queued', src: 'Discharge Orchestration Agent', unread: true },
+  { id: 'NOTIF-03', time: '11:15', pri: 'High', title: 'Doctor approval required for CABG summary', detail: 'Murugan Selvam (C-104) · Draft ready for Dr. Priya Venkatesh', src: 'Discharge Summary Agent', unread: true },
+  { id: 'NOTIF-04', time: '11:02', pri: 'Medium', title: 'Preauth query raised by Star Health', detail: 'Additional operative notes requested for Ganesan T', src: 'Insurance Preauth Agent', unread: true },
+  { id: 'NOTIF-05', time: '10:45', pri: 'Medium', title: 'Consultant leave notice', detail: 'Dr. Arjun Menon requested leave for Mon 22 Sep · 14 appointments affected', src: 'Consultant Scheduling', unread: true },
+  { id: 'NOTIF-06', time: '10:20', pri: 'Low', title: 'Bed cleaning completed · Ready for admit', detail: 'Room 304, Bed B released by Housekeeping team', src: 'Facilities & Housekeeping', unread: false },
+];
+
+export function NotificationsView({ onOpenDrawer, onOpenModal }) {
+  const handleRowClick = (n) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: n.title,
+      sub: `${n.id} · Received ${n.time} · Source: ${n.src}`,
+      badges: [{ t: n.pri, bg: n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : '#e0e7ff', fg: n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : '#3730a3' }],
+      facts: [
+        { k: 'Notification Message', v: n.detail },
+        { k: 'Source System', v: n.src },
+        { k: 'Priority Level', v: n.pri },
+        { k: 'Read Status', v: n.unread ? 'Unread · High Attention' : 'Acknowledged' }
+      ],
+      actions: [
+        { label: 'Mark as Acknowledged', primary: true, on: () => alert(`Notification ${n.id} acknowledged`) },
+        { label: 'Deep Link to Workflow', on: () => alert(`Opening correlated workflow for ${n.id}`) }
+      ]
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Hospital Notification Centre"
+        subtitle="26 unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations"
+        count={26}
+        onNew={() => alert('All notifications marked as read')}
+        newLabel="Mark All Read"
+        onExport={() => alert('Exported notifications log')}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Time</th>
+              <th style={{ padding: '10px 14px' }}>Priority</th>
+              <th style={{ padding: '10px 14px' }}>Title</th>
+              <th style={{ padding: '10px 14px' }}>Clinical / Operational Details</th>
+              <th style={{ padding: '10px 14px' }}>Source Service</th>
+              <th style={{ padding: '10px 14px' }}>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DUMMY_NOTIFICATIONS.map(n => (
+              <tr
+                key={n.id}
+                onClick={() => handleRowClick(n)}
+                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent'}
+              >
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{n.time}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : '#f1f5f9', n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : '#475569')}>
+                    {n.pri}
+                  </span>
+                </td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{n.title}</td>
+                <td style={{ padding: '10px 14px', color: '#334155' }}>{n.detail}</td>
+                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{n.src}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
+                    {n.unread ? 'Unread' : 'Read'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export const DUMMY_CONFIG = [
+  { setting: 'Refusal confidence threshold', value: '70%', scope: 'All AI Agents', changed: '02 Sep 2026', by: 'AI Governance Committee' },
+  { setting: 'Critical-value acknowledgement timer', value: '15 minutes → escalate to HoD', scope: 'Laboratory', changed: '15 Aug 2026', by: 'Medical Director' },
+  { setting: 'Discharge turnaround target', value: '3 h from doctor intent', scope: 'Operations', changed: '01 Jul 2026', by: 'COO Office' },
+  { setting: 'Estimate variance alert threshold', value: '> 5% notify · > 10% counselling mandatory', scope: 'Billing', changed: '01 Apr 2026', by: 'Finance Head' },
+  { setting: 'Default patient language', value: 'Tamil (fallback English)', scope: 'Channels & Messaging', changed: '01 Jul 2026', by: 'Patient Experience' },
+  { setting: 'PHI masking outside care team', value: 'Enabled (Zero-knowledge redaction)', scope: 'Policy Gateway', changed: '01 Jul 2026', by: 'CISO Office' },
+  { setting: 'Conversation retention', value: '0 days (audit metadata 90 days)', scope: 'Agent Memory', changed: '01 Jul 2026', by: 'CISO Office' },
+];
+
+export function ConfigurationView({ onOpenDrawer, onOpenModal }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="System & Platform Configuration"
+        subtitle="Platform settings · changes are fully audited and require AI Administrator role"
+        count={DUMMY_CONFIG.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Modify System Setting', text: 'Specify configuration key, target value, and governance justification:' })}
+        newLabel="+ Edit Config"
+        onExport={() => alert('Exported system config')}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Setting Key</th>
+              <th style={{ padding: '10px 14px' }}>Current Value</th>
+              <th style={{ padding: '10px 14px' }}>Scope</th>
+              <th style={{ padding: '10px 14px' }}>Last Changed</th>
+              <th style={{ padding: '10px 14px' }}>Authorized By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DUMMY_CONFIG.map((c, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{c.setting}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#0f766e', fontWeight: 600 }}>{c.value}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{c.scope}</span></td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{c.changed}</td>
+                <td style={{ padding: '10px 14px' }}>{c.by}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export const DUMMY_REPORTS = [
+  { report: 'Daily Operations Census Summary', domain: 'Operations', freq: 'Daily 06:00', lastRun: '12 Sep 06:00', owner: 'COO Office', status: 'Ready' },
+  { report: 'Discharge Turnaround by Blocker Category', domain: 'Operations', freq: 'Daily 06:00', lastRun: '12 Sep 06:00', owner: 'Operations Desk', status: 'Ready' },
+  { report: 'Preauth First-Pass Acceptance & Shortfall Analysis', domain: 'Finance', freq: 'Weekly', lastRun: '08 Sep 18:00', owner: 'Insurance Desk', status: 'Ready' },
+  { report: 'Estimate Variance > 10% Clinical Audit', domain: 'Finance', freq: 'Weekly', lastRun: '08 Sep 18:00', owner: 'Finance Lead', status: 'Ready' },
+  { report: 'Critical-Value Acknowledgement TAT (SLA 15m)', domain: 'Quality', freq: 'Weekly', lastRun: '08 Sep 18:00', owner: 'Quality Head', status: 'Ready' },
+  { report: 'AI Measured Value & ROI Board Presentation', domain: 'AI Platform', freq: 'Monthly', lastRun: '01 Sep 09:00', owner: 'AI Programme Lead', status: 'Ready' },
+  { report: 'NABH Clinical Documentation Compliance Audit', domain: 'Quality', freq: 'Quarterly', lastRun: '01 Jul 09:00', owner: 'Medical Director', status: 'Ready' },
+];
+
+export function ReportsView({ onOpenDrawer, onOpenModal }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Reports & Statutory Registers"
+        subtitle="Scheduled and on-demand regulatory reports built from the shared clinical data foundation"
+        count={DUMMY_REPORTS.length}
+        onNew={() => alert('Triggering ad-hoc report compilation')}
+        newLabel="+ Run New Report"
+        onExport={() => alert('Exported reports register')}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Report Name</th>
+              <th style={{ padding: '10px 14px' }}>Domain</th>
+              <th style={{ padding: '10px 14px' }}>Frequency</th>
+              <th style={{ padding: '10px 14px' }}>Last Run</th>
+              <th style={{ padding: '10px 14px' }}>Owner</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DUMMY_REPORTS.map((r, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{r.report}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{r.domain}</span></td>
+                <td style={{ padding: '10px 14px' }}>{r.freq}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{r.lastRun}</td>
+                <td style={{ padding: '10px 14px' }}>{r.owner}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {r.status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// GENERIC ADMIN / INTEGRATION MASTER VIEW
+// ----------------------------------------------------
+
+export function AdminSystemView({ module = 'Integration Architecture', onOpenDrawer, onOpenModal }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title={module}
+        subtitle="Governed enterprise infrastructure · connected live to Lakehouse data foundation"
+        count={8}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: `Configure ${module}`, text: `Modify settings or credentials for ${module}:` })}
+        newLabel="+ Add Configuration"
+        onExport={() => alert(`Exported ${module} configuration`)}
+      />
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Component</th>
+              <th style={{ padding: '10px 14px' }}>Protocol</th>
+              <th style={{ padding: '10px 14px' }}>Direction</th>
+              <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
+              <th style={{ padding: '10px 14px' }}>Fallback Mode</th>
+              <th style={{ padding: '10px 14px' }}>Health</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ['HMS (Hospital Management System)', 'REST / HL7 v2', 'Bidirectional', 'Real-time (WebSocket)', 'Local SQLite queue', 'Healthy'],
+              ['EMR Clinical Progress Notes', 'FHIR R4 / JSON', 'Read · Draft write', '1 min pull', 'Clinician direct input', 'Healthy'],
+              ['LIS (Laboratory Information System)', 'ASTM 1394 / TCP', 'Read-only', 'Real-time analyzer push', 'Manual entry fallback', 'Healthy'],
+              ['RIS / PACS Imaging & Studies', 'DICOM / DIMSE', 'Read-only', 'On study complete', 'Radiology workstation', 'Healthy'],
+              ['Insurance & TPA Clearinghouse', 'National Health Claims (NHCX)', 'Bidirectional', '3 min polling', 'Web portal manual', 'Healthy'],
+              ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Live transaction', 'Paper MAR contingency', 'Healthy'],
+              ['WhatsApp Patient Notification Gateway', 'Meta Cloud API', 'Outbound / Inbound', 'Instant', 'SMS fallback', 'Healthy'],
+              ['Databricks Lakehouse Gold Views', 'Delta Lake / SQL', 'Lakehouse Ingestion', '5 min micro-batch', 'Read replica cache', 'Healthy'],
+            ].map(([c, p, d, f, fb, h], i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{c}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p}</td>
+                <td style={{ padding: '10px 14px' }}>{d}</td>
+                <td style={{ padding: '10px 14px' }}>{f}</td>
+                <td style={{ padding: '10px 14px', color: '#52585e' }}>{fb}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {h}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+

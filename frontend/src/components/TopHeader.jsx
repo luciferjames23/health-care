@@ -12,9 +12,11 @@ export default function TopHeader({
   onSignOut,
   onOpenMobile,
   onAskAi,
+  onOpenModal,
 }) {
   const [askInput, setAskInput] = React.useState('');
   const [showDemo, setShowDemo] = React.useState(false);
+  const [showNewMenu, setShowNewMenu] = React.useState(false);
 
   const handleAskSubmit = (e) => {
     e.preventDefault();
@@ -95,6 +97,133 @@ export default function TopHeader({
           >
             +15 m
           </button>
+        </div>
+
+        {/* + New Master Modal Action Menu */}
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setShowNewMenu(v => !v)}
+            style={{
+              height: '28px', padding: '0 10px', border: 'none',
+              borderRadius: '6px', background: 'oklch(0.5 0.1 200)', color: '#fff',
+              cursor: 'pointer', fontWeight: 600, fontSize: '11.5px',
+              display: 'flex', alignItems: 'center', gap: '4px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+            }}
+          >
+            <span>+ New</span>
+            <span style={{ fontSize: '9px' }}>▼</span>
+          </button>
+
+          {showNewMenu && (
+            <div
+              style={{
+                position: 'absolute', top: '34px', right: 0,
+                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px',
+                boxShadow: '0 12px 28px rgba(0,0,0,0.15)', width: '210px', zIndex: 100,
+                padding: '6px 0', fontSize: '12px'
+              }}
+              onClick={() => setShowNewMenu(false)}
+            >
+              <div style={{ padding: '6px 12px', fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Operational Actions
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'appt', title: 'New Outpatient Appointment' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>📅</span> New Appointment
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Inpatient Bed Admission' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🛏️</span> Admit Inpatient
+              </div>
+
+              <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }} />
+              <div style={{ padding: '6px 12px', fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Master Catalog Registries
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'patients', title: 'Register Patient' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>👤</span> Register Patient
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🩺</span> Add Doctor
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drugs', title: 'Add Drug to Formulary' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>💊</span> Add Drug
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Hospital Service' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🔬</span> Add Service
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'departments', title: 'Add Department' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🏥</span> Add Department
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Employee / Staff' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>👥</span> Add Employee
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendors', title: 'Add Empanelled Vendor' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🏢</span> Add Vendor
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'insurers', title: 'Add Insurer / TPA' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>🛡️</span> Add Insurer / TPA
+              </div>
+              <div
+                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'taxes', title: 'Add GST / Tax Rule' })}
+                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span>📑</span> Add Tax Rule
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Demo controls button */}

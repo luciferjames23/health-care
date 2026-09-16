@@ -247,7 +247,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                 cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px'
               }}
             >
-              <span>⚡ Discharge Agent (AG-19)</span>
+              <span>⚡ Discharge Summary Agent</span>
             </button>
           )}
         </div>
