@@ -43,7 +43,9 @@ export const NAV_GROUPS = [
     items: [
       { id: 'billing', label: 'Billing & Clearance' },
       { id: 'insurance', label: 'Insurance & Claims' },
-      { id: 'revenue', label: 'Revenue Predictions', badge: 'Gold' },
+      { id: 'claims', label: 'Claims Tracking' },
+      { id: 'finance', label: 'Finance Dashboard' },
+      { id: 'tax', label: 'Tax Configuration' },
     ]
   },
   {
@@ -75,6 +77,12 @@ export const NAV_GROUPS = [
       { id: 'data-patient', label: 'Patient Data' },
       { id: 'data-ops', label: 'Operational Data' },
       { id: 'data-clinical', label: 'Clinical Data' },
+      { id: 'data-financial', label: 'Financial Data' },
+      { id: 'analytics', label: 'Analytics' },
+      { id: 'forecasting', label: 'Forecasting' },
+      { id: 'scenario', label: 'Scenario Simulator' },
+      { id: 'beforeafter', label: 'Before vs After' },
+      { id: 'data-quality', label: 'Data Quality' },
       { id: 'tables', label: 'Schema Explorer' },
       { id: 'explorer', label: 'Data Grid Viewer' },
       { id: 'sql', label: 'SQL Sandbox' },

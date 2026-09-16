@@ -55,45 +55,88 @@ export const ROLE_PAGE_ACCESS = {
   'Hospital Management': null, // Full platform access
   'AI Administrator': null, // Full platform access
   'Doctor': [
-    'command', 'patients', 'appointments', 'admissions', 'bedboard', 'emergency', 'schedules',
-    'clinical', 'discharge', 'discharge-agent', 'soap', 'patient360', 'sbar', 'lab', 'radiology', 'approvals', 'knowledge', 'trainer', 'assistant'
+    // 10 Live Data Pages (preserved)
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
+    // Operational & Clinical
+    'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
+    // Platform & Governance (no financial, no data)
+    'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions'
   ],
   'Nurse': [
-    'command', 'patients', 'admissions', 'bedboard', 'emergency',
-    'nursing', 'medications', 'bloodbank', 'discharge', 'discharge-agent', 'sbar', 'soap', 'patient360', 'approvals', 'knowledge', 'trainer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent',
+    // Operational & Clinical
+    'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'otschedule',
+    // Platform (no financial, no data)
+    'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions'
   ],
   'Front Office': [
-    'command', 'patients', 'appointments', 'admissions', 'bedboard', 'emergency', 'schedules',
-    'patient360', 'knowledge', 'trainer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'admissions', 'bedboard',
+    // Operational
+    'appointments', 'emergency', 'schedules', 'patient360', 'deathmlc',
+    // Financial & Revenue (explicitly permitted in HTML prototype)
+    'billing', 'insurance',
+    // Platform (no data)
+    'knowledge', 'trainer', 'assistant'
   ],
   'Billing': [
-    'command', 'patients', 'admissions', 'billing', 'insurance', 'revenue', 'discharge-agent',
-    'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'admissions', 'discharge', 'discharge-agent',
+    // Financial & Revenue
+    'billing', 'insurance', 'claims', 'finance', 'tax',
+    // Data
+    'data-financial', 'explorer',
+    // Operational & Platform
+    'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant', 'deathmlc'
   ],
   'Finance Manager': [
-    'command', 'billing', 'insurance', 'revenue', 'analytics', 'exceptions', 'audit', 'explorer',
-    'approvals', 'cost', 'discharge-agent', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'discharge-agent',
+    // Financial & Revenue
+    'billing', 'insurance', 'claims', 'finance', 'tax',
+    // Data
+    'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'analytics', 'forecasting', 'scenario', 'beforeafter', 'data-quality', 'tables', 'explorer',
+    // Platform
+    'approvals', 'exceptions', 'audit', 'cost', 'assistant'
   ],
   'Insurance': [
-    'patients', 'admissions', 'insurance', 'billing', 'discharge', 'discharge-agent', 'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'admissions', 'discharge', 'discharge-agent',
+    // Financial & Revenue
+    'billing', 'insurance', 'claims',
+    // Operational & Platform (no data)
+    'patient360', 'approvals', 'exceptions', 'knowledge', 'assistant'
   ],
   'Radiologist': [
-    'patients', 'radiology', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'diagnostics', 'radiology',
+    // Operational & Platform (no financial, no data)
+    'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
   ],
   'Laboratory': [
-    'patients', 'lab', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'criticalvalues', 'diagnostics',
+    // Operational & Platform (no financial, no data)
+    'lab', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant'
   ],
   'Pathologist': [
-    'patients', 'lab', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'criticalvalues', 'diagnostics',
+    // Operational & Platform (no financial, no data)
+    'lab', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant'
   ],
   'Pharmacy': [
-    'patients', 'medications', 'patient360', 'exceptions', 'knowledge', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'patients', 'discharge',
+    // Operational & Platform (no financial, no data)
+    'medications', 'patient360', 'exceptions', 'knowledge', 'assistant'
   ],
   'Store Manager': [
     'settings', 'explorer', 'exceptions', 'assistant'
   ],
   'Procurement Officer': [
-    'billing', 'settings', 'explorer', 'approvals', 'exceptions', 'assistant'
+    'billing', 'tax', 'settings', 'explorer', 'approvals', 'exceptions', 'assistant'
   ],
   'HR Manager': [
     'schedules', 'settings', 'trainer', 'approvals', 'assistant'
@@ -102,15 +145,35 @@ export const ROLE_PAGE_ACCESS = {
     'patients', 'settings', 'assistant'
   ],
   'Governance Officer': [
-    'command', 'ai-command', 'agents', 'orchestrator', 'runs', 'approvals', 'exceptions', 'knowledge',
-    'evals', 'observability', 'cost', 'incidents', 'risk', 'governance', 'audit', 'trainer',
-    'tables', 'explorer', 'analytics', 'settings', 'assistant'
+    // Live Data Pages (preserved)
+    'command',
+    // Financial & Revenue
+    'tax',
+    // Data
+    'data-quality', 'analytics', 'tables', 'explorer', 'settings',
+    // AI Platform & Governance
+    'ai-command', 'agents', 'orchestrator', 'runs', 'approvals', 'exceptions', 'knowledge',
+    'evals', 'observability', 'cost', 'incidents', 'risk', 'governance', 'audit', 'trainer', 'assistant', 'deathmlc'
   ],
   'IT Administrator': [
-    'command', 'ai-command', 'observability', 'incidents', 'tables', 'explorer', 'sql', 'settings', 'audit', 'analytics', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'bedboard',
+    // Financial & Revenue
+    'tax',
+    // Data
+    'data-quality', 'tables', 'explorer', 'sql', 'settings', 'analytics',
+    // AI Platform & Admin
+    'ai-command', 'observability', 'incidents', 'audit', 'assistant', 'schedules'
   ],
   'Auditor': [
-    'command', 'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'revenue', 'tables', 'explorer', 'assistant'
+    // Live Data Pages (preserved)
+    'command', 'bedboard',
+    // Financial & Revenue
+    'billing', 'claims', 'finance',
+    // Data
+    'data-financial', 'data-quality', 'analytics', 'tables', 'explorer',
+    // AI Platform & Clinical
+    'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'assistant', 'approvals', 'schedules', 'otschedule', 'deathmlc', 'soap'
   ],
   'Patient': [
     'patients', 'appointments', 'billing', 'assistant'

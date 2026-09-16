@@ -237,7 +237,23 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
         <Card><b style={{ fontSize: 12 }}>DenseNet121 triage signal</b><div style={{ fontSize: 24, fontWeight: 650, marginTop: 5 }}>{pct(detail.triage?.probability)}</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked classification threshold {detail.triage?.threshold ?? 0.20}</div></Card>
         <Card><b style={{ fontSize: 12 }}>YOLO11n localization</b><div style={{ fontSize: 13, marginTop: 6 }}>{detail.localization?.number_of_regions || 0} suspected opacity region(s)</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked localization threshold {detail.localization?.threshold ?? 0.10}</div>{regions.length > 0 && <div style={{ marginTop: 7 }}>{regions.map((r, i) => <div key={i} style={{ fontSize: 10.5, padding: '4px 0', borderTop: '1px solid #eef0f1' }}>Region {i + 1}: {pct(r.confidence)} · ({Math.round(r.x1)}, {Math.round(r.y1)}) → ({Math.round(r.x2)}, {Math.round(r.y2)})</div>)}</div>}</Card>
         <Card><b style={{ fontSize: 12 }}>Combined Assessment</b><div style={{ marginTop: 6 }}><InfoRow label="Status" value={status} /><InfoRow label="Agreement" value={detail.combined_assessment?.agreement ? 'Agreement' : 'Disagreement'} /><InfoRow label="Reason" value={detail.combined_assessment?.reason} /><InfoRow label="Finding" value={detail.interpretation?.finding || 'Suspected lung opacity'} /><InfoRow label="Recommended action" value={detail.interpretation?.recommended_action || 'Radiologist review recommended'} /></div></Card>
-        <Card><b style={{ fontSize: 12 }}>Radiologist Review</b><div style={{ fontSize: 10.5, color: '#697077', margin: '6px 0 9px', lineHeight: 1.45 }}>Final interpretation belongs to the qualified radiologist. These actions only record the review workflow state; they do not modify the AI result.</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}><button disabled={busy} type="button" style={btn} onClick={() => onFinalise('No acute finding')}>Finalise: no acute finding</button><button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Finding not confirmed')}>Finalise: finding not confirmed</button></div></Card>
+        <Card>
+          <b style={{ fontSize: 12 }}>Radiologist Review</b>
+          <div style={{ fontSize: 10.5, color: '#697077', margin: '6px 0 9px', lineHeight: 1.45 }}>
+            Final interpretation belongs to the qualified radiologist. These actions only record the review workflow state; they do not modify the AI result.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Confirm AI Finding')}>
+              Confirm AI Finding
+            </button>
+            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Finding Not Confirmed')}>
+              Finding Not Confirmed
+            </button>
+            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Needs Further Review')}>
+              Needs Further Review
+            </button>
+          </div>
+        </Card>
       </div>
     </div>
   </div>;

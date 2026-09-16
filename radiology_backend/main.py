@@ -247,7 +247,14 @@ def mark_viewed(study_id: str):
 @app.post("/api/radiology/studies/{study_id}/review", response_model=StudyDetailResponse)
 def review_study(study_id: str, request: ReviewStatusRequest):
     """Record radiologist review workflow state; AI outputs remain immutable."""
-    allowed = {"No acute finding", "Finding not confirmed", "Reviewed"}
+    allowed = {
+        "No acute finding",
+        "Finding not confirmed",
+        "Reviewed",
+        "Confirm AI Finding",
+        "Finding Not Confirmed",
+        "Needs Further Review",
+    }
     if request.review_status not in allowed:
         raise HTTPException(status_code=400, detail="Unsupported review status.")
     reviewed_at = datetime.now(timezone.utc).isoformat()

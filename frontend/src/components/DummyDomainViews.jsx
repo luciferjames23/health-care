@@ -986,17 +986,320 @@ export function AuditTrailView() {
 }
 
 // -----------------------------------------------------------------------------
-// 14. DATA DOMAIN VIEWS (data-patient, data-ops, data-clinical)
+// 14. CLAIMS VIEW (claims)
+// -----------------------------------------------------------------------------
+const CLAIMS_RECORDS = [
+  { id: 'CLM-2026-4401', patient: 'Kavitha Raman', uhid: 'MER-PAT-0087221', insurer: 'Star Health', tpa: 'Medi Assist', auth: 'AUTH-SH-88910', requested: 142000, approved: 120000, paid: 120000, liability: 22000, preauthStatus: 'Approved', status: 'Settled' },
+  { id: 'CLM-2026-4402', patient: 'Saanvier Parthalan', uhid: 'MER-PAT-0087227', insurer: 'HDFC ERGO', tpa: 'Vidal Health', auth: 'AUTH-HE-91023', requested: 68400, approved: 52000, paid: 52000, liability: 16400, preauthStatus: 'Approved', status: 'Settled' },
+  { id: 'CLM-2026-4403', patient: 'Christoer Parthalan', uhid: 'MER-PAT-0087233', insurer: 'ICICI Lombard', tpa: 'Paramount TPA', auth: 'AUTH-IC-77189', requested: 45000, approved: 35000, paid: 0, liability: 10000, preauthStatus: 'Approved', status: 'Submitted' },
+  { id: 'CLM-2026-4404', patient: 'Sundaram K.', uhid: 'MER-PAT-0087228', insurer: 'United India', tpa: 'Heritage Health', auth: 'AUTH-UI-66120', requested: 92000, approved: 75000, paid: 0, liability: 17000, preauthStatus: 'Query Raised', status: 'Query Raised' },
+  { id: 'CLM-2026-4405', patient: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', insurer: 'Max Bupa (Niva)', tpa: 'Raksha TPA', auth: 'AUTH-NB-55410', requested: 31000, approved: 25000, paid: 25000, liability: 6000, preauthStatus: 'Approved', status: 'Settled' },
+  { id: 'CLM-2026-4406', patient: 'R. Murugan', uhid: 'MER-PAT-0087235', insurer: 'New India Assurance', tpa: 'MDIndia', auth: 'AUTH-NI-44109', requested: 115000, approved: 95000, paid: 0, liability: 20000, preauthStatus: 'Approved', status: 'Under Review' },
+];
+
+export function ClaimsView() {
+  const [filter, setFilter] = useState('All');
+
+  const filtered = filter === 'All'
+    ? CLAIMS_RECORDS
+    : CLAIMS_RECORDS.filter(r => r.status === filter);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Insurance Claims Tracking & Settlement Desk"
+        subtitle="End-to-end cashless preauthorisation claims, TPA adjudication, query handling, and remittances"
+        count={filtered.length}
+        onExport={() => alert('Exported claims tracker CSV')}
+      />
+
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <StatCard label="Total Invoiced Claims" value="₹4,93,400" sub="6 Managed cases" color="#0284c7" />
+        <StatCard label="TPA Approved Settlement" value="₹4,02,000" sub="81.5% Claim pass rate" color="#059669" />
+        <StatCard label="Insurer Outstanding" value="₹1,70,000" sub="3 Open remittances" color="#d97706" />
+        <StatCard label="Avg Remittance TAT" value="11 Days" sub="Within SLA target (15d)" color="#475569" />
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', margin: '4px 0', flexWrap: 'wrap' }}>
+        {['All', 'Settled', 'Submitted', 'Under Review', 'Query Raised'].map(st => (
+          <button
+            key={st}
+            type="button"
+            onClick={() => setFilter(st)}
+            style={{
+              padding: '5px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: filter === st ? 700 : 500,
+              cursor: 'pointer',
+              border: filter === st ? '1px solid oklch(0.5 0.1 200)' : '1px solid #cbd5e1',
+              background: filter === st ? 'oklch(0.95 0.04 200)' : '#ffffff',
+              color: filter === st ? 'oklch(0.35 0.1 200)' : '#334155'
+            }}
+          >
+            {st}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Claim ID</th>
+              <th style={{ padding: '10px 14px' }}>Patient / UHID</th>
+              <th style={{ padding: '10px 14px' }}>Insurer · TPA</th>
+              <th style={{ padding: '10px 14px' }}>Preauth Auth</th>
+              <th style={{ padding: '10px 14px' }}>Claimed Amt</th>
+              <th style={{ padding: '10px 14px' }}>Approved Amt</th>
+              <th style={{ padding: '10px 14px' }}>Patient Due</th>
+              <th style={{ padding: '10px 14px' }}>Claim Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(row => (
+              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.id}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
+                </td>
+                <td style={{ padding: '10px 14px' }}>
+                  <div>{row.insurer}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.tpa}</div>
+                </td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.auth}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{row.requested.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#059669', fontWeight: 600 }}>₹{row.approved.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#dc2626', fontWeight: 700 }}>₹{row.liability.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle(
+                    row.status === 'Settled' ? '#dcfce7' : row.status === 'Submitted' ? '#e0f2fe' : '#fef3c7',
+                    row.status === 'Settled' ? '#15803d' : row.status === 'Submitted' ? '#0369a1' : '#92400e'
+                  )}>
+                    ● {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 15. FINANCE DASHBOARD VIEW (finance)
+// -----------------------------------------------------------------------------
+const REVENUE_TXNS = [
+  { id: 'PAY-8801', patient: 'Kavitha Raman', bill: 'INV-2026-902', mode: 'UPI (GPay)', time: '10:45 AM', amount: 22000, status: 'Success' },
+  { id: 'PAY-8802', patient: 'Saanvier Parthalan', bill: 'INV-2026-901', mode: 'Credit Card (HDFC)', time: '10:20 AM', amount: 16400, status: 'Success' },
+  { id: 'PAY-8803', patient: 'Star Health TPA Remittance', bill: 'BAT-TPA-991', mode: 'NEFT Corporate', time: '09:50 AM', amount: 120000, status: 'Settled' },
+  { id: 'PAY-8804', patient: 'Christoer Parthalan', bill: 'INV-2026-903', mode: 'Cash Counter 1', time: '09:15 AM', amount: 10000, status: 'Success' },
+  { id: 'PAY-8805', patient: 'Vidal Health Remittance', bill: 'BAT-TPA-992', mode: 'RTGS Settlement', time: '08:40 AM', amount: 52000, status: 'Settled' },
+];
+
+export function FinanceDashboardView() {
+  const [modeFilter, setModeFilter] = useState('All');
+
+  const filtered = modeFilter === 'All'
+    ? REVENUE_TXNS
+    : REVENUE_TXNS.filter(t => t.mode.toLowerCase().includes(modeFilter.toLowerCase()));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Hospital Finance Dashboard & Collections Journal"
+        subtitle="Direct cash collection, TPA electronic remittances, patient receivables, and daily daybook ledger"
+        count={filtered.length}
+        onExport={() => alert('Exported financial daybook')}
+      />
+
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <StatCard label="Today's Total Receipts" value="₹2,20,400" sub="5 Collections processed" color="#059669" />
+        <StatCard label="Monthly Projected Run-Rate" value="₹4.8 Cr" sub="98.2% Against monthly target" color="#0284c7" />
+        <StatCard label="Patient Receivables" value="₹18.4L" sub="Discharge co-pays & dues" color="#d97706" />
+        <StatCard label="Insurer Receivables" value="₹42.6L" sub="Awaiting batch remittance" color="#475569" />
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', margin: '4px 0', flexWrap: 'wrap' }}>
+        {['All', 'UPI', 'Credit Card', 'NEFT', 'Cash'].map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setModeFilter(m)}
+            style={{
+              padding: '5px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: modeFilter === m ? 700 : 500,
+              cursor: 'pointer',
+              border: modeFilter === m ? '1px solid oklch(0.5 0.1 200)' : '1px solid #cbd5e1',
+              background: modeFilter === m ? 'oklch(0.95 0.04 200)' : '#ffffff',
+              color: modeFilter === m ? 'oklch(0.35 0.1 200)' : '#334155'
+            }}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Payment Ref</th>
+              <th style={{ padding: '10px 14px' }}>Payer / Patient</th>
+              <th style={{ padding: '10px 14px' }}>Bill / Batch Ref</th>
+              <th style={{ padding: '10px 14px' }}>Tender Mode</th>
+              <th style={{ padding: '10px 14px' }}>Transacted Time</th>
+              <th style={{ padding: '10px 14px' }}>Receipt Amount</th>
+              <th style={{ padding: '10px 14px' }}>Ledger Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(row => (
+              <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.id}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.bill}</td>
+                <td style={{ padding: '10px 14px' }}>{row.mode}</td>
+                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.time}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#059669' }}>₹{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle('#dcfce7', '#15803d')}>
+                    ✓ {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 16. TAX CONFIGURATION VIEW (tax)
+// -----------------------------------------------------------------------------
+const TAX_RULES = [
+  { code: 'EXEMPT-HC', name: 'Clinical Healthcare Services', cgst: 0, sgst: 0, igst: 0, hsn: 'SAC 9993', category: 'Inpatient Consultation & Care', status: 'Active', inclusive: false },
+  { code: 'GST-12-MED', name: 'Prescription Drugs & Medicines', cgst: 6, sgst: 6, igst: 12, hsn: 'HSN 3004', category: 'Pharmacy Formulary Master', status: 'Active', inclusive: true },
+  { code: 'GST-5-IMPLANT', name: 'Stents & Orthopedic Implants', cgst: 2.5, sgst: 2.5, igst: 5, hsn: 'HSN 9021', category: 'Cardiac & Surgical Implants', status: 'Active', inclusive: true },
+  { code: 'GST-5-DIET', name: 'Inpatient Dietary Meals', cgst: 2.5, sgst: 2.5, igst: 5, hsn: 'HSN 9963', category: 'Canteen & Patient Nutrition', status: 'Active', inclusive: true },
+  { code: 'GST-18-AMB', name: 'Specialized Transport & Ambulance', cgst: 9, sgst: 9, igst: 18, hsn: 'SAC 9964', category: 'Emergency Transport Fleet', status: 'Active', inclusive: false },
+  { code: 'GST-18-EXEC', name: 'Executive Preventive Health Check', cgst: 9, sgst: 9, igst: 18, hsn: 'SAC 9983', category: 'Outpatient Wellness Screening', status: 'Active', inclusive: false },
+];
+
+export function TaxConfigView() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header
+        title="Central GST & Statutory Tax Configuration"
+        subtitle="Centralised taxation engine configured for healthcare clinical exemptions (SAC 9993), pharmacy, and implants"
+        count={TAX_RULES.length}
+        onExport={() => alert('Exported tax rules')}
+      />
+
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <StatCard label="Configured Tax Schedules" value="6 Active Rules" sub="Audit reviewed FY26-27" color="#0284c7" />
+        <StatCard label="Clinical Services Status" value="Exempt (0%)" sub="SAC 9993 Clinical Healthcare" color="#059669" />
+        <StatCard label="Pharma & Implants GST" value="5% – 12%" sub="Standard statutory schedules" color="#475569" />
+        <StatCard label="Reconciliation Status" value="Compliant" sub="No unmapped billing lines" color="#059669" />
+      </div>
+
+      <div style={{
+        background: '#fffbeb',
+        border: '1px solid #fef3c7',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        fontSize: '12px',
+        color: '#92400e',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <span>⚠️</span>
+        <span><strong>Regulatory Guidance:</strong> Clinical healthcare provided by clinical establishments is fully exempt under SAC 9993. Pharmacy items and implants are taxed per GST Council statutory notifications.</span>
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Tax Code</th>
+              <th style={{ padding: '10px 14px' }}>Rule Description</th>
+              <th style={{ padding: '10px 14px' }}>HSN / SAC</th>
+              <th style={{ padding: '10px 14px' }}>Applicable Category</th>
+              <th style={{ padding: '10px 14px' }}>CGST</th>
+              <th style={{ padding: '10px 14px' }}>SGST</th>
+              <th style={{ padding: '10px 14px' }}>Total GST</th>
+              <th style={{ padding: '10px 14px' }}>Tax Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {TAX_RULES.map(row => (
+              <tr key={row.code} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{row.code}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.name}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{row.hsn}</td>
+                <td style={{ padding: '10px 14px' }}>{row.category}</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{row.cgst}%</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{row.sgst}%</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700, color: row.igst === 0 ? '#059669' : '#0f172a' }}>
+                  {row.igst}%
+                </td>
+                <td style={{ padding: '10px 14px' }}>
+                  <span style={pillStyle('#dcfce7', '#15803d')}>
+                    ✓ {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 17. EXPANDED DATA DOMAIN VIEWS (data-patient, data-ops, data-clinical, data-financial, data-quality, forecasting, scenario, beforeafter)
 // -----------------------------------------------------------------------------
 export function DataDomainView({ domain = 'Patient' }) {
-  const isPatient = domain.toLowerCase().includes('patient');
-  const isOps = domain.toLowerCase().includes('ops') || domain.toLowerCase().includes('operation');
+  const d = domain.toLowerCase();
+  const isPatient = d.includes('patient');
+  const isOps = d.includes('ops') || d.includes('operation');
+  const isClinical = d.includes('clinical');
+  const isFinancial = d.includes('financial');
+  const isQuality = d.includes('quality');
+  const isForecasting = d.includes('forecast');
+  const isScenario = d.includes('scenario');
+  const isBeforeAfter = d.includes('before') || d.includes('after');
 
   const title = isPatient ? 'Master Patient Index · Databricks Gold Layer' :
     isOps ? 'Hospital Operational & Throughput Metrics' :
-    'Structured Clinical Observations & Diagnostic Codes';
+    isClinical ? 'Structured Clinical Observations & Diagnostic Codes' :
+    isFinancial ? 'Financial Ledger & AR/AP Fact Records' :
+    isQuality ? 'Automated Data Quality & Validation Rules' :
+    isForecasting ? 'Predictive Inpatient Census & Demand Forecasting' :
+    isScenario ? 'Hospital Capacity & Surge Scenario Simulator' :
+    isBeforeAfter ? 'Pre vs Post AI Intervention Outcomes & SLA Impact' :
+    `${domain} Data View`;
 
-  const subtitle = `Direct query view of health_care.gold.${isPatient ? 'dim_patients' : isOps ? 'fact_hospital_operations' : 'fact_clinical_observations'}`;
+  const subtitle = `Direct query view of health_care.gold.${
+    isPatient ? 'dim_patients' :
+    isOps ? 'fact_hospital_operations' :
+    isClinical ? 'fact_clinical_observations' :
+    isFinancial ? 'fact_financial_ledger' :
+    isQuality ? 'dq_rules_evaluator' :
+    isForecasting ? 'pred_census_forecast' :
+    isScenario ? 'sim_capacity_scenarios' :
+    isBeforeAfter ? 'outcomes_sla_benchmark' :
+    'gold_table'
+  }`;
 
   const rows = isPatient ? [
     { c1: 'MER-PAT-0087221', c2: 'Kavitha Raman', c3: '58 / Female', c4: 'AB Positive', c5: 'Cardiology', c6: '98401-22910', c7: 'Active IP' },
@@ -1007,10 +1310,32 @@ export function DataDomainView({ domain = 'Patient' }) {
     { c1: 'WARD-2A', c2: 'Elective Ward', c3: '18 / 20 Beds (90%)', c4: '4 Discharges Today', c5: 'Avg LOS: 3.4 Days', c6: 'Staff Ratio 1:4', c7: 'Optimal' },
     { c1: 'WARD-ICU', c2: 'Intensive Coronary Care', c3: '8 / 10 Beds (80%)', c4: '1 Admission, 1 Shift', c5: 'Avg LOS: 4.8 Days', c6: 'Staff Ratio 1:1', c7: 'High Acuity' },
     { c1: 'ER-BAY', c2: 'Emergency Resuscitation', c3: '6 / 10 Bays (60%)', c4: '42 Triage Visits', c5: 'Avg TAT: 2.1 Hrs', c6: 'Staff Ratio 1:2', c7: 'Normal' },
-  ] : [
+  ] : isClinical ? [
     { c1: 'OBS-9901', c2: 'MER-PAT-0087227', c3: 'E11.65 (Type 2 DM with DKA)', c4: 'Random Blood Glucose: 118 mg/dL', c5: 'LOINC 2345-7', c6: 'Dr. Priya Narayanan', c7: 'Normalized' },
     { c1: 'OBS-9902', c2: 'MER-PAT-0087221', c3: 'I21.0 (Acute transmural MI anterior wall)', c4: 'hs-Troponin I: 53.2 pg/mL', c5: 'LOINC 49563-0', c6: 'Dr. Arjun Menon', c7: 'Critical High' },
     { c1: 'OBS-9903', c2: 'MER-PAT-0087233', c3: 'K35.80 (Acute appendicitis, other and unspec)', c4: 'Total WBC: 14,800/mcL', c5: 'LOINC 6690-2', c6: 'Dr. Pooja Menon', c7: 'Elevated' },
+  ] : isFinancial ? [
+    { c1: 'TXN-FIN-101', c2: 'Kavitha Raman', c3: 'PTCA Cath-Lab Procedure', c4: '₹1,42,000 (Insurance ₹1.2L)', c5: 'Invoice INV-2026-902', c6: 'Billing Desk 1', c7: 'Verified' },
+    { c1: 'TXN-FIN-102', c2: 'Saanvier Parthalan', c3: 'Internal Med Inpatient Care', c4: '₹68,400 (Insurance ₹52k)', c5: 'Invoice INV-2026-901', c6: 'Billing Desk 2', c7: 'Verified' },
+    { c1: 'TXN-FIN-103', c2: 'Christoer Parthalan', c3: 'Appendectomy Surgical Suite', c4: '₹45,000 (Insurance ₹35k)', c5: 'Invoice INV-2026-903', c6: 'Billing Desk 1', c7: 'Verified' },
+    { c1: 'TXN-FIN-104', c2: 'Sundaram K.', c3: 'Orthopedic Fracture Fixation', c4: '₹92,000 (Co-Pay Pending)', c5: 'Invoice INV-2026-904', c6: 'Billing Desk 3', c7: 'Hold' },
+  ] : isQuality ? [
+    { c1: 'DQ-RULE-01', c2: 'Inpatient Active Bed Binding', c3: 'Operations Domain', c4: '100% Inpatients Bound to Bed', c5: 'Zero Unmapped Beds', c6: 'Bed Manager', c7: 'Passed' },
+    { c1: 'DQ-RULE-02', c2: 'Insured Admission Preauth Linkage', c3: 'Finance Domain', c4: '98.5% Bound to Preauth', c5: '1 Manual Follow-up', c6: 'Insurance Desk', c7: 'Optimal' },
+    { c1: 'DQ-RULE-03', c2: 'Critical Value Acknowledgement TAT', c3: 'Clinical Domain', c4: '99.2% Acked Under 15m', c5: 'Average Ack TAT 6.2m', c6: 'Lab Director', c7: 'Passed' },
+    { c1: 'DQ-RULE-04', c2: 'ICD-10 Primary Diagnosis Coded', c3: 'Medical Records', c4: '100% Valid WHO ICD-10', c5: 'No Placeholders', c6: 'HOD Records', c7: 'Passed' },
+  ] : isForecasting ? [
+    { c1: 'FCST-D0', c2: 'Today (T+0)', c3: 'Cardiology + Medicine', c4: 'Predicted Discharges: 8', c5: 'Predicted Admissions: 9', c6: 'Net Census: 92%', c7: 'High Demand' },
+    { c1: 'FCST-D1', c2: 'Tomorrow (T+1)', c3: 'General Surgery + Ortho', c4: 'Predicted Discharges: 12', c5: 'Predicted Admissions: 7', c6: 'Net Census: 86%', c7: 'Balanced' },
+    { c1: 'FCST-D2', c2: 'Day After (T+2)', c3: 'Critical Care ICU', c4: 'Predicted Discharges: 3', c5: 'Predicted Admissions: 4', c6: 'Net Census: 89%', c7: 'Capacity Warning' },
+  ] : isScenario ? [
+    { c1: 'SCEN-01', c2: 'Mass Casualty ER Surge (20 Arrivals)', c3: 'Emergency Resuscitation', c4: 'Triage Surge Response Activated', c5: '8 Fast-track Transfers', c6: 'ER Coordinator', c7: 'Simulated OK' },
+    { c1: 'SCEN-02', c2: 'Cardiac Cath Lab Overrun (+3 hrs)', c3: 'OT & Procedure Suite', c4: 'Elective 2 Cases Rescheduled', c5: 'Zero Safety Event', c6: 'Chief of Surgery', c7: 'Simulated OK' },
+    { c1: 'SCEN-03', c2: 'TPA Server Latency (>45 mins)', c3: 'Insurance Clearance', c4: 'Autonomous Pre-Auth Packet Buffer', c5: 'Manual Release Fallback', c6: 'TPA Coordinator', c7: 'Simulated OK' },
+  ] : [
+    { c1: 'KPI-DIS-TAT', c2: 'Discharge Turnaround Time', c3: 'Operational SLA', c4: 'Before: 4.8 hrs → After: 1.4 hrs', c5: '70.8% TAT Reduction', c6: 'Discharge Agent AG-19', c7: 'Benchmark Achieved' },
+    { c1: 'KPI-PREAUTH', c2: 'First-Pass Pre-Auth Acceptance', c3: 'Finance & TPA', c4: 'Before: 64% → After: 91.5%', c5: '27.5% Denial Reduction', c6: 'Pre-Auth Assembly Agent', c7: 'Benchmark Achieved' },
+    { c1: 'KPI-CRIT-ACK', c2: 'Critical Lab Value Escalation', c3: 'Patient Safety', c4: 'Before: 28 mins → After: 6.4 mins', c5: 'Zero Unacknowledged Values', c6: 'Diagnostic Alert Engine', c7: 'Benchmark Achieved' },
   ];
 
   return (
@@ -1026,11 +1351,11 @@ export function DataDomainView({ domain = 'Patient' }) {
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
               <th style={{ padding: '10px 14px' }}>ID / Code</th>
-              <th style={{ padding: '10px 14px' }}>Entity / Name</th>
-              <th style={{ padding: '10px 14px' }}>Primary Classification</th>
-              <th style={{ padding: '10px 14px' }}>Observation / Key Value</th>
-              <th style={{ padding: '10px 14px' }}>Reference Standard</th>
-              <th style={{ padding: '10px 14px' }}>Responsible Provider</th>
+              <th style={{ padding: '10px 14px' }}>Entity / Metric</th>
+              <th style={{ padding: '10px 14px' }}>Classification</th>
+              <th style={{ padding: '10px 14px' }}>Key Observation / Metric</th>
+              <th style={{ padding: '10px 14px' }}>Reference Standard / Note</th>
+              <th style={{ padding: '10px 14px' }}>Owner / Source</th>
               <th style={{ padding: '10px 14px' }}>Status</th>
             </tr>
           </thead>

@@ -36,7 +36,6 @@ import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 
-// Interactive Domain Views (Mock / Operational Data)
 import {
   AppointmentsView,
   EmergencyView,
@@ -48,6 +47,9 @@ import {
   LabDashboardView,
   BillingView,
   InsuranceView,
+  ClaimsView,
+  FinanceDashboardView,
+  TaxConfigView,
   SbarView,
   DeathMlcView,
   AuditTrailView,
@@ -250,11 +252,19 @@ export default function App() {
           {activePage === 'lab' && <LabDashboardView />}
           {activePage === 'billing' && <BillingView />}
           {activePage === 'insurance' && <InsuranceView />}
+          {activePage === 'claims' && <ClaimsView />}
+          {activePage === 'finance' && <FinanceDashboardView />}
+          {activePage === 'tax' && <TaxConfigView />}
           {activePage === 'exceptions' && <ExceptionsView />}
           {activePage === 'audit' && <AuditTrailView />}
           {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" />}
           {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" />}
           {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" />}
+          {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" />}
+          {activePage === 'data-quality' && <DataDomainView domain="Automated Data Quality & Rules" />}
+          {activePage === 'forecasting' && <DataDomainView domain="Predictive Inpatient Census & Demand" />}
+          {activePage === 'scenario' && <DataDomainView domain="Hospital Capacity & Surge Simulator" />}
+          {activePage === 'beforeafter' && <DataDomainView domain="Pre vs Post AI Intervention Outcomes" />}
 
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
@@ -264,8 +274,10 @@ export default function App() {
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
             'criticalvalues', 'diagnostics', 'radiology',
             'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
-            'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'exceptions', 'audit',
-            'data-patient', 'data-ops', 'data-clinical'
+            'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
+            'exceptions', 'audit',
+            'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
+            'forecasting', 'scenario', 'beforeafter'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

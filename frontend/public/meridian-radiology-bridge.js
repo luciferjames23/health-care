@@ -372,8 +372,9 @@
         D.actions.push({ label: 'Open in OHIF · Demo PACS', primary: false, on: () => window.open(`http://localhost:3000/viewer?StudyInstanceUIDs=${encodeURIComponent(r.source.study_instance_uid)}`, '_blank') });
       }
       if (r.radStatus !== 'Read') {
-        D.actions.push({ label: 'Finalise: no acute finding', on: () => a.radiologistFinal(r.id, 'No acute finding', ctx.role), primary: false });
-        D.actions.push({ label: 'Finalise: finding not confirmed', on: () => a.radiologistFinal(r.id, 'Finding not confirmed', ctx.role), primary: false });
+        D.actions.push({ label: 'Confirm AI Finding', on: () => a.radiologistFinal(r.id, 'Confirm AI Finding', ctx.role), primary: true });
+        D.actions.push({ label: 'Finding Not Confirmed', on: () => a.radiologistFinal(r.id, 'Finding Not Confirmed', ctx.role), primary: false });
+        D.actions.push({ label: 'Needs Further Review', on: () => a.radiologistFinal(r.id, 'Needs Further Review', ctx.role), primary: false });
       }
       D.related = [
         { label: 'Diagnostics', on: () => component().go('diagnostics') },
