@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds } from '../services/api';
+import DischargeSummaryModal from './DischargeSummaryModal';
 
 export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, onBack }) {
   const [activeTab, setActiveTab] = useState('Overview');
@@ -7,6 +8,7 @@ export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, o
   const [admittedPatients, setAdmittedPatients] = useState([]);
   const [selectedPatientData, setSelectedPatientData] = useState(null);
   const [selectedPid, setSelectedPid] = useState(patient?.patient_id || patient?.id || '');
+  const [isDischargeModalOpen, setIsDischargeModalOpen] = useState(false);
 
   // 1. Fetch live currently admitted patients list from Gold Delta table (excluding discharged patients)
   useEffect(() => {
@@ -460,19 +462,32 @@ export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, o
       {/* Tab Content: Discharge Summary (if discharged) */}
       {activeTab === 'Discharge Summary' && p.isDischarged && (
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: '15px' }}>Official Clinical Discharge Summary</div>
               <div style={{ fontSize: '11.5px', color: '#8a9096', marginTop: '2px' }}>
                 Primary Consultant: {p.doctor}
               </div>
             </div>
-            <span style={{
-              padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
-              background: 'oklch(0.95 0.04 150)', color: 'oklch(0.4 0.12 150)'
-            }}>
-              Status: {p.approval_status}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                background: 'oklch(0.95 0.04 150)', color: 'oklch(0.4 0.12 150)'
+              }}>
+                Status: {p.approval_status || 'Approved'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsDischargeModalOpen(true)}
+                style={{
+                  height: '30px', padding: '0 12px', borderRadius: '6px',
+                  border: '1px solid #0284c7', background: '#f0f9ff', color: '#0369a1',
+                  fontWeight: 600, fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                }}
+              >
+                <span>🖨️</span> Open, Edit & Print Summary
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '12px', lineHeight: 1.6 }}>
@@ -514,6 +529,14 @@ export default function Patient360View({ patient, onOpenDischarge, onOpenSoap, o
           </div>
         </div>
       )}
+
+      {/* Discharge Summary Modal */}
+      <DischargeSummaryModal
+        isOpen={isDischargeModalOpen}
+        onClose={() => setIsDischargeModalOpen(false)}
+        summaryData={p}
+        onSummaryUpdated={(updated) => setSelectedPatientData(prev => ({ ...prev, ...updated }))}
+      />
 
       {/* Tab Content: Clinical Vitals */}
       {activeTab === 'Clinical' && (

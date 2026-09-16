@@ -62,7 +62,6 @@ def generate_discharge_summary_llm_post(request: DischargeSummaryLLMRequest):
             "total_generated": res.get("total_processed", 0),
             "target_table": "health_care.gold.dim_generated_discharge_summaries",
             "data": res.get("data", []),
-            "first_summary": res.get("first_summary"),
             "timestamp": datetime.datetime.now().isoformat()
         }
     except Exception as e:
@@ -153,17 +152,33 @@ def get_single_patient_generated_summary(patient_id: str):
 
 
 class DischargeSummaryLLMUpdateRequest(BaseModel):
-    summary_id: Optional[str] = None
-    patient_id: Optional[Union[str, int]] = None
+    # Exact 17-column Databricks Lakehouse Schema
+    summary_id: Optional[Union[int, str]] = None
+    admission_id: Optional[Union[int, str]] = None
+    patient_id: Optional[Union[int, str]] = None
+    doctor_id: Optional[Union[int, str]] = None
+    admission_date: Optional[str] = None
+    discharge_date: Optional[str] = None
+    diagnoses: Optional[str] = None
+    case_history: Optional[str] = None
+    investigations: Optional[str] = None
+    treatment: Optional[str] = None
+    primary_consultant: Optional[str] = None
+    discharge_advice: Optional[str] = None
+    surgery_details: Optional[str] = None
+    patient_condition: Optional[str] = None
+    generated_at: Optional[str] = None
+    ingestion_timestamp: Optional[str] = None
     approval_status: Optional[str] = None  # e.g. "Approved", "Pending Approval", "Rejected", "Under Revision", "Signed"
-    approved_by: Optional[str] = None      # e.g. "Dr. Meenakshi Nair, MBBS, MD"
+
+    # Compatibility Aliases
+    approved_by: Optional[str] = None
     hospital_course_summary: Optional[str] = None
     discharge_diagnosis: Optional[str] = None
     discharge_medications: Optional[str] = None
     followup_instructions: Optional[str] = None
     attending_physician: Optional[str] = None
     admission_reason: Optional[str] = None
-    discharge_date: Optional[str] = None
     llm_generated_summary_text: Optional[str] = None
     model_name: Optional[str] = None
     patient_name: Optional[str] = None
@@ -176,9 +191,9 @@ def update_discharge_summary_by_path(
     payload: DischargeSummaryLLMUpdateRequest
 ):
     """
-    Updates the content (diagnosis, medications, hospital course, instructions)
-    and governance status (`approval_status`, `approved_by`) in `health_care.gold.dim_generated_discharge_summaries`.
-    Matches by `summary_id` (e.g. 'DS-87224'), `patient_id` (e.g. '87224'), `patient_number`, or `admission_id`.
+    Updates the content (diagnoses, case_history, treatment, discharge_advice, etc.)
+    and governance status (`approval_status`) in `health_care.gold.dim_generated_discharge_summaries`.
+    Matches by `summary_id` (e.g. 87229), `patient_id` (e.g. 87230), `patient_number`, or `admission_id`.
     """
     id_str = str(summary_id).strip()
     return _perform_discharge_summary_update(id_str, payload)
@@ -190,45 +205,49 @@ def update_discharge_summary_by_body(
     payload: DischargeSummaryLLMUpdateRequest
 ):
     """
-    Updates the content and approval status for a generated discharge summary using `summary_id` or `patient_id` specified in the body.
+    Updates the content and approval status for a generated discharge summary using `summary_id`, `admission_id`, or `patient_id` specified in the body.
     """
-    id_str = str(payload.summary_id or payload.patient_id or "").strip()
+    id_str = str(payload.summary_id or payload.admission_id or payload.patient_id or "").strip()
     if not id_str:
-        raise HTTPException(status_code=400, detail="Either summary_id or patient_id must be provided in request body.")
+        raise HTTPException(status_code=400, detail="Either summary_id, admission_id, or patient_id must be provided in request body.")
     return _perform_discharge_summary_update(id_str, payload)
 
 
 def _perform_discharge_summary_update(identifier: str, payload: DischargeSummaryLLMUpdateRequest):
     id_str = str(identifier).strip()
+    id_digits = "".join(filter(str.isdigit, id_str))
+    
     res = db_connector.query_gold_table("dim_generated_discharge_summaries", limit=1000)
     data = res.get("data", [])
     matched = None
 
-    # Priority 1: Exact summary_id match (e.g. "DS-87224") or "DS-{id}"
+    # Priority 1: Exact summary_id match (numeric or prefixed)
     for row in data:
         sid = str(row.get("summary_id", "")).strip().lower()
-        if sid == id_str.lower() or sid == f"ds-{id_str}".lower():
+        if sid == id_str.lower() or sid == f"ds-{id_str}".lower() or (id_digits and sid == id_digits):
             matched = row
             break
 
-    # Priority 2: Exact patient_id match (e.g. 87224)
+    # Priority 2: Exact admission_id match
     if not matched:
         for row in data:
-            if str(row.get("patient_id", "")).strip() == id_str:
+            aid = str(row.get("admission_id", "")).strip().lower()
+            if aid == id_str.lower() or (id_digits and aid == id_digits):
                 matched = row
                 break
 
-    # Priority 3: Exact patient_number match (e.g. "MER-PAT-0087224")
+    # Priority 3: Exact patient_id match
+    if not matched:
+        for row in data:
+            pid = str(row.get("patient_id", "")).strip()
+            if pid == id_str or (id_digits and pid == id_digits):
+                matched = row
+                break
+
+    # Priority 4: Exact patient_number match
     if not matched:
         for row in data:
             if str(row.get("patient_number", "")).strip().lower() == id_str.lower():
-                matched = row
-                break
-
-    # Priority 4: Exact admission_id match (e.g. "ADM-87224")
-    if not matched:
-        for row in data:
-            if str(row.get("admission_id", "")).strip().lower() == id_str.lower():
                 matched = row
                 break
 
@@ -241,15 +260,33 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
     actual_sid = matched.get("summary_id")
     raw_dict = payload.dict()
     raw_dict.pop("summary_id", None)
-    if "patient_id" in raw_dict and raw_dict["patient_id"] is None:
-        raw_dict.pop("patient_id", None)
 
-    update_dict = {k: v for k, v in raw_dict.items() if v is not None}
+    # Normalize alias field names into true table column names
+    if raw_dict.get("discharge_diagnosis") and not raw_dict.get("diagnoses"):
+        raw_dict["diagnoses"] = raw_dict.pop("discharge_diagnosis")
+    if raw_dict.get("hospital_course_summary") and not raw_dict.get("case_history"):
+        raw_dict["case_history"] = raw_dict.pop("hospital_course_summary")
+    if raw_dict.get("discharge_medications") and not raw_dict.get("treatment"):
+        raw_dict["treatment"] = raw_dict.pop("discharge_medications")
+    if raw_dict.get("followup_instructions") and not raw_dict.get("discharge_advice"):
+        raw_dict["discharge_advice"] = raw_dict.pop("followup_instructions")
+    if raw_dict.get("attending_physician") and not raw_dict.get("primary_consultant"):
+        raw_dict["primary_consultant"] = raw_dict.pop("attending_physician")
+
+    # Only include valid table schema columns for the SQL update statement
+    VALID_COLS = {
+        "admission_id", "patient_id", "doctor_id", "admission_date", "discharge_date",
+        "diagnoses", "case_history", "investigations", "treatment", "primary_consultant",
+        "discharge_advice", "surgery_details", "patient_condition", "generated_at",
+        "ingestion_timestamp", "approval_status"
+    }
+
+    update_dict = {k: v for k, v in raw_dict.items() if v is not None and k in VALID_COLS}
 
     if not update_dict:
         return {
             "status": "no_change",
-            "message": "No fields provided to update.",
+            "message": "No valid schema fields provided to update.",
             "summary_id": actual_sid,
             "data": matched
         }
@@ -266,7 +303,8 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             "message": f"Discharge summary '{actual_sid}' successfully updated in gold.dim_generated_discharge_summaries.",
             "summary_id": actual_sid,
             "patient_id": matched.get("patient_id"),
-            "patient_name": matched.get("patient_name"),
+            "admission_id": matched.get("admission_id"),
+            "primary_consultant": matched.get("primary_consultant"),
             "updated_fields": list(update_dict.keys()),
             "data": upd_res.get("data") or {**matched, **update_dict}
         }

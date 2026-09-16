@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import DischargeSummaryModal from './DischargeSummaryModal';
 
 export default function DischargeAgentView({ onNavigate, initialPatientId = '' }) {
   const [activeTab, setActiveTab] = useState('flow'); // 'flow' | 'inspector'
@@ -10,6 +11,8 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
   const [patientsList, setPatientsList] = useState([]);
   const [loadingPatients, setLoadingPatients] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [modalSummaryData, setModalSummaryData] = useState(null);
 
   const [validationResult, setValidationResult] = useState(null);
   const [validating, setValidating] = useState(false);
@@ -1027,6 +1030,22 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                             Status: {summary.approval_status || 'Pending Approval'}
                           </span>
 
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setModalSummaryData(summary);
+                              setIsSummaryModalOpen(true);
+                            }}
+                            style={{
+                              height: '28px', padding: '0 10px', borderRadius: '5px',
+                              border: '1px solid #0284c7', background: '#f0f9ff',
+                              color: '#0369a1', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', gap: '4px'
+                            }}
+                          >
+                            <span>🖨️</span> View, Edit & Print
+                          </button>
+
                           {!agentEditMode ? (
                             <>
                               <button
@@ -1039,7 +1058,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                                   display: 'flex', alignItems: 'center', gap: '4px'
                                 }}
                               >
-                                <span>✏️</span> Edit Summary
+                                <span>✏️</span> Quick Edit
                               </button>
                               {summary.approval_status !== 'Approved' && (
                                 <button
@@ -1056,7 +1075,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                                     display: 'flex', alignItems: 'center', gap: '4px'
                                   }}
                                 >
-                                  {agentSaving ? 'Saving...' : '✓ Approve & Sign-Off'}
+                                  {agentSaving ? 'Saving...' : '✓ Approve'}
                                 </button>
                               )}
                             </>
@@ -1288,6 +1307,16 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
         </div>
       )}
 
+      {/* Full Discharge Summary Modal */}
+      <DischargeSummaryModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        summaryData={modalSummaryData}
+        onSummaryUpdated={(updated) => {
+          setModalSummaryData(prev => ({ ...prev, ...updated }));
+          if (selectedPatientId) runValidation(selectedPatientId);
+        }}
+      />
     </div>
   );
 }

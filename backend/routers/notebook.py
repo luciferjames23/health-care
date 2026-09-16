@@ -49,8 +49,7 @@ def run_patient_notebook_post(request: PatientNotebookRequest):
             "execution_state": "SUCCESS",
             "mode": "local_engine",
             "target_table": "health_care.gold.dim_generated_discharge_summaries",
-            "data": summaries,
-            "first_summary": gen_res.get("first_summary")
+            "data": summaries
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to execute discharge summary: {str(e)}")

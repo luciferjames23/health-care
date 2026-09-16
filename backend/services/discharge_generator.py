@@ -538,23 +538,61 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
         f"Governance Gate: Cleared for Attending Physician Review & Sign-off"
     )
 
-    summary_id = f"DS-{pid}"
+    try:
+        pid_digits = re.sub(r'\D', '', str(pid))
+        pid_int = int(pid_digits) if pid_digits else 87230
+    except Exception:
+        pid_int = 87230
+
+    try:
+        adm_digits = re.sub(r'\D', '', str(adm_id))
+        adm_int = int(adm_digits) if adm_digits else pid_int
+    except Exception:
+        adm_int = pid_int
+
+    try:
+        doc_digits = re.sub(r'\D', '', str(patient_data.get("doctor_id") or "81"))
+        doc_int = int(doc_digits) if doc_digits else 81
+    except Exception:
+        doc_int = 81
+
+    adm_date_str = str(patient_data.get("admission_date") or now_str)
+    if len(adm_date_str) == 10:
+        adm_date_str = f"{adm_date_str} 10:00:00"
+
+    summary_id_int = adm_int
+
     return {
-        "summary_id": summary_id,
-        "admission_id": str(adm_id),
-        "patient_id": int(pid) if pid.isdigit() else pid,
+        # Exact 17-column Databricks Lakehouse Schema
+        "summary_id": summary_id_int,
+        "admission_id": adm_int,
+        "patient_id": pid_int,
+        "doctor_id": doc_int,
+        "admission_date": adm_date_str,
+        "discharge_date": now_str,
+        "diagnoses": diagnoses_field,
+        "case_history": case_history,
+        "investigations": investigations,
+        "treatment": treatment,
+        "primary_consultant": consultant_str,
+        "discharge_advice": discharge_advice,
+        "surgery_details": surgery_details,
+        "patient_condition": patient_condition,
+        "generated_at": now_str,
+        "ingestion_timestamp": now_str,
+        "approval_status": "Pending Approval",
+
+        # UI & Compatibility Convenience Fields
         "patient_number": p_num,
         "patient_name": full_name,
         "attending_physician": consultant_str,
-        "discharge_date": now_str,
         "admission_reason": chief_comp,
-        "discharge_diagnosis": primary_diag,
+        "discharge_diagnosis": diagnoses_field,
         "hospital_course_summary": case_history,
         "discharge_medications": treatment,
         "followup_instructions": discharge_advice,
         "llm_generated_summary_text": full_text,
         "model_name": "Local Discharge Summary Engine (Llama-3-70B)",
-        "approval_status": "Pending Approval",
         "approved_by": None,
         "created_at": now_str
     }
@@ -654,21 +692,40 @@ def generate_and_persist_discharge_summaries(patient_ids: Union[str, List[str], 
     # 3. Generate summaries locally
     generated_records = []
     rows_to_insert = []
-    col_names = []
+    
+    # Exact table columns in Databricks Gold Delta table
+    TABLE_COLS = [
+        "summary_id",
+        "admission_id",
+        "patient_id",
+        "doctor_id",
+        "admission_date",
+        "discharge_date",
+        "diagnoses",
+        "case_history",
+        "investigations",
+        "treatment",
+        "primary_consultant",
+        "discharge_advice",
+        "surgery_details",
+        "patient_condition",
+        "generated_at",
+        "ingestion_timestamp",
+        "approval_status"
+    ]
 
     for adm in selected_admissions:
         rec = generate_patient_discharge_summary(adm)
         generated_records.append(rec)
-        if not col_names:
-            col_names = list(rec.keys())
-        rows_to_insert.append(list(rec.values()))
+        row_vals = [rec.get(col) for col in TABLE_COLS]
+        rows_to_insert.append(row_vals)
 
     # 4. Persist batch into dim_generated_discharge_summaries
     if rows_to_insert:
         try:
             db_connector.insert_batch_fast(
                 table_name="dim_generated_discharge_summaries",
-                col_names=col_names,
+                col_names=TABLE_COLS,
                 rows=rows_to_insert
             )
         except Exception as err:
@@ -683,6 +740,5 @@ def generate_and_persist_discharge_summaries(patient_ids: Union[str, List[str], 
         "total_processed": len(generated_records),
         "patient_ids_executed": pids_executed,
         "data": generated_records,
-        "first_summary": generated_records[0] if generated_records else None,
         "timestamp": datetime.datetime.now().isoformat()
     }

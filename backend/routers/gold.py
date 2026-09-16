@@ -89,25 +89,25 @@ GOLD_TABLES_META = {
         "table_name": "dim_generated_discharge_summaries",
         "primary_key": "summary_id",
         "domain": "LLM & Clinical AI Analytics",
-        "description": "AI-generated clinical discharge summaries, hospital course summaries, discharge medications, follow-up instructions, and physician approval workflow statuses.",
+        "description": "AI-generated clinical discharge summaries containing diagnoses, case history, investigations, treatment, primary consultant, discharge advice, surgery details, patient condition, and approval workflow status.",
         "schema": [
-            {"column_name": "summary_id", "data_type": "STRING", "is_primary": True},
-            {"column_name": "admission_id", "data_type": "STRING", "is_primary": False},
+            {"column_name": "summary_id", "data_type": "BIGINT", "is_primary": True},
+            {"column_name": "admission_id", "data_type": "BIGINT", "is_primary": False},
             {"column_name": "patient_id", "data_type": "BIGINT", "is_primary": False},
-            {"column_name": "patient_number", "data_type": "STRING", "is_primary": False},
-            {"column_name": "patient_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "attending_physician", "data_type": "STRING", "is_primary": False},
+            {"column_name": "doctor_id", "data_type": "BIGINT", "is_primary": False},
+            {"column_name": "admission_date", "data_type": "TIMESTAMP", "is_primary": False},
             {"column_name": "discharge_date", "data_type": "TIMESTAMP", "is_primary": False},
-            {"column_name": "admission_reason", "data_type": "STRING", "is_primary": False},
-            {"column_name": "discharge_diagnosis", "data_type": "STRING", "is_primary": False},
-            {"column_name": "hospital_course_summary", "data_type": "STRING", "is_primary": False},
-            {"column_name": "discharge_medications", "data_type": "STRING", "is_primary": False},
-            {"column_name": "followup_instructions", "data_type": "STRING", "is_primary": False},
-            {"column_name": "llm_generated_summary_text", "data_type": "STRING", "is_primary": False},
-            {"column_name": "model_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "approval_status", "data_type": "STRING", "is_primary": False},
-            {"column_name": "approved_by", "data_type": "STRING", "is_primary": False},
-            {"column_name": "created_at", "data_type": "TIMESTAMP", "is_primary": False}
+            {"column_name": "diagnoses", "data_type": "STRING", "is_primary": False},
+            {"column_name": "case_history", "data_type": "STRING", "is_primary": False},
+            {"column_name": "investigations", "data_type": "STRING", "is_primary": False},
+            {"column_name": "treatment", "data_type": "STRING", "is_primary": False},
+            {"column_name": "primary_consultant", "data_type": "STRING", "is_primary": False},
+            {"column_name": "discharge_advice", "data_type": "STRING", "is_primary": False},
+            {"column_name": "surgery_details", "data_type": "STRING", "is_primary": False},
+            {"column_name": "patient_condition", "data_type": "STRING", "is_primary": False},
+            {"column_name": "generated_at", "data_type": "TIMESTAMP", "is_primary": False},
+            {"column_name": "ingestion_timestamp", "data_type": "TIMESTAMP", "is_primary": False},
+            {"column_name": "approval_status", "data_type": "STRING", "is_primary": False}
         ]
     }
 }
@@ -523,6 +523,8 @@ class DischargeSummaryUpdateRequest(BaseModel):
     followup_instructions: Optional[str] = Field(None, description="Updated follow-up instructions and precautions")
     attending_physician: Optional[str] = Field(None, description="Updated attending physician name")
     admission_reason: Optional[str] = Field(None, description="Updated chief complaint or admission reason")
+    investigations: Optional[str] = Field(None, description="Updated clinical investigations and laboratory findings")
+    patient_condition: Optional[str] = Field(None, description="Updated patient condition at discharge")
     discharge_date: Optional[str] = Field(None, description="Updated discharge date timestamp")
     llm_generated_summary_text: Optional[str] = Field(None, description="Full formatted discharge summary document")
     model_name: Optional[str] = Field(None, description="Model identifier")
