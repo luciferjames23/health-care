@@ -47,22 +47,25 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         const kpisObj = bmRes?.kpis || {};
         const wardsList = bmRes?.wards || [];
 
-        let totalBeds = kpisObj.total_beds || 312;
+        let totalBeds = kpisObj.total_beds !== undefined ? kpisObj.total_beds : (wardsList.reduce((acc, w) => acc + (w.total_beds || 0), 0) || 312);
         let occupiedBeds = kpisObj.occupied_beds !== undefined ? kpisObj.occupied_beds : actualAdmissions.length;
         let maintenanceBeds = kpisObj.maintenance_beds || 0;
         let availableBeds = kpisObj.available_beds !== undefined ? kpisObj.available_beds : Math.max(0, totalBeds - occupiedBeds - maintenanceBeds);
         let occupancyRate = totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 0;
+        let totalWards = kpisObj.total_wards !== undefined ? kpisObj.total_wards : (wardsList.length || 8);
+        let totalRooms = kpisObj.total_rooms !== undefined ? kpisObj.total_rooms : 150;
+        let activeAdmissionsCount = actualAdmissions.length > 0 ? actualAdmissions.length : (occupiedBeds > 0 ? occupiedBeds : 0);
 
         setLiveKpis({
-          active_admissions: actualAdmissions.length,
+          active_admissions: activeAdmissionsCount,
           discharged_patients: discharges.length,
           total_beds: totalBeds,
           occupied_beds: occupiedBeds,
           available_beds: availableBeds,
           maintenance_beds: maintenanceBeds,
           occupancy_rate: occupancyRate,
-          total_wards: wardsList.length || 8,
-          total_rooms: kpisObj.total_rooms || 150
+          total_wards: totalWards,
+          total_rooms: totalRooms
         });
 
         if (wardsList.length > 0) {

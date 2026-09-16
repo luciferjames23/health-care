@@ -19,9 +19,9 @@ from routers.discharge_agent import router as discharge_agent_router
 from routers.discharge_summary_llm import router as discharge_summary_llm_router
 
 app = FastAPI(
-    title="Databricks Healthcare Lakehouse API",
-    description="REST API service to query Healthcare Gold and Bronze schema tables in Databricks (`health_care.gold.*` and `health_care.bronze.*`)",
-    version="2.0.0"
+    title="Healthcare PostgreSQL Lakehouse API",
+    description="REST API service querying Healthcare clinical tables and AI Lakehouse in PostgreSQL (`rv_pbpkghvg` at `rivesca.eu.db.rivestack.io`)",
+    version="2.1.0"
 )
 
 app.add_middleware(
@@ -44,10 +44,11 @@ db_connector = DatabricksConnector()
 @app.get("/")
 def read_root():
     return {
-        "service": "Healthcare Prototype Databricks Gold API",
+        "service": "Healthcare PostgreSQL Lakehouse API",
         "status": "online",
-        "catalog": Config.DATABRICKS_CATALOG,
-        "schema": Config.DATABRICKS_SCHEMA,
+        "database": Config.POSTGRES_DB,
+        "host": Config.POSTGRES_HOST,
+        "schema": "public",
         "docs": "/docs"
     }
 
@@ -58,26 +59,34 @@ def health_check():
         conn.close()
         return {
             "status": "healthy",
-            "databricks_connected": True,
-            "catalog": Config.DATABRICKS_CATALOG,
-            "schema": Config.DATABRICKS_SCHEMA
+            "postgres_connected": True,
+            "databricks_connected": True,  # Backward compatibility for frontend health indicator
+            "database": Config.POSTGRES_DB,
+            "host": Config.POSTGRES_HOST,
+            "schema": "public"
         }
     except Exception as e:
         return {
-            "status": "healthy",
+            "status": "unhealthy",
+            "postgres_connected": False,
             "databricks_connected": False,
-            "catalog": Config.DATABRICKS_CATALOG,
-            "schema": Config.DATABRICKS_SCHEMA,
-            "mode": "Fallback Engine Active",
-            "notice": f"Databricks offline or quota reached ({str(e)})"
+            "database": Config.POSTGRES_DB,
+            "host": Config.POSTGRES_HOST,
+            "notice": f"Database offline or connecting issue ({str(e)})"
         }
 
 @app.get("/api/v1/config")
 def get_config():
     return {
+        "database": {
+            "type": "PostgreSQL",
+            "hostname": Config.POSTGRES_HOST,
+            "port": Config.POSTGRES_PORT,
+            "database": Config.POSTGRES_DB,
+            "schema": "public"
+        },
         "databricks": {
             "hostname": Config.DATABRICKS_SERVER_HOSTNAME,
-            "http_path": Config.DATABRICKS_HTTP_PATH,
             "catalog": Config.DATABRICKS_CATALOG,
             "schema": Config.DATABRICKS_SCHEMA
         }

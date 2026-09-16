@@ -1,6 +1,8 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+import psycopg2
+import psycopg2.extras
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
@@ -701,184 +703,100 @@ def get_bed_management_data(
     ward_id: Optional[int] = Query(None, description="Filter by ward_id"),
     occupancy_status: Optional[str] = Query(None, description="Filter by occupancy_status (Occupied, Available, Maintenance, Blocked)")
 ):
-    """Provides combined hierarchical data connecting Wards -> Rooms -> Beds -> Assigned Patient."""
+    """Provides combined hierarchical data connecting Wards -> Rooms -> Beds -> Assigned Patient dynamically from PostgreSQL."""
     try:
-        from concurrent.futures import ThreadPoolExecutor
+        conn = db_connector.get_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            fut_wards = executor.submit(db_connector.query_bronze_table, "wards")
-            fut_rooms = executor.submit(db_connector.query_bronze_table, "rooms")
-            fut_beds = executor.submit(db_connector.query_bronze_table, "beds")
-            fut_ds = executor.submit(db_connector.query_gold_table, "dim_generated_discharge_summaries", None, 1000)
-            fut_adm_inputs = executor.submit(db_connector.query_gold_table, "dim_admission_inputs")
-            fut_admissions = executor.submit(db_connector.query_bronze_table, "admissions", {"discharge_status": "Admitted"}, 1000)
+        cur.execute("SELECT ward_id, ward_name, department_id, ward_type, floor_number, status FROM wards ORDER BY ward_id;")
+        wards_data = cur.fetchall()
 
-            wards_res = fut_wards.result()
-            rooms_res = fut_rooms.result()
-            beds_res = fut_beds.result()
-            ds_res = fut_ds.result()
-            adm_inputs_res = fut_adm_inputs.result()
-            admissions_res = fut_admissions.result()
+        cur.execute("SELECT room_id, room_number, ward_id, room_type, daily_charge, status FROM rooms ORDER BY room_id;")
+        rooms_data = cur.fetchall()
 
-        wards_data = wards_res.get("data", [])
-        rooms_data = rooms_res.get("data", [])
-        beds_data = beds_res.get("data", [])
+        cur.execute("SELECT bed_id, bed_number, room_id, ward_id, bed_type, daily_charge, status FROM beds ORDER BY bed_id;")
+        beds_data = cur.fetchall()
+
+        cur.execute("SELECT summary_id, admission_id, patient_id, approval_status, discharge_date, diagnoses, primary_consultant FROM dim_generated_discharge_summaries;")
+        ds_data = cur.fetchall()
+
+        cur.execute("""
+            SELECT 
+                a.admission_id, a.admission_number, a.patient_id, a.bed_id, a.admission_date,
+                COALESCE(d.first_name || ' ' || d.last_name, 'Patient #' || a.patient_id) as patient_name,
+                COALESCE(d.attending_doctor, 'Doctor #' || a.doctor_id) as attending_doctor,
+                COALESCE(d.primary_diagnosis, a.reason_for_admission) as primary_diagnosis
+            FROM admissions a
+            LEFT JOIN dim_admission_inputs d ON a.admission_id = d.admission_id
+            WHERE a.discharge_status = 'Admitted';
+        """)
+        admissions_data = cur.fetchall()
+
+        cur.close()
+        conn.close()
 
         # Discharged set - Discharge summary table is source of truth
-        discharged_ids = set()
-        discharged_adm_ids = set()
-        discharged_pnums = set()
-        for r in ds_res.get("data", []):
-            p_id = r.get("patient_id")
-            if p_id is not None:
-                discharged_ids.add(str(p_id).strip())
-            a_id = r.get("admission_id")
-            if a_id:
-                discharged_adm_ids.add(str(a_id).strip())
-            p_num = r.get("patient_number")
-            if p_num:
-                discharged_pnums.add(str(p_num).strip())
+        discharged_ids = {str(r["patient_id"]).strip() for r in ds_data if r.get("patient_id") is not None}
+        discharged_adm_ids = {str(r["admission_id"]).strip() for r in ds_data if r.get("admission_id")}
 
-        # Query active admissions for patient assignment mapping (excluding discharged patients)
-        active_patient_map = {}
-        for r in adm_inputs_res.get("data", []):
-            p_id = r.get("patient_id")
-            adm_id = r.get("admission_id")
-            p_num = r.get("patient_number")
-
-            # If patient is in discharged summaries, skip them (they are discharged)
-            if (p_id is not None and str(p_id).strip() in discharged_ids) or \
-               (adm_id and str(adm_id).strip() in discharged_adm_ids) or \
-               (p_num and str(p_num).strip() in discharged_pnums):
-                continue
-
-            j_raw = r.get("llm_input_json")
-            p_name = None
-            diag = None
-            doc = None
-            if j_raw:
-                try:
-                    import json as json_lib
-                    j = json_lib.loads(j_raw) if isinstance(j_raw, str) else j_raw
-                    p_demo = j.get("patient_demographics", {})
-                    p_name = f"{p_demo.get('first_name', '')} {p_demo.get('last_name', '')}".strip()
-                    adm_det = j.get("admission_details", {})
-                    doc = adm_det.get("attending_doctor")
-                    diag = j.get("diagnoses", {}).get("primary_diagnosis")
-                except Exception:
-                    pass
-            
-            info = {
-                "patient_id": p_id,
-                "admission_id": adm_id,
-                "patient_name": p_name or f"Patient #{p_id}",
-                "attending_doctor": doc or f"Doctor #{r.get('doctor_id')}",
-                "primary_diagnosis": diag,
-                "admission_date": r.get("admission_date")
-            }
-            if p_id:
-                active_patient_map[str(p_id)] = info
-            if adm_id:
-                active_patient_map[f"adm_{adm_id}"] = info
-
-        # Try to map bed_id to active admission
+        # Build active bed -> patient map (excluding discharged patients)
         bed_patient_map = {}
-        for a in admissions_res.get("data", []):
-            p_id = a.get("patient_id")
-            adm_id = a.get("admission_id")
-            p_num = a.get("patient_number")
-
-            # Exclude discharged patients
-            if (p_id is not None and str(p_id).strip() in discharged_ids) or \
-               (adm_id and str(adm_id).strip() in discharged_adm_ids) or \
-               (p_num and str(p_num).strip() in discharged_pnums):
+        for a in admissions_data:
+            pid = str(a.get("patient_id")).strip() if a.get("patient_id") else None
+            aid = str(a.get("admission_id")).strip() if a.get("admission_id") else None
+            if (pid and pid in discharged_ids) or (aid and aid in discharged_adm_ids):
                 continue
-
-            b_id = a.get("bed_id")
-            if b_id:
-                existing_info = active_patient_map.get(str(p_id), {})
-                bed_patient_map[b_id] = {
-                    "patient_id": p_id,
-                    "admission_id": adm_id,
+            bid = a.get("bed_id")
+            if bid:
+                bed_patient_map[bid] = {
+                    "patient_id": a.get("patient_id"),
+                    "admission_id": a.get("admission_id"),
                     "admission_number": a.get("admission_number"),
-                    "patient_name": existing_info.get("patient_name") or f"Patient #{p_id}",
-                    "attending_doctor": existing_info.get("attending_doctor") or f"Doctor #{a.get('doctor_id')}",
-                    "primary_diagnosis": existing_info.get("primary_diagnosis") or a.get("reason_for_admission"),
-                    "admission_date": a.get("admission_date")
+                    "patient_name": a.get("patient_name"),
+                    "attending_doctor": a.get("attending_doctor"),
+                    "primary_diagnosis": a.get("primary_diagnosis"),
+                    "admission_date": a.get("admission_date").isoformat() if a.get("admission_date") else None
                 }
 
-        # Identify active admitted patients to map to beds
-        assigned_pids = set()
-        for b_id, p_info in bed_patient_map.items():
-            if p_info.get("patient_id"):
-                assigned_pids.add(str(p_info["patient_id"]).strip())
-
-        unassigned_active_patients = [
-            info for pid, info in active_patient_map.items()
-            if not pid.startswith("adm_") and pid not in assigned_pids and pid not in discharged_ids
-        ]
-        unassigned_idx = 0
-
-        # Organize beds by room_id and ward_id
-        beds_by_room = {}
         occupied_count = 0
         available_count = 0
-        blocked_count = 0
+        maintenance_count = 0
 
+        beds_by_room = {}
         for b in beds_data:
-            r_id = b.get("room_id")
-            w_id = b.get("ward_id")
-            b_id = b.get("bed_id")
+            bid = b.get("bed_id")
+            rid = b.get("room_id")
+            wid = b.get("ward_id")
+            assigned = bed_patient_map.get(bid)
 
-            # Check assigned patient
-            assigned = bed_patient_map.get(b_id)
-            p_id_raw = b.get("patient_id")
-            p_id_str = str(p_id_raw).strip() if p_id_raw is not None else ""
-
-            is_discharged = (p_id_str and p_id_str in discharged_ids) or \
-                            (b.get("patient_number") and str(b.get("patient_number")).strip() in discharged_pnums) or \
-                            (b.get("admission_id") and str(b.get("admission_id")).strip() in discharged_adm_ids)
-
-            if is_discharged:
-                assigned = None
-            elif not assigned and p_id_str and p_id_str not in ["0", "", "None"]:
-                if p_id_str in active_patient_map:
-                    assigned = active_patient_map[p_id_str]
-                    assigned_pids.add(p_id_str)
-
-            raw_status = str(b.get("status") or b.get("occupancy_status") or "").strip()
-            is_maintenance = raw_status.lower() in ["maintenance", "blocked", "cleaning", "reserved"]
-
-            # If still unassigned and there are unassigned active admitted patients, place them in available beds
-            if not assigned and not is_discharged and not is_maintenance and unassigned_idx < len(unassigned_active_patients):
-                assigned = unassigned_active_patients[unassigned_idx]
-                unassigned_idx += 1
+            raw_status = str(b.get("status") or "").strip().lower()
+            is_maint = raw_status in ["maintenance", "blocked", "cleaning", "reserved"]
 
             if assigned:
                 bed_status = "Occupied"
                 occupied_count += 1
-            elif is_maintenance:
+            elif is_maint:
                 bed_status = "Maintenance"
-                blocked_count += 1
+                maintenance_count += 1
             else:
                 bed_status = "Available"
                 available_count += 1
 
+            if occupancy_status and bed_status.lower() != occupancy_status.lower():
+                continue
+
             bed_obj = {
-                "bed_id": b_id,
+                "bed_id": bid,
                 "bed_number": b.get("bed_number"),
-                "room_id": r_id,
-                "ward_id": w_id,
+                "room_id": rid,
+                "ward_id": wid,
                 "bed_type": b.get("bed_type"),
-                "daily_charge": b.get("daily_charge"),
+                "daily_charge": float(b.get("daily_charge")) if b.get("daily_charge") else 0.0,
                 "status": bed_status,
                 "is_occupied": bed_status == "Occupied",
                 "assigned_patient": assigned
             }
-
-            if r_id not in beds_by_room:
-                beds_by_room[r_id] = []
-            beds_by_room[r_id].append(bed_obj)
+            beds_by_room.setdefault(rid, []).append(bed_obj)
 
         # Organize rooms by ward_id
         rooms_by_ward = {}
@@ -893,16 +811,13 @@ def get_bed_management_data(
                 "ward_id": w_id,
                 "room_type": rm.get("room_type"),
                 "capacity": rm.get("capacity", len(rm_beds)),
-                "daily_charge": rm.get("daily_charge"),
+                "daily_charge": float(rm.get("daily_charge")) if rm.get("daily_charge") else 0.0,
                 "status": rm.get("status", "Available"),
                 "beds_count": len(rm_beds),
                 "occupied_count": sum(1 for b in rm_beds if b["is_occupied"]),
                 "beds": rm_beds
             }
-
-            if w_id not in rooms_by_ward:
-                rooms_by_ward[w_id] = []
-            rooms_by_ward[w_id].append(room_obj)
+            rooms_by_ward.setdefault(w_id, []).append(room_obj)
 
         # Build Ward hierarchy
         ward_tree = []
@@ -932,15 +847,15 @@ def get_bed_management_data(
 
         total_beds = len(beds_data)
         return {
-            "catalog": Config.DATABRICKS_CATALOG,
-            "schema": "gold",
+            "catalog": Config.POSTGRES_DB,
+            "schema": "public",
             "kpis": {
                 "total_wards": len(wards_data),
                 "total_rooms": len(rooms_data),
                 "total_beds": total_beds,
                 "occupied_beds": occupied_count,
                 "available_beds": available_count,
-                "maintenance_beds": blocked_count,
+                "maintenance_beds": maintenance_count,
                 "occupancy_rate": round(occupied_count / total_beds * 100, 1) if total_beds else 0.0
             },
             "wards": ward_tree
@@ -949,24 +864,17 @@ def get_bed_management_data(
         raise HTTPException(status_code=500, detail=f"Failed to generate bed management hierarchy: {str(e)}")
 
 
-# ---------------------------------------------------------------------------
-# DYNAMIC GOLD TABLE QUERY ENDPOINT
-# ---------------------------------------------------------------------------
-@router.get("/table/{table_name}", summary="Dynamic Query Endpoint for Gold Tables")
+@router.get("/table/{table_name}", summary="Dynamic Query Endpoint for Tables")
 def query_dynamic_gold_table(
     table_name: str,
     limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0)
 ):
-    """Dynamic pagination and retrieval for Gold tables."""
-    valid_tables = ["dim_revenue_predictions", "fact_bed_demand_forecast_7day_detailed", "dim_admission_inputs", "dim_generated_discharge_summaries"]
-    if table_name not in valid_tables:
-        raise HTTPException(status_code=400, detail=f"Table '{table_name}' is not supported. Valid Gold tables: {valid_tables}")
-
+    """Dynamic pagination and retrieval for PostgreSQL tables."""
     try:
         return db_connector.query_gold_table(table_name, limit=limit, offset=offset)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to query Gold table '{table_name}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to query table '{table_name}': {str(e)}")
 
 
 
