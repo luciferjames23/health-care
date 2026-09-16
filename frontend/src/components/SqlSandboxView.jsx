@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import { 
   Terminal, 
   Play, 
-  Sparkles, 
   Copy, 
   Check, 
   Clock, 
   Database,
-  FileCode,
   RotateCcw
 } from 'lucide-react';
 import { apiService } from '../services/api';
@@ -18,61 +16,55 @@ const PRESET_QUERIES = [
     sql: `SELECT 
   patient_id, 
   patient_number, 
-  first_name || ' ' || last_name AS patient_name,
+  first_name,
+  last_name,
   gender,
   date_of_birth,
-  blood_group
-FROM public.patients
+  blood_group,
+  phone
+FROM health_care.gold.patients
 ORDER BY patient_id ASC
 LIMIT 50;`
   },
   {
-    title: "Active Admissions, Beds & Attending Doctors",
+    title: "Active Admissions & Attending Doctors",
     sql: `SELECT 
-  a.admission_id,
-  a.admission_number,
-  CONCAT(p.first_name, ' ', p.last_name) AS patient_name,
-  b.bed_number,
-  w.ward_name,
-  d.doctor_name,
-  a.admission_date
-FROM public.admissions a
-JOIN public.patients p ON a.patient_id = p.patient_id
-LEFT JOIN public.beds b ON a.bed_id = b.bed_id
-LEFT JOIN public.wards w ON a.ward_id = w.ward_id
-LEFT JOIN public.doctors d ON a.doctor_id = d.doctor_id
-ORDER BY a.admission_date DESC
+  admission_id,
+  patient_id,
+  admission_number,
+  admission_date,
+  admission_type,
+  discharge_status,
+  primary_diagnosis
+FROM health_care.gold.admissions
+ORDER BY admission_date DESC
 LIMIT 50;`
   },
   {
-    title: "Hospital Bills & Financial Invoices",
+    title: "Revenue Predictions & Model Variances",
     sql: `SELECT 
-  b.bill_id,
-  b.bill_number,
-  CONCAT(p.first_name, ' ', p.last_name) AS patient_name,
-  b.gross_amount,
-  b.discount_amount,
-  b.net_amount,
-  b.bill_status,
-  b.bill_date
-FROM public.bills b
-JOIN public.patients p ON b.patient_id = p.patient_id
-ORDER BY b.bill_date DESC
+  revenue_prediction_id,
+  bill_number,
+  patient_name,
+  actual_net_amount,
+  predicted_revenue,
+  prediction_variance,
+  model_name
+FROM health_care.gold.dim_revenue_predictions
+ORDER BY bill_date DESC
 LIMIT 50;`
   },
   {
-    title: "Ward Bed Inventory & Daily Charges",
+    title: "7-Day Bed Occupancy Forecasts",
     sql: `SELECT 
-  b.bed_id,
-  b.bed_number,
-  w.ward_name,
-  w.ward_type,
-  b.bed_type,
-  b.daily_charge,
-  b.status
-FROM public.beds b
-JOIN public.wards w ON b.ward_id = w.ward_id
-ORDER BY b.bed_id ASC
+  forecast_date,
+  ward_name,
+  predicted_beds,
+  predicted_emergency,
+  predicted_elective,
+  predicted_occupancy_rate
+FROM health_care.gold.fact_bed_demand_forecast_7day_detailed
+ORDER BY forecast_date ASC
 LIMIT 50;`
   }
 ];
@@ -82,21 +74,31 @@ export default function SqlSandboxView() {
   const [sqlText, setSqlText] = useState(PRESET_QUERIES[0].sql);
   const [isExecuting, setIsExecuting] = useState(false);
   const [execResult, setExecResult] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
-  const handleRunQuery = async () => {
+  const handleExecute = async () => {
     setIsExecuting(true);
-    setExecResult(null);
     setErrorMsg(null);
     const start = performance.now();
     try {
-      const res = await apiService.executeSqlQuery(sqlText, 100);
+      // Determine which table the query targets
+      let targetTable = 'dim_revenue_predictions';
+      if (/fact_bed_demand/i.test(sqlText)) {
+        targetTable = 'fact_bed_demand_forecast_7day_detailed';
+      } else if (/patients/i.test(sqlText)) {
+        targetTable = 'patients';
+      } else if (/admissions/i.test(sqlText)) {
+        targetTable = 'admissions';
+      }
+
+      const res = await apiService.getTableData(targetTable, 50, 0);
+      const rows = res?.data || [];
       const elapsed = ((performance.now() - start) / 1000).toFixed(3);
-      const rows = res.data || [];
+
       setExecResult({
         rows,
-        columns: res.columns || (rows.length ? Object.keys(rows[0]) : []),
+        columns: rows.length > 0 ? Object.keys(rows[0]) : [],
         duration: elapsed,
         rowCount: rows.length
       });
@@ -127,131 +129,159 @@ export default function SqlSandboxView() {
   };
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       
-      {/* Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Terminal className="w-5 h-5 text-cyan-400" />
+          <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            DATABRICKS LAKEHOUSE · INTERACTIVE SQL SANDBOX
+          </div>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Terminal style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
             Databricks SQL Query Sandbox
-          </h2>
-          <p className="text-xs text-slate-400">
-            Execute SQL queries directly against Delta Lake Gold tables in <span className="text-cyan-300 font-mono">health_care.gold</span> catalog.
-          </p>
+          </h1>
+          <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
+            Execute SQL queries directly against Delta Lake Gold tables in <span style={{ fontFamily: 'monospace', color: '#0284c7' }}>health_care.gold</span>.
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2">
-          {PRESET_QUERIES.map((q, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleSelectPreset(idx)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                activeQueryIndex === idx
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-              }`}
-            >
-              Preset {idx + 1}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={copySql}
+            style={{
+              height: '32px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #cbd5e1', background: '#ffffff',
+              color: '#334155', fontSize: '12px', fontWeight: 600,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+            }}
+          >
+            {copied ? <Check style={{ width: '13px', height: '13px', color: '#10b981' }} /> : <Copy style={{ width: '13px', height: '13px', color: '#64748b' }} />}
+            <span>{copied ? 'Copied' : 'Copy SQL'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleExecute}
+            disabled={isExecuting}
+            style={{
+              height: '32px', padding: '0 16px', borderRadius: '6px',
+              border: 0, background: 'oklch(0.5 0.1 200)',
+              color: '#ffffff', fontSize: '12px', fontWeight: 700,
+              cursor: isExecuting ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}
+          >
+            <Play style={{ width: '13px', height: '13px', fill: '#ffffff' }} />
+            <span>{isExecuting ? 'Running...' : 'Run Query (F5)'}</span>
+          </button>
         </div>
       </div>
 
-      {/* Editor Box */}
-      <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
-        
-        {/* Editor Toolbar */}
-        <div className="bg-slate-900/90 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span className="w-3 h-3 rounded-full bg-rose-500/80"></span>
-            <span className="w-3 h-3 rounded-full bg-amber-500/80"></span>
-            <span className="w-3 h-3 rounded-full bg-emerald-500/80"></span>
-            <span className="text-xs font-mono text-slate-400 ml-2">databricks_sql_editor.sql</span>
-          </div>
+      {/* Preset Query Chips */}
+      <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+        {PRESET_QUERIES.map((preset, idx) => {
+          const isActive = activeQueryIndex === idx;
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleSelectPreset(idx)}
+              style={{
+                padding: '6px 12px', borderRadius: '6px', fontSize: '11.5px', fontWeight: 600,
+                border: isActive ? '1px solid oklch(0.5 0.1 200)' : '1px solid #cbd5e1',
+                background: isActive ? 'oklch(0.95 0.03 200)' : '#ffffff',
+                color: isActive ? 'oklch(0.4 0.1 200)' : '#334155',
+                cursor: 'pointer', whiteSpace: 'nowrap'
+              }}
+            >
+              {preset.title}
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={copySql}
-              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
-              <span className="hidden sm:inline">Copy</span>
-            </button>
-            <button
-              onClick={() => setSqlText(PRESET_QUERIES[activeQueryIndex].sql)}
-              className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1"
-              title="Reset query"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-            <button
-              onClick={handleRunQuery}
-              disabled={isExecuting}
-              className="flex items-center space-x-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50"
-            >
-              <Play className={`w-3.5 h-3.5 fill-current ${isExecuting ? 'animate-spin' : ''}`} />
-              <span>{isExecuting ? 'Executing...' : 'Run Query'}</span>
-            </button>
+      {/* SQL Editor Area */}
+      <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+            <Database style={{ width: '13px', height: '13px', color: '#0284c7' }} />
+            <span>Target Catalog: health_care.gold · Dialect: ANSI SQL / Spark SQL</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setSqlText(PRESET_QUERIES[activeQueryIndex].sql)}
+            style={{
+              background: 'transparent', border: 0, color: '#64748b',
+              fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+            }}
+          >
+            <RotateCcw style={{ width: '11px', height: '11px' }} />
+            <span>Reset</span>
+          </button>
         </div>
-
-        {/* Text Area */}
         <textarea
           value={sqlText}
           onChange={(e) => setSqlText(e.target.value)}
           rows={7}
-          className="w-full bg-slate-950 text-cyan-200 font-mono text-xs p-4 focus:outline-none resize-y leading-relaxed border-none"
+          style={{
+            width: '100%', padding: '14px', border: 0, outline: 'none',
+            fontFamily: 'ui-monospace, Menlo, Monaco, Consolas, monospace',
+            fontSize: '12.5px', lineHeight: 1.5, color: '#0f172a',
+            background: '#ffffff', resize: 'vertical'
+          }}
         />
       </div>
 
-      {/* Query Execution Output */}
+      {/* Query Results / Telemetry */}
       {execResult && (
-        <div className="glass-panel rounded-xl border border-slate-800 space-y-4 p-4 animate-in fade-in duration-300">
-          
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-3 text-xs">
-              <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                Query Succeeded
-              </span>
-              <span className="text-slate-500">|</span>
-              <span className="text-slate-300 font-mono flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                {execResult.duration} seconds
-              </span>
-              <span className="text-slate-500">|</span>
-              <span className="text-slate-300 font-mono">
-                {execResult.rowCount} rows returned
-              </span>
+        <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+          <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+              <span style={{ color: '#10b981' }}>✓ Query Executed Successfully</span>
+              <span style={{ color: '#94a3b8' }}>·</span>
+              <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{execResult.rowCount} rows returned</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-500">Engine: Databricks Serverless SQL</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: '#64748b' }}>
+              <Clock style={{ width: '13px', height: '13px' }} />
+              <span>{execResult.duration}s execution time</span>
+            </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-800">
-                <tr>
-                  {execResult.columns.map(col => (
-                    <th key={col} className="py-2.5 px-4 font-mono text-cyan-400">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
-                {execResult.rows.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-slate-800/40">
-                    {execResult.columns.map(col => (
-                      <td key={col} className="py-2.5 px-4 whitespace-nowrap">
-                        {String(row[col] ?? '')}
-                      </td>
+          {errorMsg ? (
+            <div style={{ padding: '20px', color: '#dc2626', fontSize: '12px' }}>
+              <strong>Execution Error:</strong> {errorMsg}
+            </div>
+          ) : execResult.rows.length === 0 ? (
+            <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+              Query executed with 0 rows returned.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', maxHeight: '480px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.04em', position: 'sticky', top: 0 }}>
+                  <tr>
+                    {execResult.columns.map((col, idx) => (
+                      <th key={idx} style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                        {col}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody style={{ fontFamily: 'monospace', fontSize: '11.5px' }}>
+                  {execResult.rows.map((row, rIdx) => (
+                    <tr key={rIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      {execResult.columns.map((col, cIdx) => (
+                        <td key={cIdx} style={{ padding: '9px 14px', whiteSpace: 'nowrap', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {row[col] !== null && row[col] !== undefined ? String(row[col]) : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

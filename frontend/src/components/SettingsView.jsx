@@ -1,133 +1,140 @@
 import React from 'react';
 import { 
   Sliders, 
-  Server, 
   Database, 
-  ShieldCheck, 
   RefreshCw, 
-  CheckCircle2,
-  HardDrive,
   Globe
 } from 'lucide-react';
 
 export default function SettingsView({ healthInfo, onRefresh, loading }) {
-  const isConnected = healthInfo?.isConnected;
+  const isConnected = healthInfo?.isConnected !== false;
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       
-      {/* Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-cyan-400" />
-            Databricks & System Configuration
-          </h2>
-          <p className="text-xs text-slate-400">
-            View active connection properties for Databricks Lakehouse and FastAPI REST service.
-          </p>
+          <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            HOSPITAL OPERATING PLATFORM · INFRASTRUCTURE CONFIGURATION
+          </div>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sliders style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
+            Databricks &amp; System Configuration
+          </h1>
+          <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
+            View active connection properties for Databricks Lakehouse and FastAPI REST services.
+          </div>
         </div>
 
         <button
+          type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="flex items-center space-x-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50"
+          style={{
+            height: '32px', padding: '0 16px', borderRadius: '6px',
+            border: 0, background: 'oklch(0.5 0.1 200)',
+            color: '#ffffff', fontSize: '12px', fontWeight: 700,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: '6px'
+          }}
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw style={{ width: '13px', height: '13px', animation: loading ? 'kpi-spin 1s linear infinite' : 'none' }} />
           <span>Test System Connection</span>
         </button>
       </div>
 
       {/* Connection Status Card */}
-      <div className="glass-panel rounded-xl p-6 border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className={`w-3.5 h-3.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></div>
+      <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '12px', height: '12px', borderRadius: '50%',
+              background: isConnected ? '#10b981' : '#f59e0b',
+              boxShadow: isConnected ? '0 0 0 3px rgba(16, 185, 129, 0.2)' : 'none'
+            }} />
             <div>
-              <h3 className="text-sm font-bold text-white">
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>
                 {isConnected ? 'FastAPI Backend Online & Connected' : 'Local Prototype Engine Active'}
-              </h3>
-              <p className="text-xs text-slate-400">
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#64748b' }}>
                 {isConnected ? 'Connected to http://localhost:8000/api/v1/health' : 'Serving rich offline mock data for Databricks Gold schema'}
-              </p>
+              </div>
             </div>
           </div>
-          <span className="text-xs font-mono px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-cyan-300">
+          <span style={{
+            fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, padding: '3px 10px',
+            borderRadius: '12px', background: isConnected ? '#dcfce7' : '#fef3c7',
+            color: isConnected ? '#15803d' : '#b45309'
+          }}>
             {isConnected ? 'HTTP 200 OK' : 'LOCAL FALLBACK'}
           </span>
         </div>
       </div>
 
       {/* Databricks Connector Info Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '16px' }}>
         
         {/* Card 1: Databricks Properties */}
-        <div className="glass-panel rounded-xl p-6 border border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Database className="w-4 h-4 text-cyan-400" />
-            Databricks Gold Layer Metadata
-          </h3>
+        <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Database style={{ width: '18px', height: '18px', color: '#0284c7' }} />
+            <div style={{ fontWeight: 700, fontSize: '13.5px', color: '#0f172a' }}>
+              Databricks Gold Layer Metadata
+            </div>
+          </div>
 
-          <div className="space-y-3 font-mono text-xs">
-            <div className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-sans">Databricks Server Hostname</span>
-              <div className="text-slate-200 text-ellipsis overflow-hidden">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontFamily: 'monospace', fontSize: '12px' }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>Databricks Host</div>
+              <div style={{ color: '#0f172a', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 dbc-478013da-49af.cloud.databricks.com
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-sans">HTTP Path</span>
-              <div className="text-slate-200 text-ellipsis overflow-hidden">
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>HTTP Warehouse Path</div>
+              <div style={{ color: '#0f172a', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 /sql/1.0/warehouses/769f9abf1dd202a2
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-sans">Catalog</span>
-                <div className="text-cyan-300 font-bold">health_care</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px 12px' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>Catalog</div>
+                <div style={{ color: '#0284c7', fontWeight: 700 }}>health_care</div>
               </div>
-              <div className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 space-y-1">
-                <span className="text-[10px] text-slate-500 uppercase font-sans">Schema</span>
-                <div className="text-emerald-300 font-bold">gold</div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px 12px' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>Schema</div>
+                <div style={{ color: '#10b981', fontWeight: 700 }}>gold</div>
               </div>
             </div>
           </div>
         </div>
 
         {/* Card 2: REST API Endpoints */}
-        <div className="glass-panel rounded-xl p-6 border border-slate-800 space-y-4">
-          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Globe className="w-4 h-4 text-emerald-400" />
-            FastAPI Backend Service Endpoints
-          </h3>
+        <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <Globe style={{ width: '18px', height: '18px', color: '#10b981' }} />
+            <div style={{ fontWeight: 700, fontSize: '13.5px', color: '#0f172a' }}>
+              FastAPI REST Service Endpoints
+            </div>
+          </div>
 
-          <div className="space-y-2 font-mono text-xs max-h-[260px] overflow-y-auto pr-1">
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/health</span>
-              <span className="text-[10px] text-slate-500 font-sans">Health Check</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/summary</span>
-              <span className="text-[10px] text-slate-500 font-sans">Gold Summary KPIs</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/revenue-predictions</span>
-              <span className="text-[10px] text-slate-500 font-sans">Revenue Projections</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/bed-management</span>
-              <span className="text-[10px] text-slate-500 font-sans">Hospital Bed Management</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/tables</span>
-              <span className="text-[10px] text-slate-500 font-sans">Table Metadata</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex justify-between items-center">
-              <span className="text-cyan-300">GET /api/v1/gold/table/&#123;table&#125;</span>
-              <span className="text-[10px] text-slate-500 font-sans">Dynamic Query</span>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'monospace', fontSize: '11.5px', maxHeight: '250px', overflowY: 'auto' }}>
+            {[
+              { path: 'GET /api/v1/health', label: 'Health Check' },
+              { path: 'GET /api/v1/gold/summary', label: 'Gold Summary KPIs' },
+              { path: 'GET /api/v1/gold/revenue-predictions', label: 'Revenue Projections' },
+              { path: 'GET /api/v1/gold/tables', label: 'Table Metadata' },
+              { path: 'GET /api/v1/gold/schema/{table}', label: 'Schema Definitions' },
+              { path: 'GET /api/v1/gold/table/{table}', label: 'Dynamic Grid Query' }
+            ].map((ep, i) => (
+              <div key={i} style={{ padding: '8px 12px', borderRadius: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#0284c7', fontWeight: 600 }}>{ep.path}</span>
+                <span style={{ color: '#64748b', fontSize: '10.5px' }}>{ep.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 

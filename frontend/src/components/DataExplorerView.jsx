@@ -2,19 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { 
   Database, 
   Search, 
-  Download, 
   ChevronLeft, 
   ChevronRight, 
   RefreshCw,
-  Filter,
-  FileJson,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FileJson
 } from 'lucide-react';
 import { apiService } from '../services/api';
 
-export default function DataExplorerView({ tables = [], initialTable = 'patients' }) {
-  const [tableList, setTableList] = useState(tables);
-  const [selectedTable, setSelectedTable] = useState(initialTable);
+const DEFAULT_TABLES = [
+  { table_name: 'dim_revenue_predictions', domain: 'Financial', row_count: 1000 },
+  { table_name: 'fact_bed_demand_forecast_7day_detailed', domain: 'Operations', row_count: 350 },
+  { table_name: 'dim_generated_discharge_summaries', domain: 'Discharge AI', row_count: 50 },
+  { table_name: 'patients', domain: 'Master Index', row_count: 4000 },
+  { table_name: 'admissions', domain: 'Inpatients', row_count: 250 }
+];
+
+export default function DataExplorerView({ tables = [], initialTable = 'dim_revenue_predictions' }) {
+  const [tableList, setTableList] = useState(DEFAULT_TABLES);
+  const [selectedTable, setSelectedTable] = useState(initialTable || 'dim_revenue_predictions');
   const [dataResult, setDataResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(25);
@@ -23,42 +29,33 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
 
   useEffect(() => {
     async function initTables() {
-      if (tables && tables.length > 0) {
-        setTableList(tables);
-        return;
-      }
       try {
         const res = await apiService.getPostgresTables();
         const tList = res.tables || [];
-        setTableList(tList);
-        if (tList.length > 0 && (!selectedTable || selectedTable === 'dim_patient')) {
-          setSelectedTable(tList[0].table_name);
+        if (tList.length > 0) {
+          setTableList(tList);
         }
       } catch (err) {
-        console.error("Failed to load tables list", err);
+        console.warn("Using default tables for Data Grid:", err);
       }
     }
     initTables();
-  }, [tables]);
-
-  useEffect(() => {
-    if (initialTable && initialTable !== 'dim_patient') {
-      setSelectedTable(initialTable);
-      setOffset(0);
-    }
-  }, [initialTable]);
+  }, []);
 
   useEffect(() => {
     async function loadData() {
       if (!selectedTable) return;
-      if (!dataResult) {
-        setLoading(true);
-      }
+      setLoading(true);
       try {
         const res = await apiService.getTableData(selectedTable, limit, offset);
-        setDataResult(res);
+        if (res && res.data) {
+          setDataResult(res);
+        } else {
+          setDataResult({ data: [], total_rows: 0 });
+        }
       } catch (err) {
-        console.error("Failed to load table data", err);
+        console.warn("Failed to load table data:", err);
+        setDataResult({ data: [], total_rows: 0 });
       } finally {
         setLoading(false);
       }
@@ -68,7 +65,6 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
 
   const rawRows = dataResult?.data || [];
   
-  // Client-side row search filter across all values
   const filteredRows = rawRows.filter(row => {
     if (!searchFilter.trim()) return true;
     return Object.values(row).some(val => 
@@ -88,7 +84,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${selectedTable}_gold_export.csv`;
+    a.download = `${selectedTable}_export.csv`;
     a.click();
   };
 
@@ -98,7 +94,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${selectedTable}_gold_export.json`;
+    a.download = `${selectedTable}_export.json`;
     a.click();
   };
 
@@ -107,161 +103,171 @@ export default function DataExplorerView({ tables = [], initialTable = 'patients
   const currentPage = Math.floor(offset / limit) + 1;
 
   return (
-    <div className="space-y-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       
-      {/* Control Bar Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Database className="w-5 h-5 text-cyan-400" />
-            Interactive Data Grid & Query Previewer
-          </h2>
-          <p className="text-xs text-slate-400">
-            Query live rows from Databricks Gold tables with real-time pagination and export options.
-          </p>
+          <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            DATABRICKS LAKEHOUSE · INTERACTIVE QUERY VIEWER
+          </div>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Database style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
+            Interactive Data Grid &amp; Query Previewer
+          </h1>
+          <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
+            Query live records from Databricks Gold lakehouse tables with real-time pagination and export options.
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
+            type="button"
             onClick={handleExportCSV}
             disabled={!rawRows.length}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+            style={{
+              height: '32px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #cbd5e1', background: '#ffffff',
+              color: '#334155', fontSize: '12px', fontWeight: 600,
+              cursor: rawRows.length ? 'pointer' : 'not-allowed',
+              opacity: rawRows.length ? 1 : 0.5,
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <FileSpreadsheet style={{ width: '13px', height: '13px', color: '#10b981' }} />
             <span>Export CSV</span>
           </button>
           <button
+            type="button"
             onClick={handleExportJSON}
             disabled={!rawRows.length}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+            style={{
+              height: '32px', padding: '0 12px', borderRadius: '6px',
+              border: '1px solid #cbd5e1', background: '#ffffff',
+              color: '#334155', fontSize: '12px', fontWeight: 600,
+              cursor: rawRows.length ? 'pointer' : 'not-allowed',
+              opacity: rawRows.length ? 1 : 0.5,
+              display: 'flex', alignItems: 'center', gap: '6px'
+            }}
           >
-            <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+            <FileJson style={{ width: '13px', height: '13px', color: '#0284c7' }} />
             <span>Export JSON</span>
           </button>
         </div>
       </div>
 
-      {/* Filters and Controls Card */}
-      <div className="glass-panel rounded-xl p-4 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-        
-        {/* Table Selector & Search */}
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="flex items-center space-x-2">
-            <label className="text-xs text-slate-400 font-semibold">Table:</label>
+      {/* Control Bar Card */}
+      <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Table:</span>
             <select
               value={selectedTable}
               onChange={(e) => {
                 setSelectedTable(e.target.value);
                 setOffset(0);
               }}
-              className="bg-slate-900 border border-slate-800 text-cyan-300 font-mono text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500"
+              style={{
+                height: '32px', padding: '0 10px', borderRadius: '6px',
+                border: '1px solid #cbd5e1', fontSize: '12px',
+                fontWeight: 600, background: '#ffffff', color: '#0f172a', outline: 'none'
+              }}
             >
-              {tableList.map((t) => (
+              {tableList.map(t => (
                 <option key={t.table_name} value={t.table_name}>
-                  {t.table_name} ({(t.row_count || 0).toLocaleString()} rows)
+                  {t.table_name} ({t.domain || 'Lakehouse'})
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="relative flex-1 md:w-64">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+          <div style={{ position: 'relative', minWidth: '220px' }}>
+            <Search style={{ width: '13px', height: '13px', color: '#94a3b8', position: 'absolute', left: '10px', top: '9px' }} />
             <input
               type="text"
-              placeholder="Filter current view..."
+              placeholder="Filter current rows..."
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+              style={{
+                width: '100%', height: '32px', paddingLeft: '30px', paddingRight: '10px',
+                borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px',
+                outline: 'none', background: '#f8fafc', color: '#0f172a'
+              }}
             />
           </div>
         </div>
 
-        {/* Page Size & Pagination Controls */}
-        <div className="flex items-center space-x-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400">Rows / page:</span>
-            <select
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setOffset(0);
-              }}
-              className="bg-slate-900 border border-slate-800 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-cyan-500"
-            >
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400 font-mono">
-              Page {currentPage} of {totalPages}
-            </span>
+        {/* Pagination controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong> ({totalRows.toLocaleString()} rows)
+          </span>
+          <div style={{ display: 'flex', gap: '4px' }}>
             <button
+              type="button"
               onClick={() => setOffset(Math.max(0, offset - limit))}
               disabled={offset === 0}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-40"
+              style={{
+                height: '30px', width: '30px', borderRadius: '6px',
+                border: '1px solid #cbd5e1', background: '#ffffff',
+                cursor: offset === 0 ? 'not-allowed' : 'pointer',
+                opacity: offset === 0 ? 0.4 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft style={{ width: '14px', height: '14px' }} />
             </button>
             <button
+              type="button"
               onClick={() => setOffset(offset + limit)}
-              disabled={offset + limit >= totalRows}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-40"
+              disabled={currentPage >= totalPages}
+              style={{
+                height: '30px', width: '30px', borderRadius: '6px',
+                border: '1px solid #cbd5e1', background: '#ffffff',
+                cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                opacity: currentPage >= totalPages ? 0.4 : 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight style={{ width: '14px', height: '14px' }} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Data Grid */}
-      <div className="glass-panel rounded-xl border border-slate-800 overflow-hidden">
+      {/* Data Table */}
+      <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
         {loading ? (
-          <div className="p-16 text-center text-slate-400 flex flex-col items-center space-y-3">
-            <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
-            <span className="text-xs font-mono">Loading data from health_care.gold.{selectedTable}...</span>
+          <div style={{ padding: '48px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
+            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Gold Lakehouse...</span>
           </div>
         ) : filteredRows.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-xs font-mono">
-            No rows found for table '{selectedTable}'.
+          <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: '14px', fontWeight: 600 }}>No rows found in {selectedTable}</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>Try switching tables or resetting search filter</div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-900/90 text-slate-400 uppercase text-[10px] font-semibold tracking-wider border-b border-slate-800">
+          <div style={{ overflowX: 'auto', maxHeight: '600px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.04em', position: 'sticky', top: 0, zIndex: 10 }}>
                 <tr>
-                  <th className="py-3 px-4 text-center w-12 border-r border-slate-800">#</th>
-                  {columns.map(col => (
-                    <th key={col} className="py-3 px-4 whitespace-nowrap font-mono text-cyan-400">
+                  {columns.map((col, idx) => (
+                    <th key={idx} style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+              <tbody style={{ fontFamily: 'monospace', fontSize: '11.5px' }}>
                 {filteredRows.map((row, rIdx) => (
-                  <tr key={rIdx} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-4 text-center text-slate-500 border-r border-slate-800/60 select-none">
-                      {offset + rIdx + 1}
-                    </td>
-                    {columns.map(col => {
+                  <tr key={rIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    {columns.map((col, cIdx) => {
                       const val = row[col];
-                      const isNull = val === null || val === undefined;
-                      const isBool = typeof val === 'boolean';
+                      const str = val !== null && val !== undefined ? String(val) : '—';
                       return (
-                        <td key={col} className="py-2.5 px-4 whitespace-nowrap">
-                          {isNull ? (
-                            <span className="text-slate-600 italic">null</span>
-                          ) : isBool ? (
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${val ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
-                              {String(val)}
-                            </span>
-                          ) : (
-                            <span>{String(val)}</span>
-                          )}
+                        <td key={cIdx} style={{ padding: '9px 14px', whiteSpace: 'nowrap', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {str}
                         </td>
                       );
                     })}

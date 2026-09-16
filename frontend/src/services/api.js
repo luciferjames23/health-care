@@ -843,6 +843,25 @@ export function parseAdmissionLlmRecord(record) {
 }
 
 /**
+ * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
+ */
+export function cleanDiagnosis(diag) {
+  if (!diag || typeof diag !== 'string') return '';
+  return diag
+    // Remove secondary diagnosis labels when followed by empty brackets []
+    .replace(/(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]/gi, '')
+    .replace(/(?:[;,|]\s*)?Secondary\s*:\s*\[\s*\]/gi, '')
+    // Remove standalone empty brackets and bracket prefixes
+    .replace(/:\s*\[\s*\]/g, '')
+    .replace(/;\s*\[\s*\]/g, '')
+    .replace(/\|\s*\[\s*\]/g, '')
+    .replace(/\[\s*\]/g, '')
+    // Remove any trailing or dangling punctuation
+    .replace(/[:;,|]\s*$/g, '')
+    .trim();
+}
+
+/**
  * Utility to unpack a dim_generated_discharge_summaries record into a standardized discharge view model
  */
 export function parseDischargeSummaryRecord(record) {
@@ -858,6 +877,7 @@ export function parseDischargeSummaryRecord(record) {
   }
   const resolvedPatientName = extractedName || record.patient || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
   const resolvedDoctorName = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
+  const resolvedDiagnoses = cleanDiagnosis(record.diagnoses || '') || 'Clinical Discharge Completed';
 
   return {
     id: `DC-${String(record.summary_id || record.admission_id).padStart(2, '0')}`,
@@ -877,7 +897,7 @@ export function parseDischargeSummaryRecord(record) {
     discharge_date: record.discharge_date,
     intent: record.admission_date ? new Date(record.admission_date).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
     eta: record.discharge_date ? new Date(record.discharge_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Completed',
-    diagnoses: record.diagnoses || 'Clinical Discharge Completed',
+    diagnoses: resolvedDiagnoses,
     case_history: record.case_history || '',
     investigations: record.investigations || '',
     treatment: record.treatment || '',

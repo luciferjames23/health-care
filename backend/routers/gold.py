@@ -109,6 +109,45 @@ GOLD_TABLES_META = {
             {"column_name": "ingestion_timestamp", "data_type": "TIMESTAMP", "is_primary": False},
             {"column_name": "approval_status", "data_type": "STRING", "is_primary": False}
         ]
+    },
+    "patients": {
+        "table_name": "patients",
+        "primary_key": "patient_id",
+        "domain": "Front Office & Master Index",
+        "description": "Enterprise Patient Master Index (EMPI) containing demographics, contact information, National ID, and registration history.",
+        "schema": [
+            {"column_name": "patient_id", "data_type": "BIGINT", "is_primary": True, "description": "Unique Master Patient Index identifier"},
+            {"column_name": "patient_number", "data_type": "STRING", "is_primary": False, "description": "Hospital UHID tracking number"},
+            {"column_name": "first_name", "data_type": "STRING", "is_primary": False, "description": "Patient legal first name"},
+            {"column_name": "last_name", "data_type": "STRING", "is_primary": False, "description": "Patient legal surname"},
+            {"column_name": "gender", "data_type": "STRING", "is_primary": False, "description": "Biological sex / gender identity"},
+            {"column_name": "date_of_birth", "data_type": "DATE", "is_primary": False, "description": "Date of birth (YYYY-MM-DD)"},
+            {"column_name": "blood_group", "data_type": "STRING", "is_primary": False, "description": "ABO and Rh blood group classification"},
+            {"column_name": "phone", "data_type": "STRING", "is_primary": False, "description": "Primary verified contact telephone number"},
+            {"column_name": "email", "data_type": "STRING", "is_primary": False, "description": "Primary electronic notification address"},
+            {"column_name": "city", "data_type": "STRING", "is_primary": False, "description": "Residential municipality/city"},
+            {"column_name": "emergency_contact_name", "data_type": "STRING", "is_primary": False, "description": "Designated emergency guardian or relative"},
+            {"column_name": "created_at", "data_type": "TIMESTAMP", "is_primary": False, "description": "EMPI record creation timestamp"}
+        ]
+    },
+    "admissions": {
+        "table_name": "admissions",
+        "primary_key": "admission_id",
+        "domain": "Clinical Operations & Inpatient",
+        "description": "Hospital admission encounters, active inpatient stays, attending doctor assignments, and discharge disposition status.",
+        "schema": [
+            {"column_name": "admission_id", "data_type": "BIGINT", "is_primary": True, "description": "Unique inpatient encounter identifier"},
+            {"column_name": "patient_id", "data_type": "BIGINT", "is_primary": False, "description": "Foreign key to patients table"},
+            {"column_name": "admission_number", "data_type": "STRING", "is_primary": False, "description": "Encounter tracking registration code"},
+            {"column_name": "admission_date", "data_type": "TIMESTAMP", "is_primary": False, "description": "Date and time of inpatient bed booking"},
+            {"column_name": "admission_type", "data_type": "STRING", "is_primary": False, "description": "Elective, Emergency, or Transfer encounter"},
+            {"column_name": "discharge_status", "data_type": "STRING", "is_primary": False, "description": "Admitted, Ready for Discharge, or Discharged"},
+            {"column_name": "primary_diagnosis", "data_type": "STRING", "is_primary": False, "description": "Definitive ICD admission diagnosis description"},
+            {"column_name": "secondary_diagnoses", "data_type": "STRING", "is_primary": False, "description": "Secondary clinical diagnoses and comorbidities"},
+            {"column_name": "doctor_id", "data_type": "BIGINT", "is_primary": False, "description": "Primary attending physician staff ID"},
+            {"column_name": "bed_id", "data_type": "BIGINT", "is_primary": False, "description": "Assigned hospital bed location identifier"},
+            {"column_name": "length_of_stay_days", "data_type": "INT", "is_primary": False, "description": "Elapsed or finalized duration of hospitalization"}
+        ]
     }
 }
 
@@ -142,6 +181,43 @@ def list_gold_tables():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list Gold tables: {str(e)}")
+
+
+@router.get("/schema/{table_name}", summary="Get Table Schema and Column Definitions")
+def get_gold_table_schema(table_name: str):
+    """Returns columns, types, primary keys, and description for a Gold table."""
+    meta = GOLD_TABLES_META.get(table_name)
+    if not meta:
+        for k, v in GOLD_TABLES_META.items():
+            if k.lower() == table_name.lower() or k.lower() == f"dim_{table_name.lower()}" or k.lower() == f"fact_{table_name.lower()}":
+                meta = v
+                table_name = k
+                break
+                
+    if not meta:
+        return {
+            "table_name": table_name,
+            "catalog": Config.DATABRICKS_CATALOG,
+            "schema": Config.DATABRICKS_SCHEMA,
+            "columns": [
+                {"column_name": "id", "data_type": "BIGINT", "is_primary": True, "description": "Primary unique record identifier"},
+                {"column_name": "name", "data_type": "STRING", "is_primary": False, "description": "Name / descriptor"},
+                {"column_name": "status", "data_type": "STRING", "is_primary": False, "description": "Lifecycle status"},
+                {"column_name": "created_at", "data_type": "TIMESTAMP", "is_primary": False, "description": "Creation timestamp"}
+            ]
+        }
+
+    row_count = db_connector.get_row_count(table_name)
+    return {
+        "table_name": table_name,
+        "catalog": Config.DATABRICKS_CATALOG,
+        "schema": Config.DATABRICKS_SCHEMA,
+        "primary_key": meta.get("primary_key"),
+        "domain": meta.get("domain"),
+        "description": meta.get("description"),
+        "row_count": row_count,
+        "columns": meta.get("schema", [])
+    }
 
 
 @router.get("/summary", summary="Gold Schema Executive Analytics Overview")

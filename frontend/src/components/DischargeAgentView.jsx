@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
 export default function DischargeAgentView({ onNavigate, initialPatientId = '' }) {
@@ -497,7 +497,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                   </div>
 
                   <div style={{ fontSize: '11px', color: '#475569' }}>
-                    Diagnosis: <strong>{p.primary_diagnosis || 'Inpatient Evaluation'}</strong>
+                    Diagnosis: <strong>{cleanDiagnosis(p.primary_diagnosis) || 'Inpatient Evaluation'}</strong>
                   </div>
 
                   <div style={{ fontSize: '11px', color: '#475569' }}>
@@ -578,7 +578,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                         {p.patient_name}
                       </td>
                       <td style={{ padding: '10px', color: '#475569' }}>
-                        {p.primary_diagnosis}
+                        {cleanDiagnosis(p.primary_diagnosis) || 'Inpatient Evaluation'}
                       </td>
                       <td style={{ padding: '10px' }}>
                         <span style={{
@@ -734,7 +734,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                     </div>
                     {p.primary_diagnosis && (
                       <div style={{ fontSize: '10px', color: '#8a9096', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {p.primary_diagnosis}
+                        {cleanDiagnosis(p.primary_diagnosis)}
                       </div>
                     )}
                   </div>
@@ -863,10 +863,10 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                     </span>
                   </div>
                   <div style={{ fontSize: '11.5px', color: '#15181b', lineHeight: 1.4 }}>
-                    {gates.diagnoses?.details}
+                    {cleanDiagnosis(gates.diagnoses?.details)}
                   </div>
                   <div style={{ marginTop: '8px', fontSize: '10.5px', color: '#8a9096', borderTop: '1px solid #f0f2f4', paddingTop: '6px' }}>
-                    Diagnosis: <strong>{validationResult.primary_diagnosis || 'None'}</strong>
+                    Diagnosis: <strong>{cleanDiagnosis(validationResult.primary_diagnosis) || 'None'}</strong>
                   </div>
                 </div>
 
@@ -1131,7 +1131,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                             </div>
                             <div>
                               <span style={{ color: '#64748b' }}>Discharge Diagnosis:</span>
-                              <div style={{ fontWeight: 600, color: '#15181b' }}>{summary.discharge_diagnosis || summary.admission_reason}</div>
+                              <div style={{ fontWeight: 600, color: '#15181b' }}>{cleanDiagnosis(summary.discharge_diagnosis || summary.admission_reason)}</div>
                             </div>
                             <div>
                               <span style={{ color: '#64748b' }}>Model Pipeline:</span>

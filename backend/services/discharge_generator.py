@@ -440,8 +440,10 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
     else:
         sec_diag_str = str(sec_diag or "").strip()
 
-    if sec_diag_str in ("[]", "{}", "None", "null", "none", "nil", "[:]", ": []"):
+    if sec_diag_str in ("[]", "{}", "None", "null", "none", "nil", "[:]", ": []", "[ ]", "['']", "[\"\"]"):
         sec_diag_str = ""
+    sec_diag_str = re.sub(r'\[\s*\]', '', sec_diag_str).strip()
+    sec_diag_str = re.sub(r'[:;,]\s*$', '', sec_diag_str).strip()
 
     # Vitals with Celsius/Fahrenheit normalization
     temp_raw = patient_data.get("latest_temperature")
@@ -467,6 +469,13 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
         diagnoses_field = f"{primary_diag}; {sec_diag_str}"
     else:
         diagnoses_field = primary_diag
+
+    # Clean any residual bracket artifacts
+    diagnoses_field = re.sub(r'(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]', '', diagnoses_field, flags=re.IGNORECASE)
+    diagnoses_field = re.sub(r':\s*\[\s*\]', '', diagnoses_field)
+    diagnoses_field = re.sub(r';\s*\[\s*\]', '', diagnoses_field)
+    diagnoses_field = re.sub(r'\[\s*\]', '', diagnoses_field).strip()
+    diagnoses_field = re.sub(r'[:;,]\s*$', '', diagnoses_field).strip()
 
     # 2. Case History
     case_history = (

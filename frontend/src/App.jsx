@@ -36,6 +36,25 @@ import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 
+// Interactive Domain Views (Mock / Operational Data)
+import {
+  AppointmentsView,
+  EmergencyView,
+  SchedulesView,
+  NursingWorkspaceView,
+  MedicationAdminView,
+  SurgeryOTView,
+  BloodBankView,
+  LabDashboardView,
+  BillingView,
+  InsuranceView,
+  SbarView,
+  DeathMlcView,
+  AuditTrailView,
+  DataDomainView,
+  ExceptionsView
+} from './components/DummyDomainViews';
+
 export default function App() {
   useEffect(() => {
     // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
@@ -187,7 +206,7 @@ export default function App() {
 
           {activePage === 'revenue' && <RevenueView />}
           {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}
-          {activePage === 'tables' && <SchemaExplorerView />}
+          {activePage === 'tables' && <SchemaExplorerView onViewData={() => setActivePage('explorer')} />}
           {activePage === 'explorer' && <DataExplorerView />}
           {activePage === 'sql' && <SqlSandboxView />}
           {activePage === 'analytics' && <AnalyticsView />}
@@ -218,13 +237,35 @@ export default function App() {
             <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
           )}
 
+          {/* Operational, Clinical, Diagnostic & Revenue Domain Dummy Views */}
+          {activePage === 'appointments' && <AppointmentsView />}
+          {activePage === 'emergency' && <EmergencyView />}
+          {activePage === 'schedules' && <SchedulesView />}
+          {activePage === 'nursing' && <NursingWorkspaceView />}
+          {activePage === 'medications' && <MedicationAdminView />}
+          {(activePage === 'surgery' || activePage === 'otschedule') && <SurgeryOTView />}
+          {activePage === 'bloodbank' && <BloodBankView />}
+          {activePage === 'deathmlc' && <DeathMlcView />}
+          {activePage === 'sbar' && <SbarView />}
+          {activePage === 'lab' && <LabDashboardView />}
+          {activePage === 'billing' && <BillingView />}
+          {activePage === 'insurance' && <InsuranceView />}
+          {activePage === 'exceptions' && <ExceptionsView />}
+          {activePage === 'audit' && <AuditTrailView />}
+          {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" />}
+          {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" />}
+          {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" />}
+
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
             'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
             'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
-            'criticalvalues', 'diagnostics', 'radiology'
+            'criticalvalues', 'diagnostics', 'radiology',
+            'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
+            'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'exceptions', 'audit',
+            'data-patient', 'data-ops', 'data-clinical'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

@@ -75,9 +75,13 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
     # Secondary diagnoses
     sec_diag = adm.get("secondary_diagnoses")
     if isinstance(sec_diag, list):
-        sec_diag_str = ", ".join(str(d.get("diagnosis_name", d) if isinstance(d, dict) else d) for d in sec_diag)
+        sec_diag_str = ", ".join(str(d.get("diagnosis_name", d) if isinstance(d, dict) else d) for d in sec_diag if d and str(d).strip() not in ("[]", "{}", "[ ]", "None", "null"))
     else:
-        sec_diag_str = str(sec_diag or "")
+        sec_diag_str = str(sec_diag or "").strip()
+
+    if sec_diag_str in ("[]", "{}", "None", "null", "none", "nil", "[:]", ": []", "[ ]", "['']", "[\"\"]"):
+        sec_diag_str = ""
+    sec_diag_str = re.sub(r'\[\s*\]', '', sec_diag_str).strip()
 
     return {
         "patient_id": adm.get("patient_id") or pid_str,
@@ -254,7 +258,15 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
 
     # --- GATE 2: DIAGNOSES ---
     primary_diag = (patient_info.get("primary_diagnosis") or "").strip()
+    primary_diag = re.sub(r':\s*\[\s*\]', '', primary_diag)
+    primary_diag = re.sub(r'\[\s*\]', '', primary_diag).strip()
+    primary_diag = re.sub(r':\s*$', '', primary_diag).strip()
+
     sec_diag = (patient_info.get("secondary_diagnoses") or "").strip()
+    if sec_diag in ("[]", "{}", "None", "null", "none", "nil", "[:]", ": []", "[ ]", "['']", "[\"\"]"):
+        sec_diag = ""
+    sec_diag = re.sub(r'\[\s*\]', '', sec_diag).strip()
+    sec_diag = re.sub(r'[:;,]\s*$', '', sec_diag).strip()
 
     has_valid_diagnosis = bool(
         primary_diag and
@@ -262,12 +274,17 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
     )
 
     if has_valid_diagnosis:
+        # Only show secondary diagnosis if it contains real non-empty data
+        diag_details = f"Primary Diagnosis: {primary_diag}"
+        if sec_diag:
+            diag_details += f" | Secondary: {sec_diag}"
+
         gates["diagnoses"] = {
             "name": "Diagnoses & Clinical Information",
             "status": "PASSED",
             "passed": True,
             "title": "Clinical Diagnoses Documented",
-            "details": f"Primary Diagnosis: {primary_diag}" + (f" | Secondary: {sec_diag}" if sec_diag else ""),
+            "details": diag_details,
             "metadata": {
                 "primary_diagnosis": primary_diag,
                 "secondary_diagnoses": sec_diag

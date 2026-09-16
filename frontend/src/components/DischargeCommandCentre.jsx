@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseDischargeSummaryRecord } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
 export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, onNavigate }) {
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'kanban'
+  const [viewMode, setViewMode] = useState('kanban'); // Default to kanban per user request
   const [search, setSearch] = useState('');
   const [selectedCase, setSelectedCase] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -304,7 +304,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                       </td>
 
                       <td style={{ padding: '12px 14px', color: '#1e293b', fontWeight: 500, fontSize: '12.5px' }}>
-                        {c.diagnoses}
+                        {cleanDiagnosis(c.diagnoses) || 'Clinical Discharge Completed'}
                       </td>
 
                       <td style={{ padding: '12px 14px', color: '#0f172a', fontWeight: 600, fontSize: '12px' }}>
@@ -376,7 +376,9 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
                   >
                     <div style={{ fontWeight: 600, fontSize: '12px' }}>{c.patient}</div>
                     <div style={{ color: '#52585e', fontSize: '11.5px', marginTop: '2px' }}>{c.doctor}</div>
-                    <div style={{ color: '#0f172a', fontSize: '11px', marginTop: '4px', fontWeight: 500 }}>{c.diagnoses}</div>
+                    <div style={{ color: '#0f172a', fontSize: '11px', marginTop: '4px', fontWeight: 500 }}>
+                      {cleanDiagnosis(c.diagnoses) || 'Clinical Evaluation'}
+                    </div>
                     <div style={{ color: '#8a9096', fontSize: '10.5px', marginTop: '4px' }}>Discharged: {c.eta}</div>
                   </div>
                 ))}

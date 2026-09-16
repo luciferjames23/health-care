@@ -25,16 +25,21 @@ function stripTamil(text) {
 }
 
 /**
- * Strips empty brackets '[]', ': []', '; []' from diagnosis strings
+ * Strips empty brackets '[]', ': []', '; []', and empty secondary diagnoses
  */
 function cleanDiagnosis(diag) {
   if (!diag || typeof diag !== 'string') return '';
   return diag
+    // Remove secondary diagnosis labels when followed by empty brackets []
+    .replace(/(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]/gi, '')
+    .replace(/(?:[;,|]\s*)?Secondary\s*:\s*\[\s*\]/gi, '')
+    // Remove standalone empty brackets and bracket prefixes
     .replace(/:\s*\[\s*\]/g, '')
     .replace(/;\s*\[\s*\]/g, '')
+    .replace(/\|\s*\[\s*\]/g, '')
     .replace(/\[\s*\]/g, '')
-    .replace(/:\s*$/g, '')
-    .replace(/;\s*$/g, '')
+    // Remove any trailing or dangling punctuation
+    .replace(/[:;,|]\s*$/g, '')
     .trim();
 }
 
