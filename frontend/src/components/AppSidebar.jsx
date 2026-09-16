@@ -31,7 +31,9 @@ export const NAV_GROUPS = [
     title: 'DIAGNOSTICS · LIS & IMAGING',
     items: [
       { id: 'lab', label: 'Lab Dashboard' },
-      { id: 'radiology', label: 'Radiology / PACS' },
+      { id: 'criticalvalues', label: 'Results & Critical Values' },
+      { id: 'diagnostics', label: 'Diagnostics' },
+      { id: 'radiology', label: 'Radiology', badge: 'Live PoC' },
     ]
   },
   {

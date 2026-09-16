@@ -9,6 +9,9 @@ import SoapNoteView from './components/SoapNoteView';
 import Patient360View from './components/Patient360View';
 import HospitalAssistantView from './components/HospitalAssistantView';
 import MobileSimulatorModal from './components/MobileSimulatorModal';
+import ResultsCriticalValuesView from './components/ResultsCriticalValuesView';
+import DiagnosticsView from './components/DiagnosticsView';
+import RadiologyView from './components/RadiologyView';
 
 // Databricks Gold Layer Views
 import RevenueView from './components/RevenueView';
@@ -33,6 +36,7 @@ export default function App() {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
 
   // Clock format
   const hours = Math.floor(clockMins / 60) % 24;
@@ -144,10 +148,21 @@ export default function App() {
           {activePage === 'analytics' && <AnalyticsView />}
           {activePage === 'settings' && <SettingsView />}
 
+          {activePage === 'criticalvalues' && (
+            <ResultsCriticalValuesView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+          )}
+          {activePage === 'diagnostics' && (
+            <DiagnosticsView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+          )}
+          {activePage === 'radiology' && (
+            <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
+          )}
+
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
             'command', 'clinical', 'discharge', 'soap', 'patient360',
-            'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings'
+            'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
+            'criticalvalues', 'diagnostics', 'radiology'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
