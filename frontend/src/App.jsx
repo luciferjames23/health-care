@@ -13,6 +13,9 @@ import PatientsView from './components/PatientsView';
 import AdmissionsView from './components/AdmissionsView';
 import HospitalAssistantView from './components/HospitalAssistantView';
 import MobileSimulatorModal from './components/MobileSimulatorModal';
+import ResultsCriticalValuesView from './components/ResultsCriticalValuesView';
+import DiagnosticsView from './components/DiagnosticsView';
+import RadiologyView from './components/RadiologyView';
 
 // Databricks Gold Layer Views
 import RevenueView from './components/RevenueView';
@@ -51,6 +54,7 @@ export default function App() {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
@@ -204,12 +208,23 @@ export default function App() {
             <AiGovernanceView initialTab={activePage} />
           )}
 
+          {activePage === 'criticalvalues' && (
+            <ResultsCriticalValuesView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+          )}
+          {activePage === 'diagnostics' && (
+            <DiagnosticsView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+          )}
+          {activePage === 'radiology' && (
+            <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
+          )}
+
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
             'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
             'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
-            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
+            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
+            'criticalvalues', 'diagnostics', 'radiology'
           ].includes(activePage) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
