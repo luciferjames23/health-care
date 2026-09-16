@@ -41,8 +41,7 @@ CLINICAL_PROTOCOLS = {
             "Avoid strenuous heavy lifting and high-intensity exertion; begin graded brisk walking 20 mins/day after 1 week.",
             "Strictly avoid smoking, tobacco use, and alcohol consumption.",
             "OPD Review in 7 days with Attending Cardiologist with repeat ECG and Lipid profile.",
-            "Emergency Warning Signs: Seek immediate ER care if severe substernal chest pressure, radiation to left arm/jaw, diaphoresis, or sudden breathlessness occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): இதய மருந்துகளை தவறாமல் எடுத்துக்கொள்ளவும். நெஞ்சு வலி, மூச்சுத்திணறல் அல்லது அதீத வியர்வை ஏற்பட்டால் உடனே அவசர சிகிச்சைப் பிரிவை அணுகவும். உணவில் உப்பை குறைக்கவும்."
+            "Emergency Warning Signs: Seek immediate ER care if severe substernal chest pressure, radiation to left arm/jaw, diaphoresis, or sudden breathlessness occurs."
         ]
     },
     "acute asthma exacerbation": {
@@ -73,8 +72,7 @@ CLINICAL_PROTOCOLS = {
             "Rinse mouth thoroughly with water after using steroid inhalers to prevent oral candidiasis.",
             "Maintain adequate fluid intake (>2.5 liters of warm water daily).",
             "OPD Review in 7 days with Pulmonology for repeat spirometry and inhaler technique review.",
-            "Emergency Warning Signs: Rush to ER if acute severe breathlessness, inability to speak full sentences, or blue lips/fingertips occur.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): இன்ஹேலரை தினமும் சரியான முறையில் உபயோகிக்கவும். தூசி, புகை மற்றும் குளிர்ந்த உணவுகளை தவிர்க்கவும். மூச்சிரைப்பு அதிகமானால் உடனே மருத்துவமனைக்கு வரவும்."
+            "Emergency Warning Signs: Rush to ER if acute severe breathlessness, inability to speak full sentences, or blue lips/fingertips occur."
         ]
     },
     "calculus of gallbladder with cholecystitis": {
@@ -104,8 +102,7 @@ CLINICAL_PROTOCOLS = {
             "Keep surgical port-site dressing clean and dry. Avoid bathing directly over incision sites until suture check.",
             "Avoid strenuous abdominal strain, heavy lifting (>5 kg), or intense exercises for 4 weeks.",
             "Surgical OPD Review in 7 days for port-site incision inspection and suture/staple check.",
-            "Emergency Warning Signs: Report immediately if persistent fever > 101°F, worsening abdominal pain, persistent vomiting, or yellowing of eyes (jaundice) develops.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): அறுவை சிகிச்சை தையல் பகுதியை ஈரம் படாமல் சுத்தமாக வைத்திருக்கவும். கொழுப்பு நிறைந்த உணவுகளை தவிர்க்கவும். கடுமையான வயிற்று வலி அல்லது காய்ச்சல் வந்தால் உடனே வரவும்."
+            "Emergency Warning Signs: Report immediately if persistent fever > 101°F, worsening abdominal pain, persistent vomiting, or yellowing of eyes (jaundice) develops."
         ]
     },
     "type 2 diabetes mellitus with ketoacidosis": {
@@ -135,8 +132,7 @@ CLINICAL_PROTOCOLS = {
             "Maintain daily 3-point Self-Monitoring of Blood Glucose (SMBG) log (Fasting, Pre-lunch, Post-dinner).",
             "Hypoglycemia Awareness: If feeling shaky, sweating, dizzy, or confused, immediately consume 3 teaspoons of sugar or 150ml fruit juice and recheck glucose in 15 mins.",
             "Diabetic foot care: Inspect feet daily, wear comfortable soft footwear, avoid walking barefoot.",
-            "OPD Review in 10 days with Diabetology with 7-day blood glucose log chart.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): சர்க்கரை மாத்திரைகள் மற்றும் இன்சுலினை தவறாமல் எடுத்துக்கொள்ளவும். தலைச்சுற்றல் அல்லது நடுக்கம் ஏற்பட்டால் உடனே குளுக்கோஸ்/இனிப்பு உட்கொள்ளவும். சர்க்கரை அளவை பரிசோதிக்கவும்."
+            "OPD Review in 10 days with Diabetology with 7-day blood glucose log chart."
         ]
     },
     "acute appendicitis": {
@@ -164,8 +160,7 @@ CLINICAL_PROTOCOLS = {
             "Keep the laparoscopic port incisions dry and clean; do not apply unprescribed creams or powders.",
             "Avoid vigorous exercise, running, or lifting heavy weights (>5 kg) for 3 weeks.",
             "OPD Review in 7 days for wound check, dressing removal, and histopathology report review.",
-            "Emergency Warning Signs: Report to hospital if high fever (>101°F), abdominal swelling, severe vomiting, or redness around incision occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): அறுவை சிகிச்சை தையல் பகுதியை உலர வைக்கவும். பரிந்துரைக்கப்பட்ட உணவை உட்கொள்ளவும். கடுமையான வலி அல்லது காய்ச்சல் வந்தால் உடனடியாக மருத்துவரை அணுகவும்."
+            "Emergency Warning Signs: Report to hospital if high fever (>101°F), abdominal swelling, severe vomiting, or redness around incision occurs."
         ]
     },
     "acute ischemic stroke": {
@@ -196,8 +191,7 @@ CLINICAL_PROTOCOLS = {
             "Strict blood pressure monitoring (target BP < 130/80 mmHg) and lipid control.",
             "Low-salt (<2g/day), Mediterranean-style low-fat diet.",
             "Neurology OPD Review in 7 days for neurological recovery and functional status evaluation.",
-            "Emergency Warning Signs: FAST protocol - seek immediate ER care if Facial droop, Arm weakness, Speech slurring, or sudden confusion re-occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): பிசியோதெரபி பயிற்சிகளை தொடர்ந்து செய்யவும். முகம் கோணல், கை/கால் பலவீனம், வாய் குளறுதல் ஏற்பட்டால் உடனடியாக அவசர சிகிச்சைக்கு வரவும்."
+            "Emergency Warning Signs: FAST protocol - seek immediate ER care if Facial droop, Arm weakness, Speech slurring, or sudden confusion re-occurs."
         ]
     },
     "acute gastroenteritis / food poisoning": {
@@ -226,8 +220,7 @@ CLINICAL_PROTOCOLS = {
             "Drink plenty of boiled, purified water (>3 liters/day) and electrolyte fluids.",
             "Maintain strict hand hygiene before eating and after using the restroom.",
             "General Medicine Review in 5 days if loose stools or abdominal discomfort persists.",
-            "Emergency Warning Signs: Report to ER if high fever, severe persistent vomiting preventing oral intake, blood in stool, or profound dizziness develops.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): கொதித்து ஆறிய நீர் மற்றும் ORS நீராகாரங்களை அதிகம் குடிக்கவும். காரம், எண்ணெய் உணவுகளை தவிர்க்கவும். மயக்கம் அல்லது அதிக வாந்தி இருந்தால் மருத்துவரை அணுகவும்."
+            "Emergency Warning Signs: Report to ER if high fever, severe persistent vomiting preventing oral intake, blood in stool, or profound dizziness develops."
         ]
     },
     "fracture of patella / lower leg": {
@@ -257,8 +250,7 @@ CLINICAL_PROTOCOLS = {
             "Perform active ankle pump exercises and static quadriceps contractions 10 times every 2 hours.",
             "Keep surgical wound dressing clean and dry; do not wet the bandage.",
             "Orthopedic OPD Review in 10-12 days for wound inspection and suture removal.",
-            "Emergency Warning Signs: Report immediately if severe calf pain/swelling, severe coldness in toes, foul discharge, or high fever occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): முழங்கால் பட்டையை சரியாக அணியவும். காலில் எடையை போடாமல் வாக்கர் உதவியுடன் நடக்கவும். தையல் பகுதியை ஈரம் படாமல் பார்த்துக்கொள்ளவும்."
+            "Emergency Warning Signs: Report immediately if severe calf pain/swelling, severe coldness in toes, foul discharge, or high fever occurs."
         ]
     },
     "high fever (pyrexia of unknown origin)": {
@@ -287,8 +279,7 @@ CLINICAL_PROTOCOLS = {
             "Adequate bed rest; avoid physical exhaustion for 5-7 days.",
             "Monitor body temperature twice daily and maintain a fever log.",
             "General Medicine OPD Review in 5 days for follow-up clinical examination and CBC check.",
-            "Emergency Warning Signs: Seek immediate care if high fever (>102°F) returns, severe rash, breathing difficulty, or persistent vomiting develops.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): காய்ச்சல் மற்றும் சோர்வு குறையும் வரை போதிய ஓய்வு எடுக்கவும். அதிக திரவ உணவுகளை உட்கொள்ளவும். மீண்டும் அதிக காய்ச்சல் வந்தால் மருத்துவரை அணுகவும்."
+            "Emergency Warning Signs: Seek immediate care if high fever (>102°F) returns, severe rash, breathing difficulty, or persistent vomiting develops."
         ]
     },
     "respiratory distress syndrome of newborn": {
@@ -315,8 +306,7 @@ CLINICAL_PROTOCOLS = {
             "Maintain thermal protection (Kangaroo Mother Care / warm clothing); avoid direct draft of fans or AC.",
             "Strict hand hygiene before handling baby; keep away from sick individuals and smoke.",
             "Pediatrics / Neonatology Review in 7 days for weight check, feeding assessment, and immunization.",
-            "Emergency Warning Signs: Bring baby immediately to hospital if chest in-drawing, grunting, fast breathing (>60/min), lethargy, poor feeding, or bluish discoloration occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): குழந்தைக்கு 2-3 மணி நேரத்திற்கு ஒரு முறை தவறாமல் தாய்ப்பால் கொடுக்கவும். குழந்தையை கதகதப்பாக வைத்திருக்கவும். மூச்சு வாங்குதல் அல்லது சோர்வு தென்பட்டால் உடனே மருத்துவமனைக்கு வரவும்."
+            "Emergency Warning Signs: Bring baby immediately to hospital if chest in-drawing, grunting, fast breathing (>60/min), lethargy, poor feeding, or bluish discoloration occurs."
         ]
     }
 }
@@ -369,8 +359,7 @@ def match_protocol(diagnosis_str: str, reason_str: str = "") -> dict:
         "general_advice": [
             "Follow a balanced diet, adequate oral hydration (>2L/day), and avoid strenuous exertion for 5 days.",
             "OPD Review in 7 days with Attending Physician for clinical follow-up.",
-            "Emergency Warning Signs: Seek immediate medical attention if persistent high fever (>101°F), acute chest pain, or shortness of breath occurs.",
-            "தமிழ் வழிமுறைகள் (Tamil Instructions): 7 நாட்களுக்குப் பிறகு மருத்துவரை அணுகவும். மருந்துகளை சரியான நேரத்தில் உணவுக்கு முன்/பின் உட்கொள்ளவும். ஏதேனும் அவசர அறிகுறிகள் தென்பட்டால் உடனடியாக மருத்துவமனைக்கு வரவும்."
+            "Emergency Warning Signs: Seek immediate medical attention if persistent high fever (>101°F), acute chest pain, or shortness of breath occurs."
         ]
     }
 
@@ -438,13 +427,21 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
     qual = patient_data.get("doctor_qualification") or "MBBS, MD"
     consultant_str = f"{doctor}, {qual} ({spec})"
 
-    primary_diag = patient_data.get("primary_diagnosis") or "Inpatient Medical Care & Evaluation"
+    primary_diag_raw = patient_data.get("primary_diagnosis") or "Inpatient Medical Care & Evaluation"
+    # Clean any bracket artifacts like '[]' or ': []'
+    primary_diag = re.sub(r':\s*\[\s*\]', '', primary_diag_raw)
+    primary_diag = re.sub(r'\[\s*\]', '', primary_diag).strip()
+    primary_diag = re.sub(r':\s*$', '', primary_diag).strip()
+
     chief_comp = patient_data.get("reason_for_admission") or primary_diag
     sec_diag = patient_data.get("secondary_diagnoses")
     if isinstance(sec_diag, list):
-        sec_diag_str = ", ".join(str(d.get("diagnosis_name", d) if isinstance(d, dict) else d) for d in sec_diag)
+        sec_diag_str = ", ".join(str(d.get("diagnosis_name", d) if isinstance(d, dict) else d) for d in sec_diag if d and str(d).strip() not in ("[]", "{}"))
     else:
         sec_diag_str = str(sec_diag or "").strip()
+
+    if sec_diag_str in ("[]", "{}", "None", "null", "none", "nil", "[:]", ": []"):
+        sec_diag_str = ""
 
     # Vitals with Celsius/Fahrenheit normalization
     temp_raw = patient_data.get("latest_temperature")
@@ -466,7 +463,10 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
     protocol = match_protocol(primary_diag, chief_comp)
 
     # 1. Diagnoses
-    diagnoses_field = f"{primary_diag} (ICD-10)" + (f"; {sec_diag_str}" if sec_diag_str else "")
+    if sec_diag_str:
+        diagnoses_field = f"{primary_diag}; {sec_diag_str}"
+    else:
+        diagnoses_field = primary_diag
 
     # 2. Case History
     case_history = (
@@ -495,7 +495,7 @@ def generate_patient_discharge_summary(patient_data: dict) -> dict:
 
     treatment = "Inpatient care and stabilization administered:\n" + "\n".join(inpatient_lines)
 
-    # 5. Discharge Advice (Regimen + Diet/Activity + OPD + Tamil Instructions)
+    # 5. Discharge Advice (Regimen + Diet/Activity + OPD)
     discharge_lines = []
     for idx, med in enumerate(protocol["discharge_medications"], 1):
         discharge_lines.append(f"{idx}. {med}")

@@ -39,7 +39,7 @@ def generate_discharge_summary_llm_post(request: DischargeSummaryLLMRequest):
        - investigations (labs, SpO2, heart rate, BP, ECG/radiology)
        - treatment (medications with exact dosage & volume, IV fluids)
        - primary_consultant (attending doctor with credentials)
-       - discharge_advice (medication regimen, red flags, OPD review, and Tamil instructions)
+       - discharge_advice (medication regimen, red flags, and OPD review)
        - surgery_details (procedure notes or 'Nil')
        - patient_condition (hemodynamic stability, clinical status)
        - llm_generated_summary_text (full multi-section formatted discharge document)

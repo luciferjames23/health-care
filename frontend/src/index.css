@@ -278,15 +278,34 @@ table.patient-table{width:100%; border-collapse:collapse;}
   display: none;
 }
 
+@page {
+  size: A4 portrait;
+  margin: 10mm 14mm 10mm 14mm;
+}
+
 @media print {
-  body {
+  html, body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   
-  header, main, .modal-overlay {
+  /* Hide the entire application UI and sidebar */
+  #root,
+  header,
+  nav,
+  aside,
+  main,
+  .modal-overlay,
+  .no-print-elem,
+  .discharge-summary-modal-overlay,
+  #discharge-summary-card {
     display: none !important;
+    visibility: hidden !important;
   }
   
   #printArea {
@@ -305,87 +324,92 @@ table.patient-table{width:100%; border-collapse:collapse;}
   }
 
   .print-page {
-    padding: 10px 20px;
+    padding: 0 !important;
     color: #111;
   }
 
   .print-header {
     border-bottom: 2px solid #1F5C4E;
-    padding-bottom: 10px;
-    margin-bottom: 16px;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
   }
 
   .print-title {
-    font-family: 'Source Serif 4', serif;
+    font-family: 'Source Serif 4', Georgia, serif;
     font-size: 22px;
     font-weight: 700;
     color: #143E34;
+    letter-spacing: -0.01em;
   }
 
   .print-meta-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 6px 16px;
+    gap: 5px 16px;
     background: #F5F6F2;
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-family: 'IBM Plex Mono', monospace;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', Menlo, monospace;
     font-size: 11px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     border: 1px solid #DBDFD8;
+    line-height: 1.45;
   }
 
   .print-sec {
-    margin-bottom: 14px;
+    margin-bottom: 10px;
     page-break-inside: avoid;
   }
 
   .print-sec-title {
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-size: 11px;
+    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+    font-size: 10.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #1F5C4E;
     border-bottom: 1px solid #DBDFD8;
-    padding-bottom: 3px;
-    margin-bottom: 6px;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
   }
 
   .print-sec-body {
-    font-size: 12.5px;
-    line-height: 1.5;
+    font-size: 11.5px;
+    line-height: 1.45;
     color: #222;
   }
 
   .print-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11.5px;
+    font-size: 11px;
     margin-top: 4px;
   }
 
   .print-table th, .print-table td {
-    padding: 5px 8px;
+    padding: 4px 8px;
     border: 1px solid #DBDFD8;
     text-align: left;
+    vertical-align: top;
   }
 
   .print-table th {
     background: #EAEDE7;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
+    font-family: 'IBM Plex Mono', Menlo, monospace;
+    font-size: 9.5px;
     text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 700;
   }
 
   .print-warn-box {
     background: #F5E7E1;
     border: 1px solid #A9432A;
-    border-radius: 6px;
-    padding: 8px 12px;
+    border-radius: 4px;
+    padding: 6px 10px;
   }
 
   .print-warn-box ul {
@@ -394,14 +418,14 @@ table.patient-table{width:100%; border-collapse:collapse;}
   }
 
   .print-warn-box li {
-    font-size: 11.5px;
+    font-size: 11px;
     color: #A9432A;
     margin-bottom: 2px;
   }
 
   .print-sig-box {
-    margin-top: 24px;
-    padding-top: 14px;
+    margin-top: 18px;
+    padding-top: 10px;
     display: flex;
     justify-content: space-between;
     page-break-inside: avoid;
@@ -413,18 +437,11 @@ table.patient-table{width:100%; border-collapse:collapse;}
     text-align: center;
     font-size: 10.5px;
     padding-top: 4px;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'IBM Plex Mono', Menlo, monospace;
   }
 
   .print-footer {
-    margin-top: 24px;
-    padding-top: 10px;
-    border-top: 1px solid #DBDFD8;
-    display: flex;
-    justify-content: space-between;
-    font-size: 10.5px;
-    color: #4B564F;
-    page-break-inside: avoid;
+    display: none !important;
   }
 }
 

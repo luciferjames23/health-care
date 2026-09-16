@@ -1162,13 +1162,13 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
 
                           <div>
                             <div style={{ fontSize: '11.5px', fontWeight: 700, color: '#15181b', marginBottom: '4px' }}>
-                              3. Follow-up & Bilingual Home Instructions (Tamil + English)
+                              3. Follow-up & Home Instructions
                             </div>
                             <pre style={{
                               fontSize: '11px', color: '#334155', background: '#f8fafc', border: '1px solid #e2e8f0',
                               borderRadius: '6px', padding: '10px', margin: 0, fontFamily: 'system-ui, -apple-system, sans-serif', whiteSpace: 'pre-wrap', lineHeight: 1.5
                             }}>
-                              {summary.followup_instructions}
+                              {summary.followup_instructions ? summary.followup_instructions.split('\n').filter(l => !l.includes('தமிழ்') && !l.includes('Tamil Instructions') && !/[\u0B80-\u0BFF]/.test(l)).join('\n').trim() : ''}
                             </pre>
                           </div>
                         </>

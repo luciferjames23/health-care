@@ -301,7 +301,7 @@ export default function NotebookRunnerView() {
           <div className="space-y-2 text-xs text-slate-400">
             <div>1. Resolving clinical inputs and vitals from Delta Lakehouse...</div>
             <div>2. Extracting exact prescribed medications and diagnosis parameters...</div>
-            <div>3. Formulating structured discharge summaries, treatments & Tamil instructions...</div>
+            <div>3. Formulating structured discharge summaries, treatments & take-home regimen...</div>
             <div>4. Committing output records to <code className="text-cyan-300">dim_generated_discharge_summaries</code>...</div>
           </div>
           <div className="h-2 bg-slate-800 rounded-full w-full overflow-hidden">
@@ -407,14 +407,14 @@ export default function NotebookRunnerView() {
                 </pre>
               </div>
 
-              {/* Discharge Advice & Tamil Instructions */}
+              {/* Discharge Advice & Home Instructions */}
               <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5" />
-                  Discharge Advice & Take-Home Regimen (English + Tamil)
+                  Discharge Advice & Take-Home Regimen
                 </div>
                 <pre className="text-xs text-slate-200 font-mono whitespace-pre-wrap leading-relaxed bg-slate-950/90 border border-slate-800 rounded-lg p-3">
-                  {summary.followup_instructions}
+                  {summary.followup_instructions ? summary.followup_instructions.split('\n').filter(l => !l.includes('தமிழ்') && !l.includes('Tamil Instructions') && !/[\u0B80-\u0BFF]/.test(l)).join('\n').trim() : ''}
                 </pre>
               </div>
 
