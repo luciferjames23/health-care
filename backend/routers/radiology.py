@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body
 
 from radiology_ai import config
+from radiology_ai import db as radiology_db
 from radiology_ai.services.densenet_service import load_densenet_model
 from radiology_ai.services.inference_service import InferenceError, run_full_analysis
 from radiology_ai.services.orthanc_service import (
@@ -231,3 +234,48 @@ def pacs_analyze(study_id: str):
 
 # Backward-compatible alias used by the integration tests/consumers.
 radiology_state = _state
+
+
+class UpdateScanRequest(BaseModel):
+    image: Optional[str] = None
+    scan_report: Optional[str] = None
+
+
+@router.get("/scans")
+def list_scans_endpoint(
+    patient_id: Optional[int] = Query(None, description="Filter by admitted patient ID"),
+    target: Optional[int] = Query(None, description="Filter by target (1=opacity, 0=normal)"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Retrieve radiology scans stored in PostgreSQL (rv_pbpkghvg)."""
+    return radiology_db.list_scans(patient_id=patient_id, target=target, limit=limit, offset=offset)
+
+
+@router.get("/scans/{scan_id}")
+def get_scan_endpoint(scan_id: int):
+    """Retrieve a single radiology scan by scan_id."""
+    scan = radiology_db.get_scan_by_id(scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Radiology scan record not found")
+    return scan
+
+
+@router.put("/scans/{scan_id}")
+def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest):
+    """Update empty image data and/or scan report text for a radiology scan."""
+    updated = radiology_db.update_scan_image_and_report(
+        scan_id=scan_id,
+        image=payload.image,
+        scan_report=payload.scan_report,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Radiology scan record not found")
+    return {"status": "success", "scan": updated}
+
+
+@router.get("/admitted-patients")
+def get_admitted_patients_endpoint():
+    """List currently admitted patients available in the PostgreSQL Lakehouse."""
+    patients = radiology_db.get_currently_admitted_patients()
+    return {"count": len(patients), "patients": patients}

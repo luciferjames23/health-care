@@ -17,6 +17,7 @@ from routers.notebook import router as notebook_router
 from routers.jobrun import router as jobrun_router
 from routers.discharge_agent import router as discharge_agent_router
 from routers.discharge_summary_llm import router as discharge_summary_llm_router
+from routers.radiology import router as radiology_router, pacs_router
 from agent.router import router as agent_router
 
 app = FastAPI(
@@ -39,6 +40,8 @@ app.include_router(notebook_router)
 app.include_router(jobrun_router)
 app.include_router(discharge_agent_router)
 app.include_router(discharge_summary_llm_router)
+app.include_router(radiology_router)
+app.include_router(pacs_router)
 app.include_router(agent_router)
 
 db_connector = DatabricksConnector()

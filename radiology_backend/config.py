@@ -101,3 +101,12 @@ PACS_POLL_INTERVAL_SECONDS = int(os.getenv("PACS_POLL_INTERVAL_SECONDS", "5"))
 
 # CORS
 ALLOWED_ORIGINS = ["http://localhost:5173"]
+
+# ---------------------------------------------------------------------------
+# PostgreSQL Lakehouse Connection Configuration
+# ---------------------------------------------------------------------------
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "rivesca.eu.db.rivestack.io")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "rv_pbpkghvg")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "rv_pbpkghvg")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "d_3zzwU0qzrtkujXG6YVBGlXGx9-kxp05cfBMiHqQ48=")
