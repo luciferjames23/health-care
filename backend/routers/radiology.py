@@ -313,12 +313,21 @@ class UpdateScanRequest(BaseModel):
 @router.get("/scans")
 def list_scans_endpoint(
     patient_id: Optional[int] = Query(None, description="Filter by admitted patient ID"),
+    patient_code: Optional[str] = Query(None, description="Filter by patient code (e.g., MER-PAT-0087374)"),
+    search: Optional[str] = Query(None, description="Search by patient code, name, or original patient ID"),
     target: Optional[int] = Query(None, description="Filter by target (1=opacity, 0=normal)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """Retrieve radiology scans stored in PostgreSQL (rv_pbpkghvg)."""
-    return radiology_db.list_scans(patient_id=patient_id, target=target, limit=limit, offset=offset)
+    return radiology_db.list_scans(
+        patient_id=patient_id,
+        patient_code=patient_code,
+        search=search,
+        target=target,
+        limit=limit,
+        offset=offset
+    )
 
 
 @router.get("/scans/{scan_id}")

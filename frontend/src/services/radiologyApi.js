@@ -1,5 +1,5 @@
-const RADIOLOGY_API_BASE_URL = import.meta.env.VITE_RADIOLOGY_API_URL || 'http://localhost:8001';
-export const OHIF_BASE_URL = import.meta.env.VITE_OHIF_URL || 'http://localhost:3000';
+const RADIOLOGY_API_BASE_URL = import.meta.env?.VITE_RADIOLOGY_API_URL || import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+export const OHIF_BASE_URL = import.meta.env?.VITE_OHIF_URL || 'http://localhost:3000';
 
 async function request(path, options = {}) {
   const res = await fetch(`${RADIOLOGY_API_BASE_URL}${path}`, options);
@@ -22,6 +22,20 @@ export const radiologyApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ review_status, report, finding, reviewed_by }),
   }),
+
+  // PostgreSQL Lakehouse Scans (`radiology_scan`)
+  getScans: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.patient_id) q.set('patient_id', params.patient_id);
+    if (params.patient_code) q.set('patient_code', params.patient_code);
+    if (params.search) q.set('search', params.search);
+    if (params.target !== undefined && params.target !== null) q.set('target', params.target);
+    if (params.limit) q.set('limit', params.limit);
+    if (params.offset) q.set('offset', params.offset);
+    const qs = q.toString();
+    return request(`/api/radiology/scans${qs ? `?${qs}` : ''}`);
+  },
+  getScanById: (scanId) => request(`/api/radiology/scans/${scanId}`),
 
   getPacsStudies: () => request('/api/pacs/studies'),
   getPacsHealth: () => request('/api/pacs/health'),

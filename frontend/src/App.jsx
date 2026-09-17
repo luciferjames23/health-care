@@ -217,6 +217,7 @@ export default function App() {
               onOpenSoap={handleOpenSoap}
               onBack={() => setActivePage('patients')}
               onNavigate={setActivePage}
+              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
               onOpenDrawer={setDrawer}
               onOpenModal={setModal}
             />

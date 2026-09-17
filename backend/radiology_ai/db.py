@@ -127,11 +127,13 @@ def insert_scans(records: List[Dict[str, Any]]) -> int:
 
 def list_scans(
     patient_id: Optional[int] = None,
+    patient_code: Optional[str] = None,
+    search: Optional[str] = None,
     target: Optional[int] = None,
     limit: int = 50,
     offset: int = 0
 ) -> Dict[str, Any]:
-    """List scans with optional filtering by patient_id and target status."""
+    """List scans with optional filtering by patient_id, patient_code, search term, and target status."""
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -140,6 +142,13 @@ def list_scans(
             if patient_id is not None:
                 where_clauses.append("rs.patient_id = %s")
                 params.append(patient_id)
+            if patient_code:
+                where_clauses.append("(rs.patient_code = %s OR rs.original_patient_id = %s)")
+                params.extend([patient_code.strip(), patient_code.strip()])
+            if search:
+                s = f"%{search.strip()}%"
+                where_clauses.append("(rs.patient_code ILIKE %s OR rs.original_patient_id ILIKE %s OR p.first_name ILIKE %s OR p.last_name ILIKE %s)")
+                params.extend([s, s, s, s])
             if target is not None:
                 where_clauses.append("rs.target = %s")
                 params.append(target)
@@ -147,11 +156,11 @@ def list_scans(
             where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
             # Count total matching
-            count_query = f"SELECT count(*) AS total FROM radiology_scan rs{where_sql};"
+            count_query = f"SELECT count(*) AS total FROM radiology_scan rs LEFT JOIN patients p ON rs.patient_id = p.id{where_sql};"
             cur.execute(count_query, params)
             total = cur.fetchone()["total"]
 
-            # Query items with joined patient info
+            # Query items with joined patient info and full triage details
             data_query = f"""
                 SELECT 
                     rs.scan_id,
@@ -168,6 +177,20 @@ def list_scans(
                     rs.target,
                     rs.image,
                     rs.scan_report,
+                    rs.study_id,
+                    rs.display_study_id,
+                    rs.priority,
+                    rs.opacity_detected,
+                    rs.combined_status,
+                    rs.probability,
+                    rs.findings,
+                    rs.clinical_summary,
+                    rs.assessment,
+                    rs.recommended_action,
+                    rs.review_status,
+                    rs.reviewed_at,
+                    rs.reviewed_by,
+                    rs.radiologist_finding,
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id

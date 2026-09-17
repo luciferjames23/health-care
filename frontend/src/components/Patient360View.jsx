@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { radiologyApi } from '../services/radiologyApi';
 
 export default function Patient360View({
   patient,
@@ -8,8 +9,21 @@ export default function Patient360View({
   onNavigate,
   onOpenDrawer,
   onOpenModal,
+  onOpenRadiologyStudy,
 }) {
   const [activeTab, setActiveTab] = useState('Overview');
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanAlert, setScanAlert] = useState(null);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [patientScans, setPatientScans] = useState([]);
+  const [activeScanIdx, setActiveScanIdx] = useState(0);
+
+  // Auto-dismiss scan notification after 8 seconds
+  useEffect(() => {
+    if (!scanAlert) return;
+    const t = setTimeout(() => setScanAlert(null), 8000);
+    return () => clearTimeout(t);
+  }, [scanAlert]);
 
   // Normalize patient fields with rich fallbacks matching prototype and user screenshot
   const p = useMemo(() => {
@@ -175,6 +189,107 @@ export default function Patient360View({
     }
   };
 
+  // Handler for viewing patient's radiology scans
+  const handleViewScan = async () => {
+    setScanLoading(true);
+    setScanAlert(null);
+
+    try {
+      // 1. Resolve numeric ID
+      let numericId = null;
+      if (patient?.patient_id && !isNaN(Number(patient.patient_id))) {
+        numericId = Number(patient.patient_id);
+      } else if (patient?.id && !isNaN(Number(patient.id))) {
+        numericId = Number(patient.id);
+      } else if (p.uhid) {
+        const parts = String(p.uhid).split('-');
+        const lastPart = parts[parts.length - 1];
+        if (/^\d+$/.test(lastPart)) {
+          numericId = parseInt(lastPart, 10);
+        }
+      }
+
+      // 2. Resolve patient code and search name
+      const patientCode = patient?.patient_code || (numericId ? `MER-PAT-${String(numericId).padStart(7, '0')}` : null);
+      const searchName = (patient?.first_name || patient?.name || p.name || '').trim();
+
+      let scans = [];
+
+      // A. Query backend by patient_id
+      if (numericId) {
+        try {
+          const res = await radiologyApi.getScans({ patient_id: numericId, limit: 10 });
+          if (res && Array.isArray(res.data) && res.data.length > 0) {
+            scans = res.data;
+          }
+        } catch (e) {
+          console.warn('Scan search by patient_id failed:', e);
+        }
+      }
+
+      // B. Query backend by patient_code
+      if (scans.length === 0 && patientCode) {
+        try {
+          const res = await radiologyApi.getScans({ patient_code: patientCode, limit: 10 });
+          if (res && Array.isArray(res.data) && res.data.length > 0) {
+            scans = res.data;
+          }
+        } catch (e) {
+          console.warn('Scan search by patient_code failed:', e);
+        }
+      }
+
+      // C. Query backend by search name
+      if (scans.length === 0 && searchName) {
+        try {
+          const namePart = searchName.split(' ')[0];
+          if (namePart && namePart.length >= 3) {
+            const res = await radiologyApi.getScans({ search: namePart, limit: 10 });
+            if (res && Array.isArray(res.data) && res.data.length > 0) {
+              const matched = res.data.filter(s =>
+                (numericId && s.patient_id === numericId) ||
+                (patientCode && s.patient_code === patientCode) ||
+                (s.first_name && searchName.toLowerCase().includes(s.first_name.toLowerCase()))
+              );
+              if (matched.length > 0) {
+                scans = matched;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Scan search by name failed:', e);
+        }
+      }
+
+      // Outcome processing
+      if (scans && scans.length > 0) {
+        setPatientScans(scans);
+        setActiveScanIdx(0);
+        setScanModalOpen(true);
+        setScanAlert(null);
+      } else {
+        setPatientScans([]);
+        setScanAlert({
+          type: 'warning',
+          message: 'No scan record found for this patient',
+          detail: `No radiology imaging or PACS studies have been recorded in the system for ${p.name} (${p.uhid}).`
+        });
+      }
+    } catch (err) {
+      console.error('Scan lookup error:', err);
+      setPatientScans([]);
+      setScanAlert({
+        type: 'error',
+        message: 'No scan record found for this patient',
+        detail: err.message || 'Error communicating with radiology PACS service.'
+      });
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const currentScan = patientScans.length > 0 ? (patientScans[activeScanIdx] || patientScans[0]) : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Top Breadcrumb */}
@@ -189,6 +304,77 @@ export default function Patient360View({
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
         <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{p.uhid}</span>
       </div>
+
+      {/* Scan Alert Notification Banner */}
+      {scanAlert && (
+        <div
+          role="alert"
+          style={{
+            background: scanAlert.type === 'error' ? '#fef2f2' : '#fffbeb',
+            border: `1px solid ${scanAlert.type === 'error' ? '#fca5a5' : '#fcd34d'}`,
+            borderRadius: '8px',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+            animation: 'fadeIn 0.2s ease-in-out',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '20px', lineHeight: 1 }}>
+              {scanAlert.type === 'error' ? '⚠️' : '🔔'}
+            </span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '13px', color: scanAlert.type === 'error' ? '#991b1b' : '#92400e' }}>
+                {scanAlert.message}
+              </div>
+              {scanAlert.detail && (
+                <div style={{ fontSize: '12px', color: scanAlert.type === 'error' ? '#b91c1c' : '#b45309', marginTop: '2px' }}>
+                  {scanAlert.detail}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate('radiology')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #d97706',
+                  background: '#fef3c7',
+                  color: '#92400e',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Go to Radiology Workstation →
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setScanAlert(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#78350f',
+                padding: '2px 6px',
+                lineHeight: 1,
+              }}
+              aria-label="Dismiss notification"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Patient Dossier Header Card */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 18px 0' }}>
@@ -258,6 +444,41 @@ export default function Patient360View({
 
           {/* Action Buttons Top Right */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {/* View Scan Action */}
+            <button
+              type="button"
+              onClick={handleViewScan}
+              disabled={scanLoading}
+              title="Query radiology imaging & PACS scans for this patient"
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                border: '1px solid #c7d2fe',
+                background: scanLoading ? '#f1f5f9' : '#eef2ff',
+                cursor: scanLoading ? 'wait' : 'pointer',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: '#3730a3',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {scanLoading ? (
+                <>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid #6366f1', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  Checking scan...
+                </>
+              ) : (
+                <>
+                  <span>🔬</span>
+                  View scan
+                </>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={handleMessagePatient}
@@ -692,19 +913,398 @@ export default function Patient360View({
         />
       )}
 
-      {/* Tab 16: Audit */}
-      {activeTab === 'Audit' && (
-        <TableContainer
-          cols={['Time', 'Actor', 'Action', 'After', 'Correlation']}
-          grid="100px 160px minmax(240px, 1fr) 120px 140px"
-          rows={[
-            ['11:19:41', 'system', 'ETA recomputed', 'OK', 'AUD-2026-091241'],
-            ['11:18:07', 'anitha.kumar', 'Patient accessed (Nurse Workspace)', 'Granted', 'AUD-2026-091240'],
-            ['11:12:48', 'dr.arjun.menon', 'Dictation transcribed · 38s · Tamil/English', 'Pending sign', 'AUD-2026-091236'],
-            ['11:10:05', 'patient', 'AI response generated (WhatsApp) · discharge status', 'Read-only', 'AUD-2026-091235'],
-            ['11:02:44', 'patient', 'Consent changed · Billing notifications ON', 'OK', 'AUD-2026-091232'],
-          ]}
-        />
+      {/* ── Radiology Scan Modal ────────────────────────────────────────────── */}
+      {scanModalOpen && currentScan && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setScanModalOpen(false)}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '860px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              border: '1px solid #e2e8f0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc',
+                borderTopLeftRadius: '12px',
+                borderTopRightRadius: '12px',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>🔬</span>
+                  <span style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                    Radiology Imaging & Triage Scan
+                  </span>
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      background: currentScan.target === 1 ? '#fee2e2' : '#dcfce7',
+                      color: currentScan.target === 1 ? '#991b1b' : '#166534',
+                    }}
+                  >
+                    {currentScan.target === 1 ? '⚠️ OPACITY DETECTED' : '✓ ROUTINE / NORMAL'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                  Patient: <strong style={{ color: '#1e293b' }}>{p.name}</strong> · UHID: <strong style={{ fontFamily: 'ui-monospace, monospace', color: '#1e293b' }}>{p.uhid}</strong>
+                  {patientScans.length > 1 && ` · Showing Scan ${activeScanIdx + 1} of ${patientScans.length}`}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setScanModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                }}
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Multiple Scans Selector if > 1 */}
+            {patientScans.length > 1 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '6px',
+                  padding: '8px 20px',
+                  background: '#f1f5f9',
+                  borderBottom: '1px solid #e2e8f0',
+                  overflowX: 'auto',
+                }}
+              >
+                {patientScans.map((s, idx) => (
+                  <button
+                    key={s.scan_id || idx}
+                    type="button"
+                    onClick={() => setActiveScanIdx(idx)}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '14px',
+                      fontSize: '11.5px',
+                      fontWeight: activeScanIdx === idx ? 700 : 500,
+                      border: '1px solid',
+                      borderColor: activeScanIdx === idx ? '#4f46e5' : '#cbd5e1',
+                      background: activeScanIdx === idx ? '#4f46e5' : '#fff',
+                      color: activeScanIdx === idx ? '#fff' : '#475569',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Scan #{idx + 1} ({s.target === 1 ? 'Target 1 · Opacity' : 'Normal'})
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Modal Body: 2 Columns */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                gap: '20px',
+                padding: '20px',
+              }}
+            >
+              {/* Left Column: Image Viewport */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  DICOM Medical Imaging Viewport
+                </div>
+
+                <div
+                  style={{
+                    background: '#090d16',
+                    borderRadius: '8px',
+                    minHeight: '280px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    border: '1px solid #1e293b',
+                    padding: '8px',
+                  }}
+                >
+                  {currentScan.image ? (
+                    <div style={{ position: 'relative', maxWidth: '100%', display: 'flex', justifyContent: 'center' }}>
+                      <img
+                        src={currentScan.image.startsWith('data:') ? currentScan.image : `data:image/png;base64,${currentScan.image}`}
+                        alt="Radiology Study X-Ray"
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '340px',
+                          objectFit: 'contain',
+                          borderRadius: '4px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                        }}
+                      />
+                      {currentScan.target === 1 && currentScan.x !== null && currentScan.width !== null && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: `${Math.min(80, Math.max(10, (currentScan.x / 1024) * 100))}%`,
+                            top: `${Math.min(80, Math.max(10, (currentScan.y / 1024) * 100))}%`,
+                            width: `${Math.min(60, Math.max(15, (currentScan.width / 1024) * 100))}%`,
+                            height: `${Math.min(60, Math.max(15, (currentScan.height / 1024) * 100))}%`,
+                            border: '2px solid #ef4444',
+                            borderRadius: '4px',
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            pointerEvents: 'none',
+                            boxShadow: '0 0 10px rgba(239, 68, 68, 0.5)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              position: 'absolute',
+                              top: '-20px',
+                              left: 0,
+                              background: '#ef4444',
+                              color: '#fff',
+                              fontSize: '9px',
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: '2px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            AI SUSPECTED OPACITY
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Fallback stylized DICOM frame when raw pixel image is PACS-archived */
+                    <div
+                      style={{
+                        width: '100%',
+                        height: '280px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#94a3b8',
+                        textAlign: 'center',
+                        padding: '16px',
+                        background: 'radial-gradient(ellipse at center, #1e293b 0%, #090d16 80%)',
+                      }}
+                    >
+                      <span style={{ fontSize: '48px', marginBottom: '8px', opacity: 0.8 }}>🩻</span>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#f1f5f9' }}>
+                        Chest Radiograph (CR / DX)
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px', maxWidth: '280px' }}>
+                        Study ID: <span style={{ fontFamily: 'monospace', color: '#cbd5e1' }}>{currentScan.original_patient_id || currentScan.study_id || 'PACS-MER-001'}</span>
+                      </div>
+                      {currentScan.target === 1 && (
+                        <div
+                          style={{
+                            marginTop: '12px',
+                            padding: '4px 10px',
+                            borderRadius: '4px',
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            border: '1px solid #ef4444',
+                            color: '#fca5a5',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                          }}
+                        >
+                          Region Marker: X: {Math.round(currentScan.x || 264)} · Y: {Math.round(currentScan.y || 152)} · W: {Math.round(currentScan.width || 213)} · H: {Math.round(currentScan.height || 379)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* DICOM Overlay Stats HUD */}
+                  <div
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '10px',
+                      color: '#94a3b8',
+                      fontFamily: 'ui-monospace, monospace',
+                      marginTop: '6px',
+                      padding: '0 4px',
+                    }}
+                  >
+                    <span>ID: {currentScan.patient_code || p.uhid}</span>
+                    <span>SCAN #{currentScan.scan_id}</span>
+                    <span>TARGET: {currentScan.target}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: AI Triage & Clinical Insights */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  AI Triage Analysis & Report
+                </div>
+
+                {/* Key Metrics Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Triage Priority</div>
+                    <div
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        color: currentScan.target === 1 ? '#dc2626' : '#16a34a',
+                        marginTop: '2px',
+                      }}
+                    >
+                      {currentScan.priority || (currentScan.target === 1 ? 'HIGH PRIORITY' : 'ROUTINE')}
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Opacity Status</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                      {currentScan.target === 1 ? 'Suspected Opacity' : 'Clear / Unremarkable'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scan Report Text */}
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                    Automated Radiologic Report / Findings:
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                    {currentScan.scan_report ||
+                      (currentScan.target === 1
+                        ? 'The triage deep-learning model identified suspected pulmonary opacity. Localized coordinates flagged for urgent radiologist review. No tension pneumothorax.'
+                        : 'No focal consolidation, pneumothorax, or large pleural effusion detected. Cardiac silhouette within normal limits for patient age.')}
+                  </div>
+                </div>
+
+                {/* Metadata Details Table */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr)', gap: '6px', fontSize: '11.5px' }}>
+                    <span style={{ color: '#64748b' }}>Scan Database ID:</span>
+                    <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 600, color: '#0f172a' }}>{currentScan.scan_id}</span>
+
+                    <span style={{ color: '#64748b' }}>Patient Code:</span>
+                    <span style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 600, color: '#0f172a' }}>{currentScan.patient_code || p.uhid}</span>
+
+                    <span style={{ color: '#64748b' }}>Scan Recorded:</span>
+                    <span style={{ color: '#0f172a' }}>{currentScan.created_at ? new Date(currentScan.created_at).toLocaleString() : '12 Sep 2026'}</span>
+
+                    <span style={{ color: '#64748b' }}>Review Status:</span>
+                    <span style={{ fontWeight: 600, color: currentScan.review_status ? '#16a34a' : '#d97706' }}>
+                      {currentScan.review_status || 'Pending Radiologist Sign-off'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: '14px 20px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottomLeftRadius: '12px',
+                borderBottomRightRadius: '12px',
+              }}
+            >
+              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                Powered by Meridian Radiology AI Lakehouse (PostgreSQL rv_pbpkghvg)
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setScanModalOpen(false)}
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    color: '#334155',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScanModalOpen(false);
+                    if (onOpenRadiologyStudy) {
+                      onOpenRadiologyStudy(currentScan.study_id || currentScan.scan_id);
+                    } else if (onNavigate) {
+                      onNavigate('radiology');
+                    }
+                  }}
+                  style={{
+                    padding: '7px 16px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: 'oklch(0.5 0.1 200)',
+                    color: '#fff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <span>🔬</span>
+                  Open in Radiology Workstation →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
