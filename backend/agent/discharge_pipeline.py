@@ -4,7 +4,10 @@ import datetime
 import json
 import logging
 from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
 import psycopg2.extras
+
+load_dotenv()
 
 from connectors.databricks_connector import DatabricksConnector
 from services.discharge_generator import CLINICAL_PROTOCOLS
@@ -652,8 +655,7 @@ class DischargeAgentPipeline:
                         }
                     ],
                     "response_format": {"type": "json_object"},
-                    "temperature": 0.1,
-                    "max_tokens": 250
+                    "temperature": 0.1
                 }
                 req = urllib.request.Request(
                     "https://api.groq.com/openai/v1/chat/completions",
@@ -664,7 +666,7 @@ class DischargeAgentPipeline:
                         "User-Agent": "Healthcare-App/1.0"
                     }
                 )
-                with urllib.request.urlopen(req, timeout=4) as resp:
+                with urllib.request.urlopen(req, timeout=8) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     content_str = resp_data["choices"][0]["message"]["content"]
                     parsed = json.loads(content_str)
