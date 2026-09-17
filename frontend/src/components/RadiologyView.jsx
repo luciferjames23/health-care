@@ -5,7 +5,11 @@ import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card
 const POLL_MS = 5000;
 
 function safeName(detail) {
-  return detail?.metadata?.patient_name || detail?.metadata?.PatientName || detail?.metadata?.patient_id || detail?.metadata?.PatientID || 'DICOM patient';
+  if (detail?.patient_name) return detail.patient_name;
+  const metaName = detail?.metadata?.patient_name || detail?.metadata?.PatientName;
+  const metaId = detail?.metadata?.patient_id || detail?.metadata?.PatientID;
+  if (metaName && metaName !== metaId) return metaName;
+  return metaName || metaId || 'DICOM patient';
 }
 
 function studyLabel(detail) {
@@ -99,9 +103,10 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
   async function finaliseReview(status) {
     if (!detail) return;
     setBusy(true);
+    setError('');
     try {
-      const d = await radiologyApi.finaliseReview(detail.study_id, status);
-      setDetail(d);
+      await radiologyApi.updateReviewStatus(detail.study_id, status);
+      setDetail(prev => prev ? { ...prev, review_status: status, reviewed_at: new Date().toISOString() } : prev);
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -116,7 +121,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     let rows = source.filter(s => {
       const status = s.combined_assessment?.status || 'ROUTINE';
       const meta = s.metadata || {};
-      const hay = [s.display_study_id, s.study_id, s.source_filename, meta.patient_id, meta.patient_name, meta.PatientID, meta.PatientName, meta.modality, meta.Modality, status].join(' ').toLowerCase();
+      const hay = [s.display_study_id, s.study_id, s.patient_id, s.patient_code, s.patient_name, s.original_patient_id, s.source_filename, meta.patient_id, meta.patient_name, meta.patient_id_mapped, meta.patient_code, meta.PatientID, meta.PatientName, meta.modality, meta.Modality, status].join(' ').toLowerCase();
       return (filter === 'All' || status === filter) && (!q || hay.includes(q));
     });
 
@@ -218,6 +223,12 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
 
     <Card style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 15 }}>{detail.metadata?.series_description || 'Chest X-ray'} · {safeName(detail)}</b><StatusBadge status={status} /><span style={{ ...statusStyle('ROUTINE'), color: '#52585e', background: '#eef0f1', borderColor: '#d9dddf' }}>{reviewStatus}</span></div>
+      {(detail.patient_id || detail.metadata?.patient_id_mapped) ? (
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#0f5b66', marginTop: 4 }}>
+          Patient ID: {detail.patient_id || detail.metadata?.patient_id_mapped}
+          {(detail.patient_code || detail.metadata?.patient_code) ? ` (${detail.patient_code || detail.metadata?.patient_code})` : ''}
+        </div>
+      ) : null}
       <div style={{ fontSize: 10.5, color: '#7b8288', marginTop: 5 }}>{studyLabel(detail)} · {detail.metadata?.modality || 'X-ray'} · {detail.analyzed_at ? new Date(detail.analyzed_at).toLocaleString() : 'analysis complete'}</div>
     </Card>
 
@@ -233,7 +244,19 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Card><StatusBadge status={status} /><div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 9 }}>{detail.combined_assessment?.reason}</div><div style={{ fontSize: 10.5, color: '#697077', marginTop: 8 }}>AI-assisted review priority only. Not a confirmed clinical critical result or AI diagnosis.</div></Card>
-        <Card><b style={{ fontSize: 12 }}>Study information</b><div style={{ marginTop: 6 }}><InfoRow label="Study ID" value={studyLabel(detail)} /><InfoRow label="DICOM patient" value={safeName(detail)} /><InfoRow label="Patient ID" value={detail.metadata?.patient_id || detail.metadata?.PatientID || '—'} /><InfoRow label="Modality" value={detail.metadata?.modality || '—'} /><InfoRow label="Study status" value="AI analysis complete" /><InfoRow label="AI processing" value="DenseNet121 + YOLO11n complete" /><InfoRow label="Radiologist review" value={reviewStatus} /></div></Card>
+        <Card>
+          <b style={{ fontSize: 12 }}>Study information</b>
+          <div style={{ marginTop: 6 }}>
+            <InfoRow label="Study ID" value={studyLabel(detail)} />
+            <InfoRow label="Patient ID" value={(detail.patient_id || detail.metadata?.patient_id_mapped) ? `${detail.patient_id || detail.metadata?.patient_id_mapped} (${detail.patient_code || detail.metadata?.patient_code || ''})` : (detail.metadata?.patient_id || detail.metadata?.PatientID || '—')} />
+            <InfoRow label="Patient Name" value={safeName(detail)} />
+            <InfoRow label="DICOM Patient UUID" value={detail.original_patient_id || detail.metadata?.patient_id || detail.metadata?.PatientID || '—'} />
+            <InfoRow label="Modality" value={detail.metadata?.modality || '—'} />
+            <InfoRow label="Study status" value="AI analysis complete" />
+            <InfoRow label="AI processing" value="DenseNet121 + YOLO11n complete" />
+            <InfoRow label="Radiologist review" value={reviewStatus} />
+          </div>
+        </Card>
         <Card><b style={{ fontSize: 12 }}>DenseNet121 triage signal</b><div style={{ fontSize: 24, fontWeight: 650, marginTop: 5 }}>{pct(detail.triage?.probability)}</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked classification threshold {detail.triage?.threshold ?? 0.20}</div></Card>
         <Card><b style={{ fontSize: 12 }}>YOLO11n localization</b><div style={{ fontSize: 13, marginTop: 6 }}>{detail.localization?.number_of_regions || 0} suspected opacity region(s)</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked localization threshold {detail.localization?.threshold ?? 0.10}</div>{regions.length > 0 && <div style={{ marginTop: 7 }}>{regions.map((r, i) => <div key={i} style={{ fontSize: 10.5, padding: '4px 0', borderTop: '1px solid #eef0f1' }}>Region {i + 1}: {pct(r.confidence)} · ({Math.round(r.x1)}, {Math.round(r.y1)}) → ({Math.round(r.x2)}, {Math.round(r.y2)})</div>)}</div>}</Card>
         <Card><b style={{ fontSize: 12 }}>Combined Assessment</b><div style={{ marginTop: 6 }}><InfoRow label="Status" value={status} /><InfoRow label="Agreement" value={detail.combined_assessment?.agreement ? 'Agreement' : 'Disagreement'} /><InfoRow label="Reason" value={detail.combined_assessment?.reason} /><InfoRow label="Finding" value={detail.interpretation?.finding || 'Suspected lung opacity'} /><InfoRow label="Recommended action" value={detail.interpretation?.recommended_action || 'Radiologist review recommended'} /></div></Card>

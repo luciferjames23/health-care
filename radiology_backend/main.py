@@ -21,7 +21,8 @@ from services.densenet_service import load_densenet_model, DenseNetInferenceErro
 from services.yolo_service import load_yolo_model, YoloInferenceError
 from services.inference_service import run_full_analysis, InferenceError
 from services.study_store import save_study, get_study, list_studies, mark_study_viewed, update_review_status
-from services.worklist_service import to_worklist_item, sort_worklist, compute_counts
+from services.worklist_service import to_worklist_item, sort_worklist, compute_counts, enrich_study_detail
+from db import get_patient_mapping_by_original_ids
 from services.pacs_watcher_service import start_watcher, stop_watcher, get_status as get_pacs_watcher_status
 from services.orthanc_service import (
     health as orthanc_health,
@@ -213,7 +214,12 @@ async def analyze(file: UploadFile = File(...)):
 @app.get("/api/radiology/worklist", response_model=WorklistResponse)
 def worklist():
     records = list_studies()
-    items = [to_worklist_item(r) for r in records]
+    raw_ids = [
+        r.get("original_patient_id") or r.get("metadata", {}).get("patient_id") or r.get("study_id")
+        for r in records
+    ]
+    mapping = get_patient_mapping_by_original_ids([x for x in raw_ids if x])
+    items = [to_worklist_item(r, mapping) for r in records]
     items = sort_worklist(items)
     counts = compute_counts(items)
     return {"studies": items, "counts": counts}
@@ -224,6 +230,7 @@ def study_detail(study_id: str):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    record = enrich_study_detail(record)
     return record
 
 

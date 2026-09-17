@@ -71,7 +71,23 @@ export function StudyTable({ studies = [], onOpen }) {
       const regions = s.localization_summary?.number_of_regions ?? s.localization?.number_of_regions ?? 0;
       return <tr key={s.study_id} style={{ opacity: s.viewed ? 0.82 : 1 }}>
         <td style={cell}><StatusBadge status={status} /></td>
-        <td style={cell}><b>{s.display_study_id || meta.study_id_dicom || s.study_id?.slice(0, 12)}</b><div style={{ fontSize: 10, color: '#7b8288' }}>{meta.patient_id || meta.PatientID || s.source_filename || 'DICOM study'}</div>{meta.patient_name && <div style={{ fontSize: 10, color: '#697077' }}>{meta.patient_name}</div>}</td>
+        <td style={cell}>
+          <div style={{ fontWeight: 700, color: '#111827' }}>{s.display_study_id || meta.study_id_dicom || s.study_id?.slice(0, 12)}</div>
+          {(s.patient_id || meta.patient_id_mapped) ? (
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#0f5b66', marginTop: 2 }}>
+              Patient ID: {s.patient_id || meta.patient_id_mapped}
+              {(s.patient_code || meta.patient_code) ? ` (${s.patient_code || meta.patient_code})` : ''}
+            </div>
+          ) : null}
+          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 1 }}>
+            {(s.patient_name || (meta.patient_name && meta.patient_name !== meta.patient_id)) ? (
+              <span style={{ fontWeight: 600, color: '#374151' }}>{s.patient_name || meta.patient_name} · </span>
+            ) : null}
+            <span title="DICOM Patient UUID" style={{ fontFamily: 'monospace' }}>
+              {s.original_patient_id || meta.patient_id || meta.PatientID || s.source_filename || 'DICOM study'}
+            </span>
+          </div>
+        </td>
         <td style={cell}>{meta.modality || meta.Modality || 'CR/DX'}</td>
         <td style={cell}>{Math.round(probability * 100)}% <span style={{ color: '#8a9096' }}>(@ {s.triage?.threshold ?? 0.2})</span></td>
         <td style={cell}>{regions} suspected region(s){s.localization_summary?.highest_confidence != null ? <div style={{ fontSize: 10, color: '#7b8288' }}>max {Math.round(s.localization_summary.highest_confidence * 100)}%</div> : null}</td>

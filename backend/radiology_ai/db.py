@@ -250,3 +250,53 @@ def update_scan_image_and_report(
         return get_scan_by_id(scan_id)
     finally:
         conn.close()
+
+
+def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Lookup patient details (patient_id, patient_code, name) for given original_patient_id UUIDs."""
+    if not original_ids:
+        return {}
+    clean_ids = [str(x).strip() for x in original_ids if x and str(x).strip()]
+    if not clean_ids:
+        return {}
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (rs.original_patient_id)
+                    rs.original_patient_id,
+                    rs.patient_id,
+                    rs.patient_code,
+                    p.first_name,
+                    p.last_name
+                FROM radiology_scan rs
+                LEFT JOIN patients p ON rs.patient_id = p.id
+                WHERE rs.original_patient_id = ANY(%s);
+            """, (list(set(clean_ids)),))
+            rows = cur.fetchall()
+            mapping = {}
+            for r in rows:
+                full_name = None
+                if r["first_name"] or r["last_name"]:
+                    full_name = f"{r['first_name'] or ''} {r['last_name'] or ''}".strip()
+                mapping[r["original_patient_id"]] = {
+                    "patient_id": r["patient_id"],
+                    "patient_code": r["patient_code"],
+                    "patient_name": full_name,
+                    "original_patient_id": r["original_patient_id"],
+                }
+            return mapping
+    except Exception as e:
+        logger.error("Error looking up patient mapping by original_patient_id: %s", e)
+        return {}
+    finally:
+        conn.close()
+
+
+def get_patient_mapping_by_original_id(original_id: str) -> Optional[Dict[str, Any]]:
+    """Lookup patient details for a single original_patient_id UUID."""
+    if not original_id:
+        return None
+    res = get_patient_mapping_by_original_ids([original_id])
+    return res.get(original_id)
+

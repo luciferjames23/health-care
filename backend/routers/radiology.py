@@ -33,7 +33,8 @@ from radiology_ai.services.study_store import (
     mark_study_viewed,
     save_study,
 )
-from radiology_ai.services.worklist_service import compute_counts, sort_worklist, to_worklist_item
+from radiology_ai.services.worklist_service import compute_counts, sort_worklist, to_worklist_item, enrich_study_detail
+from radiology_ai.db import get_patient_mapping_by_original_ids
 from radiology_ai.services.yolo_service import load_yolo_model
 from radiology_ai.schemas.inference import (
     AnalyzeResponse,
@@ -171,7 +172,13 @@ async def analyze(file: UploadFile = File(...)):
 
 @router.get("/worklist", response_model=WorklistResponse)
 def worklist():
-    items = sort_worklist([to_worklist_item(r) for r in list_studies()])
+    records = list_studies()
+    raw_ids = [
+        r.get("original_patient_id") or r.get("metadata", {}).get("patient_id") or r.get("study_id")
+        for r in records
+    ]
+    mapping = get_patient_mapping_by_original_ids([x for x in raw_ids if x])
+    items = sort_worklist([to_worklist_item(r, mapping) for r in records])
     return {"studies": items, "counts": compute_counts(items)}
 
 
@@ -180,6 +187,7 @@ def study_detail(study_id: str):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    record = enrich_study_detail(record)
     return record
 
 
