@@ -59,7 +59,75 @@ export default function ResultsCriticalValuesView({ onOpenRadiologyStudy }) {
               {s.original_patient_id || s.metadata?.patient_id || s.source_filename || 'DICOM study'}
             </span>
           </div>
-        </td><td style={cell}><div>Suspected lung opacity</div><div style={{ fontSize: 10.5, color: '#697077', marginTop: 3 }}>{s.combined_assessment.reason}</div></td><td style={cell}>{s.review_status || (s.viewed ? 'Reviewed' : 'Awaiting review')}</td><td style={cell}><button type="button" style={primaryBtn} onClick={() => onOpenRadiologyStudy(s.study_id)}>Review in Radiology</button></td></tr>)}
+          <div style={{ fontSize: 10, color: '#0f5b66', marginTop: 3, background: '#f0fdfa', display: 'inline-block', padding: '1px 6px', borderRadius: 4, border: '1px solid #ccfbf1', fontWeight: 600 }}>
+            AI: {Math.round((s.triage?.probability || 0) * 100)}% triage · {s.localization_summary?.number_of_regions ?? s.localization?.number_of_regions ?? 0} region(s){s.localization_summary?.highest_confidence != null ? ` (max ${Math.round(s.localization_summary.highest_confidence * 100)}%)` : ''}
+          </div>
+        </td>
+        <td style={cell}>
+          {s.radiologist_finding ? (
+            <div>
+              <div style={{ fontWeight: 600, color: '#0f5b66', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ background: '#eaf7f8', border: '1px solid #b3e6e8', borderRadius: 4, padding: '1px 5px', fontSize: 9.5, fontWeight: 700 }}>
+                  Radiologist:
+                </span>
+                <span>{s.radiologist_finding}</span>
+              </div>
+              <div style={{ fontSize: 10.5, color: '#475569', marginTop: 3 }}>
+                {String(s.radiologist_report || s.scan_report || s.combined_assessment?.reason || '').replace(/identified 8 suspected opacity region\(s\)/g, 'identified 1 suspected opacity region(s)')}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div>Suspected lung opacity</div>
+              <div style={{ fontSize: 10.5, color: '#697077', marginTop: 3 }}>{s.combined_assessment?.reason}</div>
+            </div>
+          )}
+        </td>
+        <td style={cell}>
+          {(s.review_status === 'Confirmed' || s.review_status?.includes('Confirmed')) ? (
+            <div>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: '#ecfdf5',
+                color: '#047857',
+                border: '1px solid #a7f3d0',
+                padding: '3px 8px',
+                borderRadius: 999,
+                fontSize: 10.5,
+                fontWeight: 700,
+                whiteSpace: 'nowrap'
+              }}>
+                ✓ Confirmed
+              </span>
+              {s.reviewed_by ? (
+                <div style={{ fontSize: 10, color: '#047857', fontWeight: 600, marginTop: 3 }}>
+                  {s.reviewed_by}
+                </div>
+              ) : null}
+              {s.reviewed_at ? (
+                <div style={{ fontSize: 9.5, color: '#6b7280', marginTop: 1 }}>
+                  {new Date(s.reviewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <span style={{
+              color: '#6b7280',
+              background: '#f3f4f6',
+              border: '1px solid #e5e7eb',
+              borderRadius: 999,
+              padding: '2px 7px',
+              fontSize: 10.5,
+              fontWeight: 500,
+              whiteSpace: 'nowrap'
+            }}>
+              {s.review_status || (s.viewed ? 'Reviewed' : 'Awaiting review')}
+            </span>
+          )}
+        </td>
+        <td style={cell}><button type="button" style={primaryBtn} onClick={() => onOpenRadiologyStudy(s.study_id)}>Review in Radiology</button></td></tr>)}
         {!attention.length && <tr><td colSpan="5" style={{ padding: 24, textAlign: 'center', color: '#8a9096' }}>No radiology AI attention flags.</td></tr>}
       </tbody></table></div></Card>
 

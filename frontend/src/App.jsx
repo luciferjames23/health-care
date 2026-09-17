@@ -265,7 +265,7 @@ export default function App() {
             <DiagnosticsView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
           )}
           {activePage === 'radiology' && (
-            <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
+            <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} currentUser={auth} />
           )}
 
           {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}

@@ -32,9 +32,10 @@ from radiology_ai.services.study_store import (
     list_studies,
     mark_study_viewed,
     save_study,
+    update_review_status,
 )
 from radiology_ai.services.worklist_service import compute_counts, sort_worklist, to_worklist_item, enrich_study_detail
-from radiology_ai.db import get_patient_mapping_by_original_ids
+from radiology_ai.db import get_patient_mapping_by_original_ids, update_study_report_in_db
 from radiology_ai.services.yolo_service import load_yolo_model
 from radiology_ai.schemas.inference import (
     AnalyzeResponse,
@@ -45,6 +46,7 @@ from radiology_ai.schemas.inference import (
     StudyDetailResponse,
     ViewedStatusResponse,
     WorklistResponse,
+    ReviewStatusRequest,
 )
 
 logger = logging.getLogger("meridian.radiology.integration")
@@ -198,6 +200,65 @@ def viewed(study_id: str):
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
     return {"study_id": study_id, "viewed": record.get("viewed", False), "viewed_at": record.get("viewed_at")}
+
+
+@router.post("/studies/{study_id}/review", response_model=StudyDetailResponse)
+def review_study(study_id: str, request: ReviewStatusRequest):
+    """Record radiologist review workflow state and revised clinical report."""
+    allowed = {
+        "No acute finding",
+        "Finding not confirmed",
+        "Reviewed",
+        "Confirm AI Finding",
+        "Finding Not Confirmed",
+        "Needs Further Review",
+        "Confirmed",
+        "Confirmed (Finding Revised)",
+    }
+    if request.review_status not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported review status.")
+
+    existing = get_study(study_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+
+    report = request.report
+    if not report:
+        report = existing.get("radiologist_report") or existing.get("interpretation", {}).get("summary") or existing.get("scan_report")
+    finding = request.finding or existing.get("radiologist_finding") or existing.get("interpretation", {}).get("finding")
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    record = update_review_status(
+        study_id,
+        request.review_status,
+        reviewed_at,
+        reviewed_by=request.reviewed_by,
+        report=report,
+        finding=finding,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+
+    orig_id = record.get("original_patient_id") or record.get("metadata", {}).get("patient_id")
+    p_id = record.get("patient_id")
+    p_code = record.get("patient_code")
+    try:
+        update_study_report_in_db(
+            original_patient_id=orig_id,
+            scan_report=report,
+            patient_id=p_id,
+            patient_code=p_code,
+            review_status=request.review_status,
+            reviewed_by=request.reviewed_by or record.get("reviewed_by"),
+            radiologist_finding=finding,
+        )
+    except Exception as e:
+        logger.warning("Could not persist report to PostgreSQL: %s", e)
+
+    record = enrich_study_detail(record)
+    return record
+
+
 
 
 @pacs_router.get("/health", response_model=PacsHealthResponse)

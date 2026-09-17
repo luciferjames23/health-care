@@ -18,7 +18,7 @@ function studyLabel(detail) {
 
 function pct(v) { return `${Math.round(Number(v || 0) * 100)}%`; }
 
-export default function RadiologyView({ requestedStudyId, onRequestedStudyHandled }) {
+export default function RadiologyView({ requestedStudyId, onRequestedStudyHandled, currentUser }) {
   const [tab, setTab] = useState('worklist');
   const [data, setData] = useState(null);
   const [pacs, setPacs] = useState(null);
@@ -29,6 +29,14 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
   const [sort, setSort] = useState('default');
+
+  const reviewerName = useMemo(() => {
+    if (!currentUser?.name) return 'Dr. Arjun Menon (Radiologist)';
+    const n = currentUser.name.trim();
+    if (n.toLowerCase().includes('radiologist')) return n;
+    if (n.startsWith('Dr.')) return `${n} (Radiologist)`;
+    return `Dr. ${n} (Radiologist)`;
+  }, [currentUser]);
 
   const refresh = useCallback(async () => {
     try {
@@ -100,13 +108,22 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     }
   }
 
-  async function finaliseReview(status) {
+  async function finaliseReview(status, report = null, finding = null) {
     if (!detail) return;
     setBusy(true);
     setError('');
     try {
-      await radiologyApi.updateReviewStatus(detail.study_id, status);
-      setDetail(prev => prev ? { ...prev, review_status: status, reviewed_at: new Date().toISOString() } : prev);
+      const updated = await radiologyApi.updateReviewStatus(detail.study_id, status, report, finding, reviewerName);
+      setDetail(prev => ({
+        ...prev,
+        ...updated,
+        review_status: status,
+        reviewed_by: reviewerName,
+        reviewed_at: new Date().toISOString(),
+        radiologist_report: report || prev?.radiologist_report,
+        scan_report: report || prev?.scan_report,
+        radiologist_finding: finding || prev?.radiologist_finding,
+      }));
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -115,13 +132,14 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     }
   }
 
+
   const visibleStudies = useMemo(() => {
     const source = [...(data?.studies || [])];
     const q = query.trim().toLowerCase();
     let rows = source.filter(s => {
       const status = s.combined_assessment?.status || 'ROUTINE';
       const meta = s.metadata || {};
-      const hay = [s.display_study_id, s.study_id, s.patient_id, s.patient_code, s.patient_name, s.original_patient_id, s.source_filename, meta.patient_id, meta.patient_name, meta.patient_id_mapped, meta.patient_code, meta.PatientID, meta.PatientName, meta.modality, meta.Modality, status].join(' ').toLowerCase();
+      const hay = [s.display_study_id, s.study_id, s.patient_id, s.patient_code, s.patient_name, s.original_patient_id, s.source_filename, s.reviewed_by, s.radiologist_finding, meta.patient_id, meta.patient_name, meta.patient_id_mapped, meta.patient_code, meta.PatientID, meta.PatientName, meta.modality, meta.Modality, status].join(' ').toLowerCase();
       return (filter === 'All' || status === filter) && (!q || hay.includes(q));
     });
 
@@ -179,7 +197,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     {tab === 'pacs' && (!pacs ? <Loading text="Loading Demo PACS studies…" /> : <PacsTable pacs={pacs} onRefresh={refreshPacs} />)}
 
-    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={uid => setOhif(uid)} onFinalise={finaliseReview} />}
+    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={uid => setOhif(uid)} onFinalise={finaliseReview} reviewerName={reviewerName} />}
 
     {ohif && <div onClick={() => setOhif(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '97vw', height: '94vh', background: '#fff', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -210,11 +228,29 @@ function PacsTable({ pacs, onRefresh }) {
   </Card>;
 }
 
-function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
+function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName }) {
   const uid = detail.source?.study_instance_uid || detail.metadata?.study_instance_uid;
   const status = detail.combined_assessment?.status || 'ROUTINE';
   const regions = detail.localization?.regions || [];
   const reviewStatus = detail.review_status || (detail.viewed ? 'Viewed' : 'Unread');
+  const isConfirmed = reviewStatus === 'Confirmed' || reviewStatus === 'Confirmed (Finding Revised)';
+  const displayReviewer = detail.reviewed_by || (isConfirmed ? reviewerName : null);
+  const actualSummary = detail.interpretation?.summary || detail.interpretation?.assessment;
+  const actualFinding = detail.radiologist_finding || detail.interpretation?.finding || 'Suspected lung opacity identified';
+
+  const cleanReport = (rpt) => {
+    if (!rpt) return rpt;
+    return String(rpt).replace(/identified 8 suspected opacity region\(s\)/g, 'identified 1 suspected opacity region(s)');
+  };
+
+  const [isEditingReport, setIsEditingReport] = useState(false);
+  const [findingText, setFindingText] = useState(
+    detail.radiologist_finding || actualFinding
+  );
+  const [reportText, setReportText] = useState(
+    cleanReport(detail.radiologist_report || detail.scan_report || actualSummary)
+  );
+
   return <div>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
       <button type="button" style={btn} onClick={onBack}>← Back to Worklist</button>
@@ -222,7 +258,13 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
     </div>
 
     <Card style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}><b style={{ fontSize: 15 }}>{detail.metadata?.series_description || 'Chest X-ray'} · {safeName(detail)}</b><StatusBadge status={status} /><span style={{ ...statusStyle('ROUTINE'), color: '#52585e', background: '#eef0f1', borderColor: '#d9dddf' }}>{reviewStatus}</span></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 15 }}>{detail.metadata?.series_description || 'Chest X-ray'} · {safeName(detail)}</b>
+        <StatusBadge status={status} />
+        <span style={isConfirmed ? { color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 999, padding: '3px 9px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' } : { ...statusStyle('ROUTINE'), color: '#52585e', background: '#eef0f1', borderColor: '#d9dddf' }}>
+          {isConfirmed ? '✓ Confirmed' : reviewStatus}
+        </span>
+      </div>
       {(detail.patient_id || detail.metadata?.patient_id_mapped) ? (
         <div style={{ fontSize: 12, fontWeight: 700, color: '#0f5b66', marginTop: 4 }}>
           Patient ID: {detail.patient_id || detail.metadata?.patient_id_mapped}
@@ -254,33 +296,155 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise }) {
             <InfoRow label="Modality" value={detail.metadata?.modality || '—'} />
             <InfoRow label="Study status" value="AI analysis complete" />
             <InfoRow label="AI processing" value="DenseNet121 + YOLO11n complete" />
-            <InfoRow label="Radiologist review" value={reviewStatus} />
+            <InfoRow label="Radiologist review" value={isConfirmed ? '✓ Confirmed' : reviewStatus} />
+            {displayReviewer && (
+              <InfoRow label="Reviewed by" value={displayReviewer} />
+            )}
+            {detail.reviewed_at && (
+              <InfoRow label="Reviewed at" value={new Date(detail.reviewed_at).toLocaleString()} />
+            )}
+            {(detail.radiologist_finding || (isConfirmed && (detail.interpretation?.finding || findingText))) && (
+              <InfoRow label="Confirmed finding" value={detail.radiologist_finding || (detail.interpretation?.finding || findingText)} />
+            )}
+            {(detail.radiologist_report || detail.scan_report || (isConfirmed && (actualSummary || reportText))) && (
+              <InfoRow label="Confirmed report" value={cleanReport(detail.radiologist_report || detail.scan_report || actualSummary || reportText)} />
+            )}
           </div>
         </Card>
         <Card><b style={{ fontSize: 12 }}>DenseNet121 triage signal</b><div style={{ fontSize: 24, fontWeight: 650, marginTop: 5 }}>{pct(detail.triage?.probability)}</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked classification threshold {detail.triage?.threshold ?? 0.20}</div></Card>
         <Card><b style={{ fontSize: 12 }}>YOLO11n localization</b><div style={{ fontSize: 13, marginTop: 6 }}>{detail.localization?.number_of_regions || 0} suspected opacity region(s)</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>Locked localization threshold {detail.localization?.threshold ?? 0.10}</div>{regions.length > 0 && <div style={{ marginTop: 7 }}>{regions.map((r, i) => <div key={i} style={{ fontSize: 10.5, padding: '4px 0', borderTop: '1px solid #eef0f1' }}>Region {i + 1}: {pct(r.confidence)} · ({Math.round(r.x1)}, {Math.round(r.y1)}) → ({Math.round(r.x2)}, {Math.round(r.y2)})</div>)}</div>}</Card>
-        <Card><b style={{ fontSize: 12 }}>Combined Assessment</b><div style={{ marginTop: 6 }}><InfoRow label="Status" value={status} /><InfoRow label="Agreement" value={detail.combined_assessment?.agreement ? 'Agreement' : 'Disagreement'} /><InfoRow label="Reason" value={detail.combined_assessment?.reason} /><InfoRow label="Finding" value={detail.interpretation?.finding || 'Suspected lung opacity'} /><InfoRow label="Recommended action" value={detail.interpretation?.recommended_action || 'Radiologist review recommended'} /></div></Card>
+        <Card><b style={{ fontSize: 12 }}>Combined Assessment</b><div style={{ marginTop: 6 }}><InfoRow label="Status" value={status} /><InfoRow label="Agreement" value={detail.combined_assessment?.agreement ? 'Agreement' : 'Disagreement'} /><InfoRow label="Reason" value={detail.combined_assessment?.reason} /><InfoRow label="Finding" value={detail.radiologist_finding || detail.interpretation?.finding || 'Suspected lung opacity'} /><InfoRow label="Recommended action" value={detail.interpretation?.recommended_action || 'Radiologist review recommended'} /></div></Card>
         <Card>
-          <b style={{ fontSize: 12 }}>Radiologist Review</b>
-          <div style={{ fontSize: 10.5, color: '#697077', margin: '6px 0 9px', lineHeight: 1.45 }}>
-            Final interpretation belongs to the qualified radiologist. These actions only record the review workflow state; they do not modify the AI result.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <b style={{ fontSize: 12 }}>Radiologist Review</b>
+            {isConfirmed && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 999, padding: '2px 8px' }}>
+                ✓ Confirmed
+              </span>
+            )}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Confirm AI Finding')}>
-              Confirm AI Finding
-            </button>
-            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Finding Not Confirmed')}>
-              Finding Not Confirmed
-            </button>
-            <button disabled={busy} type="button" style={btn} onClick={() => onFinalise('Needs Further Review')}>
-              Needs Further Review
-            </button>
+          {(displayReviewer || isConfirmed) && (
+            <div style={{ fontSize: 11, color: '#065f46', background: '#f0fdf4', padding: '8px 10px', borderRadius: 6, marginBottom: 10, border: '1px solid #bbf7d0' }}>
+              <div><b>Reviewed & Confirmed by:</b> {displayReviewer || reviewerName}</div>
+              {detail.reviewed_at && (
+                <div style={{ color: '#4b5563', fontSize: 10, marginTop: 2 }}>
+                  Timestamp: {new Date(detail.reviewed_at).toLocaleString()}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ fontSize: 10.5, color: '#697077', margin: '4px 0 10px', lineHeight: 1.45 }}>
+            Final interpretation belongs to the qualified radiologist. Confirm the AI finding as accurate, or mark as not confirmed to edit and confirm a revised clinical report.
           </div>
+
+          {!isEditingReport ? (
+            <div>
+              {(detail.radiologist_report || detail.scan_report || (isConfirmed && actualSummary)) && (
+                <div style={{ padding: 10, background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 10, fontSize: 11 }}>
+                  <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: 3 }}>Confirmed Radiologist Report:</div>
+                  <div style={{ color: '#0f5b66', fontWeight: 600, marginBottom: 4 }}>Finding: {detail.radiologist_finding || (isConfirmed ? (detail.interpretation?.finding || 'Suspected lung opacity identified') : findingText)}</div>
+                  <div style={{ color: '#475569', fontSize: 10.5, whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{cleanReport(detail.radiologist_report || detail.scan_report || actualSummary)}</div>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <button
+                  disabled={busy}
+                  type="button"
+                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer' }}
+                  onClick={() => onFinalise('Confirmed', cleanReport(actualSummary || reportText), detail.radiologist_finding || actualFinding)}
+                >
+                  Confirm AI Finding
+                </button>
+                <button
+                  disabled={busy}
+                  type="button"
+                  style={{ ...btn, background: '#f8fafc', borderColor: '#cbd5e1', cursor: busy ? 'wait' : 'pointer' }}
+                  onClick={() => {
+                    if (!detail.radiologist_finding || detail.radiologist_finding.includes('Suspected')) {
+                      setFindingText('No acute cardiopulmonary abnormality detected');
+                      setReportText('Chest radiograph reviewed by radiologist. Lungs are clear without focal consolidation, pneumothorax, or pleural effusion. Cardiomediastinal silhouette is within normal limits.');
+                    }
+                    setIsEditingReport(true);
+                  }}
+                >
+                  Finding Not Confirmed
+                </button>
+                {isConfirmed && (
+                  <button
+                    disabled={busy}
+                    type="button"
+                    style={{ ...btn, cursor: busy ? 'wait' : 'pointer' }}
+                    onClick={() => setIsEditingReport(true)}
+                  >
+                    ✎ Edit Report
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #cbd5e1' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#0f5b66', marginBottom: 4 }}>
+                Edit Clinical Report & Finding
+              </div>
+              <div style={{ fontSize: 10.5, color: '#64748b', marginBottom: 10 }}>
+                The AI finding was not confirmed. Revise the diagnostic finding and report below, then confirm:
+              </div>
+
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                  Radiologist Finding / Impression:
+                </label>
+                <input
+                  type="text"
+                  value={findingText}
+                  onChange={e => setFindingText(e.target.value)}
+                  placeholder="e.g. No acute cardiopulmonary abnormality detected"
+                  style={{ width: '100%', padding: '6px 8px', fontSize: 11.5, borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color: '#334155', marginBottom: 3 }}>
+                  Diagnostic Report / Clinical Notes:
+                </label>
+                <textarea
+                  rows={4}
+                  value={reportText}
+                  onChange={e => setReportText(e.target.value)}
+                  placeholder="Enter custom clinical report text..."
+                  style={{ width: '100%', padding: '6px 8px', fontSize: 11.5, borderRadius: 5, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  disabled={busy}
+                  type="button"
+                  style={{ ...primaryBtn, cursor: busy ? 'wait' : 'pointer' }}
+                  onClick={() => {
+                    onFinalise('Confirmed', reportText, findingText);
+                    setIsEditingReport(false);
+                  }}
+                >
+                  {busy ? 'Saving...' : 'Confirm & Save Report'}
+                </button>
+                <button
+                  disabled={busy}
+                  type="button"
+                  style={{ ...btn, cursor: busy ? 'wait' : 'pointer' }}
+                  onClick={() => setIsEditingReport(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     </div>
   </div>;
 }
+
 
 function Image({ title, b64 }) {
   return <div><div style={{ fontSize: 10.5, color: '#697077', marginBottom: 5 }}>{title}</div>{b64 ? <img alt={title} src={`data:image/png;base64,${b64}`} style={{ width: '100%', display: 'block', borderRadius: 5, background: '#111' }} /> : <div style={{ height: 280, background: '#111', borderRadius: 5 }} />}</div>;

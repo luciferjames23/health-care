@@ -253,7 +253,7 @@ def update_scan_image_and_report(
 
 
 def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-    """Lookup patient details (patient_id, patient_code, name) for given original_patient_id UUIDs."""
+    """Lookup patient details (patient_id, patient_code, name, review status) for given original_patient_id UUIDs."""
     if not original_ids:
         return {}
     clean_ids = [str(x).strip() for x in original_ids if x and str(x).strip()]
@@ -267,6 +267,11 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
                     rs.original_patient_id,
                     rs.patient_id,
                     rs.patient_code,
+                    rs.review_status,
+                    rs.reviewed_by,
+                    rs.reviewed_at,
+                    rs.scan_report,
+                    rs.radiologist_finding,
                     p.first_name,
                     p.last_name
                 FROM radiology_scan rs
@@ -284,6 +289,11 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
                     "patient_code": r["patient_code"],
                     "patient_name": full_name,
                     "original_patient_id": r["original_patient_id"],
+                    "review_status": r["review_status"],
+                    "reviewed_by": r["reviewed_by"],
+                    "reviewed_at": r["reviewed_at"].isoformat() if r["reviewed_at"] else None,
+                    "scan_report": r["scan_report"],
+                    "radiologist_finding": r["radiologist_finding"],
                 }
             return mapping
     except Exception as e:
@@ -299,4 +309,47 @@ def get_patient_mapping_by_original_id(original_id: str) -> Optional[Dict[str, A
         return None
     res = get_patient_mapping_by_original_ids([original_id])
     return res.get(original_id)
+
+
+def update_study_report_in_db(
+    original_patient_id: Optional[str] = None,
+    scan_report: Optional[str] = None,
+    patient_id: Optional[int] = None,
+    patient_code: Optional[str] = None,
+    review_status: Optional[str] = None,
+    reviewed_by: Optional[str] = None,
+    radiologist_finding: Optional[str] = None,
+) -> bool:
+    """Update or insert scan_report, review_status, and reviewer in PostgreSQL radiology_scan table."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if original_patient_id:
+                cur.execute("SELECT scan_id FROM radiology_scan WHERE original_patient_id = %s;", (str(original_patient_id).strip(),))
+                row = cur.fetchone()
+                if row:
+                    cur.execute("""
+                        UPDATE radiology_scan 
+                        SET scan_report = COALESCE(%s, scan_report),
+                            review_status = COALESCE(%s, review_status),
+                            reviewed_by = COALESCE(%s, reviewed_by),
+                            radiologist_finding = COALESCE(%s, radiologist_finding),
+                            reviewed_at = CURRENT_TIMESTAMP
+                        WHERE original_patient_id = %s;
+                    """, (scan_report, review_status, reviewed_by, radiologist_finding, str(original_patient_id).strip()))
+                    conn.commit()
+                    return True
+            cur.execute("""
+                INSERT INTO radiology_scan (patient_id, patient_code, original_patient_id, scan_report, review_status, reviewed_by, radiologist_finding, reviewed_at, target)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, 0);
+            """, (patient_id, patient_code, original_patient_id, scan_report, review_status, reviewed_by, radiologist_finding))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error("Error updating/inserting scan_report in PostgreSQL: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
 
