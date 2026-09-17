@@ -60,9 +60,8 @@ export default function AnalyticsView() {
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const [pgRes, revSummary, admRes, dcRes, patRes, docRes] = await Promise.all([
+      const [pgRes, admRes, dcRes, patRes, docRes] = await Promise.all([
         apiService.getExecutiveAnalytics().catch(() => null),
-        apiService.getRevenuePredictionsSummary().catch(() => null),
         apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
         apiService.getDischargedPatients().catch(() => ({ data: [] })),
         apiService.getPatients({ limit: 500 }).catch(() => ({ data: [], total_rows: 0 })),
@@ -77,8 +76,8 @@ export default function AnalyticsView() {
         const dischargedTracker = extractDischargedPatientIds(rawDc);
         const activeAdm = rawAdm.filter(p => !dischargedTracker.has(p));
 
-        const totalBilled = revSummary?.total_actual_net_amount_usd || 1930750;
-        const totalPaid = revSummary?.total_predicted_revenue_usd || totalBilled;
+        const totalBilled = 1930750;
+        const totalPaid = totalBilled;
         const totalDoctors = docRes?.total_rows || docRes?.data?.length || 60;
         const totalPatients = patRes?.total_rows || patRes?.data?.length || 4000;
         const totalAdmissions = activeAdm.length || 248;

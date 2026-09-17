@@ -125,7 +125,7 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
             {[
               { path: 'GET /api/v1/health', label: 'Health Check' },
               { path: 'GET /api/v1/gold/summary', label: 'Gold Summary KPIs' },
-              { path: 'GET /api/v1/gold/revenue-predictions', label: 'Revenue Projections' },
+              { path: 'GET /api/v1/gold/bed-management', label: 'Ward Bed Census & Capacity' },
               { path: 'GET /api/v1/gold/tables', label: 'Table Metadata' },
               { path: 'GET /api/v1/gold/schema/{table}', label: 'Schema Definitions' },
               { path: 'GET /api/v1/gold/table/{table}', label: 'Dynamic Grid Query' }

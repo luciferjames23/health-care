@@ -14,26 +14,6 @@ router = APIRouter(
 db_connector = DatabricksConnector()
 
 GOLD_TABLES_META = {
-    "dim_revenue_predictions": {
-        "table_name": "dim_revenue_predictions",
-        "primary_key": "revenue_prediction_id",
-        "domain": "Financial & Predictive Analytics",
-        "description": "Departmental and patient-level revenue projections, actual amounts, prediction variances, model names, and monthly totals.",
-        "schema": [
-            {"column_name": "revenue_prediction_id", "data_type": "BIGINT", "is_primary": True},
-            {"column_name": "bill_number", "data_type": "STRING", "is_primary": False},
-            {"column_name": "patient_id", "data_type": "BIGINT", "is_primary": False},
-            {"column_name": "patient_number", "data_type": "STRING", "is_primary": False},
-            {"column_name": "patient_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "bill_date", "data_type": "TIMESTAMP", "is_primary": False},
-            {"column_name": "bill_status", "data_type": "STRING", "is_primary": False},
-            {"column_name": "actual_net_amount", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "predicted_revenue", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "prediction_variance", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "model_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "prediction_date", "data_type": "TIMESTAMP", "is_primary": False}
-        ]
-    },
     "fact_bed_demand_forecast_7day_detailed": {
         "table_name": "fact_bed_demand_forecast_7day_detailed",
         "primary_key": "forecast_date,ward_id",
@@ -224,15 +204,11 @@ def get_gold_table_schema(table_name: str):
 
 @router.get("/summary", summary="Gold Schema Executive Analytics Overview")
 def get_gold_executive_summary():
-    """Computes executive KPIs across revenue predictions and 7-day bed demand forecasts."""
+    """Computes executive KPIs across 7-day bed demand forecasts and clinical capacity."""
     try:
-        rev_res = db_connector.query_gold_table("dim_revenue_predictions", limit=1000)
         bed_res = db_connector.query_gold_table("fact_bed_demand_forecast_7day_detailed", limit=1000)
-
-        rev_data = rev_res.get("data", [])
         bed_data = bed_res.get("data", [])
 
-        total_predicted_revenue = sum(float(r.get("predicted_revenue", 0) or 0) for r in rev_data)
         total_predicted_beds = sum(int(b.get("predicted_beds", 0) or 0) for b in bed_data)
         avg_occupancy = (sum(float(b.get("predicted_occupancy_rate", 0) or 0) for b in bed_data) / len(bed_data)) if bed_data else 0.0
 
@@ -250,10 +226,6 @@ def get_gold_executive_summary():
         return {
             "catalog": Config.DATABRICKS_CATALOG,
             "schema": Config.DATABRICKS_SCHEMA,
-            "financial_kpis": {
-                "total_predicted_revenue_usd": round(total_predicted_revenue, 2),
-                "total_prediction_records": len(rev_data)
-            },
             "bed_capacity_kpis": {
                 "total_beds_capacity": total_capacity,
                 "occupied_beds_count": total_predicted_beds,
@@ -265,70 +237,6 @@ def get_gold_executive_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate executive summary: {str(e)}")
-
-
-# ---------------------------------------------------------------------------
-# DIM_REVENUE_PREDICTIONS ENDPOINTS
-# ---------------------------------------------------------------------------
-@router.get("/revenue-predictions", summary="Query dim_revenue_predictions Table")
-def get_dim_revenue_predictions(
-    department_name: Optional[str] = Query(None, description="Filter by department_name"),
-    bill_status: Optional[str] = Query(None, description="Filter by bill status (e.g. Settled, Pending)"),
-    bill_date_from: Optional[str] = Query(None, description="Bill date starting on or after (YYYY-MM-DD)"),
-    bill_date_to: Optional[str] = Query(None, description="Bill date starting on or before (YYYY-MM-DD)"),
-    limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
-    offset: int = Query(default=0, ge=0)
-):
-    """Query `health_care.gold.dim_revenue_predictions` table with optional parameters and pagination."""
-    filters = {}
-    if department_name: filters["department_name"] = department_name
-    if bill_status: filters["bill_status"] = bill_status
-    if bill_date_from: filters["bill_date_from"] = bill_date_from
-    if bill_date_to: filters["bill_date_to"] = bill_date_to
-
-    try:
-        return db_connector.query_gold_table("dim_revenue_predictions", filters=filters, limit=limit, offset=offset)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to query dim_revenue_predictions: {str(e)}")
-
-
-@router.get("/revenue-predictions/summary", summary="Revenue Predictions Summary Analytics")
-def get_revenue_predictions_summary():
-    """Computes total predicted revenue, total net actual revenue, prediction variance, and model metrics."""
-    try:
-        res = db_connector.query_gold_table("dim_revenue_predictions", limit=1000)
-        data = res.get("data", [])
-
-        total_count = len(data)
-        if total_count == 0:
-            return {"notice": "No revenue prediction records found", "metrics": {}}
-
-        total_predicted = sum(float(r.get("predicted_revenue", 0) or 0) for r in data)
-        total_actual = sum(float(r.get("actual_net_amount", 0) or 0) for r in data)
-        avg_variance = sum(float(r.get("prediction_variance", 0) or 0) for r in data) / total_count
-
-        return {
-            "table_name": "dim_revenue_predictions",
-            "total_records": total_count,
-            "total_predicted_revenue_usd": round(total_predicted, 2),
-            "total_actual_net_amount_usd": round(total_actual, 2),
-            "avg_prediction_variance_usd": round(avg_variance, 2)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to compute revenue prediction summary: {str(e)}")
-
-
-@router.get("/revenue-predictions/{prediction_id}", summary="Get Single Revenue Prediction Record")
-def get_revenue_prediction_by_id(prediction_id: str):
-    """Retrieve a single revenue prediction record by revenue_prediction_id or bill_number."""
-    res = db_connector.query_gold_table("dim_revenue_predictions", filters={"revenue_prediction_id": prediction_id}, limit=1)
-    data = res.get("data", [])
-    if not data:
-        res = db_connector.query_gold_table("dim_revenue_predictions", filters={"bill_number": prediction_id}, limit=1)
-        data = res.get("data", [])
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Revenue prediction record '{prediction_id}' not found.")
-    return data[0]
 
 
 # ---------------------------------------------------------------------------

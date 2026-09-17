@@ -94,19 +94,19 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
             { label: 'View Command Centre', target: 'command' }
           ]
         };
-      } else if (lowerQ.includes('revenue') || lowerQ.includes('bill') || lowerQ.includes('claim')) {
-        const revSummary = await apiService.getRevenuePredictionsSummary().catch(() => null);
+      } else if (lowerQ.includes('bill') || lowerQ.includes('claim')) {
         aiResponse = {
           who: 'ai',
-          intent: 'finance.revenue_status',
+          intent: 'finance.billing_status',
           conf: '96%',
           ts: timeStr,
-          text: `Live Revenue Analytics from Gold Layer: Total Net Actual Revenue is $${(revSummary?.total_actual_net_amount_usd || 0).toLocaleString()} with Total Predicted Revenue of $${(revSummary?.total_predicted_revenue_usd || 0).toLocaleString()} across ${revSummary?.total_records || 0} prediction records.`,
+          text: `Claims & Billing Registry: Access patient invoices, settled claims, insurance authorizations, and clearance protocols directly from the Billing desk.`,
           sources: [
-            { label: 'Gold: dim_revenue_predictions', v: 'live', eff: 'Real-time' }
+            { label: 'Clinical Database: Billing & Claims', v: 'live', eff: 'Real-time' }
           ],
           actions: [
-            { label: 'Open Revenue Analytics', target: 'revenue' }
+            { label: 'Open Billing & Clearance', target: 'billing' },
+            { label: 'Open Claims Tracking', target: 'claims' }
           ]
         };
       } else if (lowerQ.includes('patient') || lowerQ.includes('inpatient') || lowerQ.includes('admission')) {

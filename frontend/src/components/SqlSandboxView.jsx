@@ -41,17 +41,16 @@ ORDER BY admission_date DESC
 LIMIT 50;`
   },
   {
-    title: "Revenue Predictions & Model Variances",
+    title: "Generated Discharge Summaries AI",
     sql: `SELECT 
-  revenue_prediction_id,
-  bill_number,
+  summary_id,
+  admission_id,
   patient_name,
-  actual_net_amount,
-  predicted_revenue,
-  prediction_variance,
-  model_name
-FROM health_care.gold.dim_revenue_predictions
-ORDER BY bill_date DESC
+  model_name,
+  approval_status,
+  created_at
+FROM health_care.gold.dim_generated_discharge_summaries
+ORDER BY created_at DESC
 LIMIT 50;`
   },
   {
@@ -83,9 +82,11 @@ export default function SqlSandboxView() {
     const start = performance.now();
     try {
       // Determine which table the query targets
-      let targetTable = 'dim_revenue_predictions';
+      let targetTable = 'fact_bed_demand_forecast_7day_detailed';
       if (/fact_bed_demand/i.test(sqlText)) {
         targetTable = 'fact_bed_demand_forecast_7day_detailed';
+      } else if (/discharge/i.test(sqlText)) {
+        targetTable = 'dim_generated_discharge_summaries';
       } else if (/patients/i.test(sqlText)) {
         targetTable = 'patients';
       } else if (/admissions/i.test(sqlText)) {

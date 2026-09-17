@@ -13,26 +13,6 @@ import { apiService } from '../services/api';
 
 const GOLD_TABLES_FALLBACK = [
   {
-    table_name: "dim_revenue_predictions",
-    domain: "Financial & Predictive Analytics",
-    row_count: 1000,
-    primary_key: "revenue_prediction_id",
-    description: "Departmental and patient-level revenue projections, actual amounts, prediction variances, and monthly totals.",
-    columns: [
-      { column_name: "revenue_prediction_id", data_type: "BIGINT", is_primary: true, description: "Unique revenue prediction record identifier" },
-      { column_name: "bill_number", data_type: "STRING", is_primary: false, description: "Hospital IPD billing identifier" },
-      { column_name: "patient_id", data_type: "BIGINT", is_primary: false, description: "Foreign key reference to patient" },
-      { column_name: "patient_number", data_type: "STRING", is_primary: false, description: "Patient hospital registration code" },
-      { column_name: "patient_name", data_type: "STRING", is_primary: false, description: "Patient full legal name" },
-      { column_name: "bill_date", data_type: "TIMESTAMP", is_primary: false, description: "Date of financial invoice generation" },
-      { column_name: "bill_status", data_type: "STRING", is_primary: false, description: "Settlement clearance status" },
-      { column_name: "actual_net_amount", data_type: "DOUBLE", is_primary: false, description: "Audited actual collection amount in INR" },
-      { column_name: "predicted_revenue", data_type: "DOUBLE", is_primary: false, description: "AI regression model predicted collection" },
-      { column_name: "prediction_variance", data_type: "DOUBLE", is_primary: false, description: "Variance between forecast and actuals" },
-      { column_name: "model_name", data_type: "STRING", is_primary: false, description: "Databricks MLflow model version identifier" }
-    ]
-  },
-  {
     table_name: "fact_bed_demand_forecast_7day_detailed",
     domain: "Clinical Operations & Bed Management",
     row_count: 350,
@@ -105,9 +85,9 @@ const GOLD_TABLES_FALLBACK = [
   }
 ];
 
-export default function SchemaExplorerView({ tables = [], initialTable = 'dim_revenue_predictions', onViewData }) {
+export default function SchemaExplorerView({ tables = [], initialTable = 'fact_bed_demand_forecast_7day_detailed', onViewData }) {
   const [tableList, setTableList] = useState(GOLD_TABLES_FALLBACK);
-  const [selectedTable, setSelectedTable] = useState(initialTable || 'dim_revenue_predictions');
+  const [selectedTable, setSelectedTable] = useState(initialTable || 'fact_bed_demand_forecast_7day_detailed');
   const [schemaData, setSchemaData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

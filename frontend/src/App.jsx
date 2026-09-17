@@ -20,7 +20,6 @@ import DetailDrawer from './components/DetailDrawer';
 import MasterModal from './components/MasterModal';
 
 // Databricks Gold Layer Views
-import RevenueView from './components/RevenueView';
 import BedDemandView from './components/BedDemandView';
 import SchemaExplorerView from './components/SchemaExplorerView';
 import DataExplorerView from './components/DataExplorerView';
@@ -245,7 +244,6 @@ export default function App() {
             <HospitalAssistantView onNavigate={setActivePage} defaultQuery={aiPrompt} />
           )}
 
-          {activePage === 'revenue' && <RevenueView />}
           {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}
           {activePage === 'tables' && <SchemaExplorerView onViewData={() => setActivePage('explorer')} />}
           {activePage === 'explorer' && <DataExplorerView />}
@@ -338,7 +336,7 @@ export default function App() {
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
             'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
-            'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
+            'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
             'criticalvalues', 'diagnostics', 'radiology',

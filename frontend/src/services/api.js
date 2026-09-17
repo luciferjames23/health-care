@@ -169,7 +169,6 @@ export const apiService = {
       this.getCurrentAdmissions();
       this.getDischargedPatients();
       this.getBedManagementData();
-      this.getRevenuePredictions();
       this.getPatients({ limit: 100 });
       this.getWards({ limit: 100 });
       this.getBeds({ limit: 500 });
@@ -200,7 +199,7 @@ export const apiService = {
 
   async executeSqlQuery(query, limit = 100) {
     try {
-      const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/table/dim_revenue_predictions?limit=${limit}`);
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/table/fact_bed_demand_forecast_7day_detailed?limit=${limit}`);
       return await res.json();
     } catch (e) {
       return { data: [], error: e.message };
@@ -240,30 +239,6 @@ export const apiService = {
     return await this.getBedManagementData(options);
   },
 
-  // Revenue & Financial Intelligence
-  async getRevenueAnalytics(params = {}, options = {}) {
-    return await this.getRevenuePredictions(params, options);
-  },
-
-  async getRevenuePredictions(params = {}, options = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-    if (params.bill_status) queryParams.append("bill_status", params.bill_status);
-    if (params.department_name) queryParams.append("department_name", params.department_name);
-    if (params.department) queryParams.append("department_name", params.department);
-
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions?${queryParams.toString()}`, options);
-  },
-
-  async getRevenuePredictionsSummary(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions/summary`, options);
-  },
-
-  async getRevenuePredictionById(id, options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/revenue-predictions/${encodeURIComponent(id)}`, options);
-  },
-
   async getSoapNotes(params = {}, options = {}) {
     return await this.getCurrentAdmissions(params, options);
   },
@@ -288,21 +263,6 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/table/${tableName}?${queryParams.toString()}`, options);
-  },
-
-  // Query dim_revenue_predictions
-  async getDimRevenuePredictions(params = {}, options = {}) {
-    const queryParams = new URLSearchParams();
-    if (params.department) queryParams.append("department", params.department);
-    if (params.risk_level) queryParams.append("risk_level", params.risk_level);
-    if (params.limit) queryParams.append("limit", params.limit);
-    if (params.offset) queryParams.append("offset", params.offset);
-
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions?${queryParams.toString()}`, options);
-  },
-
-  async getDimRevenuePredictionsSummary(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/dim-revenue-predictions/summary`, options);
   },
 
   // -------------------------------------------------------------------------

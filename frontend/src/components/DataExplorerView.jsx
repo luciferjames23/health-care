@@ -11,16 +11,15 @@ import {
 import { apiService } from '../services/api';
 
 const DEFAULT_TABLES = [
-  { table_name: 'dim_revenue_predictions', domain: 'Financial', row_count: 1000 },
   { table_name: 'fact_bed_demand_forecast_7day_detailed', domain: 'Operations', row_count: 350 },
   { table_name: 'dim_generated_discharge_summaries', domain: 'Discharge AI', row_count: 50 },
   { table_name: 'patients', domain: 'Master Index', row_count: 4000 },
   { table_name: 'admissions', domain: 'Inpatients', row_count: 250 }
 ];
 
-export default function DataExplorerView({ tables = [], initialTable = 'dim_revenue_predictions' }) {
+export default function DataExplorerView({ tables = [], initialTable = 'fact_bed_demand_forecast_7day_detailed' }) {
   const [tableList, setTableList] = useState(DEFAULT_TABLES);
-  const [selectedTable, setSelectedTable] = useState(initialTable || 'dim_revenue_predictions');
+  const [selectedTable, setSelectedTable] = useState(initialTable || 'fact_bed_demand_forecast_7day_detailed');
   const [dataResult, setDataResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(25);
