@@ -33,6 +33,13 @@ export default function DischargeAgentPipeline({
   const [activeTab, setActiveTab] = useState<'summaries' | 'evaluation'>('summaries');
   const [evaluationFilter, setEvaluationFilter] = useState<'all' | 'eligible' | 'not_eligible'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [evalPage, setEvalPage] = useState<number>(1);
+  const [evalPageSize, setEvalPageSize] = useState<number>(15);
+
+  // Reset pagination on filter or search changes
+  useEffect(() => {
+    setEvalPage(1);
+  }, [searchQuery, evaluationFilter]);
 
   // Detail Modal & Sign-Off State
   const [selectedSummary, setSelectedSummary] = useState<BatchSummaryItem | null>(null);
@@ -176,6 +183,13 @@ export default function DischargeAgentPipeline({
     }
     return true;
   });
+
+  // Pagination calculations for Patient Evaluation tab (to eliminate endless scroll down)
+  const totalEvalPages = Math.max(1, Math.ceil(filteredEvaluated.length / evalPageSize));
+  const validEvalPage = Math.min(Math.max(1, evalPage), totalEvalPages);
+  const evalStartIndex = (validEvalPage - 1) * evalPageSize;
+  const evalEndIndex = Math.min(evalStartIndex + evalPageSize, filteredEvaluated.length);
+  const pagedEvaluated = filteredEvaluated.slice(evalStartIndex, evalEndIndex);
 
   return (
     <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif', color: '#0f172a' }}>
@@ -719,27 +733,42 @@ export default function DischargeAgentPipeline({
                 </tr>
               </thead>
               <tbody>
-                {filteredEvaluated.slice(0, 100).map(p => {
+                {pagedEvaluated.map(p => {
                   const isEligible = p.is_eligible === true;
                   const billOutstanding = Number(p.billing?.outstanding_balance || 0);
                   const isBillCleared = Boolean(p.admin_cleared);
+                  const patientDisplayName = getDisplayPatientName(p);
 
                   return (
                     <tr key={p.patient_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{p.patient_name}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>ID: {p.patient_id}</div>
+                      {/* PATIENT IDENTITY */}
+                      <td style={{ padding: '12px', minWidth: '180px' }}>
+                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '13px' }}>
+                          {patientDisplayName}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          ID: {p.patient_id} {p.age ? `· ${p.age}y` : ''} {p.gender ? `· ${p.gender}` : ''} {p.blood_group ? `· (${p.blood_group})` : ''}
+                        </div>
                       </td>
-                      <td style={{ padding: '10px 12px', color: '#475569' }}>
-                        <div>{p.ward_name || 'Ward'}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>{p.bed_number || 'Bed'}</div>
+
+                      {/* LOCATION */}
+                      <td style={{ padding: '12px', color: '#475569', minWidth: '140px' }}>
+                        <div style={{ fontWeight: 500, color: '#0f172a' }}>{p.ward_name || 'General Ward'}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          {p.bed_number || 'Bed'} {p.room_number ? `· ${p.room_number}` : ''}
+                        </div>
                       </td>
-                      <td style={{ padding: '10px 12px', color: '#334155', maxWidth: '160px' }}>
-                        {p.primary_diagnosis || 'Under Evaluation'}
+
+                      {/* CLINICAL DIAGNOSIS & STAY */}
+                      <td style={{ padding: '12px', color: '#334155', minWidth: '160px' }}>
+                        <div style={{ fontWeight: 500 }}>{p.primary_diagnosis || 'Under Evaluation'}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          Adm: {p.admission_number || p.admission_id} · Stay: {p.current_stay_days || 1}d
+                        </div>
                       </td>
 
                       {/* STEP 1: BILL STATUS GATE */}
-                      <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <span style={{
                           fontSize: '11px',
                           fontWeight: 600,
@@ -751,10 +780,15 @@ export default function DischargeAgentPipeline({
                         }}>
                           {isBillCleared ? 'Cleared (₹0)' : `Pending (₹${billOutstanding.toLocaleString()})`}
                         </span>
+                        {p.billing?.bill_number && (
+                          <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px' }}>
+                            #{p.billing.bill_number}
+                          </div>
+                        )}
                       </td>
 
                       {/* STEP 2: VITALS STATUS GATE (LLM GROQ EVALUATION) */}
-                      <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <span style={{
                           fontSize: '11px',
                           fontWeight: 600,
@@ -768,10 +802,13 @@ export default function DischargeAgentPipeline({
                             ? 'Held (Bill Pending)'
                             : (p.vitals_cleared ? 'Stable (Groq LLM)' : 'Unstable')}
                         </span>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '3px' }}>
+                          {p.vitals?.bp_formatted ? `${p.vitals.bp_formatted} · ${p.vitals.heart_rate_bpm} bpm · ${p.vitals.oxygen_saturation_pct}%` : (p.vitals_summary ? p.vitals_summary.slice(0, 30) + '...' : '')}
+                        </div>
                       </td>
 
                       {/* OVERALL DISCHARGE ELIGIBILITY */}
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
                         <span style={{
                           fontSize: '11px',
                           fontWeight: 600,
@@ -787,9 +824,9 @@ export default function DischargeAgentPipeline({
                       </td>
 
                       {/* SEQUENTIAL RATIONALE & LLM ASSESSMENT */}
-                      <td style={{ padding: '10px 12px', color: '#334155', lineHeight: 1.4 }}>
+                      <td style={{ padding: '12px', color: '#334155', lineHeight: 1.4, maxWidth: '320px' }}>
                         {p.llm_vitals_assessment && isBillCleared ? (
-                          <div style={{ marginBottom: '2px', fontSize: '11px', color: '#475569' }}>
+                          <div style={{ marginBottom: '4px', fontSize: '11px', color: '#475569' }}>
                             <strong>{p.llm_vitals_assessment}</strong>
                           </div>
                         ) : null}
@@ -801,11 +838,125 @@ export default function DischargeAgentPipeline({
               </tbody>
             </table>
 
-            {filteredEvaluated.length > 100 && (
-              <div style={{ textAlign: 'center', padding: '12px', color: '#64748b', fontSize: '12px' }}>
-                Showing first 100 of {filteredEvaluated.length} patients. Use the search box above to filter.
+            {/* PAGINATION CONTROLS BAR TO PREVENT LONG SCROLL DOWN */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+              padding: '16px 6px 4px 6px',
+              borderTop: '1px solid #e2e8f0',
+              marginTop: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <span>
+                  Showing <strong>{filteredEvaluated.length === 0 ? 0 : evalStartIndex + 1}</strong> to <strong>{evalEndIndex}</strong> of <strong>{filteredEvaluated.length}</strong> patients
+                </span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Rows per page:</span>
+                  <select
+                    value={evalPageSize}
+                    onChange={e => {
+                      setEvalPageSize(Number(e.target.value));
+                      setEvalPage(1);
+                    }}
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '4px',
+                      padding: '4px 8px',
+                      fontSize: '12px',
+                      color: '#0f172a',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={15}>15</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
               </div>
-            )}
+
+              {/* Navigation buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  onClick={() => setEvalPage(1)}
+                  disabled={validEvalPage <= 1}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: validEvalPage <= 1 ? '#f8fafc' : '#ffffff',
+                    color: validEvalPage <= 1 ? '#94a3b8' : '#0f172a',
+                    cursor: validEvalPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    fontSize: '11px'
+                  }}
+                >
+                  « First
+                </button>
+                <button
+                  onClick={() => setEvalPage(p => Math.max(1, p - 1))}
+                  disabled={validEvalPage <= 1}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: validEvalPage <= 1 ? '#f8fafc' : '#ffffff',
+                    color: validEvalPage <= 1 ? '#94a3b8' : '#0f172a',
+                    cursor: validEvalPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    fontSize: '11px'
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                <span style={{ padding: '0 8px', fontWeight: 600, color: '#0f172a' }}>
+                  Page {validEvalPage} of {totalEvalPages}
+                </span>
+
+                <button
+                  onClick={() => setEvalPage(p => Math.min(totalEvalPages, p + 1))}
+                  disabled={validEvalPage >= totalEvalPages}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: validEvalPage >= totalEvalPages ? '#f8fafc' : '#ffffff',
+                    color: validEvalPage >= totalEvalPages ? '#94a3b8' : '#0f172a',
+                    cursor: validEvalPage >= totalEvalPages ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    fontSize: '11px'
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  onClick={() => setEvalPage(totalEvalPages)}
+                  disabled={validEvalPage >= totalEvalPages}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: validEvalPage >= totalEvalPages ? '#f8fafc' : '#ffffff',
+                    color: validEvalPage >= totalEvalPages ? '#94a3b8' : '#0f172a',
+                    cursor: validEvalPage >= totalEvalPages ? 'not-allowed' : 'pointer',
+                    fontWeight: 500,
+                    fontSize: '11px'
+                  }}
+                >
+                  Last »
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
