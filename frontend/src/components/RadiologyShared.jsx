@@ -87,11 +87,62 @@ export function StudyTable({ studies = [], onOpen }) {
               {s.original_patient_id || meta.patient_id || meta.PatientID || s.source_filename || 'DICOM study'}
             </span>
           </div>
+          {s.radiologist_finding ? (
+            <div style={{ marginTop: 3, fontSize: 10, color: '#0f5b66', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <span style={{ background: '#eaf7f8', border: '1px solid #b3e6e8', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>
+                Radiologist:
+              </span>
+              <span style={{ fontWeight: 600 }}>{s.radiologist_finding}</span>
+            </div>
+          ) : null}
         </td>
         <td style={cell}>{meta.modality || meta.Modality || 'CR/DX'}</td>
         <td style={cell}>{Math.round(probability * 100)}% <span style={{ color: '#8a9096' }}>(@ {s.triage?.threshold ?? 0.2})</span></td>
         <td style={cell}>{regions} suspected region(s){s.localization_summary?.highest_confidence != null ? <div style={{ fontSize: 10, color: '#7b8288' }}>max {Math.round(s.localization_summary.highest_confidence * 100)}%</div> : null}</td>
-        <td style={cell}>{s.review_status || (s.viewed ? 'Viewed' : 'Pending')}</td>
+        <td style={cell}>
+          {(s.review_status === 'Confirmed' || s.review_status?.includes('Confirmed')) ? (
+            <div>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: '#ecfdf5',
+                color: '#047857',
+                border: '1px solid #a7f3d0',
+                padding: '3px 8px',
+                borderRadius: 999,
+                fontSize: 10.5,
+                fontWeight: 700,
+                whiteSpace: 'nowrap'
+              }}>
+                ✓ Confirmed
+              </span>
+              {s.reviewed_by ? (
+                <div style={{ fontSize: 10, color: '#047857', fontWeight: 600, marginTop: 3 }}>
+                  {s.reviewed_by}
+                </div>
+              ) : null}
+              {s.reviewed_at ? (
+                <div style={{ fontSize: 9.5, color: '#6b7280', marginTop: 1 }}>
+                  {new Date(s.reviewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <span style={{
+              color: '#6b7280',
+              background: '#f3f4f6',
+              border: '1px solid #e5e7eb',
+              borderRadius: 999,
+              padding: '2px 7px',
+              fontSize: 10.5,
+              fontWeight: 500,
+              whiteSpace: 'nowrap'
+            }}>
+              {s.review_status || (s.viewed ? 'Viewed' : 'Unread')}
+            </span>
+          )}
+        </td>
         <td style={cell}><button type="button" onClick={() => onOpen(s.study_id)} style={btn}>View Analysis</button></td>
       </tr>;
     })}

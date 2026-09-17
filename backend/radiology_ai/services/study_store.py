@@ -43,6 +43,20 @@ def save_study(record: dict) -> None:
             record["display_study_id"] = f"XR-{_next_display_number:04d}"
             _next_display_number += 1
 
+        if existing:
+            if existing.get("review_status") and not record.get("review_status"):
+                record["review_status"] = existing["review_status"]
+            if existing.get("reviewed_by") and not record.get("reviewed_by"):
+                record["reviewed_by"] = existing["reviewed_by"]
+            if existing.get("reviewed_at") and not record.get("reviewed_at"):
+                record["reviewed_at"] = existing["reviewed_at"]
+            if existing.get("radiologist_finding") and not record.get("radiologist_finding"):
+                record["radiologist_finding"] = existing["radiologist_finding"]
+            if existing.get("radiologist_report") and not record.get("radiologist_report"):
+                record["radiologist_report"] = existing["radiologist_report"]
+            if existing.get("scan_report") and not record.get("scan_report"):
+                record["scan_report"] = existing["scan_report"]
+
         if study_id not in _studies:
             _order.append(study_id)
         _studies[study_id] = record
@@ -61,17 +75,40 @@ def list_studies() -> List[dict]:
 
 
 def mark_study_viewed(study_id: str, viewed_at: str) -> Optional[dict]:
-    """Mark a study as viewed without changing any AI/triage fields.
+    """Mark a study as viewed without changing any AI/triage fields."""
+    with _lock:
+        record = _studies.get(study_id)
+        if record is not None and not record.get("viewed"):
+            record["viewed"] = True
+            record["viewed_at"] = viewed_at
+        return record
 
-    Viewing is a workflow state only. It never alters DenseNet probability,
-    YOLO localization, model agreement, combined status, or interpretation.
-    Re-opening an already-viewed study keeps the original viewed_at timestamp.
-    """
+
+def update_review_status(
+    study_id: str,
+    review_status: str,
+    reviewed_at: str,
+    reviewed_by: Optional[str] = None,
+    report: Optional[str] = None,
+    finding: Optional[str] = None,
+) -> Optional[dict]:
+    """Record radiologist workflow state and optional custom finding/report."""
     with _lock:
         record = _studies.get(study_id)
         if record is None:
             return None
-        if not record.get("viewed", False):
-            record["viewed"] = True
-            record["viewed_at"] = viewed_at
+        record["review_status"] = review_status
+        record["reviewed_at"] = reviewed_at
+        if reviewed_by:
+            record["reviewed_by"] = reviewed_by
+        if report:
+            record["scan_report"] = report
+            record["radiologist_report"] = report
+            if "interpretation" in record and isinstance(record["interpretation"], dict):
+                record["interpretation"]["summary"] = report
+                record["interpretation"]["assessment"] = report
+        if finding:
+            record["radiologist_finding"] = finding
+            if "interpretation" in record and isinstance(record["interpretation"], dict):
+                record["interpretation"]["finding"] = finding
         return record

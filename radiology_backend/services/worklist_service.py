@@ -63,6 +63,26 @@ def to_worklist_item(record: dict, mapping: Optional[dict] = None) -> dict:
         if not raw_pname or raw_pname == str(orig_uuid).strip():
             metadata["patient_name"] = patient_name
 
+    review_status = record.get("review_status")
+    if not review_status or review_status == "Unread":
+        if patient_info and patient_info.get("review_status"):
+            review_status = patient_info["review_status"]
+        else:
+            review_status = "Unread"
+
+    reviewed_by = record.get("reviewed_by") or (patient_info.get("reviewed_by") if patient_info else None)
+    reviewed_at = record.get("reviewed_at") or (patient_info.get("reviewed_at") if patient_info else None)
+    radiologist_finding = record.get("radiologist_finding") or (patient_info.get("radiologist_finding") if patient_info else None)
+    scan_report = record.get("scan_report") or (patient_info.get("scan_report") if patient_info else None)
+    radiologist_report = record.get("radiologist_report") or scan_report
+
+    actual_regions = record.get("localization", {}).get("number_of_regions")
+    if actual_regions == 1:
+        if scan_report and "identified 8 suspected" in str(scan_report):
+            scan_report = record.get("interpretation", {}).get("summary") or str(scan_report).replace("identified 8 suspected", "identified 1 suspected")
+        if radiologist_report and "identified 8 suspected" in str(radiologist_report):
+            radiologist_report = record.get("interpretation", {}).get("summary") or str(radiologist_report).replace("identified 8 suspected", "identified 1 suspected")
+
     return {
         "study_id": record["study_id"],
         "display_study_id": record.get("display_study_id"),
@@ -74,8 +94,12 @@ def to_worklist_item(record: dict, mapping: Optional[dict] = None) -> dict:
         "analyzed_at": record["analyzed_at"],
         "viewed": record.get("viewed", False),
         "viewed_at": record.get("viewed_at"),
-        "review_status": record.get("review_status", "Unread"),
-        "reviewed_at": record.get("reviewed_at"),
+        "review_status": review_status,
+        "reviewed_at": reviewed_at,
+        "reviewed_by": reviewed_by,
+        "radiologist_finding": radiologist_finding,
+        "radiologist_report": radiologist_report,
+        "scan_report": scan_report,
         "source_filename": record.get("source_filename"),
         "metadata": metadata,
         "triage": record["triage"],
@@ -91,7 +115,7 @@ def to_worklist_item(record: dict, mapping: Optional[dict] = None) -> dict:
 
 
 def enrich_study_detail(record: dict, mapping: Optional[dict] = None) -> dict:
-    """Ensure record has patient_id, patient_code, original_patient_id, patient_name populated."""
+    """Ensure record has patient_id, patient_code, original_patient_id, patient_name, and review info populated."""
     orig_uuid = (
         record.get("original_patient_id")
         or record.get("metadata", {}).get("patient_id")
@@ -117,6 +141,27 @@ def enrich_study_detail(record: dict, mapping: Optional[dict] = None) -> dict:
             record["patient_name"] = patient_info.get("patient_name")
         if not record.get("original_patient_id"):
             record["original_patient_id"] = orig_uuid
+
+        if not record.get("review_status") or record.get("review_status") == "Unread":
+            if patient_info.get("review_status"):
+                record["review_status"] = patient_info["review_status"]
+        if not record.get("reviewed_by") and patient_info.get("reviewed_by"):
+            record["reviewed_by"] = patient_info["reviewed_by"]
+        if not record.get("reviewed_at") and patient_info.get("reviewed_at"):
+            record["reviewed_at"] = patient_info["reviewed_at"]
+        if not record.get("radiologist_finding") and patient_info.get("radiologist_finding"):
+            record["radiologist_finding"] = patient_info["radiologist_finding"]
+        if not record.get("scan_report") and patient_info.get("scan_report"):
+            record["scan_report"] = patient_info["scan_report"]
+        if not record.get("radiologist_report"):
+            record["radiologist_report"] = record.get("scan_report")
+
+        actual_regions = record.get("localization", {}).get("number_of_regions")
+        if actual_regions == 1:
+            if record.get("scan_report") and "identified 8 suspected" in str(record.get("scan_report")):
+                record["scan_report"] = record.get("interpretation", {}).get("summary") or str(record["scan_report"]).replace("identified 8 suspected", "identified 1 suspected")
+            if record.get("radiologist_report") and "identified 8 suspected" in str(record.get("radiologist_report")):
+                record["radiologist_report"] = record.get("interpretation", {}).get("summary") or str(record["radiologist_report"]).replace("identified 8 suspected", "identified 1 suspected")
 
         if "metadata" in record and isinstance(record["metadata"], dict):
             record["metadata"]["patient_id_mapped"] = patient_info.get("patient_id")

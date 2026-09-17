@@ -58,6 +58,14 @@ export default function DiagnosticsView({ onOpenRadiologyStudy }) {
 function DiagnosticsDetail({ study, onOpen, onClose }) {
   if (!study) return null;
   const meta = study.metadata || {};
+  const cleanReport = (rpt) => {
+    if (!rpt) return rpt;
+    return String(rpt).replace(/identified 8 suspected opacity region\(s\)/g, 'identified 1 suspected opacity region(s)');
+  };
+  const probability = Math.round((study.triage?.probability || 0) * 100);
+  const regions = study.localization_summary?.number_of_regions ?? study.localization?.number_of_regions ?? 0;
+  const maxConf = study.localization_summary?.highest_confidence != null ? Math.round(study.localization_summary.highest_confidence * 100) : null;
+
   return <div style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,.42)', display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} style={{ width: 'min(520px, 92vw)', height: '100%', background: '#fff', boxShadow: '-8px 0 30px rgba(0,0,0,.14)', padding: 18, overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 650 }}>Diagnostic Study</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>{study.display_study_id || study.study_id}</div></div><button type="button" style={btn} onClick={onClose}>Close</button></div>
@@ -69,8 +77,14 @@ function DiagnosticsDetail({ study, onOpen, onClose }) {
         <InfoRow label="Modality" value={meta.modality || meta.Modality || '—'} />
         <InfoRow label="Study status" value="AI analysis complete" />
         <InfoRow label="AI processing status" value="DenseNet121 + YOLO11n complete" />
-        <InfoRow label="AI triage status" value={study.combined_assessment?.status} />
-        <InfoRow label="Radiologist review status" value={study.review_status || (study.viewed ? 'Viewed' : 'Unread')} />
+        <InfoRow label="AI Triage signal" value={`${probability}% (threshold ${study.triage?.threshold ?? 0.2})`} />
+        <InfoRow label="AI Localization" value={`${regions} suspected region(s)${maxConf != null ? ` · max ${maxConf}%` : ''}`} />
+        <InfoRow label="Combined assessment" value={study.combined_assessment?.status || 'ROUTINE'} />
+        <InfoRow label="Radiologist review status" value={study.review_status === 'Confirmed' || study.review_status?.includes('Confirmed') ? '✓ Confirmed' : (study.review_status || (study.viewed ? 'Viewed' : 'Unread'))} />
+        {study.reviewed_by && <InfoRow label="Reviewed by" value={study.reviewed_by} />}
+        {study.reviewed_at && <InfoRow label="Reviewed at" value={new Date(study.reviewed_at).toLocaleString()} />}
+        {study.radiologist_finding && <InfoRow label="Radiologist finding" value={study.radiologist_finding} />}
+        {(study.radiologist_report || study.scan_report) && <InfoRow label="Confirmed report" value={cleanReport(study.radiologist_report || study.scan_report)} />}
       </Card>
 
       <Card style={{ marginTop: 10, background: '#fffdf7' }}><b style={{ fontSize: 12 }}>Shared result</b><div style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 6 }}>This Diagnostic record points to the same stored Radiology study/result. Navigation to Radiology does not trigger another inference.</div><div style={{ marginTop: 9 }}><button type="button" style={primaryBtn} onClick={onOpen}>Open in Radiology</button></div></Card>

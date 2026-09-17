@@ -12,11 +12,17 @@ export const radiologyApi = {
   getWorklist: () => request('/api/radiology/worklist'),
   getStudy: (id) => request(`/api/radiology/studies/${encodeURIComponent(id)}`),
   markViewed: (id) => request(`/api/radiology/studies/${encodeURIComponent(id)}/viewed`, { method: 'POST' }),
-  finaliseReview: (id, review_status) => request(`/api/radiology/studies/${encodeURIComponent(id)}/review`, {
+  finaliseReview: (id, review_status, report = null, finding = null, reviewed_by = null) => request(`/api/radiology/studies/${encodeURIComponent(id)}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ review_status }),
+    body: JSON.stringify({ review_status, report, finding, reviewed_by }),
   }),
+  updateReviewStatus: (id, review_status, report = null, finding = null, reviewed_by = null) => request(`/api/radiology/studies/${encodeURIComponent(id)}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ review_status, report, finding, reviewed_by }),
+  }),
+
   getPacsStudies: () => request('/api/pacs/studies'),
   getPacsHealth: () => request('/api/pacs/health'),
   getModelInfo: () => request('/api/radiology/model-info'),

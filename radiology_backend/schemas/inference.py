@@ -142,6 +142,10 @@ class WorklistItemResponse(BaseModel):
     viewed_at: Optional[str] = None
     review_status: Optional[str] = "Unread"
     reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    radiologist_finding: Optional[str] = None
+    radiologist_report: Optional[str] = None
+    scan_report: Optional[str] = None
     source_filename: Optional[str] = None
     metadata: dict
     triage: TriageResponse
@@ -164,6 +168,9 @@ class WorklistResponse(BaseModel):
 
 class ReviewStatusRequest(BaseModel):
     review_status: str
+    reviewed_by: Optional[str] = None
+    report: Optional[str] = None
+    finding: Optional[str] = None
 
 
 class StudyDetailResponse(AnalyzeResponse):
@@ -180,6 +187,11 @@ class StudyDetailResponse(AnalyzeResponse):
     viewed_at: Optional[str] = None
     review_status: Optional[str] = "Unread"
     reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    scan_report: Optional[str] = None
+    radiologist_report: Optional[str] = None
+    radiologist_finding: Optional[str] = None
+
 
 
 class ViewedStatusResponse(BaseModel):
