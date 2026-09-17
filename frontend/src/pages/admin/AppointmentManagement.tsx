@@ -8,16 +8,85 @@ import {
   format12HourTime,
   type Appointment, type Doctor, type Department
 } from '../../services/dashboardApi';
-import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
+import {
+  type DatePreset,
+  type DateRangeValue,
+  calculateDateRange,
+  toYMD
+} from '../../components/DateRangeFilter';
 
-const STATUS_COLORS: Record<string, string> = {
-  BOOKED: '#ECC94B',
-  CONFIRMED: '#48BB78',
-  COMPLETED: '#4299E1',
-  CANCELLED: '#F56565',
-  RESCHEDULED: '#9F7AEA',
-  NO_SHOW: '#A0AEC0',
+const btnBase: React.CSSProperties = {
+  height: '30px',
+  padding: '0 12px',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  outline: 'none',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
 };
+
+const btnSecondary: React.CSSProperties = {
+  ...btnBase,
+  border: '1px solid #e3e6e8',
+  background: '#fff',
+  color: '#15181b',
+  fontWeight: 500,
+};
+
+const inputStyle: React.CSSProperties = {
+  height: '30px',
+  padding: '0 10px',
+  borderRadius: '6px',
+  border: '1px solid #e3e6e8',
+  background: '#fff',
+  fontSize: '12px',
+  color: '#15181b',
+  outline: 'none',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+};
+
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  padding: '0 8px',
+  cursor: 'pointer',
+};
+
+function getStatusBadge(status: string) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'CONFIRMED' || s === 'COMPLETED') {
+    return {
+      bg: '#ecfdf5',
+      color: '#047857',
+      border: '1px solid #a7f3d0',
+      label: s,
+    };
+  }
+  if (s === 'BOOKED' || s === 'RESCHEDULED') {
+    return {
+      bg: 'oklch(0.96 0.05 80)',
+      color: 'oklch(0.5 0.13 70)',
+      border: '1px solid #fde68a',
+      label: s,
+    };
+  }
+  if (s === 'CANCELLED' || s === 'NO_SHOW') {
+    return {
+      bg: '#fef2f2',
+      color: '#b91c1c',
+      border: '1px solid #fecaca',
+      label: s,
+    };
+  }
+  return {
+    bg: '#f6f7f8',
+    color: '#52585e',
+    border: '1px solid #e3e6e8',
+    label: s || 'UNKNOWN',
+  };
+}
 
 const AppointmentManagement: React.FC = () => {
   const [search, setSearch] = useState('');
@@ -167,76 +236,119 @@ const AppointmentManagement: React.FC = () => {
     }
   };
 
+  const handlePresetChange = (preset: DatePreset) => {
+    const calculated = calculateDateRange(preset);
+    setDateRange({
+      preset,
+      dateFrom: calculated.from,
+      dateTo: calculated.to,
+      displayLabel: calculated.label,
+    });
+    setPage(1);
+  };
+
   const formatDate = (d: string) => d ? new Date(d).toLocaleDateString() : '—';
 
   return (
-    <div>
-      <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h2>Appointment Management</h2>
-            <p>View, filter, sort and manage hospital appointments — live database</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Top Header & Breadcrumb */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>Appointments</span>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={exportToCSV}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Download size={14} /> Export CSV
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={loadAppointments}
-              disabled={loading}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Refresh
-            </button>
+          <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>
+            Appointment Management
           </div>
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            View, filter, sort and manage hospital appointments — live database
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            type="button"
+            style={btnSecondary}
+            onClick={exportToCSV}
+          >
+            <Download size={13} /> Export CSV
+          </button>
+          <button
+            type="button"
+            style={btnSecondary}
+            onClick={loadAppointments}
+            disabled={loading}
+          >
+            <RefreshCw size={13} style={{ animation: loading ? 'kpi-spin 0.7s linear infinite' : 'none' }} />
+            Refresh
+          </button>
         </div>
       </div>
 
       {toast && (
-        <div className="success-alert" style={{ marginBottom: 16 }}>
-          <CheckCircle size={16} /> {toast}
+        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', color: '#047857', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <CheckCircle size={15} /> {toast}
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="card" style={{ marginBottom: 20, padding: '14px 18px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Filter and Search Bar Card */}
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 14px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
           {/* Search */}
-          <div className="search-bar" style={{ flex: '1 1 240px', maxWidth: 320 }}>
-            <Search size={18} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e3e6e8', borderRadius: '6px', padding: '0 10px', height: '30px', flex: '1 1 240px', maxWidth: 320 }}>
+            <Search size={14} style={{ color: '#8a9096', flexShrink: 0 }} />
             <input
               placeholder="Search patient, doctor, ID..."
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1); }}
+              style={{ border: 'none', outline: 'none', fontSize: '12px', width: '100%', background: 'transparent', color: '#15181b', fontFamily: "var(--sans, 'Public Sans', sans-serif)" }}
             />
           </div>
 
           {/* Date Filter & Date Type */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <DateRangeFilter
-              initialPreset="this_month"
-              initialFrom={dateRange.dateFrom}
-              initialTo={dateRange.dateTo}
-              onChange={val => { setDateRange(val); setPage(1); }}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '6px', padding: '0 8px', height: '30px' }}>
+              <Calendar size={13} style={{ color: 'oklch(0.5 0.1 200)' }} />
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'oklch(0.4 0.1 200)' }}>Date:</span>
+              <select
+                value={dateRange.preset}
+                onChange={e => handlePresetChange(e.target.value as DatePreset)}
+                style={{ border: 'none', background: 'transparent', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer', fontWeight: 500 }}
+              >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="tomorrow">Tomorrow</option>
+                <option value="this_week">This Week</option>
+                <option value="last_week">Last Week</option>
+                <option value="this_month">This Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="next_7_days">Next 7 Days</option>
+                <option value="next_30_days">Next 30 Days</option>
+                <option value="custom">Custom Date Range</option>
+              </select>
+            </div>
+
+            {dateRange.preset === 'custom' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input
+                  type="date"
+                  value={dateRange.dateFrom}
+                  onChange={e => setDateRange(prev => ({ ...prev, dateFrom: e.target.value }))}
+                  style={inputStyle}
+                />
+                <span style={{ fontSize: '11px', color: '#8a9096' }}>→</span>
+                <input
+                  type="date"
+                  value={dateRange.dateTo}
+                  onChange={e => setDateRange(prev => ({ ...prev, dateTo: e.target.value }))}
+                  style={inputStyle}
+                />
+              </div>
+            )}
 
             <select
               value={dateType}
               onChange={e => { setDateType(e.target.value as 'appointment_date' | 'created_at'); setPage(1); }}
-              style={{
-                padding: '6px 12px',
-                border: '1.5px solid var(--border)',
-                borderRadius: 'var(--radius-sm, 6px)',
-                fontSize: 13,
-                fontWeight: 500,
-                background: 'var(--bg-primary)',
-              }}
+              style={selectStyle}
               title="Select which timestamp to filter on"
             >
               <option value="appointment_date">Filter by: Appointment Date</option>
@@ -246,13 +358,13 @@ const AppointmentManagement: React.FC = () => {
         </div>
 
         {/* Secondary Filter Row: Doctor, Department, Status, Source, Sorting */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-          <Filter size={15} style={{ color: 'var(--text-muted)' }} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 10, paddingTop: 10, borderTop: '1px solid #eef0f1' }}>
+          <Filter size={13} style={{ color: '#8a9096' }} />
 
           <select
             value={deptFilter}
             onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
-            style={{ padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6, fontSize: 13 }}
+            style={selectStyle}
           >
             <option value="">All Departments</option>
             {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
@@ -261,7 +373,7 @@ const AppointmentManagement: React.FC = () => {
           <select
             value={doctorFilter !== undefined ? String(doctorFilter) : ''}
             onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
-            style={{ padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6, fontSize: 13 }}
+            style={selectStyle}
           >
             <option value="">All Doctors</option>
             {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
@@ -270,7 +382,7 @@ const AppointmentManagement: React.FC = () => {
           <select
             value={statusFilter}
             onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-            style={{ padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6, fontSize: 13 }}
+            style={selectStyle}
           >
             <option value="">All Status</option>
             {['BOOKED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
@@ -281,7 +393,7 @@ const AppointmentManagement: React.FC = () => {
           <select
             value={sourceFilter}
             onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
-            style={{ padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6, fontSize: 13 }}
+            style={selectStyle}
           >
             <option value="">All Sources</option>
             <option value="WHATSAPP_TEXT">WhatsApp Text</option>
@@ -292,11 +404,11 @@ const AppointmentManagement: React.FC = () => {
 
           {/* Sort By Controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Sort by:</span>
+            <span style={{ fontSize: '11px', color: '#8a9096' }}>Sort by:</span>
             <select
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
-              style={{ padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6, fontSize: 13 }}
+              style={selectStyle}
             >
               <option value="appointment_date">Appointment Date</option>
               <option value="created_at">Created Date</option>
@@ -306,112 +418,146 @@ const AppointmentManagement: React.FC = () => {
             </select>
 
             <button
-              className="btn btn-secondary btn-sm"
+              type="button"
+              style={btnSecondary}
               onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
               title={`Sort ${sortOrder.toUpperCase()}`}
             >
-              <ArrowUpDown size={14} /> {sortOrder.toUpperCase()}
+              <ArrowUpDown size={12} /> {sortOrder.toUpperCase()}
             </button>
           </div>
         </div>
       </div>
 
       {/* Appointment Table */}
-      <div className="card">
-        <div className="table-container">
-          {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-              Loading appointments...
-            </div>
-          ) : appointments.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-              No appointments found for the selected date range and filters.
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Booking ID</th>
-                  <th>Patient</th>
-                  <th>Doctor</th>
-                  <th>Department</th>
-                  <th>Reason</th>
-                  <th>Appointment Date</th>
-                  <th>Time & Duration</th>
-                  <th>Status</th>
-                  <th>Source</th>
-                  <th>Created Date</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(appointments || []).map(a => (
-                  <tr key={a.id || a.booking_id}>
-                    <td style={{ fontWeight: 600, color: 'var(--primary)', fontSize: 12 }}>{a.booking_id}</td>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{a.patient_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.patient_code} · {a.patient_phone}</div>
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
+        {loading ? (
+          <div style={{ padding: '36px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[80, 60, 70, 55, 65].map((w, i) => (
+              <div key={i} style={{ height: '14px', borderRadius: '4px', background: '#eef0f1', animation: 'mpulse 1s infinite', width: `${w}%` }} />
+            ))}
+          </div>
+        ) : appointments.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
+            <div style={{ fontWeight: 600, color: '#52585e', marginBottom: '4px' }}>No appointments found</div>
+            <div>Try adjusting your date range or filter options.</div>
+          </div>
+        ) : (
+          <table style={{ width: '100%', minWidth: '1250px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#f6f7f8', borderBottom: '1px solid #e3e6e8' }}>
+                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Booking ID</th>
+                <th style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Patient</th>
+                <th style={{ padding: '10px 12px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Doctor</th>
+                <th style={{ padding: '10px 12px', minWidth: '130px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Department</th>
+                <th style={{ padding: '10px 12px', minWidth: '160px', maxWidth: '200px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Reason</th>
+                <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Date</th>
+                <th style={{ padding: '10px 12px', width: '145px', minWidth: '145px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Time</th>
+                <th style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
+                <th style={{ padding: '10px 12px', width: '125px', minWidth: '125px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Source</th>
+                <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Created</th>
+                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {appointments.map(a => {
+                const badge = getStatusBadge(a.status);
+                return (
+                  <tr
+                    key={a.id || a.booking_id}
+                    style={{ borderBottom: '1px solid #f2f3f4', transition: 'background 0.1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f6f7f8'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: 'oklch(0.4 0.1 200)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      {a.booking_id}
                     </td>
-                    <td>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{a.doctor_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.specialization}</div>
-                    </td>
-                    <td style={{ fontSize: 13 }}>{a.department_name}</td>
-                    <td style={{ fontSize: 12, maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={a.patient_reason || ''}>
-                      {a.patient_reason || '—'}
-                    </td>
-                    <td style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(a.appointment_date)}</td>
-                    <td style={{ fontSize: 13 }}>
-                      <div style={{ fontWeight: 600 }}>{format12HourTime(a.appointment_time)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {a.duration_minutes ? `${a.duration_minutes} mins` : '30 mins'}
-                        {a.appointment_end_time && ` (– ${format12HourTime(a.appointment_end_time)})`}
+                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{a.patient_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                        {a.patient_code} · {a.patient_phone}
                       </div>
                     </td>
-                    <td>
+                    <td style={{ padding: '10px 12px', minWidth: '160px', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap' }}>{a.doctor_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>{a.specialization}</div>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: '130px', color: '#52585e', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{a.department_name}</td>
+                    <td style={{ padding: '10px 12px', minWidth: '160px', maxWidth: '200px', verticalAlign: 'middle', color: '#52585e' }}>
+                      <div style={{ maxWidth: '190px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.patient_reason || ''}>
+                        {a.patient_reason || '—'}
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px 12px', fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{formatDate(a.appointment_date)}</td>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{format12HourTime(a.appointment_time)}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                        {a.duration_minutes ? `${a.duration_minutes}m` : '30m'}
+                        {a.appointment_end_time && ` · until ${format12HourTime(a.appointment_end_time)}`}
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span
-                        className="status-badge"
                         style={{
-                          background: `${STATUS_COLORS[a.status] || '#A0AEC0'}20`,
-                          color: STATUS_COLORS[a.status] || '#4A5568',
+                          background: badge.bg,
+                          color: badge.color,
+                          border: badge.border,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10.5px',
                           fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block'
                         }}
                       >
-                        {a.status}
+                        {badge.label}
                       </span>
                     </td>
-                    <td>
-                      <span className="intent-badge" style={{ fontSize: 11 }}>{a.booking_source}</span>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <span style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '4px', padding: '2px 7px', fontSize: '10.5px', color: '#52585e', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                        {a.booking_source}
+                      </span>
                     </td>
-                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    <td style={{ padding: '10px 12px', fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       {a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         {a.status === 'BOOKED' && (
                           <button
-                            className="btn btn-success btn-sm"
+                            type="button"
                             onClick={() => handleStatusChange(a.booking_id, 'CONFIRMED')}
                             title="Confirm Appointment"
+                            style={{
+                              height: '24px', padding: '0 8px', borderRadius: '4px', border: 0,
+                              background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '11px',
+                              fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3
+                            }}
                           >
-                            <CheckCircle size={13} /> Confirm
+                            <CheckCircle size={12} /> Confirm
                           </button>
                         )}
                         {(a.status === 'CONFIRMED' || a.status === 'BOOKED') && (
                           <>
                             <button
-                              className="btn btn-secondary btn-sm"
+                              type="button"
                               onClick={() => handleStatusChange(a.booking_id, 'COMPLETED')}
                               title="Mark Completed"
-                              style={{ fontSize: 11 }}
+                              style={{
+                                height: '24px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                                background: '#fff', color: '#52585e', fontSize: '11px', fontWeight: 500, cursor: 'pointer'
+                              }}
                             >
                               ✓ Done
                             </button>
                             <button
-                              className="btn btn-danger btn-sm"
+                              type="button"
                               onClick={() => handleStatusChange(a.booking_id, 'CANCELLED', 'Cancelled by admin')}
                               title="Cancel Appointment"
+                              style={{
+                                height: '24px', padding: '0 6px', borderRadius: '4px', border: '1px solid #fecaca',
+                                background: '#fff', color: '#b91c1c', fontSize: '11px', cursor: 'pointer'
+                              }}
                             >
                               <XCircle size={13} />
                             </button>
@@ -420,25 +566,62 @@ const AppointmentManagement: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
 
         {/* Pagination */}
-        <div className="pagination" style={{ padding: '16px 22px' }}>
-          <span className="pagination-info">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', color: '#8a9096', flexWrap: 'wrap', gap: 8 }}>
+          <span>
             {loading ? 'Loading...' : `Showing ${Math.min((page - 1) * perPage + 1, total)}–${Math.min(page * perPage, total)} of ${total} appointments`}
           </span>
-          <div className="pagination-buttons">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft size={14} /></button>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage(p => p - 1)}
+              style={{
+                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                background: '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.4 : 1
+              }}
+            >
+              <ChevronLeft size={13} />
+            </button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const pg = i + Math.max(1, page - 3);
               if (pg > totalPages) return null;
-              return <button key={pg} className={page === pg ? 'active' : ''} onClick={() => setPage(pg)}>{pg}</button>;
+              const isActive = page === pg;
+              return (
+                <button
+                  key={pg}
+                  type="button"
+                  onClick={() => setPage(pg)}
+                  style={{
+                    height: '26px', minWidth: '26px', padding: '0 6px', borderRadius: '4px',
+                    border: '1px solid #e3e6e8',
+                    background: isActive ? 'oklch(0.5 0.1 200)' : '#fff',
+                    color: isActive ? '#fff' : '#15181b',
+                    fontWeight: isActive ? 600 : 400,
+                    fontSize: '11.5px', cursor: 'pointer'
+                  }}
+                >
+                  {pg}
+                </button>
+              );
             })}
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight size={14} /></button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage(p => p + 1)}
+              style={{
+                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                background: '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.4 : 1
+              }}
+            >
+              <ChevronRight size={13} />
+            </button>
           </div>
         </div>
       </div>

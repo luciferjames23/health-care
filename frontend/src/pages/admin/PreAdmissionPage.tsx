@@ -10,8 +10,186 @@ import {
   BedDouble, FileText, Bell, CheckCircle, MessageSquare, RefreshCw,
   Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert
 } from 'lucide-react';
-
 import { useAuth } from '../../context/AuthContext';
+
+const btnBase: React.CSSProperties = {
+  height: '30px',
+  padding: '0 12px',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '6px',
+  outline: 'none',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+};
+
+const btnPrimary: React.CSSProperties = {
+  ...btnBase,
+  border: 0,
+  background: 'oklch(0.5 0.1 200)',
+  color: '#fff',
+  fontWeight: 600,
+};
+
+const btnSecondary: React.CSSProperties = {
+  ...btnBase,
+  border: '1px solid #e3e6e8',
+  background: '#fff',
+  color: '#15181b',
+  fontWeight: 500,
+};
+
+const inputStyle: React.CSSProperties = {
+  height: '30px',
+  padding: '0 10px',
+  borderRadius: '6px',
+  border: '1px solid #e3e6e8',
+  background: '#fff',
+  fontSize: '12px',
+  color: '#15181b',
+  outline: 'none',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+};
+
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  padding: '0 8px',
+  cursor: 'pointer',
+};
+
+const modalBackdropStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(15, 23, 42, 0.45)',
+  backdropFilter: 'blur(2px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: '16px',
+};
+
+const modalBoxStyle: React.CSSProperties = {
+  background: '#fff',
+  borderRadius: '8px',
+  border: '1px solid #e3e6e8',
+  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+  width: '100%',
+  maxHeight: '90vh',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+};
+
+const modalLabelStyle: React.CSSProperties = {
+  fontSize: '11.5px',
+  fontWeight: 600,
+  color: '#52585e',
+  marginBottom: '4px',
+  display: 'block',
+};
+
+const modalInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  width: '100%',
+};
+
+const modalSelectStyle: React.CSSProperties = {
+  ...selectStyle,
+  width: '100%',
+};
+
+const modalTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '6px 10px',
+  borderRadius: '6px',
+  border: '1px solid #e3e6e8',
+  background: '#fff',
+  fontSize: '12px',
+  color: '#15181b',
+  outline: 'none',
+  fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+  resize: 'vertical',
+};
+
+function getStatusBadge(status: string) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'CONFIRMED' || s === 'READY' || s === 'READY_FOR_ADMISSION' || s === 'COMPLETED') {
+    return {
+      bg: '#ecfdf5',
+      color: '#047857',
+      border: '1px solid #a7f3d0',
+      label: s,
+    };
+  }
+  if (s === 'PENDING' || s === 'CONTACTED' || s === 'DOCUMENTS_PENDING') {
+    return {
+      bg: 'oklch(0.96 0.05 80)',
+      color: 'oklch(0.5 0.13 70)',
+      border: '1px solid #fde68a',
+      label: s,
+    };
+  }
+  if (s === 'ESCALATED' || s === 'CANCELLED') {
+    return {
+      bg: '#fef2f2',
+      color: '#b91c1c',
+      border: '1px solid #fecaca',
+      label: s,
+    };
+  }
+  return {
+    bg: '#f6f7f8',
+    color: '#52585e',
+    border: '1px solid #e3e6e8',
+    label: s || 'UNKNOWN',
+  };
+}
+
+function getNotificationBadge(status: string) {
+  const s = String(status || '').toUpperCase();
+  if (s === 'SENT') {
+    return {
+      bg: '#ecfdf5',
+      color: '#047857',
+      border: '1px solid #a7f3d0',
+      label: 'SENT',
+    };
+  }
+  if (s === 'FAILED') {
+    return {
+      bg: '#fef2f2',
+      color: '#b91c1c',
+      border: '1px solid #fecaca',
+      label: 'FAILED',
+    };
+  }
+  return {
+    bg: '#f6f7f8',
+    color: '#52585e',
+    border: '1px solid #e3e6e8',
+    label: s || 'PENDING',
+  };
+}
+
+function getTypeBadge(type: string) {
+  const t = String(type || '').toUpperCase();
+  if (t === 'SURGERY') {
+    return {
+      bg: '#fef2f2',
+      color: '#b91c1c',
+      border: '1px solid #fecaca',
+    };
+  }
+  return {
+    bg: 'oklch(0.96 0.03 200)',
+    color: 'oklch(0.4 0.1 200)',
+    border: '1px solid oklch(0.88 0.04 200)',
+  };
+}
 
 const STATUS_OPTIONS = [
   'PENDING', 'CONTACTED', 'CONFIRMED', 'DOCUMENTS_PENDING',
@@ -219,72 +397,117 @@ const PreAdmissionPage: React.FC = () => {
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Top Header & Breadcrumbs */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>Pre-Admission Follow-up</span>
+          </div>
+          <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>
+            Patient Admission & Pre-Admission Follow-up
+          </div>
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            Register pre-admissions, manage lifecycle, track documents, and view live WhatsApp interactions
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            type="button"
+            style={btnPrimary}
+            onClick={handleOpenAddModal}
+          >
+            <Plus size={14} /> Register Admission
+          </button>
+        </div>
+      </div>
+
       {toast && (
-        <div className={toast.type === 'success' ? 'success-alert' : 'error-alert'} style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            background: toast.type === 'success' ? '#ecfdf5' : '#fef2f2',
+            border: `1px solid ${toast.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+            borderRadius: '6px',
+            padding: '8px 12px',
+            color: toast.type === 'success' ? '#047857' : '#b91c1c',
+            fontSize: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
+          {toast.type === 'success' ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
           {toast.msg}
         </div>
       )}
 
-      <div className="page-header">
-        <div>
-          <h2>Patient Admission & Pre-Admission Follow-up</h2>
-          <p>Register pre-admissions, manage lifecycle, track documents, and view live WhatsApp interactions.</p>
+      {/* KPI Cards Strip */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Pre-Admissions</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
+            {loading ? (
+              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.1 200)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+            ) : totalCount}
+          </div>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleOpenAddModal}
-          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          <Plus size={16} /> Register Admission
-        </button>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-card-header"><div className="kpi-icon blue"><BedDouble size={22} /></div></div>
-          <div className="kpi-value">{loading ? '—' : totalCount}</div>
-          <div className="kpi-label">Total Pre-Admissions</div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending / Contacted</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)', marginTop: '2px' }}>
+            {loading ? (
+              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.13 70)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+            ) : pendingCount}
+          </div>
         </div>
-        <div className="kpi-card">
-          <div className="kpi-card-header"><div className="kpi-icon amber"><Clock size={22} /></div></div>
-          <div className="kpi-value">{loading ? '—' : pendingCount}</div>
-          <div className="kpi-label">Pending / Contacted</div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Confirmed & Ready</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '2px' }}>
+            {loading ? (
+              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.4 0.12 150)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+            ) : confirmedCount}
+          </div>
         </div>
-        <div className="kpi-card">
-          <div className="kpi-card-header"><div className="kpi-icon green"><CheckCircle size={22} /></div></div>
-          <div className="kpi-value">{loading ? '—' : confirmedCount}</div>
-          <div className="kpi-label">Confirmed & Ready</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card-header"><div className="kpi-icon red"><ShieldAlert size={22} /></div></div>
-          <div className="kpi-value">{loading ? '—' : escalatedCount}</div>
-          <div className="kpi-label">Escalated (Needs Staff)</div>
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Escalated (Needs Staff)</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
+            {loading ? (
+              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.18 25)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
+            ) : escalatedCount}
+          </div>
         </div>
       </div>
 
-      {/* Filters Card */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-header" style={{ flexWrap: 'wrap', gap: 12 }}>
-          <div className="search-bar" style={{ maxWidth: 300, flex: 1 }}>
-            <Search size={16} />
+      {/* Filter and Search Bar Card */}
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 14px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Search Box */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e3e6e8', borderRadius: '6px', padding: '0 10px', height: '30px', flex: '1 1 240px', maxWidth: 320 }}>
+            <Search size={14} style={{ color: '#8a9096', flexShrink: 0 }} />
             <input
               placeholder="Search code, patient, phone..."
               value={search}
               onChange={e => setSearch(e.target.value)}
+              style={{ border: 'none', outline: 'none', fontSize: '12px', width: '100%', background: 'transparent', color: '#15181b', fontFamily: "var(--sans, 'Public Sans', sans-serif)" }}
             />
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Filter size={15} style={{ color: 'var(--text-muted)' }} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Filter size={13} style={{ color: '#8a9096' }} />
 
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={selectStyle}
+            >
               <option value="">All Statuses</option>
               {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
 
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              style={selectStyle}
+            >
               <option value="">All Admission Types</option>
               {ADMISSION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
@@ -293,140 +516,218 @@ const PreAdmissionPage: React.FC = () => {
               type="date"
               value={dateFilter}
               onChange={e => setDateFilter(e.target.value)}
-              style={{
-                padding: '6px 10px',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: 13,
-                background: 'var(--bg-primary)'
-              }}
+              style={inputStyle}
             />
 
             {(search || statusFilter || typeFilter || dateFilter) && (
               <button
-                className="btn btn-secondary btn-sm"
+                type="button"
+                style={btnSecondary}
                 onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); setDateFilter(''); }}
               >
                 Clear Filters
               </button>
             )}
 
-            <button className="btn btn-secondary btn-sm" onClick={loadData} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            <button
+              type="button"
+              style={btnSecondary}
+              onClick={loadData}
+              disabled={loading}
+            >
+              <RefreshCw size={13} style={{ animation: loading ? 'kpi-spin 0.7s linear infinite' : 'none' }} />
               Refresh
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Data Table */}
-        <div className="table-container">
-          {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>Loading pre-admissions...</div>
-          ) : preAdmissions.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>No pre-admission records found.</div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Patient Details</th>
-                  <th>Type</th>
-                  <th>Expected Date & Time</th>
-                  <th>Department & Doctor</th>
-                  <th>Status</th>
-                  <th>WhatsApp Notif</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preAdmissions.map(pa => (
-                  <tr key={pa.id}>
-                    <td style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>{pa.pre_admission_code}</td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{pa.patient_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {pa.patient_code} | {pa.patient_phone}</div>
+      {/* Pre-Admission Table */}
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
+        {loading ? (
+          <div style={{ padding: '36px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[80, 60, 70, 55, 65].map((w, i) => (
+              <div key={i} style={{ height: '14px', borderRadius: '4px', background: '#eef0f1', animation: 'mpulse 1s infinite', width: `${w}%` }} />
+            ))}
+          </div>
+        ) : preAdmissions.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
+            <div style={{ fontWeight: 600, color: '#52585e', marginBottom: '4px' }}>No pre-admission records found</div>
+            <div>Try adjusting your search criteria or register a new admission.</div>
+          </div>
+        ) : (
+          <table style={{ width: '100%', minWidth: '1150px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#f6f7f8', borderBottom: '1px solid #e3e6e8' }}>
+                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Code</th>
+                <th style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Patient Details</th>
+                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Type</th>
+                <th style={{ padding: '10px 12px', width: '160px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Expected Date & Time</th>
+                <th style={{ padding: '10px 12px', minWidth: '170px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Department & Doctor</th>
+                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
+                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>WhatsApp Notif</th>
+                <th style={{ padding: '10px 12px', width: '140px', minWidth: '140px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preAdmissions.map(pa => {
+                const sBadge = getStatusBadge(pa.status);
+                const nBadge = getNotificationBadge(pa.notification_status);
+                const tBadge = getTypeBadge(pa.admission_type);
+
+                return (
+                  <tr
+                    key={pa.id}
+                    style={{ borderBottom: '1px solid #f2f3f4', transition: 'background 0.1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f6f7f8'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: 'oklch(0.5 0.1 200)', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      {pa.pre_admission_code}
                     </td>
-                    <td>
-                      <span className="intent-badge" style={{ background: pa.admission_type === 'SURGERY' ? '#FEE2E2' : '#E0F2FE', color: pa.admission_type === 'SURGERY' ? '#991B1B' : '#0369A1' }}>
+                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{pa.patient_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                        ID: {pa.patient_code} · {pa.patient_phone}
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <span
+                        style={{
+                          background: tBadge.bg,
+                          color: tBadge.color,
+                          border: tBadge.border,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10.5px',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block'
+                        }}
+                      >
                         {pa.admission_type}
                       </span>
                     </td>
-                    <td>
-                      <div style={{ fontWeight: 500 }}>{pa.expected_admission_date}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Check-in: {format12HourTime(pa.expected_checkin_time)}</div>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap' }}>{pa.expected_admission_date}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                        Check-in: {format12HourTime(pa.expected_checkin_time)}
+                      </div>
                     </td>
-                    <td>
-                      <div style={{ fontWeight: 500 }}>
+                    <td style={{ padding: '10px 12px', minWidth: '170px', verticalAlign: 'middle' }}>
+                      <div style={{ fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap' }}>
                         {pa.doctor_name ? (pa.doctor_name.startsWith('Dr.') ? pa.doctor_name : `Dr. ${pa.doctor_name}`) : 'Unassigned'}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pa.department_name}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>{pa.department_name}</div>
                     </td>
-                    <td>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span
-                        className={`status-badge ${
-                          pa.status === 'CONFIRMED' || pa.status === 'READY' || pa.status === 'COMPLETED' ? 'active' :
-                          pa.status === 'ESCALATED' ? 'pending' :
-                          pa.status === 'CANCELLED' ? 'inactive' : 'pending'
-                        }`}
-                        style={{ cursor: 'pointer' }}
                         onClick={() => handleOpenStatusModal(pa)}
                         title="Click to update status"
+                        style={{
+                          background: sBadge.bg,
+                          color: sBadge.color,
+                          border: sBadge.border,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block'
+                        }}
                       >
-                        {pa.status}
+                        {sBadge.label}
                       </span>
                     </td>
-                    <td>
-                      <span className={`status-badge ${pa.notification_status === 'SENT' ? 'active' : pa.notification_status === 'FAILED' ? 'inactive' : 'pending'}`}>
-                        {pa.notification_status}
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <span
+                        style={{
+                          background: nBadge.bg,
+                          color: nBadge.color,
+                          border: nBadge.border,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10.5px',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block'
+                        }}
+                      >
+                        {nBadge.label}
                       </span>
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         <button
-                          className="btn btn-secondary btn-sm"
+                          type="button"
                           onClick={() => handleNotify(pa.id)}
                           title="Resend WhatsApp Notification"
+                          style={{
+                            height: '24px', padding: '0 7px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                            background: '#fff', color: '#15181b', fontSize: '11px', cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: 3
+                          }}
                         >
-                          <Send size={13} />
+                          <Send size={11} />
                         </button>
                         <button
-                          className="btn btn-secondary btn-sm"
+                          type="button"
                           onClick={() => handleOpenChat(pa)}
                           title="View Patient WhatsApp Conversation"
+                          style={{
+                            height: '24px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                            background: '#fff', color: '#15181b', fontSize: '11px', fontWeight: 500, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: 4
+                          }}
                         >
-                          <MessageSquare size={13} /> Chat
+                          <MessageSquare size={12} color="#25D366" /> Chat
                         </button>
                         <button
-                          className="btn btn-primary btn-sm"
+                          type="button"
                           onClick={() => handleOpenStatusModal(pa)}
+                          style={{
+                            height: '24px', padding: '0 8px', borderRadius: '4px', border: 0,
+                            background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '11px', fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center'
+                          }}
                         >
                           Update
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* ── Modal: Register New Admission ──────────────────────────────────── */}
       {showAddModal && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 640 }}>
-            <div className="modal-header">
-              <h3><BedDouble size={18} style={{ marginRight: 8 }} />Register New Pre-Admission</h3>
-              <button className="modal-close" onClick={() => setShowAddModal(false)}><X size={18} /></button>
+        <div style={modalBackdropStyle}>
+          <div style={{ ...modalBoxStyle, maxWidth: 620 }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e3e6e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fbfbfc' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BedDouble size={16} color="oklch(0.5 0.1 200)" />
+                <span>Register New Pre-Admission</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#8a9096', display: 'flex', alignItems: 'center', padding: '2px' }}
+              >
+                <X size={16} />
+              </button>
             </div>
-            <form onSubmit={handleCreateAdmission}>
-              <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
+            <form onSubmit={handleCreateAdmission} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ padding: '16px', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Select Patient *</label>
+                  <label style={modalLabelStyle}>Select Patient *</label>
                   <select
-                    className="form-control"
+                    style={modalSelectStyle}
                     value={formPatientId}
                     onChange={e => setFormPatientId(e.target.value)}
                     required
@@ -441,9 +742,9 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Attending Doctor *</label>
+                  <label style={modalLabelStyle}>Attending Doctor *</label>
                   <select
-                    className="form-control"
+                    style={modalSelectStyle}
                     value={formDoctorId}
                     onChange={e => handleDoctorSelect(e.target.value)}
                     required
@@ -458,9 +759,9 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Department *</label>
+                  <label style={modalLabelStyle}>Department *</label>
                   <select
-                    className="form-control"
+                    style={modalSelectStyle}
                     value={formDeptId}
                     onChange={e => setFormDeptId(e.target.value)}
                     required
@@ -475,9 +776,9 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Admission Type *</label>
+                  <label style={modalLabelStyle}>Admission Type *</label>
                   <select
-                    className="form-control"
+                    style={modalSelectStyle}
                     value={formType}
                     onChange={e => setFormType(e.target.value)}
                     required
@@ -487,10 +788,10 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Expected Date *</label>
+                  <label style={modalLabelStyle}>Expected Date *</label>
                   <input
                     type="date"
-                    className="form-control"
+                    style={modalInputStyle}
                     value={formDate}
                     onChange={e => setFormDate(e.target.value)}
                     required
@@ -498,30 +799,30 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Expected Check-in Time</label>
+                  <label style={modalLabelStyle}>Expected Check-in Time</label>
                   <input
                     type="time"
-                    className="form-control"
+                    style={modalInputStyle}
                     value={formTime}
                     onChange={e => setFormTime(e.target.value)}
                   />
                 </div>
 
                 <div style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Required / Pending Documents</label>
+                  <label style={modalLabelStyle}>Required / Pending Documents</label>
                   <input
                     type="text"
-                    className="form-control"
+                    style={modalInputStyle}
                     value={formDocs}
                     onChange={e => setFormDocs(e.target.value)}
-                    placeholder="e.g. Government ID, Health Insurance Card, Doctor Referral Note"
+                    placeholder="e.g. Government ID, Insurance Card, Doctor Referral Note"
                   />
                 </div>
 
                 <div style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Special Instructions for Patient</label>
+                  <label style={modalLabelStyle}>Special Instructions for Patient</label>
                   <textarea
-                    className="form-control"
+                    style={modalTextareaStyle}
                     rows={2}
                     value={formInstructions}
                     onChange={e => setFormInstructions(e.target.value)}
@@ -530,20 +831,20 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Internal Remarks</label>
+                  <label style={modalLabelStyle}>Internal Remarks</label>
                   <textarea
-                    className="form-control"
+                    style={modalTextareaStyle}
                     rows={2}
                     value={formRemarks}
                     onChange={e => setFormRemarks(e.target.value)}
                     placeholder="Physician notes, bed category requests, etc."
                   />
                 </div>
-
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+
+              <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#fbfbfc' }}>
+                <button type="button" style={btnSecondary} onClick={() => setShowAddModal(false)}>Cancel</button>
+                <button type="submit" style={btnPrimary} disabled={submitting}>
                   {submitting ? 'Registering & Sending WhatsApp...' : 'Register Admission'}
                 </button>
               </div>
@@ -554,18 +855,32 @@ const PreAdmissionPage: React.FC = () => {
 
       {/* ── Modal: Update Status & Documents ──────────────────────────────── */}
       {showStatusModal && selectedPa && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 500 }}>
-            <div className="modal-header">
-              <h3>Update Pre-Admission Status ({selectedPa.pre_admission_code})</h3>
-              <button className="modal-close" onClick={() => setShowStatusModal(false)}><X size={18} /></button>
+        <div style={modalBackdropStyle}>
+          <div style={{ ...modalBoxStyle, maxWidth: 480 }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e3e6e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fbfbfc' }}>
+              <div>
+                <div style={{ fontSize: '13.5px', fontWeight: 600, color: '#15181b' }}>
+                  Update Pre-Admission Status
+                </div>
+                <div style={{ fontSize: '11px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', marginTop: '1px' }}>
+                  Code: {selectedPa.pre_admission_code} · {selectedPa.patient_name}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStatusModal(false)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#8a9096', display: 'flex', alignItems: 'center', padding: '2px' }}
+              >
+                <X size={16} />
+              </button>
             </div>
-            <form onSubmit={handleUpdateStatusSubmit}>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            <form onSubmit={handleUpdateStatusSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Admission Status</label>
+                  <label style={modalLabelStyle}>Admission Status</label>
                   <select
-                    className="form-control"
+                    style={modalSelectStyle}
                     value={newStatus}
                     onChange={e => setNewStatus(e.target.value)}
                   >
@@ -574,10 +889,10 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Submitted Documents</label>
+                  <label style={modalLabelStyle}>Submitted Documents</label>
                   <input
                     type="text"
-                    className="form-control"
+                    style={modalInputStyle}
                     value={subDocs}
                     onChange={e => setSubDocs(e.target.value)}
                     placeholder="e.g. Aadhaar Card, Insurance Approval Letter"
@@ -585,9 +900,9 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Remarks / Notes</label>
+                  <label style={modalLabelStyle}>Remarks / Notes</label>
                   <textarea
-                    className="form-control"
+                    style={modalTextareaStyle}
                     rows={3}
                     value={statusRemarks}
                     onChange={e => setStatusRemarks(e.target.value)}
@@ -595,9 +910,10 @@ const PreAdmissionPage: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowStatusModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
+
+              <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#fbfbfc' }}>
+                <button type="button" style={btnSecondary} onClick={() => setShowStatusModal(false)}>Cancel</button>
+                <button type="submit" style={btnPrimary} disabled={submitting}>
                   {submitting ? 'Saving...' : 'Save Updates'}
                 </button>
               </div>
@@ -608,30 +924,36 @@ const PreAdmissionPage: React.FC = () => {
 
       {/* ── Modal: WhatsApp Conversation View ────────────────────────────── */}
       {showChatModal && selectedPa && (
-        <div className="modal-backdrop">
-          <div className="modal-content" style={{ maxWidth: 640, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-            <div className="modal-header">
+        <div style={modalBackdropStyle}>
+          <div style={{ ...modalBoxStyle, maxWidth: 600, height: '80vh' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e3e6e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fbfbfc' }}>
               <div>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MessageSquare size={18} color="#25D366" />
+                <div style={{ fontSize: '13.5px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <MessageSquare size={16} color="#25D366" />
                   WhatsApp Conversation — {selectedPa.patient_name}
-                </h3>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  Code: {selectedPa.pre_admission_code} | Phone: {selectedPa.patient_phone}
-                </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', marginTop: '1px' }}>
+                  Code: {selectedPa.pre_admission_code} · Phone: {selectedPa.patient_phone}
+                </div>
               </div>
-              <button className="modal-close" onClick={() => setShowChatModal(false)}><X size={18} /></button>
+              <button
+                type="button"
+                onClick={() => setShowChatModal(false)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#8a9096', display: 'flex', alignItems: 'center', padding: '2px' }}
+              >
+                <X size={16} />
+              </button>
             </div>
 
-            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', background: '#F0F2F5', padding: 16 }}>
+            <div style={{ flex: 1, overflowY: 'auto', background: '#f9fafa', padding: '16px' }}>
               {chatLoading ? (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading conversation history...</div>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#8a9096' }}>Loading conversation history...</div>
               ) : !chatData || !chatData.messages || chatData.messages.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                <div style={{ textAlign: 'center', padding: '40px', color: '#8a9096' }}>
                   No WhatsApp messages exchanged yet for this pre-admission.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {chatData.messages.map((m: any) => {
                     const isPatient = m.sender_type === 'PATIENT';
                     return (
@@ -640,19 +962,20 @@ const PreAdmissionPage: React.FC = () => {
                         style={{
                           alignSelf: isPatient ? 'flex-start' : 'flex-end',
                           maxWidth: '80%',
-                          background: isPatient ? '#FFFFFF' : '#DCF8C6',
-                          padding: '10px 14px',
-                          borderRadius: 12,
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                          fontSize: 13,
-                          lineHeight: 1.5
+                          background: isPatient ? '#FFFFFF' : '#dcf8c6',
+                          border: `1px solid ${isPatient ? '#e3e6e8' : '#bbf7d0'}`,
+                          padding: '9px 12px',
+                          borderRadius: '8px',
+                          fontSize: '12px',
+                          lineHeight: 1.4,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
                         }}
                       >
-                        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: isPatient ? '#0284C7' : '#15803D' }}>
+                        <div style={{ fontSize: '10.5px', fontWeight: 600, marginBottom: '3px', color: isPatient ? 'oklch(0.4 0.1 200)' : '#15803d' }}>
                           {isPatient ? '👤 Patient' : '🤖 AI Agent'} {m.intent ? `(${m.intent})` : ''}
                         </div>
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{m.message_text}</div>
-                        <div style={{ fontSize: 10, color: '#888', marginTop: 4, textAlign: 'right' }}>
+                        <div style={{ whiteSpace: 'pre-wrap', color: '#15181b' }}>{m.message_text}</div>
+                        <div style={{ fontSize: '10px', color: '#8a9096', marginTop: '4px', textAlign: 'right' }}>
                           {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                         </div>
                       </div>
@@ -662,8 +985,8 @@ const PreAdmissionPage: React.FC = () => {
               )}
             </div>
 
-            <div className="modal-footer" style={{ background: '#FFF' }}>
-              <button className="btn btn-secondary" onClick={() => setShowChatModal(false)}>Close</button>
+            <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', background: '#fbfbfc' }}>
+              <button type="button" style={btnSecondary} onClick={() => setShowChatModal(false)}>Close</button>
             </div>
           </div>
         </div>
@@ -673,4 +996,3 @@ const PreAdmissionPage: React.FC = () => {
 };
 
 export default PreAdmissionPage;
-
