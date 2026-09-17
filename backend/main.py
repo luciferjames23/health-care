@@ -75,6 +75,15 @@ app.include_router(proto_auth_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
 
+@app.on_event("startup")
+def on_startup():
+    try:
+        from routers.radiology import initialize_radiology
+        initialize_radiology()
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
+
 @app.get("/health")
 def health_alias():
     return {"status": "ok", "service": "Healthcare Unified Platform API"}

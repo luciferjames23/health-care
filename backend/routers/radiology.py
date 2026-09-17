@@ -118,6 +118,31 @@ def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> d
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
         "source_filename": f"orthanc:{ref.instance_id}",
     })
+
+    # Persist analysis to PostgreSQL radiology_scan table
+    try:
+        patient_tags = orthanc_study.get("PatientMainDicomTags") or {}
+        orig_id = (
+            result.get("original_patient_id")
+            or result.get("metadata", {}).get("patient_id")
+            or patient_tags.get("PatientID")
+            or study_id
+        )
+        p_id = result.get("patient_id")
+        p_code = result.get("patient_code")
+        report = result.get("interpretation", {}).get("summary") or result.get("interpretation", {}).get("assessment")
+        finding = result.get("interpretation", {}).get("finding")
+        update_study_report_in_db(
+            original_patient_id=orig_id,
+            scan_report=report,
+            patient_id=p_id,
+            patient_code=p_code,
+            review_status="Pending Review",
+            radiologist_finding=finding,
+        )
+    except Exception as e:
+        logger.warning("Could not persist PACS study to PostgreSQL: %s", e)
+
     return result
 
 
@@ -271,7 +296,16 @@ def pacs_health():
 
 @pacs_router.get("/studies", response_model=PacsStudiesResponse)
 def pacs_studies():
+    initialize_radiology()
     try:
+        # Check and process any unanalyzed studies immediately
+        if _state["densenet_model"] is not None and _state["yolo_model"] is not None:
+            try:
+                from radiology_ai.services.pacs_watcher_service import scan_once
+                scan_once(_process_pacs_study_core)
+            except Exception as e:
+                logger.warning("Immediate PACS scan error: %s", e)
+
         studies = orthanc_get_studies()
         enriched = []
         for study in studies:
