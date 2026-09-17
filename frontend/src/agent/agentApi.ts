@@ -4,7 +4,8 @@ import {
   ExtractedClinicalData,
   ValidationGatesResult,
   GeneratedDischargeSummary,
-  SignOffResult
+  SignOffResult,
+  BatchDischargeSummaryResult
 } from './types';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -106,5 +107,36 @@ export const agentApi = {
     }
     const json = await res.json();
     return json.data;
+  },
+
+  /**
+   * Fetch dynamic pre-flight status metrics for 1-Click Batch dashboard
+   */
+  async getBatchStatus(modelName?: string): Promise<BatchDischargeSummaryResult> {
+    const url = modelName
+      ? `${API_BASE_URL}/api/v1/agent/discharge/batch-status?model_name=${encodeURIComponent(modelName)}`
+      : `${API_BASE_URL}/api/v1/agent/discharge/batch-status`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to load batch status (${res.status})`);
+    }
+    return await res.json();
+  },
+
+  /**
+   * Execute 1-Click Fully Automated Autonomous Discharge Batch
+   */
+  async runBatchDischarge(modelName: string = 'Meta-Llama-3.3-70B-Instruct'): Promise<BatchDischargeSummaryResult> {
+    const res = await fetch(`${API_BASE_URL}/api/v1/agent/discharge/batch-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_name: modelName })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Batch generation failed (${res.status})`);
+    }
+    return await res.json();
   }
 };
+

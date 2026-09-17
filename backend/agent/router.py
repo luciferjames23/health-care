@@ -125,3 +125,40 @@ def physician_sign_off(req: SignOffRequest):
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatchGenerateRequest(BaseModel):
+    model_name: Optional[str] = "Meta-Llama-3.3-70B-Instruct"
+
+
+@router.get("/batch-status", summary="Pre-flight Status Metrics for 1-Click Autonomous Batch")
+def get_batch_status(model_name: Optional[str] = "Meta-Llama-3.3-70B-Instruct"):
+    """
+    Dynamically scans all admissions, evaluates the 3 validation pillars using LLM vital evaluation,
+    and returns real-time metrics (total admitted, eligible, skipped, and generated summaries).
+    """
+    try:
+        data = pipeline.get_batch_status_metrics(model_name=model_name or "Meta-Llama-3.3-70B-Instruct")
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/batch-generate", summary="Execute 1-Click Fully Automated Autonomous Discharge Batch")
+def run_batch_generate(req: BatchGenerateRequest = BatchGenerateRequest()):
+    """
+    ONE-CLICK FULLY AUTOMATED WORKFLOW:
+    1. Reads all patients from current admission data (210 active patients).
+    2. Evaluates 4 validation gates for each patient.
+    3. Filters eligible patients automatically.
+    4. Automatically generates discharge summaries using existing LLM pipeline.
+    5. Persists summaries into dim_generated_discharge_summaries in PostgreSQL.
+    6. Returns real-time counts, eligible summaries, and skipped reasons.
+    """
+    try:
+        result = pipeline.run_autonomous_batch(model_name=req.model_name or "Meta-Llama-3.3-70B-Instruct")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

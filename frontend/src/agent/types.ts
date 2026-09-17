@@ -147,3 +147,78 @@ export interface SignOffResult {
   bed_released: boolean;
   message: string;
 }
+
+export interface SkippedPatient {
+  patient_id: number | string;
+  patient_number: string;
+  patient_name: string;
+  admission_id: number | string;
+  admission_number?: string;
+  bed_number?: string;
+  ward_name?: string;
+  room_number?: string;
+  primary_diagnosis?: string;
+  vitals_summary?: string;
+  bill_status?: string;
+  outstanding_balance?: number;
+  admin_cleared?: boolean;
+  clinical_cleared?: boolean;
+  vitals_cleared?: boolean;
+  is_eligible?: boolean;
+  reason: string;
+  failed_gates?: string[];
+}
+
+export interface EvaluatedPatient {
+  admission_id: number | string;
+  patient_id: number | string;
+  patient_number: string;
+  patient_name: string;
+  bed_number?: string;
+  ward_name?: string;
+  primary_diagnosis?: string;
+  vitals_summary?: string;
+  bill_status?: string;
+  outstanding_balance?: number;
+  admin_cleared: boolean;
+  clinical_cleared: boolean;
+  vitals_cleared: boolean;
+  is_eligible: boolean;
+  reason: string;
+}
+
+export interface BatchSummaryItem {
+  summary_id: number;
+  admission_id: number;
+  patient_id: number;
+  patient_name?: string;
+  primary_consultant: string;
+  admission_date: string;
+  discharge_date: string;
+  diagnoses: string;
+  case_history: string;
+  investigations: string;
+  treatment: string;
+  discharge_advice: string;
+  surgery_details: string;
+  patient_condition: string;
+  approval_status: string;
+  model_name: string;
+  generated_at: string;
+}
+
+export interface BatchDischargeSummaryResult {
+  status: string;
+  execution_timestamp?: string;
+  total_checked: number;
+  total_eligible: number;
+  total_generated: number;
+  total_skipped: number;
+  total_failed?: number;
+  eligible_patients: any[];
+  skipped_patients: SkippedPatient[];
+  generated_summaries: BatchSummaryItem[];
+  message?: string;
+}
+
+

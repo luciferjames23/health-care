@@ -413,15 +413,17 @@ import urllib.error
 SUPPORTED_LLM_PROVIDERS = {
     "groq": {
         "provider_name": "Groq",
-        "default_model": "llama-3.3-70b-versatile",
+        "default_model": "openai/gpt-oss-20b",
         "available_models": [
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
             "mixtral-8x7b-32768",
             "gemma2-9b-it"
         ],
         "env_key": "GROQ_API_KEY",
-        "description": "Ultra-fast LPU inference hosting Meta Llama 3.3 70B, Mistral, and Gemma."
+        "description": "Ultra-fast LPU inference hosting openai/gpt-oss-20b, Meta Llama 3.3 70B, Mistral, and Gemma."
     },
     "gemini": {
         "provider_name": "Google Gemini",
@@ -471,9 +473,15 @@ def resolve_llm_provider(model_name: Optional[str] = None, provider: Optional[st
     p = (provider or "").strip().lower()
 
     if not m and not p:
-        m = "llama-3.3-70b-versatile"
+        m = "openai/gpt-oss-20b"
 
     m_lower = m.lower()
+
+    # Special handling for open-source models hosted on Groq LPU
+    if "gpt-oss" in m_lower or "openai/gpt-oss" in m_lower:
+        p = "groq"
+        clean_model = "openai/gpt-oss-20b" if "120b" not in m_lower else "openai/gpt-oss-120b"
+        return p, clean_model, m or clean_model
 
     if not p or p == "auto":
         if any(k in m_lower for k in ["groq", "llama", "mixtral", "gemma"]):
@@ -491,11 +499,11 @@ def resolve_llm_provider(model_name: Optional[str] = None, provider: Optional[st
 
     clean_model = m
     for prefix in ["groq/", "gemini/", "google/", "openai/", "databricks/"]:
-        if clean_model.lower().startswith(prefix):
+        if clean_model.lower().startswith(prefix) and not clean_model.lower().startswith("openai/gpt-oss"):
             clean_model = clean_model[len(prefix):]
 
     if not clean_model:
-        clean_model = SUPPORTED_LLM_PROVIDERS.get(p, {}).get("default_model", "llama-3.3-70b-versatile")
+        clean_model = SUPPORTED_LLM_PROVIDERS.get(p, {}).get("default_model", "openai/gpt-oss-20b")
 
     return p, clean_model, m or clean_model
 
