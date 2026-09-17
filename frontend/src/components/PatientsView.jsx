@@ -45,17 +45,33 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
         ]);
         if (!alive) return;
 
-        // Discharge API is the source of truth:
-        // Any patient in both APIs is DISCHARGED and removed from Current Admissions.
-        const dischargedTracker = extractDischargedPatientIds(dr?.data || []);
+        // Only patients whose discharge has been approved or completed are discharged.
+        // If a discharge summary is only "Pending Approval" or a draft, the patient is still admitted!
+        const rawDischarges = dr?.data || [];
+        const actuallyDischargedRecords = rawDischarges.filter(r => {
+          if (!r) return false;
+          const approval = String(r.approval_status || '').trim().toLowerCase();
+          const status = String(r.status || '').trim().toLowerCase();
+          return approval === 'approved' || status === 'discharged' || r.is_discharged === true;
+        });
+
+        const dischargedTracker = extractDischargedPatientIds(actuallyDischargedRecords);
         const rawAdmissions = ar?.data || [];
         const actualAdmitted = rawAdmissions
           .filter(r => !dischargedTracker.has(r))
           .map(r => ({ ...parseAdmissionLlmRecord(r), _type: "IP", _status: parseAdmissionLlmRecord(r).status || "Admitted" }));
 
-        const parsedDischarged = (dr?.data || []).map(r => {
+        const parsedDischarged = actuallyDischargedRecords.map(r => {
           const d = parseDischargeSummaryRecord(r);
-          return { ...d, name: d.patient || d.name, _type: "Discharged", _status: d.discharge_time ? "Discharged " + d.discharge_time : "Discharged" };
+          return {
+            ...d,
+            name: d.patient || d.name,
+            age: d.age || r.age,
+            sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
+            gender: d.gender || r.gender || 'Unknown',
+            _type: "Discharged",
+            _status: "Discharged"
+          };
         });
 
         setAdmitted(actualAdmitted);
@@ -86,10 +102,47 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
       : filter === "Discharged" ? discharged
       : admitted.filter(p => p._type === filter);
     if (!search.trim()) return list;
-    const s = search.toLowerCase();
-    return list.filter(p =>
-      [p.name, p.mrn, p.doctor, p.diagnosis, p.diagnoses].some(v => v && v.toLowerCase().includes(s))
-    );
+    const s = search.toLowerCase().trim();
+    const isDigits = /^\d+$/.test(s);
+
+    return list.filter(p => {
+      const pidStr = p.patient_id !== undefined && p.patient_id !== null ? String(p.patient_id).trim() : "";
+      const codeStr = p.patient_code ? String(p.patient_code).toLowerCase() : "";
+      const mrnStr = p.mrn ? String(p.mrn).toLowerCase() : "";
+      const uhidStr = p.uhid ? String(p.uhid).toLowerCase() : "";
+      const computedUhid = pidStr ? `mer-2026-${pidStr.padStart(6, "0")}` : "";
+
+      // When user searches a numeric ID (e.g. 87226), match exact patient_id or patient UHID/code!
+      // Do NOT match admission_id or discharge summary id.
+      if (isDigits) {
+        return (
+          pidStr === s ||
+          computedUhid.endsWith(s) ||
+          mrnStr.endsWith(s) ||
+          uhidStr.endsWith(s) ||
+          codeStr.endsWith(s)
+        );
+      }
+
+      const name = p.name ? p.name.toLowerCase() : "";
+      const doctor = p.doctor ? p.doctor.toLowerCase() : "";
+      const diagnosis = p.diagnosis ? p.diagnosis.toLowerCase() : "";
+      const diagnoses = p.diagnoses ? String(p.diagnoses).toLowerCase() : "";
+      const phone = p.phone ? String(p.phone).toLowerCase() : "";
+
+      return (
+        pidStr.includes(s) ||
+        codeStr.includes(s) ||
+        mrnStr.includes(s) ||
+        uhidStr.includes(s) ||
+        computedUhid.includes(s) ||
+        name.includes(s) ||
+        doctor.includes(s) ||
+        diagnosis.includes(s) ||
+        diagnoses.includes(s) ||
+        phone.includes(s)
+      );
+    });
   }, [admitted, discharged, filter, search]);
 
   const total = admitted.length + discharged.length;
@@ -119,8 +172,8 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search\u2026"
-            style={{ height: "30px", width: "200px", border: "1px solid #e3e6e8", borderRadius: "6px", padding: "0 10px", fontSize: "12px", outline: "none" }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by Name, Patient ID, UHID..."
+            style={{ height: "30px", width: "240px", border: "1px solid #e3e6e8", borderRadius: "6px", padding: "0 10px", fontSize: "12px", outline: "none" }} />
           <button type="button" onClick={exportCsv}
             style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
@@ -178,7 +231,7 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
                     fontSize: "12px", minWidth: "940px", transition: "background 0.1s" }}>
                   <span style={{ fontFamily: "ui-monospace,Menlo,monospace", fontSize: "11px", color: "#8a9096" }}>{uhid}</span>
                   <span style={{ fontWeight: 600, color: "#15181b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "\u2014"}</span>
-                  <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : "\u2014"}</span>
+                  <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : (p.sex ? `\u2014 \u00b7 ${p.sex}` : "\u2014")}</span>
                   <span style={{ color: "#52585e" }}>{lang(p)}</span>
                   <span style={{ color: "#52585e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dept(p)}</span>
                   <span style={{ color: "oklch(0.45 0.1 200)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.doctor || "\u2014"}</span>

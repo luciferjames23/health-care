@@ -367,6 +367,7 @@ def get_dashboard_summary(
 @router.get("/patients")
 def get_patients(
     search: Optional[str] = Query(None),
+    patient_id: Optional[int] = Query(None, description="Filter directly by patient ID"),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -374,7 +375,7 @@ def get_patients(
 ):
     """
     Returns a paginated list of patients.
-    Supports search by name, phone, or patient_code, and filter by status.
+    Supports search by patient_id, name, phone, or patient_code, and filter by status.
     """
     conn = None
     try:
@@ -399,12 +400,16 @@ def get_patients(
             """)
             params.extend([doctor_id, doctor_id])
 
+        if patient_id is not None:
+            conditions.append("patients.id = %s")
+            params.append(patient_id)
+
         if search:
             conditions.append(
-                "(LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
+                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
             )
             like = f"%{search.lower()}%"
-            params += [like, like, like, like]
+            params += [like, like, like, like, like]
 
         if status:
             conditions.append("status = %s")

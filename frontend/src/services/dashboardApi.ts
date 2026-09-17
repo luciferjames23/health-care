@@ -383,12 +383,14 @@ export async function fetchDashboardSummary(params?: {
 
 export async function fetchPatients(params?: {
   search?: string;
+  patient_id?: number;
   status?: string;
   page?: number;
   per_page?: number;
 }): Promise<PatientListResponse> {
   const qs = new URLSearchParams();
   if (params?.search) qs.set('search', params.search);
+  if (params?.patient_id !== undefined && params?.patient_id !== null) qs.set('patient_id', String(params.patient_id));
   if (params?.status) qs.set('status', params.status);
   if (params?.page) qs.set('page', String(params.page));
   if (params?.per_page) qs.set('per_page', String(params.per_page));
