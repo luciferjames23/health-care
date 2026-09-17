@@ -39,6 +39,15 @@ import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 import { DischargeAgentPipeline } from './agent';
 
+// Integrated Prototype Views (AI Patient Desk, Appointments, Pre-Admission, Doctor Desk, Patient Chat)
+import AIPatientDesk from './pages/admin/AIPatientDesk';
+import AppointmentManagement from './pages/admin/AppointmentManagement';
+import PreAdmissionPage from './pages/admin/PreAdmissionPage';
+import DoctorManagement from './pages/admin/DoctorManagement';
+import EscalationPage from './pages/admin/EscalationPage';
+import DoctorDashboard from './pages/doctor/DoctorDashboard';
+import PatientChat from './pages/PatientChat';
+
 import {
   AppointmentsView,
   EmergencyView,
@@ -269,7 +278,13 @@ export default function App() {
           )}
 
           {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
-          {activePage === 'appointments' && <AppointmentsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'appointments' && <AppointmentManagement />}
+          {activePage === 'ai-desk' && <AIPatientDesk />}
+          {activePage === 'pre-admission' && <PreAdmissionPage />}
+          {activePage === 'doctor-management' && <DoctorManagement />}
+          {activePage === 'escalations' && <EscalationPage />}
+          {activePage === 'doctor-portal' && <DoctorDashboard />}
+          {activePage === 'patient-chat' && <PatientChat />}
           {activePage === 'emergency' && <EmergencyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'schedules' && <SchedulesView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
@@ -326,6 +341,7 @@ export default function App() {
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
             'criticalvalues', 'diagnostics', 'radiology',
+            'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
             'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
             'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
             'exceptions', 'audit',

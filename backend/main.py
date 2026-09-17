@@ -44,6 +44,41 @@ app.include_router(radiology_router)
 app.include_router(pacs_router)
 app.include_router(agent_router)
 
+# --- Prototype AI Patient Desk, Appointments & Operational Routers ---
+import api.agent_routes as proto_agent_routes
+import api.whatsapp_routes as proto_whatsapp_routes
+import api.dashboard_routes as proto_dashboard_routes
+import api.auth_routes as proto_auth_routes
+from routers.appointments_proto import router as proto_appointments_router
+from routers.rcm_beds import router as rcm_beds_router
+from appointment_service import AppointmentError, EntityNotFoundError
+
+@app.exception_handler(EntityNotFoundError)
+def entity_not_found_handler(request, exc: EntityNotFoundError):
+    return JSONResponse(
+        status_code=404,
+        content={"success": False, "error_code": exc.error_code, "message": exc.message}
+    )
+
+@app.exception_handler(AppointmentError)
+def appointment_error_handler(request, exc: AppointmentError):
+    return JSONResponse(
+        status_code=400,
+        content={"success": False, "error_code": exc.error_code, "message": exc.message}
+    )
+
+app.include_router(proto_agent_routes.router)
+app.include_router(proto_agent_routes.knowledge_router)
+app.include_router(proto_whatsapp_routes.router)
+app.include_router(proto_dashboard_routes.router)
+app.include_router(proto_auth_routes.router)
+app.include_router(proto_appointments_router)
+app.include_router(rcm_beds_router)
+
+@app.get("/health")
+def health_alias():
+    return {"status": "ok", "service": "Healthcare Unified Platform API"}
+
 db_connector = DatabricksConnector()
 
 @app.get("/")
