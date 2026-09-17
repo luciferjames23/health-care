@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { DEMO_ROLES, DEMO_PASSWORD } from '../services/meridianData';
+import { setAuthToken } from '../services/api';
+
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export default function AuthScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState('arjun.menon');
@@ -7,6 +10,7 @@ export default function AuthScreen({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSelectRole = (r) => {
     setUsername(r.username);
@@ -15,30 +19,84 @@ export default function AuthScreen({ onLoginSuccess }) {
     setInfo(`Selected ${r.role} (${r.name}). Click Sign In to continue.`);
   };
 
-  const handleSubmit = (e) => {
+  // Map backend role names to frontend role names
+  const mapRole = (backendRole, username) => {
+    const roleUpper = (backendRole || '').toUpperCase();
+    if (roleUpper === 'ADMIN') return 'Hospital Management';
+    if (roleUpper === 'DOCTOR') return 'Doctor';
+    // Fallback: try to match from demo roles
+    const matched = DEMO_ROLES.find(r => r.username === username);
+    return matched ? matched.role : 'Hospital Management';
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    const u = username.trim().toLowerCase();
+    const u = (username || '').trim();
     if (!u) {
-      setError('Please enter Employee ID or username.');
-      return;
-    }
-    if (password !== DEMO_PASSWORD) {
-      setError('Invalid credentials. Synthetic password is ' + DEMO_PASSWORD);
+      setError('Please enter your username.');
       return;
     }
 
-    const matched = DEMO_ROLES.find(r => r.username === u || r.username.includes(u));
-    const roleName = matched ? matched.role : 'Doctor';
-    const fullName = matched ? matched.name : 'Dr. Arjun Menon';
+    setError('');
+    setInfo('');
+    setLoading(true);
 
-    // Successful login
-    onLoginSuccess({
-      username: u,
-      role: roleName,
-      name: fullName,
-      dept: matched ? matched.role : 'General Medicine',
-    });
+    try {
+      // Determine role hint for the backend
+      const matched = DEMO_ROLES.find(r => r.username === u.toLowerCase() || r.username.includes(u.toLowerCase()));
+      const roleHint = matched
+        ? (matched.role === 'Doctor' ? 'doctor' : 'admin')
+        : (u.toLowerCase().includes('doc') ? 'doctor' : 'admin');
+
+      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: password, role: roleHint }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data.detail || data.message || 'Login failed. Please check your credentials.');
+        setLoading(false);
+        return;
+      }
+
+      // Store JWT token for authenticated API calls
+      if (data.token) {
+        setAuthToken(data.token);
+      }
+
+      // Build the auth object from backend response
+      const user = data.user || {};
+      const roleName = mapRole(user.role, u.toLowerCase());
+      const fullName = user.name || (matched ? matched.name : u);
+
+      onLoginSuccess({
+        username: user.username || u,
+        role: roleName,
+        name: fullName,
+        dept: user.department || (matched ? matched.dept : 'General'),
+        doctorId: user.doctorId,
+        loginId: user.loginId || u,
+      });
+    } catch (fetchErr) {
+      console.warn('[AUTH] Backend login failed, falling back to demo auth:', fetchErr.message);
+      // Fallback to local demo auth if backend is unreachable
+      const matched = DEMO_ROLES.find(r => r.username === u.toLowerCase() || r.username.includes(u.toLowerCase()));
+      const roleName = matched ? matched.role : (u.toLowerCase().includes('admin') ? 'Hospital Management' : (u.toLowerCase().includes('doc') ? 'Doctor' : 'Hospital Management'));
+      const fullName = matched ? matched.name : (u.toLowerCase().includes('admin') ? 'System Administrator' : u);
+
+      setInfo('Backend unavailable — signed in with demo credentials.');
+      onLoginSuccess({
+        username: u.toLowerCase(),
+        role: roleName,
+        name: fullName,
+        dept: matched ? matched.dept : 'General',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -126,6 +184,7 @@ export default function AuthScreen({ onLoginSuccess }) {
                   value={username}
                   onChange={e => setUsername(e.target.value)}
                   placeholder="e.g. arjun.menon or EMP-D014"
+                  disabled={loading}
                   style={{
                     height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
                     padding: '0 10px', fontSize: '13px', outline: 'none', background: '#fff'
@@ -140,6 +199,7 @@ export default function AuthScreen({ onLoginSuccess }) {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
+                    disabled={loading}
                     style={{
                       flex: 1, height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
                       padding: '0 10px', fontSize: '13px', outline: 'none', minWidth: 0, background: '#fff'
@@ -171,14 +231,15 @@ export default function AuthScreen({ onLoginSuccess }) {
 
               <button
                 type="submit"
+                disabled={loading}
                 style={{
                   height: '38px', borderRadius: '6px', border: 0,
-                  background: 'oklch(0.5 0.1 200)', color: '#fff',
-                  fontWeight: 600, cursor: 'pointer', fontSize: '13px',
-                  marginTop: '4px'
+                  background: loading ? '#b0b6bc' : 'oklch(0.5 0.1 200)', color: '#fff',
+                  fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontSize: '13px',
+                  marginTop: '4px', transition: 'background 0.15s'
                 }}
               >
-                Sign in
+                {loading ? 'Signing in…' : 'Sign in'}
               </button>
             </form>
           </div>

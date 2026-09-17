@@ -4,12 +4,21 @@ import { ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
   {
+    title: 'DOCTOR PORTAL',
+    items: [
+      { id: 'doctor-dashboard', label: 'Doctor Dashboard', badge: 'Doctor', badgeColor: 'oklch(0.5 0.1 200)' },
+      { id: 'doctor-profile', label: 'My Doctor Profile' },
+    ]
+  },
+  {
     title: 'FRONT OFFICE & PATIENTS',
     items: [
       { id: 'command', label: 'Command Centre' },
       { id: 'patients', label: 'Patients' },
+      { id: 'doctors', label: 'Doctors & Consultants' },
       { id: 'appointments', label: 'Appointments' },
       { id: 'admissions', label: 'Admissions' },
+      { id: 'preadmissions', label: 'Pre-Admissions', badge: 'New', badgeColor: 'oklch(0.5 0.1 200)' },
       { id: 'bedboard', label: 'Bed Board' },
       { id: 'emergency', label: 'Emergency' },
       { id: 'schedules', label: 'Consultant Schedules' },
@@ -19,6 +28,7 @@ export const NAV_GROUPS = [
     title: 'CLINICAL',
     items: [
       { id: 'clinical', label: 'Clinical Workspace' },
+      { id: 'doctor-escalations', label: 'AI Escalations', badge: '2', badgeColor: 'oklch(0.45 0.17 25)' },
       { id: 'nursing', label: 'Nursing Workspace' },
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },
@@ -51,6 +61,7 @@ export const NAV_GROUPS = [
   {
     title: 'AI PLATFORM',
     items: [
+      { id: 'ai-patient-desk', label: 'AI Patient Desk', badge: 'Live', badgeColor: 'oklch(0.45 0.17 25)' },
       { id: 'assistant', label: 'Hospital Assistant' },
       { id: 'ai-command', label: 'AI Command Centre' },
       { id: 'agents', label: 'Agents' },
@@ -71,6 +82,7 @@ export const NAV_GROUPS = [
       { id: 'trainer', label: 'AI Trainer' },
     ]
   },
+
   {
     title: 'DATA',
     items: [

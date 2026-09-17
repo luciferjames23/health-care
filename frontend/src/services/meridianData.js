@@ -27,7 +27,9 @@ export const ALL_ROLES = [
 ];
 
 export const DEMO_ROLES = [
+  { role: 'Hospital Management', name: 'System Administrator', username: 'admin', title: 'Administrator', dept: 'Administration', bg: '#f6f7f8', bd: '#e3e6e8' },
   { role: 'Patient', name: 'Kavitha Raman', username: 'kavitha.raman', title: 'Patient', dept: 'Patient Portal', bg: '#f6f7f8', bd: '#e3e6e8' },
+
   { role: 'Doctor', name: 'Dr. Arjun Menon', username: 'arjun.menon', title: 'Consultant Cardiologist', dept: 'Cardiology', bg: '#f6f7f8', bd: '#e3e6e8' },
   { role: 'Doctor', name: 'Dr. Priya Narayanan', username: 'priya.narayanan', title: 'Attending Physician', dept: 'Internal Medicine', bg: '#f6f7f8', bd: '#e3e6e8' },
   { role: 'Nurse', name: 'Anitha Kumar', username: 'anitha.kumar', title: 'Staff Nurse', dept: 'Nursing', bg: '#f6f7f8', bd: '#e3e6e8' },
@@ -55,12 +57,12 @@ export const ROLE_PAGE_ACCESS = {
   'Hospital Management': null, // Full platform access
   'AI Administrator': null, // Full platform access
   'Doctor': [
-    // 10 Live Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
+    // Doctor Portal Pages
+    'doctor-dashboard', 'doctor-profile', 'command', 'patients', 'doctors', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
     'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
     // Platform & Governance (no financial, no data)
-    'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions'
+    'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions', 'doctor-escalations'
   ],
   'Nurse': [
     // Live Data Pages (preserved)

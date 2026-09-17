@@ -1,0 +1,981 @@
+import re
+
+# Complete Translation Bundles for 7 languages: 
+# English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu
+
+TRANSLATIONS = {
+    "ENGLISH": {
+        "GREETING": "Hello! Welcome to Meridian Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. How can I help you today?",
+        "ASK_PATIENT_CODE": "Please provide your registered patient code (e.g. P001).",
+        "ASK_DEPT_OR_DOCTOR": "Which department or doctor would you like to consult?",
+        "ASK_DATE": "What date would you prefer for the appointment? (e.g., today, tomorrow, next Monday)",
+        "ASK_TIME": "What time would you prefer? (e.g., 10:00 AM, 11:30 AM)",
+        "SLOTS_AVAILABLE": "We have these available slots on {date} for {doctor}: {slots}. Which one would you prefer?",
+        "NO_SLOTS": "Sorry, there are no available slots for {doctor} on {date}. Would you like to select another date?",
+        "BOOKING_SUCCESS": "Your appointment has been successfully booked! Booking ID: {booking_id} for {date} at {time} with {doctor}.",
+        "SLOT_UNAVAILABLE": "Sorry, that slot is no longer available. Would you like to check other times?",
+        "ASK_BOOKING_ID": "Please provide your booking ID (e.g. APT10001) so I can retrieve your appointment details.",
+        "ASK_CANCEL_REASON": "Sure. May I know the reason for cancelling the appointment?",
+        "CANCEL_SUCCESS": "Your appointment {booking_id} has been cancelled successfully.",
+        "ASK_RESCHEDULE_DATE_TIME": "Please provide the new date and time you would prefer (e.g. tomorrow at 11:00 AM).",
+        "ASK_RESCHEDULE_REASON": "Sure. May I know the reason for rescheduling?",
+        "RESCHEDULE_SUCCESS": "Your appointment {booking_id} has been rescheduled to {date} at {time} successfully.",
+        "STATUS_RESPONSE": "Your appointment {booking_id} with {doctor} is currently {status} for {date} at {time}.",
+        "SYMPTOM_GUIDANCE": "Sorry you're feeling unwell. {dept} may be appropriate for these symptoms. Would you like me to check available doctors?",
+        "EMERGENCY_GUIDANCE": "This may require urgent medical attention. Please seek emergency medical care immediately or contact emergency services. I can help with hospital information, but I should not delay emergency treatment.",
+        "HUMAN_ESCALATION": "I can help connect you with the hospital support team.",
+        "UNKNOWN": "I'm sorry, I didn't quite catch that. How can I help you with appointments, availability, or hospital info today?",
+        "LANGUAGE_CHANGED": "Language has been changed to English.",
+        "DOCTOR_NOT_FOUND": "I couldn't find a doctor with that name. Please check and try again.",
+        "DOCTOR_NOT_AVAILABLE": "The doctor is not scheduled to work on {date}.",
+        "INVALID_APPOINTMENT_SLOT": "The requested time is outside the doctor's schedule or doesn't match the slot duration.",
+        "PATIENT_NOT_FOUND": "I couldn't find a matching patient record. Please provide your registered patient code.",
+        "ACCESS_DENIED": "Access denied. You cannot access another patient's appointment details."
+    },
+    "TAMIL": {
+        "GREETING": "வணக்கம்! மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம். நான் உங்கள் AI நோயாளி உதவி முகவர். அப்பாயிண்ட்மெண்ட், மருத்துவர் இருப்பு, ரத்து செய்தல் அல்லது மாற்றுதல் மற்றும் மருத்துவமனை தகவல்களுக்கு நான் உதவ முடியும். இன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
+        "ASK_PATIENT_CODE": "உங்கள் பதிவு செய்யப்பட்ட நோயாளி குறியீட்டை (எ.கா. P001) வழங்கவும்.",
+        "ASK_DEPT_OR_DOCTOR": "நீங்கள் எந்த துறை அல்லது மருத்துவரை அணுக விரும்புகிறீர்கள்?",
+        "ASK_DATE": "அப்பாயிண்ட்மெண்டிற்கு எந்த தேதியை விரும்புகிறீர்கள்? (எ.கா. இன்று, நாளை, அடுத்த திங்கள்)",
+        "ASK_TIME": "எந்த நேரத்தை விரும்புகிறீர்கள்? (எ.கா. காலை 10:00, முற்பகல் 11:30)",
+        "SLOTS_AVAILABLE": "{doctor}-க்கு {date}-ல் இந்த நேரங்கள் காலியாக உள்ளன: {slots}. உங்களுக்கு எது வேண்டும்?",
+        "NO_SLOTS": "வருந்துகிறோம், {date}-ல் {doctor}-க்கு எந்த நேரமும் காலியாக இல்லை. வேறு தேதியைத் தேர்ந்தெடுக்கிறீர்களா?",
+        "BOOKING_SUCCESS": "உங்கள் அப்பாயிண்ட்மெண்ட் வெற்றிகரமாக பதிவு செய்யப்பட்டுள்ளது! முன்பதிவு எண்: {booking_id}, தேதி: {date}, நேரம்: {time}, மருத்துவர்: {doctor}.",
+        "SLOT_UNAVAILABLE": "வருந்துகிறோம், அந்த நேரம் இப்போது கிடைக்கவில்லை. வேறு நேரத்தை சரிபார்க்கலாமா?",
+        "ASK_BOOKING_ID": "உங்கள் முன்பதிவு எண்ணை (எ.கா. APT10001) வழங்கவும்.",
+        "ASK_CANCEL_REASON": "நிச்சயமாக. அப்பாயிண்ட்மெண்ட்டை ரத்து செய்வதற்கான காரணத்தை அறியலாமா?",
+        "CANCEL_SUCCESS": "உங்கள் அப்பாயிண்ட்மெண்ட் {booking_id} வெற்றிகரமாக ரத்து செய்யப்பட்டது.",
+        "ASK_RESCHEDULE_DATE_TIME": "புதிய தேதி மற்றும் நேரத்தை வழங்கவும் (எ.கா. நாளை காலை 11:00 மணி).",
+        "ASK_RESCHEDULE_REASON": "நிச்சயமாக. அப்பாயிண்ட்மெண்ட்டை மாற்றுவதற்கான காரணத்தை அறியலாமா?",
+        "RESCHEDULE_SUCCESS": "உங்கள் அப்பாயிண்ட்மெண்ட் {booking_id} வெற்றிகரமாக {date} அன்று {time} மணிக்கு மாற்றப்பட்டது.",
+        "STATUS_RESPONSE": "உங்கள் அப்பாயிண்ட்மெண்ட் {booking_id} ({doctor}), {date} அன்று {time} மணிக்கு {status} நிலையில் உள்ளது.",
+        "SYMPTOM_GUIDANCE": "உடல்நலம் சரியில்லாததற்கு வருந்துகிறோம். இந்த அறிகுறிகளுக்கு {dept} பொருத்தமானதாக இருக்கலாம். அங்குள்ள மருத்துவர்களை சரிபார்க்கவா?",
+        "EMERGENCY_GUIDANCE": "இதற்கு அவசர மருத்துவ சிகிச்சை தேவைப்படலாம். தயவுசெய்து உடனடியாக அவசர சிகிச்சையை நாடவும். நான் மருத்துவமனை தகவல்களுக்கு உதவ முடியும், ஆனால் அவசர சிகிச்சையைத் தாமதப்படுத்தக் கூடாது.",
+        "HUMAN_ESCALATION": "மருத்துவமனை உதவி குழுவுடன் உங்களை இணைக்க நான் உதவ முடியும்.",
+        "UNKNOWN": "மன்னிக்கவும், எனக்கு புரியவில்லை. அப்பாயிண்ட்மெண்ட்கள் அல்லது மருத்துவமனை தகவல்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
+        "LANGUAGE_CHANGED": "மொழி தமிழுக்கு மாற்றப்பட்டது."
+    },
+    "HINDI": {
+        "GREETING": "नमस्ते! मेरिडियन अस्पताल में आपका स्वागत है। मैं आपका एआई पेशेंट डेस्क असिस्टेंट हूं। मैं अपॉइंटमेंट, डॉक्टर की उपलब्धता, अपॉइंटमेंट रद्द या पुनर्निर्धारित करने और अस्पताल की जानकारी में आपकी मदद कर सकता हूं। आज मैं आपकी क्या मदद कर सकता हूं?",
+        "ASK_PATIENT_CODE": "कृपया अपना पंजीकृत रोगी कोड (जैसे P001) प्रदान करें।",
+        "ASK_DEPT_OR_DOCTOR": "आप किस विभाग या डॉक्टर से परामर्श करना चाहते हैं?",
+        "ASK_DATE": "आप अपॉइंटमेंट के लिए कौन सी तारीख पसंद करेंगे? (जैसे आज, कल, अगले सोमवार)",
+        "ASK_TIME": "आप कौन सा समय पसंद करेंगे? (जैसे सुबह 10:00 बजे, 11:30 बजे)",
+        "SLOTS_AVAILABLE": "{doctor} के लिए {date} को ये स्लॉट उपलब्ध हैं: {slots}। आप कौन सा पसंद करेंगे?",
+        "NO_SLOTS": "क्षमा करें, {date} को {doctor} के लिए कोई स्लॉट उपलब्ध नहीं है। क्या आप कोई अन्य तारीख चुनना चाहेंगे?",
+        "BOOKING_SUCCESS": "आपका अपॉइंटमेंट सफलतापूर्वक बुक हो गया है! बुकिंग आईडी: {booking_id}, तारीख: {date}, समय: {time}, डॉक्टर: {doctor}।",
+        "SLOT_UNAVAILABLE": "क्षमा करें, वह स्लॉट अब उपलब्ध नहीं है। क्या आप अन्य समय की जांच करना चाहेंगे?",
+        "ASK_BOOKING_ID": "कृपया अपनी बुकिंग आईडी (जैसे APT10001) प्रदान करें ताकि मैं आपकी अपॉइंटमेंट ढूंढ सकूं।",
+        "ASK_CANCEL_REASON": "ज़रूर। क्या मैं अपॉइंटमेंट रद्द करने का कारण जान सकता हूँ?",
+        "CANCEL_SUCCESS": "आपका अपॉइंटमेंट {booking_id} सफलतापूर्वक रद्द कर दिया गया है।",
+        "ASK_RESCHEDULE_DATE_TIME": "कृपया नया दिन और समय बताएं (जैसे कल सुबह 11:00 बजे)।",
+        "ASK_RESCHEDULE_REASON": "ज़रूर। क्या मैं अपॉइंटमेंट बदलने का कारण जान सकता हूँ?",
+        "RESCHEDULE_SUCCESS": "आपका अपॉइंटमेंट {booking_id} सफलतापूर्वक {date} को {time} बजे के लिए पुनर्निर्धारित कर दिया गया है।",
+        "STATUS_RESPONSE": "आपका अपॉइंटमेंट {booking_id} ({doctor}) के साथ {date} को {time} बजे वर्तमान में {status} है।",
+        "SYMPTOM_GUIDANCE": "आपकी अस्वस्थता के लिए खेद है। इन लक्षणों के लिए {dept} उचित हो सकता है। क्या आप चाहते हैं कि मैं उपलब्ध डॉक्टरों की जांच करूं?",
+        "EMERGENCY_GUIDANCE": "इसके लिए तत्काल चिकित्सा ध्यान देने की आवश्यकता हो सकती है। कृपया तुरंत आपातकालीन चिकित्सा सहायता लें। मैं अस्पताल की जानकारी में मदद कर सकता हूं, लेकिन आपातकालीन उपचार में देरी नहीं होनी चाहिए।",
+        "HUMAN_ESCALATION": "मैं अस्पताल की सहायता टीम से जुड़ने में आपकी मदद कर सकता हूं।",
+        "UNKNOWN": "क्षमा करें, मुझे समझ नहीं आया। मैं अपॉइंटमेंट या अस्पताल की जानकारी में आपकी क्या मदद कर सकता हूँ?",
+        "LANGUAGE_CHANGED": "भाषा बदलकर हिंदी कर दी गई है।"
+    },
+    "TELUGU": {
+        "GREETING": "నమస్తే! మెరిడియన్ హాస్పిటల్‌కు స్వాగతం. నేను మీ AI పేషెంట్ డెస్క్ అసిస్టెంట్‌ని. అపాయింట్‌మెంట్‌లు, డాక్టర్ అందుబాటు, రద్దు లేదా రీషెడ్యూల్ మరియు హాస్పిటల్ సమాచారం గురించి సహాయపడగలను. ఈ రోజు మీకు ఎలా సహాయపడాలి?",
+        "ASK_PATIENT_CODE": "దయచేసి మీ రిజిస్టర్డ్ పేషెంట్ కోడ్ (ఉదా. P001) ఇవ్వండి.",
+        "ASK_DEPT_OR_DOCTOR": "మీరు ఏ విభాగం లేదా డాక్టర్‌ను సంప్రదించాలనుకుంటున్నారు?",
+        "ASK_DATE": "అపాయింట్‌మెంట్ కోసం ఏ తేదీని కోరుకుంటున్నారు? (ఉదా. ఈరోజు, రేపు, వచ్చే సోమవారం)",
+        "ASK_TIME": "ఏ సమయాన్ని కోరుకుంటున్నారు? (ఉదా. ఉదయం 10:00, 11:30)",
+        "SLOTS_AVAILABLE": "{date}న {doctor} కొరకు ఈ సమయాలు అందుబాటులో ఉన్నాయి: {slots}. మీరు దేనిని ఎంచుకుంటారు?",
+        "BOOKING_SUCCESS": "మీ అపాయింట్‌మెంట్ విజయవంతంగా బుక్ చేయబడింది! బుకింగ్ ఐడి: {booking_id}, తేదీ: {date}, సమయం: {time}, డాక్టర్: {doctor}.",
+        "SLOT_UNAVAILABLE": "క్షమించండి, ఆ సమయం అందుబాటులో లేదు. వేరే సమయం చూద్దామా?",
+        "ASK_BOOKING_ID": "దయచేసి మీ బుకింగ్ ఐడి (ఉదా. APT10001) ఇవ్వండి.",
+        "ASK_CANCEL_REASON": "తప్పకుండా. అపాయింట్‌మెంట్‌ను రద్దు చేయడానికి గల కారణాన్ని తెలుసుకోవచ్చా?",
+        "CANCEL_SUCCESS": "మీ అపాయింట్‌మెంట్ {booking_id} విజయవంతంగా రద్దు చేయబడింది.",
+        "ASK_RESCHEDULE_DATE_TIME": "దయచేసి కొత్త తేదీ మరియు సమయాన్ని ఇవ్వండి (ఉదా. రేపు ఉదయం 11:00 గంటలకు).",
+        "ASK_RESCHEDULE_REASON": "తప్పకుండా. రీషెడ్యూల్ చేయడానికి గల కారణాన్ని తెలుసుకోవచ్చా?",
+        "RESCHEDULE_SUCCESS": "మీ అపాయింట్‌మెంట్ {booking_id} విజయవంతంగా {date}న {time}కి రీషెడ్యూల్ చేయబడింది.",
+        "STATUS_RESPONSE": "మీ అపాయింట్‌మెంట్ {booking_id} ({doctor}తో) {date}న {time}కి ప్రస్తుతం {status}లో ఉంది.",
+        "SYMPTOM_GUIDANCE": "మీరు అనారోగ్యంగా ఉన్నందుకు విచారిస్తున్నాము. ఈ లక్షణాలకు {dept} సరిపోవచ్చు. అందుబాటులో ఉన్న డాక్టర్లను చూడమంటారా?",
+        "EMERGENCY_GUIDANCE": "దీనికి అత్యవసర వైద్య సహాయం అవసరం కావచ్చు. దయచేసి వెంటనే అత్యవసర వైద్య సేవలను సంప్రదించండి.",
+        "HUMAN_ESCALATION": "హాస్పిటల్ సపోర్ట్ టీమ్‌తో కనెక్ట్ కావడానికి నేను సహాయపడగలను.",
+        "UNKNOWN": "క్షమించండి, నాకు అర్థం కాలేదు. అపాయింట్‌మెంట్‌లు లేదా హాస్పిటల్ సమాచారం గురించి మీకు ఎలా సహాయపడగలను?",
+        "LANGUAGE_CHANGED": "భాష తెలుగులోకి మార్చబడింది."
+    },
+    "MALAYALAM": {
+        "GREETING": "നമസ്കാരം! മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം. ഞാൻ നിങ്ങളുടെ എഐ പേഷ്യന്റ് ഡെസ്ക് അസിസ്റ്റന്റ് ആണ്. അപ്പോയിന്റ്മെന്റുകൾ, ഡോക്ടറുടെ ലഭ്യത, ക്യാൻസലേഷൻ അല്ലെങ്കിൽ റീഷെഡ്യൂൾ ചെയ്യൽ, ആശുപത്രി വിവരങ്ങൾ എന്നിവയ്ക്ക് ഞാൻ സഹായിക്കാം. ഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?",
+        "ASK_PATIENT_CODE": "ദയവായി നിങ്ങളുടെ രജിസ്റ്റർ ചെയ്ത പേഷ്യന്റ് കോഡ് (ഉദാ. P001) നൽകുക.",
+        "ASK_DEPT_OR_DOCTOR": "ഏത് വിഭാഗത്തിലോ ഡോക്ടറെയോ ആണ് കാണേണ്ടത്?",
+        "ASK_DATE": "ഏത് തീയതിയിലാണ് അപ്പോയിന്റ്മെന്റ് വേണ്ടത്? (ഉദാ. ഇന്ന്, നാളെ, അടുത്ത തിങ്കൾ)",
+        "ASK_TIME": "ഏത് സമയമാണ് നിങ്ങൾക്ക് താല്പര്യം? (ഉദാ. രാവിലെ 10:00, 11:30)",
+        "SLOTS_AVAILABLE": "{date}-ൽ {doctor}-ക്ക് ഈ സമയങ്ങൾ ലഭ്യമാണ്: {slots}. ഏതാണ് താല്പര്യം?",
+        "BOOKING_SUCCESS": "അപ്പോയിന്റ്മെന്റ് വിജയകരമായി ബുക്ക് ചെയ്തിരിക്കുന്നു! ബുക്കിംഗ് ഐഡി: {booking_id}, തീയതി: {date}, സമയം: {time}, ഡോക്ടർ: {doctor}.",
+        "SLOT_UNAVAILABLE": "ക്ഷമിക്കണം, ആ സമയം ഇപ്പോൾ ലഭ്യമല്ല. മറ്റ് സമയങ്ങൾ നോക്കണോ?",
+        "ASK_BOOKING_ID": "ദയവായി ബുക്കിംഗ് ഐഡി (ഉദാ. APT10001) നൽകുക.",
+        "ASK_CANCEL_REASON": "തീർച്ചയായും. അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കാനുള്ള കാരണം വ്യക്തമാക്കാമോ?",
+        "CANCEL_SUCCESS": "നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് {booking_id} വിജയകരമായി റദ്ദാക്കിയിരിക്കുന്നു.",
+        "ASK_RESCHEDULE_DATE_TIME": "പുതിയ തീയതിയും സമയവും നൽകുക (ഉദാ. നാളെ രാവിലെ 11:00 മണിക്ക്).",
+        "ASK_RESCHEDULE_REASON": "തീർച്ചയായും. മാറ്റാനുള്ള കാരണം വ്യക്തമാക്കാമോ?",
+        "RESCHEDULE_SUCCESS": "അപ്പോയിന്റ്മെന്റ് {booking_id} വിജയകരമായി {date}-ൽ {time}-ലേക്ക് മാറ്റിയിരിക്കുന്നു.",
+        "STATUS_RESPONSE": "{doctor}-യുമായുള്ള അപ്പോയിന്റ്മെന്റ് {booking_id} {date}-ൽ {time}-ൽ {status} ആണ്.",
+        "SYMPTOM_GUIDANCE": "അസുഖം ബാധിച്ചതിൽ ഖേദിക്കുന്നു. ഈ ലക്ഷണങ്ങൾക്ക് {dept} അനുയോജ്യമായിരിക്കാം. ലഭ്യമായ ഡോക്ടർമാരെ നോക്കട്ടെ?",
+        "EMERGENCY_GUIDANCE": "ഇതിന് അടിയന്തിര വൈദ്യസഹായം ആവശ്യമായി വന്നേക്കാം. ദയവായി എത്രയും വേഗം അടിയന്തിര ചികിത്സ തേടുക.",
+        "HUMAN_ESCALATION": "ആശുപത്രി സഹായ ഗ്രൂപ്പുമായി ബന്ധപ്പെടാൻ ഞാൻ സഹായിക്കാം.",
+        "UNKNOWN": "ക്ഷമിക്കണം, മനസ്സിലായില്ല. അപ്പോയിന്റ്മെന്റുകൾക്കോ ആശുപത്രി വിവരങ്ങൾക്കോ എങ്ങനെ സഹായിക്കണം?",
+        "LANGUAGE_CHANGED": "ഭാഷ മലയാളത്തിലേക്ക് മാറ്റിയിരിക്കുന്നു."
+    },
+    "KANNADA": {
+        "GREETING": "ನಮಸ್ಕಾರ! ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ. ನಾನು ನಿಮ್ಮ AI ಪೇಷಂಟ್ ಡೆಸ್ಕ್ ಅಸಿಸ್ಟೆಂಟ್. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕಿಂಗ್, ರದ್ದತಿ ಅಥವಾ ಮರು-ನಿಗದಿ ಮತ್ತು ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿಯ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ. ಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "ASK_PATIENT_CODE": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನೋಂದಾಯಿತ ಪೇಷಂಟ್ ಕೋಡ್ (ಉದಾ. P001) ಒದಗಿಸಿ.",
+        "ASK_DEPT_OR_DOCTOR": "ನೀವು ಯಾವ ವಿಭಾಗ ಅಥವಾ ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಲು ಬಯಸುತ್ತೀರಿ?",
+        "ASK_DATE": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗೆ ಯಾವ ದಿನಾಂಕವನ್ನು ಬಯಸುತ್ತೀರಿ? (ಉದಾ. ಇಂದು, ನಾಳೆ, ಮುಂದಿನ ಸೋಮವಾರ)",
+        "ASK_TIME": "ಯಾವ ಸಮಯವನ್ನು ಬಯಸುತ್ತೀರಿ? (ಉದಾ. ಬೆಳಿಗ್ಗೆ 10:00, 11:30)",
+        "SLOTS_AVAILABLE": "{date} ರಂದು {doctor} ರವರಿಗೆ ಈ ಸಮಯಗಳು ಲಭ್ಯವಿದೆ: {slots}. ನೀವು ಯಾವುದನ್ನು ಬಯಸುತ್ತೀರಿ?",
+        "BOOKING_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಯಶಸ್ವಿಯಾಗಿ ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ! ಬುಕಿಂಗ್ ಐಡಿ: {booking_id}, ದಿನಾಂಕ: {date}, ಸಮಯ: {time}, ವೈದ್ಯರು: {doctor}.",
+        "SLOT_UNAVAILABLE": "ಕ್ಷಮಿಸಿ, ಆ ಸಮಯ ಲಭ್ಯವಿಲ್ಲ. ಬೇರೆ ಸಮಯ ನೋಡೋಣವೇ?",
+        "ASK_BOOKING_ID": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಬುಕಿಂಗ್ ಐಡಿ (ಉದಾ. APT10001) ಒದಗಿಸಿ.",
+        "ASK_CANCEL_REASON": "ಖಂಡಿತ. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ರದ್ದುಗೊಳಿಸಲು ಕಾರಣ ತಿಳಿಸಬಹುದೇ?",
+        "CANCEL_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ಯಶಸ್ವಿಯಾಗಿ ರದ್ದುಗೊಂಡಿದೆ.",
+        "ASK_RESCHEDULE_DATE_TIME": "ದಯವಿಟ್ಟು ಹೊಸ ದಿನಾಂಕ ಮತ್ತು ಸಮಯವನ್ನು ಒದಗಿಸಿ (ಉದಾ. ನಾಳೆ ಬೆಳಿಗ್ಗೆ 11:00 గంటೆಗೆ).",
+        "ASK_RESCHEDULE_REASON": "ಖಂಡಿತ. ಮರು-ನಿಗದಿಗೊಳಿಸಲು ಕಾರಣ ತಿಳಿಸಬಹುದೇ?",
+        "RESCHEDULE_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ಅನ್ನು {date} ರಂದು {time} ಕ್ಕೆ ಯಶಸ್ವಿಯಾಗಿ ಮರು-ನಿಗದಿಗೊಳಿಸಲಾಗಿದೆ.",
+        "STATUS_RESPONSE": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ({doctor}) {date} ರಂದು {time} ಕ್ಕೆ ಪ್ರಸ್ತುತ {status} ಸ್ಥಿತಿಯಲ್ಲಿದೆ.",
+        "SYMPTOM_GUIDANCE": "ನಿಮಗೆ ಹುಷಾರಿಲ್ಲದಿರುವುದಕ್ಕೆ ವಿಷಾದಿಸುತ್ತೇವೆ. ಈ ರೋಗಲಕ್ಷಣಗಳಿಗೆ {dept} ಸೂಕ್ತವಾಗಿರಬಹುದು. ಲಭ್ಯವಿರುವ ವೈದ್ಯರನ್ನು ನೋಡಲೇ?",
+        "EMERGENCY_GUIDANCE": "ಇದಕ್ಕೆ ತುರ್ತು ವೈದ್ಯಕೀಯ ನೆರವು ಬೇಕಾಗಬಹುದು. ದಯವಿಟ್ಟು ತಕ್ಷಣ ತುರ್ತು ವೈದ್ಯಕೀಯ ಚಿಕಿತ್ಸೆ ಪಡೆಯಿರಿ.",
+        "HUMAN_ESCALATION": "ಆಸ್ಪತ್ರೆಯ ಸಹಾಯ ತಂಡದೊಂದಿಗೆ ಸಂಪರ್ಕ ಹೊಂದಲು ನಾನು ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.",
+        "UNKNOWN": "ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥವಾಗಲಿಲ್ಲ. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಅಥವಾ ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿಗೆ ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "LANGUAGE_CHANGED": "ಭಾಷೆಯನ್ನು ಕನ್ನಡಕ್ಕೆ ಬದಲಾಯಿಸಲಾಗಿದೆ."
+    },
+    "URDU": {
+        "GREETING": "ہیلو! میریڈین ہسپتال میں آپ کا خیر مقدم ہے۔ میں آپ کا اے آئی پیشنٹ ڈیسک اسسٹنٹ ہوں۔ میں اپائنٹمنٹ، ڈاکٹر کی دستیابی، اپائنٹمنٹ کی منسوخی یا تبدیلی اور ہسپتال کی معلومات میں مدد کر سکتا ہوں۔ آج میں آپ کی کیا مدد کر سکتا ہوں؟",
+        "ASK_PATIENT_CODE": "براہ کرم اپنا رجسٹرڈ مریض کا کوڈ (جیسے P001) فراہم کریں۔",
+        "ASK_DEPT_OR_DOCTOR": "آپ کس شعبہ یا ڈاکٹر سے مشورہ کرنا چاہتے ہیں؟",
+        "ASK_DATE": "آپ اپائنٹمنٹ کے لیے کون سی تاریخ پسند کریں گے؟ (جیسے آج، کل، اگلے پیر کو)",
+        "ASK_TIME": "آپ کون سا وقت پسند کریں گے؟ (جیسے صبح 10:00 بجے، 11:30 بجے)",
+        "SLOTS_AVAILABLE": "{doctor} کے لیے {date} کو یہ وقت دستیاب ہیں: {slots}۔ آپ کون سا پسند کریں گے؟",
+        "BOOKING_SUCCESS": "آپ کا اپائنٹمنٹ کامیابی سے بک ہو گیا ہے! بکنگ آئی ڈی: {booking_id}، تاریخ: {date}، وقت: {time}، ڈاکٹر: {doctor}۔",
+        "SLOT_UNAVAILABLE": "معذرت، وہ وقت اب دستیاب نہیں ہے۔ کیا آپ کوئی دوسرا وقت چیک کرنا چاہیں گے؟",
+        "ASK_BOOKING_ID": "براہ کرم اپنی بکنگ آئی ڈی (جیسے APT10001) فراہم کریں۔",
+        "ASK_CANCEL_REASON": "جی بالکل۔ کیا میں اپائنٹمنٹ منسوخ کرنے کی وجہ جان سکتا ہوں؟",
+        "CANCEL_SUCCESS": "آپ کا اپائنٹمنٹ {booking_id} کامیابی سے منسوخ کر دیا گیا ہے۔",
+        "ASK_RESCHEDULE_DATE_TIME": "براہ کرم نیا دن اور وقت بتائیں (جیسے کل صبح 11:00 بجے)۔",
+        "ASK_RESCHEDULE_REASON": "جی بالکل۔ کیا میں اپائنٹمنٹ تبدیل کرنے کی وجہ جان سکتا ہوں؟",
+        "RESCHEDULE_SUCCESS": "آپ کا اپائنٹمنٹ {booking_id} کامیابی سے {date} کو {time} بجے کے لیے ری شیڈول کر دیا گیا ہے۔",
+        "STATUS_RESPONSE": "آپ کا اپائنٹمنٹ {booking_id} ({doctor}) کے ساتھ {date} کو {time} بجے فی الحال {status} ہے۔",
+        "SYMPTOM_GUIDANCE": "آپ کی طبیعت خرابی پر افسوس ہے۔ ان علامات کے لیے {dept} مناسب ہو سکتا ہے۔ کیا میں دستیاب ڈاکٹروں کو چیک کروں؟",
+        "EMERGENCY_GUIDANCE": "اس کے لیے فوری طبی امداد کی ضرورت ہو سکتی ہے۔ براہ کرم فوری طور پر ہنگامی طبی مدد حاصل کریں۔",
+        "HUMAN_ESCALATION": "میں ہسپتال کی سپورٹ ٹیم سے رابطہ قائم کرنے میں آپ کی مدد کر سکتا ہوں۔",
+        "UNKNOWN": "معذرت، میں سمجھ نہیں سکا۔ میں اپائنٹمنٹ یا ہسپتال کی معلومات میں آپ کی کیا مدد کر سکتا ہوں؟",
+        "LANGUAGE_CHANGED": "زبان اردو میں تبدیل کر دی گئی ہے۔"
+    }
+}
+
+def detect_language_shift(text: str) -> str:
+    """Detects if the user requested a language change in their message."""
+    text_lower = (text or "").lower().strip()
+    
+    mapping = {
+        "english": "ENGLISH",
+        "english please": "ENGLISH",
+        "tamil": "TAMIL",
+        "தமிழில் பேசுங்கள்": "TAMIL",
+        "தமிழில்": "TAMIL",
+        "தமிழ்": "TAMIL",
+        "hindi": "HINDI",
+        "हिंदी में बात करें": "HINDI",
+        "हिंदी में": "HINDI",
+        "हिंदी": "HINDI",
+        "telugu": "TELUGU",
+        "తెలుగు": "TELUGU",
+        "malayalam": "MALAYALAM",
+        "മലയാളം": "MALAYALAM",
+        "kannada": "KANNADA",
+        "ಕನ್ನಡ": "KANNADA",
+        "urdu": "URDU",
+        "اردو": "URDU"
+    }
+    
+    for key, lang in mapping.items():
+        if key in text_lower:
+            return lang
+            
+    return None
+
+
+def detect_language(text: str, current_lang: str = None) -> str:
+    """Detects the primary language of the user input string."""
+    if not text:
+        return current_lang or "ENGLISH"
+    shift = detect_language_shift(text)
+    if shift:
+        return shift
+
+    # Check script characters
+    if re.search(r"[\u0B80-\u0BFF]", text):
+        return "TAMIL"
+    if re.search(r"[\u0900-\u097F]", text):
+        return "HINDI"
+    if re.search(r"[\u0C00-\u0C7F]", text):
+        return "TELUGU"
+    if re.search(r"[\u0D00-\u0D7F]", text):
+        return "MALAYALAM"
+    if re.search(r"[\u0C80-\u0CFF]", text):
+        return "KANNADA"
+    if re.search(r"[\u0600-\u06FF]", text):
+        return "URDU"
+
+    # Short context-dependent messages, digits, times, or button clicks should NOT override established language
+    t_clean = text.strip().lower()
+    if current_lang and current_lang in {"TAMIL", "HINDI", "TELUGU", "MALAYALAM", "KANNADA", "URDU"}:
+        if t_clean.startswith("btn_") or len(t_clean) <= 4 or re.match(r"^\d{1,2}(:\d{2})?\s*(am|pm)?$", t_clean) or t_clean in {
+            "yes", "no", "ok", "okay", "confirm", "cancel", "tomorrow", "today",
+            "same doctor", "change it", "10 am", "11 am", "10:00", "11:00", "11:30", "11:30 am", "10:30", "10:30 am", "12:00", "09:00", "09:30",
+            "confirm appointment", "book appointment"
+        }:
+            return current_lang
+
+    return "ENGLISH"
+
+
+# Contextual Button Menu Translations for all 7 supported languages
+# Note: Every button title MUST be <= 20 characters to comply with Meta WhatsApp Cloud API limits.
+
+MENU_BUTTON_TRANSLATIONS = {
+    "ENGLISH": {
+        "btn_cat_appts": "Appointments",
+        "btn_cat_doctors": "Doctors & Services",
+        "btn_cat_inquiries": "Patient Help",
+        "btn_cat_health": "My Health & Records",
+        "btn_cat_billing": "Billing & Payments",
+        "btn_cat_voice_lang": "Voice & Language",
+        "btn_cat_staff": "Talk to Staff",
+        "btn_cat_emergency": "Emergency",
+        "btn_find_doctor": "Find a Doctor",
+        "btn_departments": "Departments",
+        "btn_book_appt": "Book Appointment",
+        "btn_doctor_avail": "Doctor Availability",
+        "btn_my_profile": "My Profile",
+        "btn_my_appts": "My Appointments",
+        "btn_cancel_appt": "Cancel Appointment",
+        "btn_reschedule_appt": "Reschedule Appt",
+        "btn_new_patient": "New Patient",
+        "btn_hosp_info": "Hospital Info",
+        "btn_my_reports": "My Reports",
+        "btn_preadmission": "Pre-Admission",
+        "btn_my_documents": "Documents / Forms",
+        "btn_view_bill": "View Bill",
+        "btn_balance": "Outstanding Balance",
+        "btn_insurance": "Insurance Status",
+        "btn_talk_ai": "Talk to AI",
+        "btn_change_language": "Change Language",
+        "btn_talk_staff_exec": "Talk to Staff",
+        "btn_emergency_route": "Emergency Route",
+        "btn_doctor_inq": "Doctor Info",
+        "btn_appt_inq": "Appointment Info",
+        "btn_reg_inq": "Registration Info",
+        "btn_billing_inq": "Billing Info",
+        "btn_preadm_inq": "Pre-Admission Info",
+        "btn_continue_ai": "Continue with AI",
+        "btn_main_menu": "Main Menu",
+        "btn_g_male": "Male",
+        "btn_g_female": "Female",
+        "btn_g_other": "Other",
+        "btn_patient_help": "Talk to Staff",
+        "btn_change_profile": "Change Profile",
+        "btn_update_name": "Change Name",
+        "btn_update_dob": "Change Date of Birth",
+        "btn_update_gender": "Change Gender",
+        "btn_update_phone": "Change Phone Number",
+        "btn_back_profile": "Back to Profile"
+    },
+    "TAMIL": {
+        "btn_cat_appts": "அப்பாயிண்ட்மெண்ட்",
+        "btn_cat_doctors": "மருத்துவர் & சேவை",
+        "btn_cat_inquiries": "நோயாளி உதவி",
+        "btn_cat_health": "உடல்நலம் & பதிவு",
+        "btn_cat_billing": "கட்டணம் & பணம்",
+        "btn_cat_voice_lang": "குரல் & மொழி",
+        "btn_cat_staff": "பணியாளருடன் பேச",
+        "btn_cat_emergency": "அவசரநிலை",
+        "btn_find_doctor": "மருத்துவரைத் தேடு",
+        "btn_departments": "துறைகள்",
+        "btn_book_appt": "முன்பதிவு செய்ய",
+        "btn_doctor_avail": "மருத்துவர் இருப்பு",
+        "btn_my_profile": "எனது சுயவிவரம்",
+        "btn_my_appts": "என் அப்பாயிண்ட்மெண்ட்",
+        "btn_cancel_appt": "ரத்து செய்ய",
+        "btn_reschedule_appt": "மாற்றி அமைக்க",
+        "btn_new_patient": "புதிய நோயாளி",
+        "btn_hosp_info": "மருத்துவமனை தகவல்",
+        "btn_my_reports": "எனது அறிக்கைகள்",
+        "btn_preadmission": "முன் சேர்க்கை",
+        "btn_my_documents": "ஆவணங்கள்",
+        "btn_view_bill": "ரசீது பார்க்க",
+        "btn_balance": "நிலுவைத் தொகை",
+        "btn_insurance": "காப்பீட்டு நிலை",
+        "btn_talk_ai": "AI-யுடன் பேச",
+        "btn_change_language": "மொழி மாற்ற",
+        "btn_talk_staff_exec": "பணியாளருடன் பேச",
+        "btn_emergency_route": "அவசரப் பாதை",
+        "btn_doctor_inq": "மருத்துவர் தகவல்",
+        "btn_appt_inq": "அப்பாயிண்ட்மெண்ட் தகவல்",
+        "btn_reg_inq": "பதிவு தகவல்",
+        "btn_billing_inq": "கட்டண தகவல்",
+        "btn_preadm_inq": "சேர்க்கை தகவல்",
+        "btn_continue_ai": "AI-யுடன் தொடர",
+        "btn_main_menu": "முதன்மை மெனு",
+        "btn_change_profile": "சுயவிவரத்தை மாற்ற",
+        "btn_update_name": "பெயரை மாற்ற",
+        "btn_update_dob": "பிறந்த தேதியை மாற்ற",
+        "btn_update_gender": "பாலினத்தை மாற்ற",
+        "btn_update_phone": "தொலைபேசி எண்ணை மாற்ற",
+        "btn_back_profile": "சுயவிவரத்திற்கு திரும்ப"
+    },
+    "HINDI": {
+        "btn_cat_appts": "अपॉइंटमेंट",
+        "btn_cat_doctors": "डॉक्टर और सेवाएं",
+        "btn_cat_inquiries": "रोगी सहायता",
+        "btn_cat_health": "स्वास्थ्य व रिकॉर्ड",
+        "btn_cat_billing": "बिलिंग और भुगतान",
+        "btn_cat_voice_lang": "वॉयस और भाषा",
+        "btn_cat_staff": "स्टाफ से बात करें",
+        "btn_cat_emergency": "आपातकालीन",
+        "btn_find_doctor": "डॉक्टर खोजें",
+        "btn_departments": "विभाग",
+        "btn_book_appt": "अपॉइंटमेंट बुक करें",
+        "btn_doctor_avail": "डॉक्टर उपलब्धता",
+        "btn_my_profile": "मेरी प्रोफ़ाइल",
+        "btn_my_appts": "मेरे अपॉइंटमेंट",
+        "btn_cancel_appt": "रद्द करें",
+        "btn_reschedule_appt": "पुनर्निर्धारित करें",
+        "btn_new_patient": "नया रोगी",
+        "btn_hosp_info": "अस्पताल जानकारी",
+        "btn_my_reports": "मेरी रिपोर्ट",
+        "btn_preadmission": "प्री-एडमिशन",
+        "btn_my_documents": "दस्तावेज़",
+        "btn_view_bill": "बिल देखें",
+        "btn_balance": "बकाया राशि",
+        "btn_insurance": "बीमा स्थिति",
+        "btn_talk_ai": "एआई से बात करें",
+        "btn_change_language": "भाषा बदलें",
+        "btn_talk_staff_exec": "स्टाफ से बात करें",
+        "btn_emergency_route": "आपातकालीन मार्ग",
+        "btn_doctor_inq": "डॉक्टर जानकारी",
+        "btn_appt_inq": "अपॉइंटमेंट जानकारी",
+        "btn_reg_inq": "पंजीकरण जानकारी",
+        "btn_billing_inq": "बिलिंग जानकारी",
+        "btn_preadm_inq": "प्री-एडमिशन जानकारी",
+        "btn_continue_ai": "AI जारी रखें",
+        "btn_main_menu": "मुख्य मेनू",
+        "btn_change_profile": "प्रोफ़ाइल बदलें",
+        "btn_update_name": "नाम बदलें",
+        "btn_update_dob": "जन्म तिथि बदलें",
+        "btn_update_gender": "लिंग बदलें",
+        "btn_update_phone": "फोन नंबर बदलें",
+        "btn_back_profile": "प्रोफ़ाइल पर वापस जाएं"
+    },
+    "TELUGU": {
+        "btn_cat_appts": "అపాయింట్‌మెంట్‌లు",
+        "btn_cat_doctors": "వైద్యులు & సేవలు",
+        "btn_cat_inquiries": "పేషెంట్ సహాయం",
+        "btn_cat_health": "ఆరోగ్యం & రికార్డులు",
+        "btn_cat_billing": "బిల్లింగ్ & చెల్లింపులు",
+        "btn_cat_voice_lang": "వాయిస్ & భాష",
+        "btn_cat_staff": "సిబ్బందితో మాట్లాడండి",
+        "btn_cat_emergency": "అత్యవసరం",
+        "btn_find_doctor": "డాక్టర్‌ను వెతకండి",
+        "btn_departments": "విభాగాలు",
+        "btn_book_appt": "అపాయింట్‌మెంట్ బుక్",
+        "btn_doctor_avail": "డాక్టర్ లభ్యత",
+        "btn_my_profile": "నా ప్రొఫైల్",
+        "btn_my_appts": "నా అపాయింట్‌మెంట్‌లు",
+        "btn_cancel_appt": "రద్దు చేయండి",
+        "btn_reschedule_appt": "రీషెడ్యూల్",
+        "btn_new_patient": "కొత్త పేషెంట్",
+        "btn_hosp_info": "ఆసుపత్రి సమాచారం",
+        "btn_my_reports": "నా నివేదికలు",
+        "btn_preadmission": "ప్రీ-అడ్మిషన్",
+        "btn_my_documents": "పత్రాలు",
+        "btn_view_bill": "బిల్లు చూడండి",
+        "btn_balance": "బాకీ మొత్తం",
+        "btn_insurance": "ఇన్సూరెన్స్ స్థితి",
+        "btn_talk_ai": "AI తో మాట్లాడండి",
+        "btn_change_language": "భాష మార్చండి",
+        "btn_talk_staff_exec": "సిబ్బందితో మాట్లాడండి",
+        "btn_emergency_route": "అత్యవసర మార్గం",
+        "btn_doctor_inq": "డాక్టర్ సమాచారం",
+        "btn_appt_inq": "అపాయింట్‌మెంట్ సమాచారం",
+        "btn_reg_inq": "రిజిస్ట్రేషన్ సమాచారం",
+        "btn_billing_inq": "బిల్లింగ్ సమాచారం",
+        "btn_preadm_inq": "అడ్మిషన్ సమాచారం",
+        "btn_continue_ai": "AI తో కొనసాగించు",
+        "btn_main_menu": "ముఖ్య మెనూ",
+        "btn_change_profile": "ప్రొఫైల్ మార్చండి",
+        "btn_update_name": "పేరు మార్చండి",
+        "btn_update_dob": "పుట్టిన తేదీ మార్చండి",
+        "btn_update_gender": "లింగం మార్చండి",
+        "btn_update_phone": "ఫోన్ నంబర్ మార్చండి",
+        "btn_back_profile": "ప్రొఫైల్‌కు తిరిగి వెళ్లండి"
+    },
+    "MALAYALAM": {
+        "btn_cat_appts": "അപ്പോയിന്റ്മെന്റുകൾ",
+        "btn_cat_doctors": "ഡോക്ടറും സേവനവും",
+        "btn_cat_inquiries": "പേഷ്യന്റ് സഹായം",
+        "btn_cat_health": "ആരോഗ്യ വിവരങ്ങൾ",
+        "btn_cat_billing": "ബില്ലിംഗ് & പേയ്മെന്റ്",
+        "btn_cat_voice_lang": "വോയ്സ് & ഭാഷ",
+        "btn_cat_staff": "സ്റ്റാഫുമായി സംസാരിക്കൂ",
+        "btn_cat_emergency": "അടിയന്തിരം",
+        "btn_find_doctor": "ഡോക്ടറെ കണ്ടെത്തുക",
+        "btn_departments": "വിഭാഗങ്ങൾ",
+        "btn_book_appt": "അപ്പോയിന്റ്മെന്റ്",
+        "btn_doctor_avail": "ഡോക്ടറുടെ ലഭ്യത",
+        "btn_my_profile": "എന്റെ പ്രൊഫൈൽ",
+        "btn_my_appts": "എന്റെ അപ്പോയിന്റ്മെന്റ്",
+        "btn_cancel_appt": "റദ്ദാക്കുക",
+        "btn_reschedule_appt": "റീഷെഡ്യൂൾ",
+        "btn_new_patient": "പുതിയ പേഷ്യന്റ്",
+        "btn_hosp_info": "ആശുപത്രി വിവരങ്ങൾ",
+        "btn_my_reports": "എന്റെ റിപ്പോർട്ടുകൾ",
+        "btn_preadmission": "പ്രീ-അഡ്മിഷൻ",
+        "btn_my_documents": "രേഖകൾ",
+        "btn_view_bill": "ബിൽ കാണുക",
+        "btn_balance": "ബാക്കി തുക",
+        "btn_insurance": "ഇൻഷുറൻസ് സ്റ്റാറ്റസ്",
+        "btn_talk_ai": "AI-യോട് സംസാരിക്കൂ",
+        "btn_change_language": "ഭാഷ മാറ്റുക",
+        "btn_talk_staff_exec": "സ്റ്റാഫുമായി സംസാരിക്കൂ",
+        "btn_emergency_route": "അടിയന്തര വഴി",
+        "btn_doctor_inq": "ഡോക്ടർ വിവരങ്ങൾ",
+        "btn_appt_inq": "അപ്പോയിന്റ്മെന്റ് വിവരങ്ങൾ",
+        "btn_reg_inq": "രജിസ്ട്രേഷൻ വിവരങ്ങൾ",
+        "btn_billing_inq": "ബില്ലിംഗ് വിവരങ്ങൾ",
+        "btn_preadm_inq": "അഡ്മിഷൻ വിവരങ്ങൾ",
+        "btn_continue_ai": "AI തുടരുക",
+        "btn_main_menu": "പ്രധാന മെനു",
+        "btn_change_profile": "പ്രൊഫൈൽ മാറ്റുക",
+        "btn_update_name": "പേര് മാറ്റുക",
+        "btn_update_dob": "ജനനതീയതി മാറ്റുക",
+        "btn_update_gender": "ലിംഗം മാറ്റുക",
+        "btn_update_phone": "ഫോൺ നമ്പർ മാറ്റുക",
+        "btn_back_profile": "പ്രൊഫൈലിലേക്ക് മടങ്ങുക"
+    },
+    "KANNADA": {
+        "btn_cat_appts": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
+        "btn_cat_doctors": "ವೈದ್ಯರು & ಸೇವೆಗಳು",
+        "btn_cat_inquiries": "ರೋಗಿ ನೆರವು",
+        "btn_cat_health": "ಆರೋಗ್ಯ & ದಾಖಲೆಗಳು",
+        "btn_cat_billing": "ಬಿಲ್ಲಿಂಗ್ & ಪಾವತಿಗಳು",
+        "btn_cat_voice_lang": "ಧ್ವನಿ & ಭಾಷೆ",
+        "btn_cat_staff": "ಸಿಬ್ಬಂದಿ ಜೊತೆ ಮಾತನಾಡಿ",
+        "btn_cat_emergency": "ತುರ್ತು ಸೇವೆ",
+        "btn_find_doctor": "ವೈದ್ಯರನ್ನು ಹುಡುಕಿ",
+        "btn_departments": "ವಿಭಾಗಗಳು",
+        "btn_book_appt": "ಬುಕಿಂಗ್ ಮಾಡಿ",
+        "btn_doctor_avail": "ವೈದ್ಯರ ಲಭ್ಯತೆ",
+        "btn_my_profile": "ನನ್ನ ಪ್ರೊಫೈಲ್",
+        "btn_my_appts": "ನನ್ನ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
+        "btn_cancel_appt": "ರದ್ದುಗೊಳಿಸಿ",
+        "btn_reschedule_appt": "ಮರು-ನಿಗದಿಗೊಳಿಸಿ",
+        "btn_new_patient": "ಹೊಸ ರೋಗಿ",
+        "btn_hosp_info": "ಆಸ್ಪತ್ರೆಯ ಮಾಹಿತಿ",
+        "btn_my_reports": "ನನ್ನ ವರದಿಗಳು",
+        "btn_preadmission": "ಪೂರ್ವ ಪ್ರವೇಶ",
+        "btn_my_documents": "ದಾಖಲೆಗಳು",
+        "btn_view_bill": "ಬಿಲ್ಲು ನೋಡಿ",
+        "btn_balance": "ಬಾಕಿ ಮೊತ್ತ",
+        "btn_insurance": "ಇನ್ಶೂರೆನ್ಸ್ ಸ್ಥಿತಿ",
+        "btn_talk_ai": "AI ನೊಂದಿಗೆ ಮಾತನಾಡಿ",
+        "btn_change_language": "ಭಾಷೆ બદಲಿಸಿ",
+        "btn_talk_staff_exec": "ಸಿಬ್ಬಂದಿ ಜೊತೆ ಮಾತನಾಡಿ",
+        "btn_emergency_route": "ತುರ್ತು ಮಾರ್ಗ",
+        "btn_doctor_inq": "ವೈದ್ಯರ ಮಾಹಿತಿ",
+        "btn_appt_inq": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಮಾಹಿತಿ",
+        "btn_reg_inq": "ನೋಂದಣಿ ಮಾಹಿತಿ",
+        "btn_billing_inq": "ಬಿಲ್ಲಿಂಗ್ ಮಾಹಿತಿ",
+        "btn_preadm_inq": "ಪ್ರವೇಶ ಮಾಹಿತಿ",
+        "btn_continue_ai": "AI ಯೊಂದಿಗೆ ಮುಂದುವರಿಯಿರಿ",
+        "btn_main_menu": "ಮುಖ್ಯ ಮೆನು",
+        "btn_change_profile": "ಪ್ರೊಫೈಲ್ ಬದಲಾಯಿಸಿ",
+        "btn_update_name": "ಹೆಸರು ಬದಲಾಯಿಸಿ",
+        "btn_update_dob": "ಹುಟ್ಟಿದ ದಿನಾಂಕ ಬದಲಾಯಿಸಿ",
+        "btn_update_gender": "ಲಿಂಗ ಬದಲಾಯಿಸಿ",
+        "btn_update_phone": "ಫೋನ್ ಸಂಖ್ಯೆ ಬದಲಾಯಿಸಿ",
+        "btn_back_profile": "ಪ್ರೊಫೈಲ್‌ಗೆ ಹಿಂತಿರುಗಿ"
+    },
+    "URDU": {
+        "btn_cat_appts": "اپائنٹمنٹس",
+        "btn_cat_doctors": "ڈاکٹرز اور خدمات",
+        "btn_cat_inquiries": "مریض کی مدد",
+        "btn_cat_health": "صحت اور ریکارڈ",
+        "btn_cat_billing": "بلنگ اور ادائیگی",
+        "btn_cat_voice_lang": "وائس اور زبان",
+        "btn_cat_staff": "اسٹاف سے بات کریں",
+        "btn_cat_emergency": "ہنگامی علاج",
+        "btn_find_doctor": "ڈاکٹر تلاش کریں",
+        "btn_departments": "شعبہ جات",
+        "btn_book_appt": "اپائنٹمنٹ بک کریں",
+        "btn_doctor_avail": "ڈاکٹر کی دستیابی",
+        "btn_my_profile": "میرا پروفائل",
+        "btn_my_appts": "میری اپائنٹمنٹس",
+        "btn_cancel_appt": "منسوخ کریں",
+        "btn_reschedule_appt": "ری شیڈول کریں",
+        "btn_new_patient": "نیا مریض",
+        "btn_hosp_info": "ہسپتال معلومات",
+        "btn_my_reports": "میری رپورٹس",
+        "btn_preadmission": "قبل از داخلہ",
+        "btn_my_documents": "دستاویزات",
+        "btn_view_bill": "بل دیکھیں",
+        "btn_balance": "بقایا رقم",
+        "btn_insurance": "انشورنس کی صورتحال",
+        "btn_talk_ai": "اے آئی سے بات کریں",
+        "btn_change_language": "زبان تبدیل کریں",
+        "btn_talk_staff_exec": "اسٹاف سے بات کریں",
+        "btn_emergency_route": "ہنگامی راستہ",
+        "btn_doctor_inq": "ڈاکٹر کی معلومات",
+        "btn_appt_inq": "اپائنٹمنٹ کی معلومات",
+        "btn_reg_inq": "رجسٹریشن معلومات",
+        "btn_billing_inq": "بلنگ معلومات",
+        "btn_preadm_inq": "داخلہ معلومات",
+        "btn_continue_ai": "AI کے ساتھ جاری رکھیں",
+        "btn_main_menu": "مین مینو",
+        "btn_change_profile": "پروفائل تبدیل کریں",
+        "btn_update_name": "نام تبدیل کریں",
+        "btn_update_dob": "تاریخ پیدائش تبدیل کریں",
+        "btn_update_gender": "جنس تبدیل کریں",
+        "btn_update_phone": "فون نمبر تبدیل کریں",
+        "btn_back_profile": "پروفائل پر واپس جائیں"
+    }
+}
+
+MENU_BUTTON_DESCRIPTIONS = {
+    "btn_cat_appts": "Book, view, reschedule, cancel or register",
+    "btn_cat_doctors": "Find doctors, departments and hospital services",
+    "btn_cat_inquiries": "Ask questions about services, timings, locations and procedures",
+    "btn_cat_health": "Reports, appointment details, documents and pre-admission",
+    "btn_cat_billing": "Bills, balance, payments and insurance",
+    "btn_cat_voice_lang": "Voice interaction and language switching",
+    "btn_cat_staff": "Transfer this conversation to a human",
+    "btn_cat_emergency": "Immediate emergency safety route"
+}
+
+
+def get_translated_button(btn_id: str, language: str = "ENGLISH") -> dict:
+    """Returns a button dict {"id": btn_id, "title": title, "description": desc} translated to the requested language (max 20 chars)."""
+    lang = language.upper() if language else "ENGLISH"
+    if lang not in MENU_BUTTON_TRANSLATIONS:
+        lang = "ENGLISH"
+    raw_title = MENU_BUTTON_TRANSLATIONS[lang].get(btn_id, MENU_BUTTON_TRANSLATIONS["ENGLISH"].get(btn_id, btn_id))
+    if isinstance(raw_title, str) and raw_title.startswith("btn_"):
+        raw_title = raw_title.replace("btn_cat_", "").replace("btn_", "").replace("_", " ").title()
+        if btn_id == "btn_patient_help":
+            raw_title = "Talk to Staff"
+        elif btn_id == "btn_emergency":
+            raw_title = "Emergency"
+    res = {"id": btn_id, "title": str(raw_title)[:20]}
+    if btn_id in MENU_BUTTON_DESCRIPTIONS:
+        res["description"] = MENU_BUTTON_DESCRIPTIONS[btn_id]
+    return res
+
+
+def get_main_menu_buttons(language: str = "ENGLISH") -> list:
+    """Returns all 8 main patient menu category options matching the HTML Patient Desk structure in patient's language."""
+    return [
+        get_translated_button("btn_cat_appts", language),
+        get_translated_button("btn_cat_doctors", language),
+        get_translated_button("btn_cat_inquiries", language),
+        get_translated_button("btn_cat_health", language),
+        get_translated_button("btn_cat_billing", language),
+        get_translated_button("btn_cat_voice_lang", language),
+        get_translated_button("btn_cat_staff", language),
+        get_translated_button("btn_cat_emergency", language)
+    ]
+
+
+
+def translate_response(key: str, language: str = "ENGLISH", **kwargs) -> str:
+    """Translates a system message key into the selected language."""
+    lang = language.upper() if language else "ENGLISH"
+    if lang not in TRANSLATIONS:
+        lang = "ENGLISH"
+        
+    bundle = TRANSLATIONS[lang]
+    # Fallback to English if translation is missing for the key in that language
+    template = bundle.get(key, TRANSLATIONS["ENGLISH"].get(key, "I didn't quite catch that."))
+    
+    # Translate some dynamic fields if they appear in kwargs
+    # E.g. status translations, department names
+    if "status" in kwargs and lang != "ENGLISH":
+        status_map = {
+            "BOOKED": {"TAMIL": "பதிவு செய்யப்பட்டுள்ளது", "HINDI": "बुक किया गया", "TELUGU": "బుక్ చేయబడింది", "MALAYALAM": "ബുക്ക് ചെയ്തിരിക്കുന്നു", "KANNADA": "ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ", "URDU": "بک کیا گیا"},
+            "CANCELLED": {"TAMIL": "ரத்து செய்யப்பட்டுள்ளது", "HINDI": "रद्द कर दिया गया", "TELUGU": "రద్దు చేయబడింది", "MALAYALAM": "റദ്ദാക്കിയിരിക്കുന്നു", "KANNADA": "ರದ್ದುಗೊಂಡಿದೆ", "URDU": "منسوخ کیا گیا"},
+            "RESCHEDULED": {"TAMIL": "மாற்றப்பட்டுள்ளது", "HINDI": "पुनर्निर्धारित", "TELUGU": "రీషెడ్యూల్ చేయబడింది", "MALAYALAM": "റീഷെഡ്യൂൾ ചെയ്തിരിക്കുന്നു", "KANNADA": "ಮರು-ನಿಗದಿಗೊಳಿಸಲಾಗಿದೆ", "URDU": "ری شیڈول کیا گیا"}
+        }
+        old_val = kwargs["status"]
+        if old_val in status_map:
+            kwargs["status"] = status_map[old_val].get(lang, old_val)
+            
+    if "dept" in kwargs and lang != "ENGLISH":
+        dept_map = {
+            "General Medicine": {"TAMIL": "பொது மருத்துவம் (General Medicine)", "HINDI": "सामान्य चिकित्सा (General Medicine)", "TELUGU": "జనరల్ మెడిసిన్ (General Medicine)", "MALAYALAM": "ജനറൽ മെഡിസിൻ (General Medicine)", "KANNADA": "ಜನರಲ್ ಮೆಡಿಸಿನ್ (General Medicine)", "URDU": "جنرل میڈیسن (General Medicine)"},
+            "Cardiology": {"TAMIL": "இருதயவியல் (Cardiology)", "HINDI": "हृदय रोग विज्ञान (Cardiology)", "TELUGU": "కార్డియాలజీ (Cardiology)", "MALAYALAM": "കാർഡിയോളജി (Cardiology)", "KANNADA": "ಕార్ಡಿಯಾಲಜಿ (Cardiology)", "URDU": "کارڈیالوجی (Cardiology)"}
+        }
+        old_val = kwargs["dept"]
+        if old_val in dept_map:
+            kwargs["dept"] = dept_map[old_val].get(lang, old_val)
+
+    try:
+        return template.format(**kwargs)
+    except Exception:
+        return template
+
+# Programmatically append registration workflow translations for all 7 Indian languages
+TRANSLATIONS["ENGLISH"]["GREETING"] = "Hello! Welcome to Meridian Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. Are you an existing patient or visiting us for the first time?"
+TRANSLATIONS["ENGLISH"]["EXISTING_PATIENT_PROMPT"] = "Please provide your registered patient code (e.g. P001) or registered phone number so I can retrieve your record."
+TRANSLATIONS["ENGLISH"]["NEW_PATIENT_PROMPT"] = "Welcome to Meridian Hospital. I'll help you get registered. May I have your full name?"
+TRANSLATIONS["ENGLISH"]["ASK_DOB"] = "Thank you. May I have your date of birth? (YYYY-MM-DD)"
+TRANSLATIONS["ENGLISH"]["ASK_GENDER"] = "May I have your gender? (Male/Female/Other)"
+TRANSLATIONS["ENGLISH"]["ASK_PHONE"] = "May I have your contact phone number?"
+TRANSLATIONS["ENGLISH"]["REGISTRATION_COMPLETE"] = "Your registration is complete. Your patient code is {patient_code}. How can I help you today?"
+
+TRANSLATIONS["TAMIL"]["GREETING"] = "வணக்கம்! மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம். நான் உங்கள் AI நோயாளி உதவி முகவர். அப்பாயிண்ட்மெண்ட், மருத்துவர் இருப்பு, ரத்து செய்தல் அல்லது மாற்றுதல் மற்றும் மருத்துவமனை தகவல்களுக்கு நான் உதவ முடியும். நீங்கள் ஏற்கனவே எங்களிடம் சிகிச்சை பெற்று வரும் நோயாளி அல்லது முதல் முறையாக எங்களை தொடர்பு கொள்கிறீர்களா?"
+TRANSLATIONS["TAMIL"]["EXISTING_PATIENT_PROMPT"] = "உங்கள் பதிவு செய்யப்பட்ட நோயாளி குறியீட்டை (எ.கா. P001) அல்லது பதிவு செய்யப்பட்ட தொலைபேசி எண்ணை வழங்கவும்."
+TRANSLATIONS["TAMIL"]["NEW_PATIENT_PROMPT"] = "மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம். உங்களை பதிவு செய்ய நான் உதவுகிறேன். உங்கள் முழு பெயர் என்ன?"
+TRANSLATIONS["TAMIL"]["ASK_DOB"] = "நன்றி. உங்கள் பிறந்த தேதியை வழங்கவும். (வருடம்-மாதம்-தேதி, எ.கா. 1990-06-15)"
+TRANSLATIONS["TAMIL"]["ASK_GENDER"] = "உங்கள் பாலினம் என்ன? (ஆண்/பெண்/இதர)"
+TRANSLATIONS["TAMIL"]["ASK_PHONE"] = "உங்கள் தொடர்பு தொலைபேసి எண்ணை வழங்கவும்."
+TRANSLATIONS["TAMIL"]["REGISTRATION_COMPLETE"] = "உங்கள் பதிவு வெற்றிகரமாக முடிந்தது. உங்கள் நோயாளி குறியீடு: {patient_code}. இன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?"
+
+TRANSLATIONS["HINDI"]["GREETING"] = "नमस्ते! मेरिडियन अस्पताल में आपका स्वागत है। मैं आपका एआई पेशेंट डेस्क असिस्टेंट हूं। मैं अपॉइंटमेंट, डॉक्टर की उपलब्धता, अपॉइंटमेंट रद्द या पुनर्निर्धारित करने और अस्पताल की जानकारी में आपकी मदद कर सकता हूं। क्या आप हमारे पंजीकृत मरीज हैं या पहली बार हमसे संपर्क कर रहे हैं?"
+TRANSLATIONS["HINDI"]["EXISTING_PATIENT_PROMPT"] = "कृपया अपना पंजीकृत रोगी कोड (जैसे P001) या पंजीकृत फ़ोन नंबर प्रदान करें।"
+TRANSLATIONS["HINDI"]["NEW_PATIENT_PROMPT"] = "मेरिडियन अस्पताल में आपका स्वागत है। मैं पंजीकरण में आपकी सहायता करूँगा। क्या मुझे आपका पूरा नाम मिल सकता है?"
+TRANSLATIONS["HINDI"]["ASK_DOB"] = "धन्यवाद। क्या मुझे आपकी जन्मतिथि मिल सकती है? (YYYY-MM-DD)"
+TRANSLATIONS["HINDI"]["ASK_GENDER"] = "आपका लिंग क्या है? (पुरुष/महिला/अन्य)"
+TRANSLATIONS["HINDI"]["ASK_PHONE"] = "कृपया अपना संपर्क फ़ोन नंबर प्रदान करें।"
+TRANSLATIONS["HINDI"]["REGISTRATION_COMPLETE"] = "आपका पंजीकरण पूरा हो गया है। आपका रोगी कोड {patient_code} है। आज मैं आपकी क्या मदद कर सकता हूँ?"
+
+TRANSLATIONS["TELUGU"]["GREETING"] = "నమస్తే! మెరిడియన్ హాస్పిటల్‌కు స్వాగతం. నేను మీ AI పేషెంట్ డెస్క్ అసిస్టెంట్‌ని. అపాయింట్‌మెంట్‌లు, డాక్టర్ అందుబాటు, రద్దు లేదా రీషెడ్యూల్ మరియు హాస్పిటల్ సమాచారం గురించి సహాయపడగలను. మీరు మా పాత రోగి లేదా మొదటిసారి హాస్పిటల్‌ని సందర్శిస్తున్నారా?"
+TRANSLATIONS["TELUGU"]["EXISTING_PATIENT_PROMPT"] = "దయచేసి మీ రిజిస్టర్డ్ పేషెంట్ కోడ్ (ఉదా. P001) లేదా రిజిస్టర్డ్ ఫోన్ నంబర్ ఇవ్వండి."
+TRANSLATIONS["TELUGU"]["NEW_PATIENT_PROMPT"] = "మెరిడియన్ హాస్పిటల్‌కు స్వాగతం. నేను మీకు రిజిస్టర్ చేయడంలో సహాయపడతాను. దయచేసి మీ పూర్తి పేరు చెప్పండి?"
+TRANSLATIONS["TELUGU"]["ASK_DOB"] = "ధన్యవాదాలు. దయచేసి మీ పుట్టిన తేదీని చెప్పండి? (YYYY-MM-DD)"
+TRANSLATIONS["TELUGU"]["ASK_GENDER"] = "మీ లింగం ఏమిటి? (పురుషుడు/స్త్రీ/ఇతర)"
+TRANSLATIONS["TELUGU"]["ASK_PHONE"] = "దయచేసి మీ ఫోన్ నంబర్ ఇవ్వండి."
+TRANSLATIONS["TELUGU"]["REGISTRATION_COMPLETE"] = "మీ రిజిస్ట్రేషన్ పూర్తయింది. మీ పేషెంట్ కోడ్ {patient_code}. ఈ రోజు మీకు ఎలా సహాయపడాలి?"
+
+TRANSLATIONS["MALAYALAM"]["GREETING"] = "നമസ്കാരം! മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം. ഞാൻ നിങ്ങളുടെ എഐ പേഷ്യന്റ് ഡെസ്ക് അസിസ്റ്റന്റ് ആണ്. അപ്പോയിന്റ്മെന്റുകൾ, ഡോക്ടറുടെ ലഭ്യത, ക്യാൻസലേഷൻ അല്ലെങ്കിൽ റീഷെഡ്യൂൾ ചെയ്യൽ, ആശുപത്രി വിവരങ്ങൾ എന്നിവയ്ക്ക് ഞാൻ സഹായിക്കാം. നിങ്ങൾ ഇവിടെ മുൻപ് ചികിത്സ തേടിയിട്ടുള്ള ആളാണോ അതോ ആദ്യമായി വരികയാണോ?"
+TRANSLATIONS["MALAYALAM"]["EXISTING_PATIENT_PROMPT"] = "ദയവായി നിങ്ങളുടെ രജിസ്റ്റർ ചെയ്ത പേഷ്യന്റ് കോഡ് (ഉദാ. P001) അല്ലെങ്കിൽ ഫോൺ നമ്പർ നൽകുക."
+TRANSLATIONS["MALAYALAM"]["NEW_PATIENT_PROMPT"] = "മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം. രജിസ്റ്റർ ചെയ്യാൻ ഞാൻ നിങ്ങളെ സഹായിക്കാം. നിങ്ങളുടെ പൂർണ്ണമായ പേര് പറയാമോ?"
+TRANSLATIONS["MALAYALAM"]["ASK_DOB"] = "നന്ദി. ജനന തീയതി പറയാമോ? (YYYY-MM-DD)"
+TRANSLATIONS["MALAYALAM"]["ASK_GENDER"] = "നിങ്ങളുടെ ലിംഗഭേദം ഏതാണ്? (ആൺ/പെൺ/മറ്റുള്ളവ)"
+TRANSLATIONS["MALAYALAM"]["ASK_PHONE"] = "ദയവായി ഫോൺ നമ്പർ നൽകുക."
+TRANSLATIONS["MALAYALAM"]["REGISTRATION_COMPLETE"] = "രജിസ്ട്രേഷൻ വിജയകരമായി പൂർത്തിയായിരിക്കുന്നു. നിങ്ങളുടെ പേഷ്യന്റ് കോഡ്: {patient_code}. ഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?"
+
+TRANSLATIONS["KANNADA"]["GREETING"] = "ನಮಸ್ಕಾರ! ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ. ನಾನು ನಿಮ್ಮ AI ಪೇಷಂಟ್ ಡೆಸ್ಕ್ ಅಸಿಸ್ಟೆಂಟ್. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕಿಂಗ್, ರದ್ದತಿ ಅಥವಾ ಮರು-ನಿಗದಿ ಮತ್ತು ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿಯ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ. ನೀವು ನಮ್ಮ ನೋಂದಾಯಿತ ರೋಗಿ ಅಥವಾ ಮೊದಲ ಬಾರಿಗೆ ಆಸ್ಪತ್ರೆಗೆ ಭೇಟಿ ನೀಡುತ್ತಿದ್ದೀರಾ?"
+TRANSLATIONS["KANNADA"]["EXISTING_PATIENT_PROMPT"] = "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನೋಂದಾಯಿತ ಪೇಷಂಟ್ ಕೋಡ್ (ಉದಾ. P001) ಅಥವಾ ಫೋನ್ ಸಂಖ್ಯೆಯನ್ನು ಒದಗಿಸಿ."
+TRANSLATIONS["KANNADA"]["NEW_PATIENT_PROMPT"] = "ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ. ನಾನು ನಿಮಗೆ ನೋಂದಾಯಿಸಲು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. ನಿಮ್ಮ ಪೂರ್ಣ ಹೆಸರು ಏನು?"
+TRANSLATIONS["KANNADA"]["ASK_DOB"] = "ಧನ್ಯವಾದಗಳು. ದಯವಿಟ್ಟು ನಿಮ್ಮ ಜನ್ಮ ದಿನಾಂకವನ್ನು ಒದಗಿಸಿ? (YYYY-MM-DD)"
+TRANSLATIONS["KANNADA"]["ASK_GENDER"] = "ನಿಮ್ಮ ಲಿಂಗ ಯಾವುದು? (ಪ್ರುಷ/ಮಹಿಳೆ/ಇತರ)"
+TRANSLATIONS["KANNADA"]["ASK_PHONE"] = "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಫೋನ್ ಸಂಖ್ಯೆಯನ್ನು ಒದಗಿಸಿ."
+TRANSLATIONS["KANNADA"]["REGISTRATION_COMPLETE"] = "ನಿಮ್ಮ ನೋಂದಣಿ ಯಶಸ್ವಿಯಾಗಿದೆ. ನಿಮ್ಮ ಪೇಷಂಟ್ ಕೋಡ್ {patient_code}. ಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
+
+TRANSLATIONS["URDU"]["GREETING"] = "ہیلو! میریڈین ہسپتال میں آپ کا خیر مقدم ہے۔ میں آپ کا اے آئی پیشنٹ ڈیسک اسسٹنٹ ہوں۔ میں اپائنٹمنٹ، ڈاکٹر کی دستیابی، اپائنٹمنٹ کی منسوخی یا تبدیلی اور ہسپتال کی معلومات میں مدد کر سکتا ہوں۔ کیا آپ پرانے مریض ہیں یا پہلی بار تشریف لا رہے ہیں؟"
+TRANSLATIONS["URDU"]["EXISTING_PATIENT_PROMPT"] = "براہ کرم اپنا رجسٹرڈ مریض کا کوڈ (جیسے P001) یا رجسٹرڈ فون نمبر فراہم کریں۔"
+TRANSLATIONS["URDU"]["NEW_PATIENT_PROMPT"] = "میریڈین ہسپتال میں آپ کا خیر مقدم ہے۔ میں رجسٹریشن میں آپ کی مدد کروں گا۔ کیا مجھے آپ کا پورا نام مل سکتا ہے؟"
+TRANSLATIONS["URDU"]["ASK_DOB"] = "شکریہ۔ کیا مجھے آپ کی تاریخ پیدائش مل سکتی ہے؟ (YYYY-MM-DD)"
+TRANSLATIONS["URDU"]["ASK_GENDER"] = "آپ کی جنس کیا ہے؟ (مرد/عورت/دیگر)"
+TRANSLATIONS["URDU"]["ASK_PHONE"] = "براہ کرم اپنا فون نمبر فراہم کریں۔"
+TRANSLATIONS["URDU"]["REGISTRATION_COMPLETE"] = "آپ کی رجسٹریشن مکمل ہو گئی ہے۔ آپ کا مریض کوڈ {patient_code} ہے۔ آج میں آپ کی کیا مدد کر سکتا ہوں؟"
+
+TALK_TO_STAFF_CONTACTS = {
+    "ENGLISH": (
+        "Certainly. Our hospital team can assist you.\n\n"
+        "Hospital Staff Contacts:\n\n"
+        "📞 General Enquiries:\n044 6666 9910\n\n"
+        "📞 Appointment / Hospital Enquiries:\n044 6666 9910\n\n"
+        "📞 Insurance Desk:\n044 6666 9910\n\n"
+        "🚨 Emergency:\n044 6666 9999\n\n"
+        "📧 Email:\ninfo@meridian-hospital.com\n\n"
+        "📍 Address:\n#46D, Jawaharlal Nehru Road,\n200 Feet Ring Road,\nChennai – 600 099\n\n"
+        "Our team can help with appointments, hospital information, insurance-related queries and other patient support.\n\n"
+        "I am connecting you with a hospital staff member. An agent will be with you shortly."
+    ),
+    "TAMIL": (
+        "நிச்சயமாக. எங்கள் மருத்துவமனை குழு உங்களுக்கு உதவ முடியும்.\n\n"
+        "மருத்துவமனை தொடர்பு விவரங்கள்:\n\n"
+        "📞 பொது விசாரணைகள்:\n044 6666 9910\n\n"
+        "📞 அப்பாயிண்ட்மெண்ட் / மருத்துவமனை விசாரணைகள்:\n044 6666 9910\n\n"
+        "📞 காப்பீட்டு பிரிவு (Insurance Desk):\n044 6666 9910\n\n"
+        "🚨 அவசர சிகிச்சை:\n044 6666 9999\n\n"
+        "📧 மின்னஞ்சல்:\ninfo@meridian-hospital.com\n\n"
+        "📍 முகவரி:\n#46D, ஜவஹர்லால் நேரு சாலை,\n200 அடி ரிங் ரோடு,\nசென்னை – 600 099\n\n"
+        "அப்பாயிண்ட்மெண்ட்கள், மருத்துவமனை தகவல்கள், காப்பீடு தொடர்பான கேள்விகள் மற்றும் பிற நோயாளி ஆதரவிற்கு எங்கள் குழு உதவ முடியும்.\n\n"
+        "மருத்துவமனை உதவி குழுவுடன் உங்களை இணைக்கிறேன். ஒரு முகவர் விரைவில் உங்களுடன் பேசுவார்."
+    ),
+    "HINDI": (
+        "निश्चित रूप से। हमारी अस्पताल टीम आपकी सहायता कर सकती है।\n\n"
+        "अस्पताल संपर्क विवरण:\n\n"
+        "📞 सामान्य पूछताछ:\n044 6666 9910\n\n"
+        "📞 अपॉइंटमेंट / अस्पताल पूछताछ:\n044 6666 9910\n\n"
+        "📞 इंश्योरेंस डेस्क:\n044 6666 9910\n\n"
+        "🚨 आपातकालीन:\n044 6666 9999\n\n"
+        "📧 ईमेल:\ninfo@meridian-hospital.com\n\n"
+        "📍 पता:\n#46D, जवाहरलाल नेहरू रोड,\n200 फीट रिंग रोड,\nचेन्नई – 600 099\n\n"
+        "हमारी टीम अपॉइंटमेंट, अस्पताल की जानकारी, बीमा संबंधी पूछताछ और अन्य सहायता में मदद कर सकती है।\n\n"
+        "मैं आपको अस्पताल के कर्मचारी से जोड़ रहा हूं। एक एजेंट जल्द ही आपके साथ होगा।"
+    ),
+    "TELUGU": (
+        "ఖచ్చితంగా. మా హాస్పిటల్ బృందం మీకు సహాయం చేయగలదు.\n\n"
+        "హాస్పిటల్ సంప్రదింపు వివరాలు:\n\n"
+        "📞 సాధారణ విచారణలు:\n044 6666 9910\n\n"
+        "📞 అపాయింట్‌మెంట్ / హాస్పిటల్ విచారణలు:\n044 6666 9910\n\n"
+        "📞 ఇన్సూరెన్స్ డెస్క్:\n044 6666 9910\n\n"
+        "🚨 అత్యవసర సేవలు:\n044 6666 9999\n\n"
+        "📧 ఈమెయిల్:\ninfo@meridian-hospital.com\n\n"
+        "📍 చిరునామా:\n#46D, జవహర్‌లాల్ నెహ్రూ రోడ్,\n200 ఫీట్ రింగ్ రోడ్,\nచెన్నై – 600 099\n\n"
+        "అపాయింట్‌మెంట్‌లు, హాస్పిటల్ సమాచారం, ఇన్సూరెన్స్ వివరాలు మరియు ఇతర సహాయం కొరకు మా బృందం సహాయం చేస్తుంది.\n\n"
+        "నేను మిమ్మల్ని హాస్పిటల్ సిబ్బందితో కనెక్ట్ చేస్తున్నాను. ప్రతినిధి త్వరలోనే అందుబాటులోకి వస్తారు."
+    ),
+    "MALAYALAM": (
+        "തീർച്ചയായും. ഞങ്ങളുടെ ആശുപത്രി ടീമിന് നിങ്ങളെ സഹായിക്കാനാകും.\n\n"
+        "ആശുപത്രി ബന്ധപ്പെടേണ്ട വിവരങ്ങൾ:\n\n"
+        "📞 പൊതു അന്വേഷണങ്ങൾ:\n044 6666 9910\n\n"
+        "📞 അപ്പോയിന്റ്മെന്റ് / ആശുപത്രി അന്വേഷണങ്ങൾ:\n044 6666 9910\n\n"
+        "📞 ഇൻഷുറൻസ് ഡെസ്ക്:\n044 6666 9910\n\n"
+        "🚨 അടിയന്തര സേവനം:\n044 6666 9999\n\n"
+        "📧 ഇമെയിൽ:\ninfo@meridian-hospital.com\n\n"
+        "📍 മേൽവിലാസം:\n#46D, ജവഹർലാൽ നെഹ്റു റോഡ്,\n200 ഫീറ്റ് റിംഗ് റോഡ്,\nചെന്നൈ – 600 099\n\n"
+        "അപ്പോയിന്റ്മെന്റുകൾ, ആശുപത്രി വിവരങ്ങൾ, ഇൻഷുറൻസ് സംശയങ്ങൾ എന്നിവയ്ക്ക് ഞങ്ങളുടെ ടീം സഹായിക്കും.\n\n"
+        "ഞാൻ നിങ്ങളെ ആശുപത്രി ജീവനക്കാരുമായി ബന്ധപ്പെടുത്തുന്നു. ഒരു ഏജന്റ് ഉടൻ നിങ്ങളുമായി സംസാരിക്കും."
+    ),
+    "KANNADA": (
+        "ಖಂಡಿತವಾಗಿ. ನಮ್ಮ ಆಸ್ಪತ್ರೆಯ ತಂಡವು ನಿಮಗೆ ಸಹಾಯ ಮಾಡುತ್ತದೆ.\n\n"
+        "ಆಸ್ಪತ್ರೆ ಸಂಪರ್ಕ ವಿವರಗಳು:\n\n"
+        "📞 ಸಾಮಾನ್ಯ ವಿಚಾರಣೆಗಳು:\n044 6666 9910\n\n"
+        "📞 ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ / ಆಸ್ಪತ್ರೆ ವಿಚಾರಣೆಗಳು:\n044 6666 9910\n\n"
+        "📞 ಇನ್ಶೂರೆನ್ಸ್ ಡೆಸ್ಕ್:\n044 6666 9910\n\n"
+        "🚨 ತುರ್ತು ಸೇವೆ:\n044 6666 9999\n\n"
+        "📧 ಇಮೇಲ್:\ninfo@meridian-hospital.com\n\n"
+        "📍 ವಿಳಾಸ:\n#46D, ಜವಾಹರ್‌ಲಾಲ್ ನೆಹರೂ ರಸ್ತೆ,\n200 ಫೀಟ್ ರಿಂಗ್ ರೋಡ್,\nಚೆನ್ನೈ – 600 099\n\n"
+        "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು, ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿ, ಇನ್ಶೂರೆನ್ಸ್ ವಿಚಾರಣೆಗಳು ಮತ್ತು ಇತರ ನೆರವಿಗಾಗಿ ನಮ್ಮ ತಂಡ ಸಹಾಯ ಮಾಡುತ್ತದೆ.\n\n"
+        "ನಾನು ನಿಮ್ಮನ್ನು ಆಸ್ಪತ್ರೆಯ ಸಿಬ್ಬಂದಿಯೊಂದಿಗೆ ಸಂಪರ್ಕಿಸುತ್ತಿದ್ದೇನೆ. ಏಜೆಂಟ್ ಶೀಘ್ರದಲ್ಲೇ ನಿಮ್ಮನ್ನು ಸಂಪರ್ಕಿಸುತ್ತಾರೆ."
+    ),
+    "URDU": (
+        "بالکل۔ ہماری ہسپتال کی ٹیم آپ کی مدد کر سکتی ہے۔\n\n"
+        "ہسپتال کے رابطے کی تفصیلات:\n\n"
+        "📞 عام پوچھ گچھ:\n044 6666 9910\n\n"
+        "📞 اپائنٹمنٹ / ہسپتال انکوائری:\n044 6666 9910\n\n"
+        "📞 انشورنس ڈیسک:\n044 6666 9910\n\n"
+        "🚨 ہنگامی امداد:\n044 6666 9999\n\n"
+        "📧 ای میل:\ninfo@meridian-hospital.com\n\n"
+        "📍 پتہ:\n#46D, جواہر لعل نہرو روڈ,\n200 فٹ رنگ روڈ,\nچنئی – 600 099\n\n"
+        "ہماری ٹیم اپائنٹمنٹ، ہسپتال کی معلومات، انشورنس کی معلومات اور دیگر مدد میں تعاون کر سکتی ہے۔\n\n"
+        "میں آپ کو ہسپتال کے عملے سے جوڑ رہا ہوں۔ ایک ایجنٹ جلد ہی آپ کے ساتھ ہوگا۔"
+    )
+}
+
+def get_talk_to_staff_contact_response(language: str = "ENGLISH") -> str:
+    """Returns the verified hospital staff contact details + human escalation handoff message in the patient's language."""
+    lang = (language or "ENGLISH").upper()
+    if lang not in TALK_TO_STAFF_CONTACTS:
+        lang = "ENGLISH"
+    return TALK_TO_STAFF_CONTACTS[lang]
+
+
+# ---------------------------------------------------------------------------
+# Patient Identification & Registration Flow Helpers
+# ---------------------------------------------------------------------------
+PATIENT_ID_BUTTONS = {
+    "btn_first_time": {
+        "ENGLISH": "First-time Visitor",
+        "TAMIL": "முதல் முறை வருபவர்",
+        "HINDI": "पहली बार visitor",
+        "TELUGU": "మొదటిసారి విజిటర్",
+        "MALAYALAM": "ആദ്യമായി സന്ദർശനം",
+        "KANNADA": "ಮೊದಲ ಬಾರಿಗೆ ಬಂದವರು",
+        "URDU": "پہلی بار انے والے"
+    },
+    "btn_existing_patient": {
+        "ENGLISH": "Existing Patient",
+        "TAMIL": "ஏற்கனவே உள்ள நோயாளி",
+        "HINDI": "मौजूदा मरीज",
+        "TELUGU": "ప్రస్తుత పేషెంట్",
+        "MALAYALAM": "നിലവിലുള്ള രോഗി",
+        "KANNADA": "ಹಾಲಿ ರೋಗಿ",
+        "URDU": "موجودہ مریض"
+    },
+    "btn_retry_patient_id": {
+        "ENGLISH": "Try Again",
+        "TAMIL": "மீண்டும் முயற்சிக்க",
+        "HINDI": "पुनः प्रयास करें",
+        "TELUGU": "మళ్లీ ప్రయత్నించండి",
+        "MALAYALAM": "വീണ്ടും ശ്രമിക്കുക",
+        "KANNADA": "ಮರುಪ್ರಯತ್ನಿಸಿ",
+        "URDU": "دوبارہ کوشش کریں"
+    }
+}
+
+for _b_id, _lang_map in PATIENT_ID_BUTTONS.items():
+    for _l_code, _t_title in _lang_map.items():
+        if _l_code in MENU_BUTTON_TRANSLATIONS:
+            MENU_BUTTON_TRANSLATIONS[_l_code][_b_id] = _t_title
+        if _b_id == "btn_first_time":
+            if _l_code in MENU_BUTTON_TRANSLATIONS:
+                MENU_BUTTON_TRANSLATIONS[_l_code]["btn_first_time_visitor"] = _t_title
+
+GENDER_BUTTONS = {
+    "btn_g_male": {
+        "ENGLISH": "Male",
+        "TAMIL": "ஆண்",
+        "HINDI": "पुरुष",
+        "TELUGU": "పురుషుడు",
+        "MALAYALAM": "പുരുഷൻ",
+        "KANNADA": "ಪುರುಷ",
+        "URDU": "مرد"
+    },
+    "btn_g_female": {
+        "ENGLISH": "Female",
+        "TAMIL": "பெண்",
+        "HINDI": "महिला",
+        "TELUGU": "స్త్రీ",
+        "MALAYALAM": "സ്ത്രീ",
+        "KANNADA": "ಮಹಿಳೆ",
+        "URDU": "عورت"
+    },
+    "btn_g_other": {
+        "ENGLISH": "Other",
+        "TAMIL": "மற்றவை",
+        "HINDI": "अन्य",
+        "TELUGU": "ఇతర",
+        "MALAYALAM": "മറ്റുള്ളവ",
+        "KANNADA": "ఇతర",
+        "URDU": "دیگر"
+    }
+}
+
+for _b_id, _lang_map in GENDER_BUTTONS.items():
+    for _l_code, _t_title in _lang_map.items():
+        if _l_code in MENU_BUTTON_TRANSLATIONS:
+            MENU_BUTTON_TRANSLATIONS[_l_code][_b_id] = _t_title
+
+PATIENT_ID_MESSAGES = {
+    "PATIENT_IDENTIFICATION_PROMPT": {
+        "ENGLISH": "Welcome to Meridian Hospital.\n\nAre you an existing patient or a first-time visitor?",
+        "TAMIL": "மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம்.\n\nநீங்கள் ஏற்கனவே உள்ள நோயாளியா அல்லது முதல் முறை வருகிறீர்களா?",
+        "HINDI": "मेरिडियन अस्पताल में आपका स्वागत है।\n\nक्या आप एक मौजूदा मरीज हैं या पहली बार आए हैं?",
+        "TELUGU": "మెరిడియన్ హాస్పిటల్‌కు స్వాగతం.\n\nమీరు ప్రస్తుతం ఉన్న పేషెంటా లేదా మొదటిసారి వచ్చినవారా?",
+        "MALAYALAM": "മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം.\n\nനിങ്ങൾ നിലവിലുള്ള രോഗിയാണോ അതോ ആദ്യമായി സന്ദർശിക്കുന്നയാളാണോ?",
+        "KANNADA": "ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ.\n\nನೀವು ಹಾಲಿ ರೋಗಿಯೇ ಅಥವಾ ಮೊದಲ ಬಾರಿಗೆ ಬಂದವರೇ?",
+        "URDU": "میریڈین ہسپتال میں آپ کا خیر مقدم ہے۔\n\nکیا آپ ایک موجودہ مریض ہیں یا پہلی بار آئے ہیں؟"
+    },
+    "ENTER_PATIENT_ID_PROMPT": {
+        "ENGLISH": "Please provide your Patient ID so I can locate your existing patient record.",
+        "TAMIL": "உங்கள் நோயாளி பதிவைக் கண்டறிய உங்கள் நோயாளி ஐடியை வழங்கவும்.",
+        "HINDI": "कृपया अपना रोगी आईडी प्रदान करें ताकि मैं आपका रोगी रिकॉर्ड पा सकूं।",
+        "TELUGU": "దయచేసి మీ పేషెంట్ ఐడీని అందించండి.",
+        "MALAYALAM": "നിങ്ങളുടെ പേഷ്യന്റ് ഐഡി ദയവായി നൽകുക.",
+        "KANNADA": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಪೇಷಂಟ್ ഐಡಿ ನೀಡಿ.",
+        "URDU": "براہ کرم اپنا مریض آئی ڈی فراہم کریں۔"
+    },
+    "PATIENT_ID_NOT_FOUND_PROMPT": {
+        "ENGLISH": "I couldn't find a patient record with that Patient ID. Please check the ID and try again.",
+        "TAMIL": "அந்த நோயாளி ஐடியில் பதிவு எதுவும் கிடைக்கவில்லை. தயவுசெய்து ஐடியை சரிபார்த்து மீண்டும் முயற்சிக்கவும்.",
+        "HINDI": "उस रोगी आईडी के साथ कोई रिकॉर्ड नहीं मिला। कृपया आईडी की जांच करें और पुनः प्रयास करें।",
+        "TELUGU": "ఆ పేషెంట్ ఐడీతో రికార్డు కనుగొనబడలేదు. దయచేసి మళ్లీ ప్రయత్నించండి.",
+        "MALAYALAM": "ആ പേഷ്യന്റ് ഐഡിയിൽ റെക്കോർഡ് കണ്ടെത്താനായില്ല. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
+        "KANNADA": "ಆ ಪೇಷಂಟ್ ಐಡಿಯಲ್ಲಿ ಯಾವುದೇ ದಾಖಲೆ ಸಿಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮರುಪ್ರಯತ್ನಿಸಿ.",
+        "URDU": "اس مریض آئی ڈی کے ساتھ کوئی ریکارڈ نہیں ملا۔ براہ کرم دوبارہ کوشش کریں۔"
+    },
+    "PATIENT_FOUND_PROMPT": {
+        "ENGLISH": "Thank you. I found your patient record.\n\nPatient ID: {patient_code}\nName: {name}\nDOB: {dob}\nGender: {gender}\n\nHow can I help you today?",
+        "TAMIL": "நன்றி. உங்கள் நோயாளி பதிவு கண்டறியப்பட்டது.\n\nநோயாளி ஐடி: {patient_code}\nபெயர்: {name}\nபிறந்த தேதி: {dob}\nபாலினம்: {gender}\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
+        "HINDI": "धन्यवाद। आपका रोगी रिकॉर्ड मिल गया है।\n\nरोगी आईडी: {patient_code}\nनाम: {name}\nजन्म तिथि: {dob}\nलिंग: {gender}\n\nआज मैं आपकी क्या मदद कर सकता हूँ?",
+        "TELUGU": "ధన్యవాదాలు. మీ పేషెంట్ రికార్డు కనుగొనబడింది.\n\nపేషెంట్ ఐడీ: {patient_code}\nపేరు: {name}\nపుట్టిన తేదీ: {dob}\nలింగం: {gender}\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?",
+        "MALAYALAM": "നന്ദി. നിങ്ങളുടെ പേഷ്യന്റ് റെക്കോർഡ് കണ്ടെത്തി.\n\nപേഷ്യന്റ് ഐഡി: {patient_code}\nപേര്: {name}\nജനനത്തീയതി: {dob}\nലിംഗം: {gender}\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?",
+        "KANNADA": "ಧನ್ಯವಾದಗಳು. ನಿಮ್ಮ ಪೇಷಂಟ್ ದಾಖಲೆ ಸಿಕ್ಕಿದೆ.\n\nಪೇಷಂಟ್ ಐಡಿ: {patient_code}\nಹೆಸರು: {name}\nಹುಟ್ಟಿದ ದಿನಾಂಕ: {dob}\nಲಿಂಗ: {gender}\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "URDU": "شکریہ۔ آپ کا مریض کا ریکارڈ مل گیا ہے۔\n\nمریض آئی ڈی: {patient_code}\nنام: {name}\nتاریخ پیدائش: {dob}\nجنس: {gender}\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
+    },
+    "REGISTRATION_SUCCESS_PROMPT": {
+        "ENGLISH": "Thank you, {name}. Your registration with Meridian Hospital is complete. Patient ID: {patient_code}\n\nHow can I help you today?",
+        "TAMIL": "நன்றி {name}. மெரிடியன் மருத்துவமனையில் உங்கள் பதிவு நிறைவடைந்தது. நோயாளி ஐடி: {patient_code}\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
+        "HINDI": "धन्यवाद {name}। मेरिडियन अस्पताल में आपका पंजीकरण पूरा हो गया है। रोगी आईडी: {patient_code}\n\nआज मैं आपकी क्या मदद कर सकता हूँ?",
+        "TELUGU": "ధన్యవాదాలు {name}. మీ రిజిస్ట్రేషన్ పూర్తయింది. పేషెంట్ ఐడీ: {patient_code}\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?",
+        "MALAYALAM": "നന്ദി {name}. നിങ്ങളുടെ രജിസ്ട്രേഷൻ പൂർത്തിയായി. പേഷ്യന്റ് ഐഡി: {patient_code}\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?",
+        "KANNADA": "ಧನ್ಯವಾದಗಳು {name}. ನಿಮ್ಮ ನೋಂದಣಿ ಯಶಸ್ವಿಯಾಗಿದೆ. ಪೇಷಂಟ್ ಐಡಿ: {patient_code}\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "URDU": "شکریہ {name}۔ آپ کی رجسٹریشن مکمل ہو گئی ہے۔ مریض آئی ڈی: {patient_code}\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
+    }
+}
+
+for _p_key, _lang_map in PATIENT_ID_MESSAGES.items():
+    for _l_code, _t_msg in _lang_map.items():
+        if _l_code in TRANSLATIONS:
+            TRANSLATIONS[_l_code][_p_key] = _t_msg
+
+def get_patient_identification_prompt(key: str, language: str = "ENGLISH", **kwargs) -> str:
+    """Returns patient identification prompt translated to requested language with optional keyword formatting."""
+    lang = (language or "ENGLISH").upper()
+    if lang not in TRANSLATIONS:
+        lang = "ENGLISH"
+    msg = TRANSLATIONS[lang].get(key, TRANSLATIONS["ENGLISH"].get(key, ""))
+    try:
+        return msg.format(**kwargs) if kwargs else msg
+    except Exception:
+        return msg
+
+
+def sanitize_patient_name(name: str) -> str:
+    """Sanitize patient name to prevent None/null/undefined rendering."""
+    if not name or not isinstance(name, str):
+        return None
+    cleaned = name.strip()
+    if cleaned.lower() in ["none", "null", "undefined", "edwin none", "unknown"]:
+        return None
+    cleaned = re.sub(r"\s+(None|null|undefined)$", "", cleaned, flags=re.IGNORECASE).strip()
+    if not cleaned or cleaned.lower() in ["none", "null", "undefined"]:
+        return None
+    return cleaned
+
+
+def get_farewell_response(language: str = "ENGLISH", patient_name: str = None) -> str:
+    """Returns a natural, language-specific farewell response using identified patient name if available."""
+    lang = (language or "ENGLISH").upper()
+    clean_name = sanitize_patient_name(patient_name)
+
+    farewells = {
+        "ENGLISH": (
+            f"Goodbye, {clean_name}! 👋\nTake care. We're here whenever you need us."
+            if clean_name else
+            "Goodbye! 👋\nTake care. We're here whenever you need us."
+        ),
+        "TAMIL": (
+            f"சென்று வாருங்கள், {clean_name}! 👋\nபத்திரமாக இருங்கள். உங்களுக்கு உதவி தேவைப்படும் போதெல்லாம் நாங்கள் இருக்கிறோம்."
+            if clean_name else
+            "சென்று வாருங்கள்! 👋\nபத்திரமாக இருங்கள். உங்களுக்கு உதவி தேவைப்படும் போதெல்லாம் நாங்கள் இருக்கிறோம்."
+        ),
+        "HINDI": (
+            f"अलविदा, {clean_name}! 👋\nअपना ख्याल रखें। जब भी आपको हमारी ज़रूरत हो, हम यहाँ हैं।"
+            if clean_name else
+            "अलविदा! 👋\nअपना ख्याल रखें। जब भी आपको हमारी ज़रूरत हो, हम यहाँ हैं।"
+        ),
+        "TELUGU": (
+            f"సెలవు, {clean_name}! 👋\nజాగ్రత్తగా ఉండండి. మీకు అవసరమైనప్పుడు మేము ఇక్కడ ఉన్నాము."
+            if clean_name else
+            "సెలవు! 👋\nజాగ్రత్తగా ఉండండి. మీకు అవసరమైనప్పుడు మేము ఇక్కడ ఉన్నాము."
+        ),
+        "MALAYALAM": (
+            f"വിട, {clean_name}! 👋\nശ്രദ്ധിക്കുക. നിങ്ങൾക്ക് ആവശ്യമുള്ളപ്പോഴെല്ലാം ഞങ്ങൾ ഇവിടെയുണ്ട്."
+            if clean_name else
+            "വിട! 👋\nശ്രദ്ധിക്കുക. നിങ്ങൾക്ക് ആവശ്യമുള്ളപ്പോഴെല്ലാം ഞങ്ങൾ ഇവിടെയുണ്ട്."
+        ),
+        "KANNADA": (
+            f"ವಿದಾಯ, {clean_name}! 👋\nಕಾಳಜಿ ವಹಿಸಿ. ನಿಮಗೆ ಅಗತ್ಯವಿದ್ದಾಗ ನಾವು ಇಲ್ಲಿದ್ದೇವೆ."
+            if clean_name else
+            "ವಿದಾಯ! 👋\nಕಾಳಜಿ ವಹಿಸಿ. ನಿಮಗೆ ಅಗತ್ಯವಿದ್ದಾಗ ನಾವು ಇಲ್ಲಿದ್ದೇವೆ."
+        ),
+        "URDU": (
+            f"خدا حافظ، {clean_name}! 👋\nअपना خیال رکھیں۔ جب بھی اپ کو ضرورت ہو ہم یہاں ہیں۔"
+            if clean_name else
+            "خدا حافظ! 👋\nअपना خیال رکھیں۔ جب بھی اپ کو ضرورت ہو ہم یہاں ہیں۔"
+        )
+    }
+    return farewells.get(lang, farewells["ENGLISH"])
+
+
+

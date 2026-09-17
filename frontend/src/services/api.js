@@ -53,6 +53,22 @@ function clearAllStorageCache() {
   } catch (e) {}
 }
 
+// Auth token storage for JWT-authenticated requests
+let _authToken = null;
+
+export function setAuthToken(token) {
+  _authToken = token;
+}
+
+export function clearAuthToken() {
+  _authToken = null;
+}
+
+function getFromStorage(url) {
+  // localStorage caching was removed; this stub prevents ReferenceError
+  return null;
+}
+
 async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
@@ -64,6 +80,7 @@ async function fetchWithTimeout(url, options = {}) {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        ...(_authToken ? { 'Authorization': `Bearer ${_authToken}` } : {}),
         ...fetchOptions.headers,
       },
     });
@@ -653,6 +670,215 @@ export const apiService = {
     clearAllStorageCache();
     notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-agent/run-flow`, data);
     return data;
+  },
+
+  // -------------------------------------------------------------------------
+  // PostgreSQL Admin & Doctor Dashboard APIs
+  // -------------------------------------------------------------------------
+  async getDashboardSummary(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.date_from) queryParams.append("date_from", params.date_from);
+    if (params.date_to) queryParams.append("date_to", params.date_to);
+    if (params.department) queryParams.append("department", params.department);
+    if (params.doctor_id) queryParams.append("doctor_id", params.doctor_id);
+    if (params.booking_source) queryParams.append("booking_source", params.booking_source);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/summary?${queryParams.toString()}`, options);
+  },
+
+  async getDashboardPatients(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append("search", params.search);
+    if (params.status) queryParams.append("status", params.status);
+    if (params.doctor_id) queryParams.append("doctor_id", params.doctor_id);
+    if (params.page) queryParams.append("page", params.page);
+    if (params.per_page) queryParams.append("per_page", params.per_page);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients?${queryParams.toString()}`, options);
+  },
+
+  async getDashboardPatientDetail(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/${patientId}`, options);
+  },
+
+  async updateDashboardPatient(patientId, data, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/patients/${patientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to update patient ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  async addPatientWhatsApp(whatsappNumber, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/patients/add-whatsapp`, {
+      method: 'POST',
+      body: JSON.stringify({ whatsapp_number: whatsappNumber }),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to send WhatsApp ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  async getDashboardAppointments(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append("search", params.search);
+    if (params.status) queryParams.append("status", params.status);
+    if (params.department) queryParams.append("department", params.department);
+    if (params.doctor_id) queryParams.append("doctor_id", params.doctor_id);
+    if (params.booking_source) queryParams.append("booking_source", params.booking_source);
+    if (params.date_from) queryParams.append("date_from", params.date_from);
+    if (params.date_to) queryParams.append("date_to", params.date_to);
+    if (params.page) queryParams.append("page", params.page);
+    if (params.per_page) queryParams.append("per_page", params.per_page);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/appointments?${queryParams.toString()}`, options);
+  },
+
+  async updateAppointmentStatus(appointmentId, status, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/appointments/${appointmentId}/status?status=${encodeURIComponent(status)}`, {
+      method: 'PATCH',
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to update appointment status ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  async getDashboardDoctors(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append("search", params.search);
+    if (params.department) queryParams.append("department", params.department);
+    if (params.status) queryParams.append("status", params.status);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/doctors?${queryParams.toString()}`, options);
+  },
+
+  async toggleDoctorStatus(doctorId, is_active, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ is_active }),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to update doctor status ${res.status}`);
+    }
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}/status`, {});
+    return await res.json();
+  },
+
+  async createDoctor(data, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to create doctor ${res.status}`);
+    }
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return await res.json();
+  },
+
+  async updateDoctor(doctorId, data, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to update doctor ${res.status}`);
+    }
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}`, data);
+    return await res.json();
+  },
+
+  async getDoctorSchedules(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.doctor_id) queryParams.append("doctor_id", params.doctor_id);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/schedules?${queryParams.toString()}`, options);
+  },
+
+  async createDoctorSchedule(data, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to create schedule ${res.status}`);
+    }
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return await res.json();
+  },
+
+  async deleteDoctorSchedule(scheduleId, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}`, {
+      method: 'DELETE',
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to delete schedule ${res.status}`);
+    }
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}`, {});
+    return await res.json();
+  },
+
+  async getDashboardDepartments(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/departments`, options);
+  },
+
+  async getDashboardConversations(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.search) queryParams.append("search", params.search);
+    if (params.intent) queryParams.append("intent", params.intent);
+    if (params.status) queryParams.append("status", params.status);
+    if (params.page) queryParams.append("page", params.page);
+    if (params.per_page) queryParams.append("per_page", params.per_page);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/conversations?${queryParams.toString()}`, options);
+  },
+
+  async getDashboardEscalations(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append("status", params.status);
+    if (params.page) queryParams.append("page", params.page);
+    if (params.per_page) queryParams.append("per_page", params.per_page);
+
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/escalations?${queryParams.toString()}`, options);
+  },
+
+  async updateEscalationStatus(escalationId, status, resolutionNotes = '', options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/escalations/${escalationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, resolution_notes: resolutionNotes }),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `Failed to update escalation ${res.status}`);
+    }
+    return await res.json();
   },
 
   // -------------------------------------------------------------------------

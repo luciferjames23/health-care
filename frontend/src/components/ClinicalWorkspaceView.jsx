@@ -3,6 +3,8 @@ import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from
 
 export default function ClinicalWorkspaceView({
   doctorName = 'Dr. Arjun Menon',
+  doctorId,
+  userRole,
   onSelectPatient,
   onOpenSoap,
 }) {
@@ -43,7 +45,7 @@ export default function ClinicalWorkspaceView({
         });
 
         if (actualAdmitted.length > 0) {
-          const mapped = actualAdmitted.map(rawRecord => {
+          let mapped = actualAdmitted.map(rawRecord => {
             const p = parseAdmissionLlmRecord(rawRecord);
             // Resolve bed and ward if matched
             const matchedBed = bedMap[String(p.patient_id)];
@@ -55,6 +57,16 @@ export default function ClinicalWorkspaceView({
             }
             return p;
           });
+
+          if (userRole === 'Doctor' && doctorName) {
+            const lastName = doctorName.split(' ').pop().toLowerCase();
+            mapped = mapped.filter(p => {
+              if (!p.doctor) return true;
+              const docLower = p.doctor.toLowerCase();
+              return docLower.includes(lastName) || docLower.includes(doctorName.toLowerCase()) || (doctorId && String(p.doctor_id) === String(doctorId));
+            });
+          }
+
           setPatientList(mapped);
         } else {
           setPatientList([]);
@@ -67,7 +79,7 @@ export default function ClinicalWorkspaceView({
       }
     }
     loadInpatients();
-  }, [doctorName]);
+  }, [doctorName, doctorId, userRole]);
 
   const filtered = patientList.filter(p => {
     if (!search.trim()) return true;

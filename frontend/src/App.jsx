@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
+import { clearAuthToken } from './services/api';
 import { ROLE_PAGE_ACCESS } from './services/meridianData';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
@@ -36,11 +37,19 @@ import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 
+import DoctorDashboardView from './components/DoctorDashboardView';
+import DoctorProfileView from './components/DoctorProfileView';
+import AppointmentsView from './components/AppointmentsView';
+import DoctorsView from './components/DoctorsView';
+import AiPatientDeskView from './components/AiPatientDeskView';
+import PreAdmissionsView from './components/PreAdmissionsView';
+import DoctorEscalationInboxView from './components/DoctorEscalationInboxView';
+
 import {
-  AppointmentsView,
   EmergencyView,
   SchedulesView,
   NursingWorkspaceView,
+
   MedicationAdminView,
   SurgeryOTView,
   BloodBankView,
@@ -62,12 +71,7 @@ export default function App() {
     // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
     apiService.preloadAllGoldData();
   }, []);
-  const [auth, setAuth] = useState({
-    username: 'meera.iyer',
-    name: 'Meera Iyer',
-    role: 'Hospital Management',
-    dept: 'Administration'
-  });
+  const [auth, setAuth] = useState(null);
 
   const [role, setRoleState] = useState('Hospital Management');
   const [activePage, setActivePage] = useState('command');
@@ -77,11 +81,21 @@ export default function App() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
 
+  // Sync active page with URL path if accessed directly
+  useEffect(() => {
+    const path = window.location.pathname.toLowerCase();
+    if (path.includes('/doctor/dashboard')) setActivePage('doctor-dashboard');
+    else if (path.includes('/doctor/profile')) setActivePage('doctor-profile');
+    else if (path.includes('/doctor/appointments') || path.includes('/admin/appointments')) setActivePage('appointments');
+    else if (path.includes('/doctor/patient-records') || path.includes('/admin/patients')) setActivePage('patients');
+    else if (path.includes('/admin/doctors')) setActivePage('doctors');
+  }, []);
+
   const setRole = (newRole) => {
     setRoleState(newRole);
     const allowed = ROLE_PAGE_ACCESS[newRole];
     if (allowed !== null && allowed !== undefined && !allowed.includes(activePage)) {
-      setActivePage(allowed[0] || 'patients');
+      setActivePage(allowed[0] || (newRole === 'Doctor' ? 'doctor-dashboard' : 'patients'));
     }
   };
 
@@ -95,6 +109,7 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    clearAuthToken();
     setAuth(null);
   };
 
@@ -120,6 +135,9 @@ export default function App() {
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
+          if (userObj.role === 'Doctor') {
+            setActivePage('doctor-dashboard');
+          }
         }}
       />
     );
@@ -147,12 +165,14 @@ export default function App() {
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
           {activePage === 'command' && (
-            <CommandCentreView onNavigate={setActivePage} onAskAi={handleAskAi} />
+            <CommandCentreView onNavigate={setActivePage} onAskAi={handleAskAi} userRole={role} doctorId={auth?.doctorId} doctorName={auth?.name} />
           )}
 
           {activePage === 'clinical' && (
             <ClinicalWorkspaceView
               doctorName={auth.name}
+              doctorId={auth?.doctorId}
+              userRole={role}
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
             />
@@ -189,6 +209,9 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
               onNavigate={setActivePage}
+              userRole={role}
+              doctorId={auth?.doctorId}
+              doctorName={auth?.name}
             />
           )}
 
@@ -239,8 +262,18 @@ export default function App() {
             <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} />
           )}
 
-          {/* Operational, Clinical, Diagnostic & Revenue Domain Dummy Views */}
-          {activePage === 'appointments' && <AppointmentsView />}
+          {/* Integrated Doctor Portal Views */}
+          {activePage === 'doctor-dashboard' && <DoctorDashboardView user={auth} onNavigate={setActivePage} onSelectPatient={handleSelectPatient} />}
+          {activePage === 'doctor-profile' && <DoctorProfileView user={auth} setUser={setAuth} />}
+
+          {/* Integrated Front Office, Clinical & AI Platform Views */}
+          {activePage === 'appointments' && <AppointmentsView onNavigate={setActivePage} userRole={role} doctorId={auth?.doctorId} doctorName={auth?.name} />}
+          {activePage === 'doctors' && <DoctorsView onNavigate={setActivePage} userRole={role} />}
+          {activePage === 'ai-patient-desk' && <AiPatientDeskView onNavigate={setActivePage} />}
+          {activePage === 'preadmissions' && <PreAdmissionsView onNavigate={setActivePage} userRole={role} doctorId={auth?.doctorId} doctorName={auth?.name} />}
+          {activePage === 'doctor-escalations' && <DoctorEscalationInboxView onNavigate={setActivePage} />}
+
+          {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
           {activePage === 'emergency' && <EmergencyView />}
           {activePage === 'schedules' && <SchedulesView />}
           {activePage === 'nursing' && <NursingWorkspaceView />}
@@ -268,17 +301,19 @@ export default function App() {
 
           {/* Standard Workspace Template for Other Domain Pages */}
           {![
-            'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
+            'command', 'patients', 'doctors', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
             'assistant', 'revenue', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
             'criticalvalues', 'diagnostics', 'radiology',
-            'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
+            'appointments', 'ai-patient-desk', 'preadmissions', 'doctor-escalations',
+            'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
             'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
             'exceptions', 'audit',
             'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
             'forecasting', 'scenario', 'beforeafter'
           ].includes(activePage) && (
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div>

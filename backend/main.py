@@ -17,10 +17,14 @@ from routers.notebook import router as notebook_router
 from routers.jobrun import router as jobrun_router
 from routers.discharge_agent import router as discharge_agent_router
 from routers.discharge_summary_llm import router as discharge_summary_llm_router
+from api.whatsapp_routes import router as whatsapp_router
+from api.agent_routes import router as agent_router
+from api.dashboard_routes import router as dashboard_router
+from api.auth_routes import router as auth_router
 
 app = FastAPI(
-    title="Databricks Healthcare Lakehouse API",
-    description="REST API service to query Healthcare Gold and Bronze schema tables in Databricks (`health_care.gold.*` and `health_care.bronze.*`)",
+    title="Databricks Healthcare Lakehouse & AI Patient Desk API",
+    description="REST API service to query Healthcare Lakehouse Gold and Bronze schema tables, and manage WhatsApp AI Patient Desk",
     version="2.0.0"
 )
 
@@ -38,6 +42,10 @@ app.include_router(notebook_router)
 app.include_router(jobrun_router)
 app.include_router(discharge_agent_router)
 app.include_router(discharge_summary_llm_router)
+app.include_router(whatsapp_router)
+app.include_router(agent_router)
+app.include_router(dashboard_router)
+app.include_router(auth_router)
 
 db_connector = DatabricksConnector()
 
