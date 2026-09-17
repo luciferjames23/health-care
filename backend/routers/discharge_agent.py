@@ -26,6 +26,9 @@ class PatientDischargeValidateRequest(BaseModel):
 class PatientDischargeOrchestrateRequest(BaseModel):
     patient_id: str
     notebook_id: Optional[str] = DEFAULT_NOTEBOOK_ID
+    model_name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
     force_generate: Optional[bool] = False
     timeout_seconds: Optional[int] = 300
 
@@ -678,9 +681,14 @@ def orchestrate_discharge(request: PatientDischargeOrchestrateRequest):
             "action_required": "Resolve all pending items before triggering discharge summary generation."
         }
 
-    # Step 3 & 4: Execute discharge summary generation locally and persist into Gold table
+    # Step 3 & 4: Execute discharge summary generation with chosen model and persist into Gold table
     eligible_pids_str = ",".join(str(vp["patient_id"]) for vp in validated_patients) if validated_patients else raw_pid
-    gen_res = generate_and_persist_discharge_summaries(eligible_pids_str)
+    gen_res = generate_and_persist_discharge_summaries(
+        eligible_pids_str,
+        model_name=request.model_name,
+        provider=request.provider,
+        api_key=request.api_key
+    )
     try:
         db_connector.clear_cache()
     except Exception:
@@ -722,6 +730,9 @@ def orchestrate_discharge(request: PatientDischargeOrchestrateRequest):
 class RunFlowRequest(BaseModel):
     patient_ids: Optional[List[str]] = None
     notebook_id: Optional[str] = DEFAULT_NOTEBOOK_ID
+    model_name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
     timeout_seconds: Optional[int] = 300
 
 
@@ -894,6 +905,9 @@ def run_discharge_flow(request: RunFlowRequest = RunFlowRequest()):
         orch_req = PatientDischargeOrchestrateRequest(
             patient_id=comma_separated_pids,
             notebook_id=notebook_id,
+            model_name=request.model_name,
+            provider=request.provider,
+            api_key=request.api_key,
             force_generate=False,
             timeout_seconds=timeout_sec
         )

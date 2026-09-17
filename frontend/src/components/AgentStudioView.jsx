@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DischargeAgentPipeline } from '../agent';
 
 export const ALL_21_AGENTS = [
   {
@@ -711,7 +712,9 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
     }, 800);
   };
 
-  const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
+  const TABS = selectedAgent?.id === 'AG-19'
+    ? ['Live Pipeline', 'Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions']
+    : ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
 
   // IF AN AGENT IS SELECTED, RENDER AGENT BUILDER STUDIO WORKSPACE
   if (selectedAgent) {
@@ -795,6 +798,13 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
             })}
           </div>
         </div>
+
+        {/* Tab 0: Live Pipeline for AG-19 */}
+        {activeTab === 'Live Pipeline' && selectedAgent?.id === 'AG-19' && (
+          <div style={{ marginTop: '8px' }}>
+            <DischargeAgentPipeline onNavigate={onNavigate} />
+          </div>
+        )}
 
         {/* Tab 5: Memory Matching User Screenshot Exactly */}
         {activeTab === 'Memory' && (

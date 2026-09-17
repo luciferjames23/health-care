@@ -1,66 +1,102 @@
+import os
 import datetime
 from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from connectors.databricks_connector import DatabricksConnector
 from services.discharge_generator import (
     generate_and_persist_discharge_summaries,
-    generate_patient_discharge_summary
+    generate_patient_discharge_summary,
+    SUPPORTED_LLM_PROVIDERS,
+    resolve_llm_provider
 )
 
 router = APIRouter(
     prefix="/api/v1/discharge-summary-llm",
-    tags=["Discharge Summary LLM Generation (Llama 3.3 70B)"]
+    tags=["Discharge Summary Multi-Model LLM Generation (Groq / Gemini / OpenAI / Databricks / Local)"]
 )
 
 db_connector = DatabricksConnector()
 
-DEFAULT_MODEL = "databricks-meta-llama-3-3-70b-instruct"
+DEFAULT_MODEL = os.getenv("DISCHARGE_LLM_MODEL", "llama-3.3-70b-versatile")
 
 
 class DischargeSummaryLLMRequest(BaseModel):
-    patient_id: Optional[str] = "all"  # Comma-separated (e.g. "87224,87225" or "2,3,4,5,6") or "all"
-    model_name: Optional[str] = DEFAULT_MODEL
+    patient_id: Optional[str] = "all"  # Comma-separated (e.g. "87224,87225") or "all"
+    model_name: Optional[str] = Field(
+        default=None,
+        description="Any LLM model identifier (e.g. 'llama-3.3-70b-versatile', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gpt-4o', 'databricks-meta-llama-3-3-70b-instruct', or 'local-clinical-engine')"
+    )
+    provider: Optional[str] = Field(
+        default=None,
+        description="Optional provider override: 'groq', 'gemini', 'openai', 'databricks', 'local', or 'auto'"
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Optional provider API key. If omitted, uses server environment variables (GROQ_API_KEY, GEMINI_API_KEY, etc.)"
+    )
     temperature: Optional[float] = 0.3
     max_tokens: Optional[int] = 2000
     save_to_gold: Optional[bool] = True
 
 
-@router.post("/generate", summary="Generate Discharge Summaries with LLM (Llama 3.3 70B) - POST")
+@router.get("/available-models", summary="List All Supported LLM Providers & Models")
+def get_available_llm_models():
+    """Returns all supported LLM providers (Groq, Gemini, OpenAI, Databricks, Local) and active environment key status."""
+    catalog = []
+    for prov_id, meta in SUPPORTED_LLM_PROVIDERS.items():
+        env_var = meta.get("env_key")
+        is_configured = bool(os.getenv(env_var)) if env_var else True
+        catalog.append({
+            "provider_id": prov_id,
+            "provider_name": meta.get("provider_name"),
+            "default_model": meta.get("default_model"),
+            "available_models": meta.get("available_models", []),
+            "description": meta.get("description"),
+            "api_key_env": env_var,
+            "is_configured": is_configured
+        })
+    return {
+        "status": "success",
+        "default_active_model": DEFAULT_MODEL,
+        "providers": catalog
+    }
+
+
+@router.post("/generate", summary="Generate Discharge Summaries with Any LLM Model - POST")
 def generate_discharge_summary_llm_post(request: DischargeSummaryLLMRequest):
     """
-    Executes the Discharge Summary Generation workflow:
-    1. Resolves `patient_id` (e.g. comma-separated '87224,87225' or 'all' for all admitted patients).
-    2. Retrieves patient clinical input from `health_care.gold.dim_admission_inputs` (with silver/bronze fallback).
-    3. Generates all 8 structured clinical fields:
-       - diagnoses (ICD codes + descriptions)
-       - case_history (clinical presentation, stay course)
-       - investigations (labs, SpO2, heart rate, BP, ECG/radiology)
-       - treatment (medications with exact dosage & volume, IV fluids)
-       - primary_consultant (attending doctor with credentials)
-       - discharge_advice (medication regimen, red flags, and OPD review)
-       - surgery_details (procedure notes or 'Nil')
-       - patient_condition (hemodynamic stability, clinical status)
-       - llm_generated_summary_text (full multi-section formatted discharge document)
-    4. Automatically persists generated output into `health_care.gold.dim_generated_discharge_summaries`.
-    5. Returns the complete generated dataset with execution metadata.
+    Executes the Multi-Model Discharge Summary Generation workflow:
+    1. Resolves `patient_id` (e.g. comma-separated '87224,87225' or 'all').
+    2. Resolves selected LLM (Groq, Google Gemini, OpenAI, Databricks, or Local Engine).
+    3. Retrieves patient clinical inputs from `dim_admission_inputs`.
+    4. Generates all 8 structured clinical fields using chosen model.
+    5. Automatically persists generated output into `dim_generated_discharge_summaries`.
     """
     pid_param = str(request.patient_id or "all").strip()
     if not pid_param:
         pid_param = "all"
 
+    selected_model = request.model_name or DEFAULT_MODEL
+
     try:
-        res = generate_and_persist_discharge_summaries(pid_param)
+        res = generate_and_persist_discharge_summaries(
+            patient_ids=pid_param,
+            model_name=selected_model,
+            provider=request.provider,
+            api_key=request.api_key
+        )
         return {
             "status": "success",
-            "model": request.model_name or DEFAULT_MODEL,
+            "model": res.get("model_name", selected_model),
+            "provider": res.get("provider", request.provider or "auto"),
             "temperature": request.temperature or 0.3,
             "max_tokens": request.max_tokens or 2000,
             "patient_ids_requested": pid_param,
             "patient_ids_executed": res.get("patient_ids_executed"),
             "total_generated": res.get("total_processed", 0),
-            "target_table": "health_care.gold.dim_generated_discharge_summaries",
+            "target_table": "dim_generated_discharge_summaries",
             "data": res.get("data", []),
             "timestamp": datetime.datetime.now().isoformat()
         }
@@ -68,21 +104,32 @@ def generate_discharge_summary_llm_post(request: DischargeSummaryLLMRequest):
         raise HTTPException(status_code=500, detail=f"LLM Generation failed: {str(e)}")
 
 
-@router.get("/generate", summary="Generate Discharge Summaries with LLM (Llama 3.3 70B) - GET")
+@router.get("/generate", summary="Generate Discharge Summaries with Any LLM Model - GET")
 def generate_discharge_summary_llm_get(
     patient_id: str = Query(
         default="all",
         description="Comma-separated patient IDs (e.g. '87224,87225' or '2,3,4,5,6') or 'all'"
     ),
-    model_name: Optional[str] = Query(default=DEFAULT_MODEL),
+    model_name: Optional[str] = Query(
+        default=None,
+        description="Model identifier (e.g. 'llama-3.3-70b-versatile', 'gemini-1.5-flash', 'gpt-4o', or 'local-clinical-engine')"
+    ),
+    provider: Optional[str] = Query(
+        default=None,
+        description="Provider override: 'groq', 'gemini', 'openai', 'databricks', or 'local'"
+    ),
+    api_key: Optional[str] = Query(
+        default=None,
+        description="Optional API key override"
+    ),
     save_to_gold: Optional[bool] = Query(default=True)
 ):
-    """
-    Executes the Discharge Summary LLM Generation workflow via GET request with query parameters.
-    """
+    """Executes the Discharge Summary LLM Generation workflow via GET with optional model selection."""
     req = DischargeSummaryLLMRequest(
         patient_id=patient_id,
         model_name=model_name,
+        provider=provider,
+        api_key=api_key,
         save_to_gold=save_to_gold
     )
     return generate_discharge_summary_llm_post(req)

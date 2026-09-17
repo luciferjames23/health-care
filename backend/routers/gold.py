@@ -428,7 +428,10 @@ def get_dim_admission_inputs(
     if patient_id is not None: filters["patient_id"] = patient_id
     if patient_number: filters["patient_number"] = patient_number
     if admission_type: filters["admission_type"] = admission_type
-    if admission_status: filters["admission_status"] = admission_status
+    if admission_status:
+        filters["admission_status"] = admission_status
+    else:
+        filters["discharge_status"] = "Admitted"
     if gender: filters["gender"] = gender
     if admission_date_from: filters["admission_date_from"] = admission_date_from
     if admission_date_to: filters["admission_date_to"] = admission_date_to

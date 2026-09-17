@@ -513,6 +513,42 @@ export const apiService = {
     });
   },
 
+  async getAvailableLLMModels(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-summary-llm/available-models`, {
+      ...options,
+      revalidateMs: 30000
+    });
+  },
+
+  async generateDischargeSummaryWithLLM(patientId, options = {}) {
+    const pid = String(patientId || '').trim();
+    const modelName = options?.modelName || options?.model_name;
+    const provider = options?.provider;
+    const apiKey = options?.apiKey || options?.api_key;
+    const forceGenerate = Boolean(options?.forceGenerate || options?.force_generate);
+
+    const payload = {
+      patient_id: pid,
+      model_name: modelName,
+      provider: provider,
+      api_key: apiKey,
+      force_generate: forceGenerate
+    };
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-summary-llm/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || errBody?.message || `Generation error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-summary-llm/generate`, data);
+    return data;
+  },
+
   async updateDischargeSummary(summaryId, payload = {}) {
     const sid = encodeURIComponent(String(summaryId || '').trim());
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-summary-llm/update/${sid}`, {
@@ -602,10 +638,16 @@ export const apiService = {
     const notebookId = options?.notebookId || options?.notebook_id || '2865138219507461';
     const forceGenerate = Boolean(options?.forceGenerate || options?.force_generate);
     const timeoutSec = options?.timeoutSeconds || 300;
+    const modelName = options?.modelName || options?.model_name;
+    const provider = options?.provider;
+    const apiKey = options?.apiKey || options?.api_key;
 
     const payload = {
       patient_id: pid,
       notebook_id: notebookId,
+      model_name: modelName,
+      provider: provider,
+      api_key: apiKey,
       force_generate: forceGenerate,
       timeout_seconds: timeoutSec
     };
@@ -640,9 +682,15 @@ export const apiService = {
   },
 
   async runDischargeFlow(params = {}) {
+    const payload = {
+      ...params,
+      model_name: params?.modelName || params?.model_name,
+      provider: params?.provider,
+      api_key: params?.apiKey || params?.api_key
+    };
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/run-flow`, {
       method: 'POST',
-      body: JSON.stringify(params),
+      body: JSON.stringify(payload),
       timeoutMs: 320000
     });
     if (!res.ok) {

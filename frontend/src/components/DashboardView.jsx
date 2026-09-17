@@ -18,10 +18,10 @@ import {
 
 export default function DashboardView({ summary, onSelectTable, onNavigateTab }) {
   const tables = summary?.tables || [];
-  const totalRecords = summary?.total_records || 124860;
+  const totalRecords = summary?.total_records ?? 0;
 
-  const financialKpis = summary?.financial_kpis || { total_predicted_revenue_usd: 29400000.0, total_prediction_records: 7 };
-  const bedKpis = summary?.bed_capacity_kpis || { total_predicted_beds_demanded: 26, avg_predicted_occupancy_rate_pct: 36.87, total_forecast_records: 3 };
+  const financialKpis = summary?.financial_kpis || { total_predicted_revenue_usd: 0, total_prediction_records: 0 };
+  const bedKpis = summary?.bed_capacity_kpis || { total_beds: summary?.total_beds || 0, available_beds: summary?.available_beds || 0, occupied_beds: summary?.occupied_beds || 0 };
 
   return (
     <div className="space-y-6">
@@ -77,7 +77,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           </div>
           <div className="mt-3">
             <div className="text-2xl font-extrabold font-mono text-emerald-400 tracking-tight">
-              ${(financialKpis.total_predicted_revenue_usd || 29400000).toLocaleString()}
+              ${(financialKpis.total_predicted_revenue_usd || 0).toLocaleString()}
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
@@ -96,11 +96,11 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-cyan-300 tracking-tight">
-              312 beds
+              {bedKpis.total_beds ? `${bedKpis.total_beds} beds` : '—'}
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3 text-cyan-400" />
-              102 available · 210 occupied
+              {bedKpis.total_beds ? `${bedKpis.available_beds || 0} available · ${bedKpis.occupied_beds || 0} occupied` : 'Live bed census'}
             </p>
           </div>
         </div>
@@ -115,7 +115,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           </div>
           <div className="mt-3">
             <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
-              {tables.length || 8}
+              {tables.length}
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <Clock className="w-3 h-3 text-purple-400" />

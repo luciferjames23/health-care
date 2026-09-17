@@ -220,6 +220,9 @@ class DatabricksConnector:
         elif t == "dim_generated_discharge_summaries":
             if c == "attending_physician":
                 return "primary_consultant"
+        elif t == "dim_admission_inputs":
+            if c in ("admission_status", "status"):
+                return "discharge_status"
         return col_name
 
     @staticmethod

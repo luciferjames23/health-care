@@ -87,11 +87,11 @@ export default function BedDemandView({ onSelectPatient }) {
   const kpis = useMemo(() => {
     if (!bedManagement?.wards || bedManagement.wards.length === 0) {
       return {
-        total_wards: wardList.length || 8,
-        total_rooms: 150,
-        total_beds: 312,
+        total_wards: wardList.length || 0,
+        total_rooms: 0,
+        total_beds: 0,
         occupied_beds: 0,
-        available_beds: 312,
+        available_beds: 0,
         maintenance_beds: 0,
         occupancy_rate: 0
       };
@@ -122,8 +122,8 @@ export default function BedDemandView({ onSelectPatient }) {
     const occRate = totalBeds > 0 ? ((occupiedBeds / totalBeds) * 100).toFixed(1) : 0;
 
     return {
-      total_wards: bedManagement.wards.length || wardList.length || 8,
-      total_rooms: totalRooms || 150,
+      total_wards: bedManagement.wards.length || wardList.length || 0,
+      total_rooms: totalRooms || 0,
       total_beds: totalBeds,
       occupied_beds: occupiedBeds,
       available_beds: availableBeds,

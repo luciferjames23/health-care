@@ -37,6 +37,7 @@ import AgentRunsView from './components/AgentRunsView';
 import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
+import { DischargeAgentPipeline } from './agent';
 
 import {
   AppointmentsView,
@@ -87,6 +88,30 @@ export default function App() {
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
   const [drawer, setDrawer] = useState(null);
   const [modal, setModal] = useState(null);
+  const [alertsCount, setAlertsCount] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAlerts() {
+      try {
+        const res = await apiService.getDischargedPatients({}, { revalidateMs: 15000 });
+        if (!isMounted) return;
+        const pending = (res?.data || []).filter(r => {
+          const s = (r.approval_status || '').toLowerCase();
+          return !s.includes('approved') && !s.includes('signed');
+        });
+        setAlertsCount(pending.length);
+      } catch (e) {
+        if (isMounted) setAlertsCount(0);
+      }
+    }
+    loadAlerts();
+    const interval = setInterval(loadAlerts, 20000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
@@ -135,7 +160,7 @@ export default function App() {
         setRole={setRole}
         user={auth}
         setUser={setAuth}
-        alertsCount={26}
+        alertsCount={alertsCount}
         onSignOut={handleSignOut}
         onOpenMobile={() => setShowMobile(true)}
         onAskAi={handleAskAi}
@@ -221,7 +246,7 @@ export default function App() {
           {/* AI & Agents Platform Views */}
           {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
           {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} onOpenModal={setModal} />}
-          {activePage === 'discharge-agent' && <AgentStudioView initialAgentId="AG-19" onNavigate={setActivePage} onOpenModal={setModal} />}
+          {activePage === 'discharge-agent' && <DischargeAgentPipeline onNavigate={setActivePage} doctorName={auth?.name} />}
           {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
           {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
           {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
