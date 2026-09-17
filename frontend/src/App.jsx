@@ -246,7 +246,7 @@ export default function App() {
           {/* AI & Agents Platform Views */}
           {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
           {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} onOpenModal={setModal} />}
-          {activePage === 'discharge-agent' && <DischargeAgentPipeline onNavigate={setActivePage} doctorName={auth?.name} />}
+          {activePage === 'discharge-agent' && <DischargeAgentPipeline onNavigate={setActivePage} onSelectPatient={handleSelectPatient} doctorName={auth?.name} />}
           {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
           {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
           {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}

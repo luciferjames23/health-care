@@ -8,12 +8,14 @@ import {
 
 interface Props {
   onNavigate?: (page: string) => void;
+  onSelectPatient?: (patient: any) => void;
   doctorName?: string;
   initialPatientId?: string | number;
 }
 
 export default function DischargeAgentPipeline({
   onNavigate,
+  onSelectPatient,
   doctorName = 'Dr. Meera Iyer, MD'
 }: Props) {
   // Batch Data State
@@ -622,31 +624,21 @@ export default function DischargeAgentPipeline({
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-                      <button
-                        onClick={() => {
-                          setSelectedSummary(s);
-                          setIsModalOpen(true);
-                        }}
-                        style={{
-                          flex: 1,
-                          background: '#f8fafc',
-                          color: '#0f172a',
-                          border: '1px solid #cbd5e1',
-                          padding: '7px 12px',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        View Full Summary
-                      </button>
-
                       {!isSignedOff && (
                         <button
-                          onClick={() => handleSignOff(s)}
-                          disabled={signingOffId === s.summary_id}
+                          onClick={() => {
+                            if (onSelectPatient) {
+                              onSelectPatient({
+                                id: String(s.patient_id),
+                                name: getDisplayPatientName(s)
+                              });
+                            }
+                            if (onNavigate) {
+                              onNavigate('discharge');
+                            }
+                          }}
                           style={{
+                            flex: 1,
                             background: '#0f172a',
                             color: '#ffffff',
                             border: 'none',
@@ -657,7 +649,7 @@ export default function DischargeAgentPipeline({
                             cursor: 'pointer'
                           }}
                         >
-                          {signingOffId === s.summary_id ? 'Signing...' : 'Sign Off & Release Bed'}
+                          View Summary
                         </button>
                       )}
                     </div>
