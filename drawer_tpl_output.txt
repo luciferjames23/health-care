@@ -1,0 +1,41 @@
+Matches for drawer: 55
+}}</div></div></sc-for></div></x-import></div> </sc-if> </sc-if> </main> </div> <sc-if value="{{ hasDrawer }}" hint-placeholder-val="{{ false }}"><div sc-camel-on-click="{{ closeDrawer }}" style="position:fixed;inset:0;background:rgba(21,24,27,.25);z-index:30"></div><aside data-focus-root="" role="dialog" aria-label="{{ dr.title }}" style="position:fixed;top:0;right:0;bottom:0;width:min(520px,100v
+---
+> <sc-if value="{{ hasDrawer }}" hint-placeholder-val="{{ false }}"><div sc-camel-on-click="{{ closeDrawer }}" style="position:fixed;inset:0;background:rgba(21,24,27,.25);z-index:30"></div><aside data-focus-root="" role="dialog" aria-label="{{ dr.title }}" style="position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);background:#fff;border-left:1px solid #e3e6e8;z-index:31;overflow:auto;padd
+---
+div style="color:#8a9096;margin-top:2px">{{ dr.sub }}</div></div><button sc-camel-on-click="{{ closeDrawer }}" aria-label="Close" style="height:28px;width:28px;border-radius:6px;border:1px solid #e3e6e8;background:#fff;cursor:pointer">✕</button></div> <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{ dr.badges }}" as="b" hint-placeholder-count="2"><span style="padding:2px 8px;borde
+---
+: false, role: 'Hospital Management', page: 'command', id: null, tab: 'Overview', atab: 'Identity', drawer: null, modal: null, q: '', ask: '', ai: null, notif: false, demo: false, mobile: false, loading: false, filter: 'All', lang: 'EN', ptab: 'Home', draft: null, wiz: null, playQ: "What is Kavitha Raman's discharge status?", playEx: null, hist: [], scen: 'Insurance delay', node: 5, reason: '' }; 
+---
+ soapView: null, spEdit: null, spEditFor: null, spErr: '', spDrafting: false, page, id: id || null, drawer: null, filter: 'All', q: '', loading: true, sortCol: null, pageN: 0, tab: 'Overview', atab: page === 'agent' && this.state.page === 'agent' ? this.state.atab : 'Identity', draft: null, playEx: null, notif: false, hist }); this.persist({ page, id }); clearTimeout(this.lt); this.lt = setTimeout
+---
+State({ loading: false }), 220); window.scrollTo(0, 0); }   follow(link) { if (!link) return; const drawerKinds = { laboratory: 'lab', insurance: 'preauth', billing: 'bill', feedback: 'feedback', incidents: 'incident', knowledge: 'knowledge', appointments: 'appointment', pharmacy: 'pharmacy', integrations: 'integration', radiology: 'radiology' }; if (['discharge-case', 'patient', 'agent', 'executi
+---
+ 'command', 'discharge', 'runs', 'soap'].includes(link.page)) this.go(link.page, link.id); else if (drawerKinds[link.page] && link.id) { this.go(link.page); setTimeout(() => this.setState({ drawer: { kind: drawerKinds[link.page], id: link.id } }), 250); } else this.go(link.page); }   setRole(role) { const V = this.V; const home = V.HOME[role]; this.setState({ role, mobile: false, drawer: null, mod
+---
+ else if (drawerKinds[link.page] && link.id) { this.go(link.page); setTimeout(() => this.setState({ drawer: { kind: drawerKinds[link.page], id: link.id } }), 250); } else this.go(link.page); }   setRole(role) { const V = this.V; const home = V.HOME[role]; this.setState({ role, mobile: false, drawer: null, modal: null }); this.persist({ role }); if (!V.allowed(role, this.state.page) || role === 'Pa
+---
+Kinds[link.page] && link.id) { this.go(link.page); setTimeout(() => this.setState({ drawer: { kind: drawerKinds[link.page], id: link.id } }), 250); } else this.go(link.page); }   setRole(role) { const V = this.V; const home = V.HOME[role]; this.setState({ role, mobile: false, drawer: null, modal: null }); this.persist({ role }); if (!V.allowed(role, this.state.page) || role === 'Patient' || this.s
+---
+  setRole(role) { const V = this.V; const home = V.HOME[role]; this.setState({ role, mobile: false, drawer: null, modal: null }); this.persist({ role }); if (!V.allowed(role, this.state.page) || role === 'Patient' || this.state.role === 'Patient') this.go(home); const u0 = this.api.usersForRole ? this.api.usersForRole(role)[0] : null; this.api.login(u0 ? u0.id : null, role); }   loginAs(id) { cons
+---
+eturn; this.api.login(u.id, u.role); const V = this.V; this.setState({ role: u.role, mobile: false, drawer: null, modal: null }); this.persist({ role: u.role }); if (!V.allowed(u.role, this.state.page) || u.role === 'Patient' || this.state.role === 'Patient') this.go(V.HOME[u.role]); }   cells(row) { return { ...row, cells: row.cells.map(x => ({ ...x, fw: x.b ? 600 : 400, ff: x.m ? 'ui-monospace,M
+---
+s.state.filter, days: this.state.days, go: (p, i) => this.go(p, i), open: (k, i) => this.setState({ drawer: { kind: k, id: i } }), setFilter: f => this.setState({ filter: f, pageN: 0 }), follow: l => this.follow(l), setRole: r => this.setRole(r), prompt: (title, text, on) => this.setState({ modal: { kind: 'reason', title, text, reason: '', on: r => { on(r); this.setState({ modal: null }); } } }), 
+---
+if (e.key === 'Escape') { if (this.state.modal) this.setState({ modal: null }); else if (this.state.drawer) this.setState({ drawer: null }); else if (this.state.notif || this.state.demo) this.setState({ notif: false, demo: false }); } };   componentDidUpdate(_, prev) { if ((this.state.modal && !prev.modal) || (this.state.drawer && !prev.drawer)) setTimeout(() => { const root = document.querySelect
+---
+{ if (this.state.modal) this.setState({ modal: null }); else if (this.state.drawer) this.setState({ drawer: null }); else if (this.state.notif || this.state.demo) this.setState({ notif: false, demo: false }); } };   componentDidUpdate(_, prev) { if ((this.state.modal && !prev.modal) || (this.state.drawer && !prev.drawer)) setTimeout(() => { const root = document.querySelector('[data-focus-root]');
+---
+false }); } };   componentDidUpdate(_, prev) { if ((this.state.modal && !prev.modal) || (this.state.drawer && !prev.drawer)) setTimeout(() => { const root = document.querySelector('[data-focus-root]'); const el = root && root.querySelector('input,select,textarea,button:not([aria-label="Close"])'); if (el) el.focus(); }, 60); }   MASTER = { drugs: { title: 'Add drug', fields: [['generic', 'Generic'
+---
+ componentDidUpdate(_, prev) { if ((this.state.modal && !prev.modal) || (this.state.drawer && !prev.drawer)) setTimeout(() => { const root = document.querySelector('[data-focus-root]'); const el = root && root.querySelector('input,select,textarea,button:not([aria-label="Close"])'); if (el) el.focus(); }, 60); }   MASTER = { drugs: { title: 'Add drug', fields: [['generic', 'Generic', 'text'], ['nam
+---
+a = {}; M.fields.forEach(f => data[f[0]] = r[f[0]] == null ? '' : String(r[f[0]])); this.setState({ drawer: null, modal: { kind: 'create', title: 'Edit · ' + (r.name || r.title || id), coll, data, editId: r.id || id, error: '' } }); }   openCreate(coll) { const M = this.MASTER[coll]; if (!M) return; const data = {}; M.fields.forEach(f => data[f[0]] = f[2] === 'select' ? (Array.isArray(f[3]) ? f[3]
+---
+' } }); }   openAdmit(pid) { const S = this.api.S; const p = this.api.patient(pid); this.setState({ drawer: null, modal: { kind: 'admit', title: 'Admit ' + p.name, data: { patientId: pid, dept: p.dept === 'Emergency' ? 'General Surgery' : p.dept, cls: 'General', reason: p.procedure || 'Medical management', estimate: 120000 } } }); }   openNewAppt() { const S = this.api.S; this.setState({ modal: { 
+---
+ctor + ' \u00b7 ' + a.status, on: () => { this.go('appointments'); setTimeout(() => this.setState({ drawer: { kind: 'appointment', id: a.id } }), 250); } })); S.admissions.filter(a => hit(a.id) || hit(a.patient)).slice(0, 5).forEach(a => out.push({ kind: 'Admission', label: a.id + ' \u00b7 ' + a.patient, sub: a.bed + ' \u00b7 ' + a.status, on: () => { this.go('admissions'); setTimeout(() => this.s
+---
+ a.bed + ' \u00b7 ' + a.status, on: () => { this.go('admissions'); setTimeout(() => this.setState({ drawer: { kind: 'admission', id: a.id } }), 250); } })); if (this.api.can(role, 'financial')) { S.bills.filter(b => hit(b.id) || hit(b.patient)).slice(0, 5).forEach(b => out.push({ kind: 'Bill', label: b.id + ' \u00b7 ' + b.patient, sub: this.api.inr(b.actual) + ' \u00b7 ' + b.status, on: () => { th
+---
