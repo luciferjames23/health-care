@@ -1032,11 +1032,21 @@ class DischargeAgentPipeline:
                 "generated_at": str(g.get("generated_at") or "")
             })
 
+        total_signed_off = sum(
+            1 for g in formatted_summaries 
+            if (g.get("approval_status") or "").strip().lower() in ("approved", "signed", "signed off", "completed")
+        )
+        total_pending = len(formatted_summaries) - total_signed_off
+        active_eligible = max(0, eval_res["total_eligible"] - total_signed_off)
+
         return {
             "status": "success",
             "total_checked": eval_res["total_checked"],
-            "total_eligible": eval_res["total_eligible"],
+            "total_eligible": active_eligible,
+            "total_eligible_overall": eval_res["total_eligible"],
             "total_generated": len(formatted_summaries),
+            "total_pending": total_pending,
+            "total_signed_off": total_signed_off,
             "total_skipped": eval_res["total_skipped"],
             "total_failed": 0,
             "eligible_patients": eval_res["eligible_patients"],
@@ -1130,18 +1140,28 @@ class DischargeAgentPipeline:
                 "generated_at": str(g.get("generated_at") or "")
             })
 
+        total_signed_off = sum(
+            1 for g in formatted_summaries 
+            if (g.get("approval_status") or "").strip().lower() in ("approved", "signed", "signed off", "completed")
+        )
+        total_pending = len(formatted_summaries) - total_signed_off
+        active_eligible = max(0, eval_res["total_eligible"] - total_signed_off)
+
         return {
             "status": "success",
             "execution_timestamp": datetime.datetime.now().isoformat(),
             "total_checked": eval_res["total_checked"],
-            "total_eligible": eval_res["total_eligible"],
+            "total_eligible": active_eligible,
+            "total_eligible_overall": eval_res["total_eligible"],
             "total_generated": len(generated_summaries),
+            "total_pending": total_pending,
+            "total_signed_off": total_signed_off,
             "total_skipped": eval_res["total_skipped"],
             "total_failed": failed_count,
             "eligible_patients": eligible_patients,
             "skipped_patients": skipped_patients,
             "generated_summaries": formatted_summaries,
-            "message": f"Processed {eval_res['total_checked']} patients dynamically: {eval_res['total_eligible']} eligible, {eval_res['total_skipped']} not eligible, {len(generated_summaries)} summaries generated, {failed_count} failed."
+            "message": f"Processed {eval_res['total_checked']} patients dynamically: {active_eligible} eligible awaiting discharge, {eval_res['total_skipped']} not eligible, {total_signed_off} signed off, {len(generated_summaries)} summaries generated, {failed_count} failed."
         }
 
 

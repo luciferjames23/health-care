@@ -212,7 +212,10 @@ export interface BatchDischargeSummaryResult {
   execution_timestamp?: string;
   total_checked: number;
   total_eligible: number;
+  total_eligible_overall?: number;
   total_generated: number;
+  total_pending?: number;
+  total_signed_off?: number;
   total_skipped: number;
   total_failed?: number;
   eligible_patients: any[];

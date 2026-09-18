@@ -276,8 +276,25 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
     }
   };
 
-  const age = summaryData.age || summaryData.raw?.age || '—';
-  const sex = summaryData.sex || summaryData.gender || '—';
+  let age = summaryData.age;
+  if (!age || age === 'Clinical Review') {
+    if (summaryData.raw?.age) age = summaryData.raw.age;
+    else if (summaryData.case_history) {
+      const match = summaryData.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)
+        || summaryData.case_history.match(/aged\s+(\d{1,3})/i);
+      if (match) age = match[1];
+    }
+  }
+  age = age || '—';
+
+  let sex = summaryData.sex || summaryData.gender;
+  if (!sex || sex === '—') {
+    if (summaryData.case_history) {
+      const match = summaryData.case_history.match(/(?:a|an)\s+\d{1,3}[- ]year[- ]old\s+([A-Za-z]+)/i);
+      if (match) sex = match[1].toLowerCase().startsWith('f') ? 'F' : match[1].toLowerCase().startsWith('m') ? 'M' : match[1];
+    }
+  }
+  sex = sex || '—';
   const admissionDisplayDate = formatClinicalDate(form.admission_date);
   const printDocDate = formatClinicalDate(form.discharge_date || form.admission_date);
   const cleanFollowup = stripTamil(form.followup_instructions);

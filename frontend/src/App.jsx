@@ -148,6 +148,11 @@ export default function App() {
     setActivePage('soap');
   };
 
+  const handleOpenDischargeSummary = (patientOrSummary) => {
+    setSelectedPatient(patientOrSummary);
+    setActivePage('discharge');
+  };
+
   // If not authenticated, display login screen
   if (!auth) {
     return (
@@ -194,6 +199,8 @@ export default function App() {
 
           {activePage === 'discharge' && (
             <DischargeCommandCentre
+              selectedPatient={selectedPatient}
+              onClearSelectedPatient={() => setSelectedPatient(null)}
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
               onNavigate={setActivePage}
@@ -212,7 +219,7 @@ export default function App() {
           {activePage === 'patient360' && (
             <Patient360View
               patient={selectedPatient}
-              onOpenDischarge={() => setActivePage('discharge')}
+              onOpenDischarge={() => handleOpenDischargeSummary(selectedPatient)}
               onOpenSoap={handleOpenSoap}
               onBack={() => setActivePage('patients')}
               onNavigate={setActivePage}
@@ -253,8 +260,22 @@ export default function App() {
 
           {/* AI & Agents Platform Views */}
           {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
-          {activePage === 'agents' && <AgentStudioView onNavigate={setActivePage} onOpenModal={setModal} />}
-          {activePage === 'discharge-agent' && <DischargeAgentPipeline onNavigate={setActivePage} onSelectPatient={handleSelectPatient} doctorName={auth?.name} />}
+          {activePage === 'agents' && (
+            <AgentStudioView
+              onNavigate={setActivePage}
+              onOpenModal={setModal}
+              onSelectPatient={handleSelectPatient}
+              onOpenDischargeSummary={handleOpenDischargeSummary}
+            />
+          )}
+          {activePage === 'discharge-agent' && (
+            <DischargeAgentPipeline
+              onNavigate={setActivePage}
+              onSelectPatient={handleSelectPatient}
+              onOpenDischargeSummary={handleOpenDischargeSummary}
+              doctorName={auth?.name}
+            />
+          )}
           {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
           {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
           {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}

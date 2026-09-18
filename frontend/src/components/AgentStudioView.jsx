@@ -654,7 +654,7 @@ export const AGENTS_DATA = ALL_21_AGENTS.map((a, idx) => ({
   runs: a.runs !== undefined ? a.runs : (42 + (idx * 7) % 180)
 }));
 
-export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentId = 'AG-19' }) {
+export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentId = 'AG-19', onSelectPatient, onOpenDischargeSummary }) {
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId || 'AG-19');
   const [activeTab, setActiveTab] = useState('Memory');
   const [filterStatus, setFilterStatus] = useState('All');
@@ -802,7 +802,11 @@ PROCEDURE PERFORMED: Coronary Artery Bypass Grafting (CABG) x3 (LIMA-LAD, SVG-OM
         {/* Tab 0: Live Pipeline for AG-19 */}
         {activeTab === 'Live Pipeline' && selectedAgent?.id === 'AG-19' && (
           <div style={{ marginTop: '8px' }}>
-            <DischargeAgentPipeline onNavigate={onNavigate} />
+            <DischargeAgentPipeline 
+              onNavigate={onNavigate} 
+              onSelectPatient={onSelectPatient}
+              onOpenDischargeSummary={onOpenDischargeSummary}
+            />
           </div>
         )}
 

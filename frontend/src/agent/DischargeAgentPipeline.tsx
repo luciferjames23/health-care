@@ -9,6 +9,7 @@ import {
 interface Props {
   onNavigate?: (page: string) => void;
   onSelectPatient?: (patient: any) => void;
+  onOpenDischargeSummary?: (patientOrSummary: any) => void;
   doctorName?: string;
   initialPatientId?: string | number;
 }
@@ -16,6 +17,7 @@ interface Props {
 export default function DischargeAgentPipeline({
   onNavigate,
   onSelectPatient,
+  onOpenDischargeSummary,
   doctorName = 'Dr. Meera Iyer, MD'
 }: Props) {
   // Batch Data State
@@ -147,6 +149,28 @@ export default function DischargeAgentPipeline({
       setSigningOffId(null);
     }
   };
+
+  // Computed summaries: separate pending vs approved / signed-off
+  const allSummaries: BatchSummaryItem[] = batchData?.generated_summaries || [];
+
+  const isApprovedSummary = (s: BatchSummaryItem) => {
+    const st = String(s.approval_status || '').trim().toLowerCase();
+    return st === 'approved' || st === 'signed' || st === 'signed off' || st === 'completed' || signOffSuccessId === s.summary_id;
+  };
+
+  const pendingSummaries = allSummaries.filter(s => !isApprovedSummary(s));
+  const approvedSummaries = allSummaries.filter(isApprovedSummary);
+
+  const pendingCount = pendingSummaries.length;
+  const signedOffCount = batchData?.total_signed_off !== undefined && batchData.total_signed_off >= approvedSummaries.length
+    ? batchData.total_signed_off
+    : approvedSummaries.length;
+
+  // Active eligible patients awaiting discharge sign-off
+  const rawEligible = batchData?.total_eligible ?? 0;
+  const activeEligibleCount = batchData?.total_eligible_overall !== undefined
+    ? batchData.total_eligible
+    : Math.max(0, rawEligible - signedOffCount);
 
   // Build combined patient evaluation list (Eligible + Skipped)
   const allEvaluated: any[] = [
@@ -355,30 +379,30 @@ export default function DischargeAgentPipeline({
         </div>
       )}
 
-      {/* DYNAMIC KPI STAT CARDS (5 CLEAN CARDS, 100% DATA-DRIVEN, ZERO STATIC COUNTS) */}
+      {/* DYNAMIC KPI STAT CARDS (6 COMPACT, DATA-DRIVEN CARDS) */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '12px',
-        marginBottom: '24px'
+        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+        gap: '10px',
+        marginBottom: '18px'
       }}>
         {/* Total Patients Checked */}
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px',
+          borderRadius: '6px',
+          padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px'
+          gap: '2px'
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Total Patients Checked
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Total Checked
           </span>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
             {loading ? '—' : (batchData?.total_checked ?? 0)}
           </div>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Current inpatient admissions
           </span>
         </div>
@@ -387,20 +411,20 @@ export default function DischargeAgentPipeline({
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px',
+          borderRadius: '6px',
+          padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px'
+          gap: '2px'
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Eligible for Discharge
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Eligible
           </span>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a' }}>
-            {loading ? '—' : (batchData?.total_eligible ?? 0)}
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
+            {loading ? '—' : activeEligibleCount}
           </div>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
-            All conditions satisfied
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {signedOffCount > 0 ? `${activeEligibleCount} pending · ${signedOffCount} signed` : 'Conditions satisfied'}
           </span>
         </div>
 
@@ -408,41 +432,62 @@ export default function DischargeAgentPipeline({
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px',
+          borderRadius: '6px',
+          padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px'
+          gap: '2px'
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Not Eligible
           </span>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
             {loading ? '—' : (batchData?.total_skipped ?? 0)}
           </div>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
-            Pending billing, vitals, or clinical action
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Pending vitals or billing
           </span>
         </div>
 
-        {/* Summaries Generated */}
+        {/* Summaries Generated / Pending Review */}
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px',
+          borderRadius: '6px',
+          padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px'
+          gap: '2px'
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-            Summaries Generated
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Pending Sign-Off
           </span>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a' }}>
-            {loading ? '—' : (batchData?.total_generated ?? 0)}
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
+            {loading ? '—' : pendingCount}
           </div>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
-            Stored in discharge summary table
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {allSummaries.length} generated · {pendingCount} pending
+          </span>
+        </div>
+
+        {/* Sign-Off / Approved Count Card */}
+        <div style={{
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          padding: '10px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px'
+        }}>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Signed Off
+          </span>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#059669', lineHeight: 1.2 }}>
+            {loading ? '—' : signedOffCount}
+          </div>
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Approved & finalized
           </span>
         </div>
 
@@ -450,19 +495,19 @@ export default function DischargeAgentPipeline({
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '16px',
+          borderRadius: '6px',
+          padding: '10px 14px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '4px'
+          gap: '2px'
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '10px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Failed
           </span>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', lineHeight: 1.2 }}>
             {loading ? '—' : (batchData?.total_failed ?? 0)}
           </div>
-          <span style={{ fontSize: '11px', color: '#64748b' }}>
+          <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Errors during processing
           </span>
         </div>
@@ -480,7 +525,7 @@ export default function DischargeAgentPipeline({
           <button
             onClick={() => setActiveTab('summaries')}
             style={{
-              padding: '10px 16px',
+              padding: '8px 14px',
               fontWeight: 600,
               fontSize: '13px',
               border: 'none',
@@ -491,13 +536,13 @@ export default function DischargeAgentPipeline({
               marginBottom: '-1px'
             }}
           >
-            Generated Discharge Summaries ({batchData?.generated_summaries?.length ?? 0})
+            Generated Discharge Summaries ({pendingSummaries.length})
           </button>
 
           <button
             onClick={() => setActiveTab('evaluation')}
             style={{
-              padding: '10px 16px',
+              padding: '8px 14px',
               fontWeight: 600,
               fontSize: '13px',
               border: 'none',
@@ -512,7 +557,7 @@ export default function DischargeAgentPipeline({
           </button>
         </div>
 
-        <span style={{ fontSize: '12px', color: '#64748b' }}>
+        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
           {activeTab === 'summaries'
             ? 'Completed discharge records stored in Lakehouse'
             : `Vitals stability evaluated via ${selectedModel}`}
@@ -527,14 +572,14 @@ export default function DischargeAgentPipeline({
               background: '#ffffff',
               border: '1px solid #e2e8f0',
               borderRadius: '8px',
-              padding: '48px 24px',
+              padding: '36px 20px',
               textAlign: 'center',
               color: '#64748b'
             }}>
-              <div style={{ fontSize: '15px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 No Discharge Summaries Generated Yet
               </div>
-              <p style={{ fontSize: '13px', margin: '0 0 16px 0' }}>
+              <p style={{ fontSize: '12.5px', margin: '0 0 14px 0' }}>
                 Click "Generate Discharge Summaries" to evaluate current patients and synthesize summaries for all eligible patients.
               </p>
               <button
@@ -543,7 +588,7 @@ export default function DischargeAgentPipeline({
                   background: '#0f172a',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '9px 16px',
+                  padding: '8px 14px',
                   borderRadius: '6px',
                   fontSize: '12px',
                   fontWeight: 600,
@@ -553,9 +598,26 @@ export default function DischargeAgentPipeline({
                 Execute Discharge Batch
               </button>
             </div>
+          ) : pendingSummaries.length === 0 ? (
+            <div style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '36px 20px',
+              textAlign: 'center',
+              color: '#64748b'
+            }}>
+              <div style={{ fontSize: '28px', marginBottom: '8px', color: '#059669' }}>✓</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+                All Discharge Summaries Have Been Signed Off & Approved
+              </div>
+              <p style={{ fontSize: '12.5px', margin: '0', color: '#64748b', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
+                All {signedOffCount} eligible patient discharge summaries have been signed off, certified, and committed to Lakehouse storage.
+              </p>
+            </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '16px' }}>
-              {batchData.generated_summaries.map(s => {
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '12px' }}>
+              {pendingSummaries.map(s => {
                 const isSignedOff = s.approval_status === 'Approved' || signOffSuccessId === s.summary_id;
                 return (
                   <div
@@ -564,29 +626,29 @@ export default function DischargeAgentPipeline({
                       background: '#ffffff',
                       border: '1px solid #e2e8f0',
                       borderRadius: '8px',
-                      padding: '16px 20px',
+                      padding: '12px 16px',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between'
                     }}
                   >
                     <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <div>
-                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                          <span style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 600 }}>
                             Summary #{s.summary_id}
                           </span>
-                          <h3 style={{ fontSize: '15px', fontWeight: 700, margin: '2px 0', color: '#0f172a' }}>
+                          <h3 style={{ fontSize: '14px', fontWeight: 700, margin: '2px 0', color: '#0f172a' }}>
                             {getDisplayPatientName(s)}
                           </h3>
-                          <div style={{ fontSize: '12px', color: '#64748b' }}>
+                          <div style={{ fontSize: '11.5px', color: '#64748b' }}>
                             PID: {s.patient_id} · Admission: {s.admission_id}
                           </div>
                         </div>
                         <span style={{
-                          fontSize: '11px',
+                          fontSize: '10.5px',
                           fontWeight: 600,
-                          padding: '3px 8px',
+                          padding: '2px 7px',
                           borderRadius: '4px',
                           background: isSignedOff ? '#f1f5f9' : '#f8fafc',
                           color: isSignedOff ? '#0f172a' : '#475569',
@@ -600,15 +662,15 @@ export default function DischargeAgentPipeline({
                         background: '#f8fafc',
                         border: '1px solid #f1f5f9',
                         borderRadius: '6px',
-                        padding: '10px 12px',
-                        fontSize: '12px',
-                        marginBottom: '12px'
+                        padding: '8px 10px',
+                        fontSize: '11.5px',
+                        marginBottom: '8px'
                       }}>
-                        <div style={{ marginBottom: '4px' }}>
+                        <div style={{ marginBottom: '3px' }}>
                           <span style={{ color: '#64748b' }}>Physician: </span>
                           <span style={{ fontWeight: 600 }}>{s.primary_consultant}</span>
                         </div>
-                        <div style={{ marginBottom: '4px' }}>
+                        <div style={{ marginBottom: '3px' }}>
                           <span style={{ color: '#64748b' }}>Admitted: </span>
                           <span>{s.admission_date.slice(0, 10)}</span>
                         </div>
@@ -618,40 +680,55 @@ export default function DischargeAgentPipeline({
                         </div>
                       </div>
 
-                      <div style={{ fontSize: '12px', color: '#475569', lineHeight: 1.5, marginBottom: '14px' }}>
-                        {s.case_history.length > 150 ? s.case_history.slice(0, 150) + '...' : s.case_history}
+                      <div style={{ fontSize: '11.5px', color: '#475569', lineHeight: 1.4, marginBottom: '10px' }}>
+                        {s.case_history.length > 130 ? s.case_history.slice(0, 130) + '...' : s.case_history}
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-                      {!isSignedOff && (
-                        <button
-                          onClick={() => {
+                    <div style={{ display: 'flex', gap: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                      <button
+                        onClick={() => {
+                          const raw = s as any;
+                          const patientRecord = {
+                            ...raw,
+                            id: String(s.patient_id),
+                            patient_name: getDisplayPatientName(s),
+                            name: getDisplayPatientName(s),
+                            patient: getDisplayPatientName(s),
+                            doctor: raw.attending_physician || raw.primary_consultant || raw.doctor || '',
+                            doctor_name: raw.attending_physician || raw.primary_consultant || raw.doctor || '',
+                            attending_physician: raw.attending_physician || raw.primary_consultant || raw.doctor || '',
+                            followup_instructions: raw.discharge_advice || raw.followup_instructions || '',
+                            patient_condition: raw.patient_condition || raw.condition_at_discharge || '',
+                            approval_status: raw.approval_status || 'Pending Review',
+                            eta: raw.discharge_date || ''
+                          };
+
+                          if (onOpenDischargeSummary) {
+                            onOpenDischargeSummary(patientRecord);
+                          } else {
                             if (onSelectPatient) {
-                              onSelectPatient({
-                                id: String(s.patient_id),
-                                name: getDisplayPatientName(s)
-                              });
+                              onSelectPatient(patientRecord);
                             }
                             if (onNavigate) {
                               onNavigate('discharge');
                             }
-                          }}
-                          style={{
-                            flex: 1,
-                            background: '#0f172a',
-                            color: '#ffffff',
-                            border: 'none',
-                            padding: '7px 14px',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          View Summary
-                        </button>
-                      )}
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          background: '#0f172a',
+                          color: '#ffffff',
+                          border: 'none',
+                          padding: '6px 12px',
+                          borderRadius: '5px',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        View Summary
+                      </button>
                     </div>
                   </div>
                 );

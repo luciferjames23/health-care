@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiService, parseDischargeSummaryRecord, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
-export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, onNavigate }) {
+export default function DischargeCommandCentre({ selectedPatient, onClearSelectedPatient, onSelectPatient, onOpenSoap, onNavigate }) {
   const [viewMode, setViewMode] = useState('kanban'); // Default to kanban per user request
   const [search, setSearch] = useState('');
   const [selectedCase, setSelectedCase] = useState(null);
@@ -15,6 +15,13 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
   const handleOpenSummaryModal = (c) => {
     setSelectedCase(c);
     setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    if (onClearSelectedPatient) {
+      onClearSelectedPatient();
+    }
   };
 
   const handleSummaryUpdated = (updatedRecord) => {
@@ -56,7 +63,6 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
               cp: parsed.approval_status === 'Approved' ? 'Summary Approved → Bed Released' : 'Pending Physician Approval',
               pending: parsed.approval_status === 'Approved' ? 0 : 1,
               owner: parsed.doctor,
-              age: 'Clinical Review',
               deps: liveDeps
             };
           });
@@ -88,6 +94,50 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
   }, []);
+
+  // When navigated with a specific patient, auto-open their discharge summary modal
+  useEffect(() => {
+    if (!selectedPatient) return;
+
+    const sPid = String(selectedPatient.patient_id || selectedPatient.id || '').trim();
+    const sSummaryId = String(selectedPatient.summary_id || '').trim();
+    const sAdmId = String(selectedPatient.admission_id || '').trim();
+    const sName = (selectedPatient.patient_name || selectedPatient.patient || selectedPatient.name || '').toLowerCase().trim();
+
+    // Check if liveCases has a match
+    const match = liveCases.find(c => {
+      if (sSummaryId && String(c.summary_id).trim() === sSummaryId) return true;
+      if (sAdmId && String(c.admission_id).trim() === sAdmId) return true;
+      if (sPid && String(c.patient_id).trim() === sPid) return true;
+      if (sName && c.patient && c.patient.toLowerCase().trim() === sName) return true;
+      return false;
+    });
+
+    if (match) {
+      setSelectedCase(match);
+      setIsModalOpen(true);
+    } else if (selectedPatient.case_history || selectedPatient.summary_id || selectedPatient.admission_id) {
+      const parsed = parseDischargeSummaryRecord(selectedPatient);
+      const liveDeps = [
+        { label: 'AI Discharge Summary Generation', note: `Generated via ${parsed.model_name || 'AI Pipeline'}`, status: 'Completed', at: parsed.intent, done: true },
+        { label: 'Clinical Course & Investigations', note: parsed.investigations ? parsed.investigations.slice(0, 60) + '...' : 'Clinical investigations verified', status: 'Completed', at: parsed.intent, done: true },
+        { label: 'Attending Physician Approval', note: `Consultant: ${parsed.doctor} · Status: ${parsed.approval_status}`, status: parsed.approval_status, at: parsed.eta, done: parsed.approval_status === 'Approved', active: parsed.approval_status !== 'Approved' },
+        { label: 'Discharge Medications & Advice', note: parsed.discharge_advice ? parsed.discharge_advice.slice(0, 60) + '...' : 'Take-home medications documented', status: 'Verified', at: parsed.eta, done: true },
+        { label: 'Hospital Bed Release', note: `${parsed.bed} released and cleaned`, status: 'Ready', at: '—', done: true }
+      ];
+
+      const immediateCase = {
+        ...parsed,
+        cp: parsed.approval_status === 'Approved' ? 'Summary Approved → Bed Released' : 'Pending Physician Approval',
+        pending: parsed.approval_status === 'Approved' ? 0 : 1,
+        owner: parsed.doctor,
+        deps: liveDeps
+      };
+
+      setSelectedCase(immediateCase);
+      setIsModalOpen(true);
+    }
+  }, [selectedPatient, liveCases]);
 
   const filtered = liveCases.filter(c => {
     if (!search.trim()) return true;
@@ -391,7 +441,7 @@ export default function DischargeCommandCentre({ onSelectPatient, onOpenSoap, on
       {/* Full Discharge Summary Modal (View, Edit, Print) */}
       <DischargeSummaryModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={handleCloseModal}
         summaryData={selectedCase}
         onSummaryUpdated={handleSummaryUpdated}
       />
