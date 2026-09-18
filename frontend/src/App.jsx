@@ -16,6 +16,7 @@ import MobileSimulatorModal from './components/MobileSimulatorModal';
 import ResultsCriticalValuesView from './components/ResultsCriticalValuesView';
 import DiagnosticsView from './components/DiagnosticsView';
 import RadiologyView from './components/RadiologyView';
+import { FinancialRevenueView } from './components/FinancialRevenueView';
 import DetailDrawer from './components/DetailDrawer';
 import MasterModal from './components/MasterModal';
 
@@ -317,11 +318,13 @@ export default function App() {
           {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'billing' && <BillingView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'insurance' && <InsuranceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'claims' && <ClaimsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'finance' && <FinanceDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'tax' && <TaxConfigView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
+            <FinancialRevenueView
+              initialTab={activePage}
+              onOpenDrawer={setDrawer}
+              onOpenModal={setModal}
+            />
+          )}
           {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'audit' && <AuditTrailView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           

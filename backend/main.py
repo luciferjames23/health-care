@@ -19,6 +19,7 @@ from routers.discharge_agent import router as discharge_agent_router
 from routers.discharge_summary_llm import router as discharge_summary_llm_router
 from routers.radiology import router as radiology_router, pacs_router
 from agent.router import router as agent_router
+from routers.financial_revenue import router as finance_router
 
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
@@ -43,6 +44,7 @@ app.include_router(discharge_summary_llm_router)
 app.include_router(radiology_router)
 app.include_router(pacs_router)
 app.include_router(agent_router)
+app.include_router(finance_router)
 
 # --- Prototype AI Patient Desk, Appointments & Operational Routers ---
 import api.agent_routes as proto_agent_routes

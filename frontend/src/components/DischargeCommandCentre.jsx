@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { apiService, parseDischargeSummaryRecord, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
@@ -143,10 +143,10 @@ export default function DischargeCommandCentre({ selectedPatient, onClearSelecte
     if (!search.trim()) return true;
     const s = search.toLowerCase();
     return (c.patient && c.patient.toLowerCase().includes(s)) ||
-           (c.bed && c.bed.toLowerCase().includes(s)) ||
-           (c.doctor && c.doctor.toLowerCase().includes(s)) ||
-           (c.diagnoses && c.diagnoses.toLowerCase().includes(s)) ||
-           (c.status && c.status.toLowerCase().includes(s));
+      (c.bed && c.bed.toLowerCase().includes(s)) ||
+      (c.doctor && c.doctor.toLowerCase().includes(s)) ||
+      (c.diagnoses && c.diagnoses.toLowerCase().includes(s)) ||
+      (c.status && c.status.toLowerCase().includes(s));
   });
 
   const handleSimApprove = (cId) => {
@@ -183,7 +183,7 @@ export default function DischargeCommandCentre({ selectedPatient, onClearSelecte
       {error && (
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span><strong>Unable to load records:</strong> {error}</span>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid #f87171', background: '#fff', cursor: 'pointer', fontSize: '11px' }}
           >
@@ -197,19 +197,19 @@ export default function DischargeCommandCentre({ selectedPatient, onClearSelecte
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Discharged Records</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.length}
+            {loading ? <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.1 200)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} /> : liveCases.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Approved Summaries</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.4 0.12 150)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.filter(c => c.approval_status === 'Approved').length}
+            {loading ? <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.4 0.12 150)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} /> : liveCases.filter(c => c.approval_status === 'Approved').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '100px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending Sign-Off</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : liveCases.filter(c => c.approval_status !== 'Approved').length}
+            {loading ? <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.18 25)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} /> : liveCases.filter(c => c.approval_status !== 'Approved').length}
           </div>
         </div>
       </div>
@@ -275,7 +275,7 @@ export default function DischargeCommandCentre({ selectedPatient, onClearSelecte
               const url = URL.createObjectURL(blob);
               const link = document.createElement('a');
               link.setAttribute('href', url);
-              link.setAttribute('download', `discharged_patients_${new Date().toISOString().slice(0,10)}.csv`);
+              link.setAttribute('download', `discharged_patients_${new Date().toISOString().slice(0, 10)}.csv`);
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
