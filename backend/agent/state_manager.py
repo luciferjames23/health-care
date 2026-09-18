@@ -130,12 +130,12 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
             # Check if whatsapp_number matches an existing active patient
             initial_patient_id = resolve_valid_patient_id(cur, None, whatsapp_number)
             
-            # Create a new conversation row
+            channel_val = "WHATSAPP" if conversation_code and conversation_code.startswith("WA_") else "WEB"
             cur.execute("""
-                INSERT INTO conversations (conversation_code, patient_id, whatsapp_number, language, current_intent, conversation_status)
-                VALUES (%s, %s, %s, %s, 'GREETING', 'ACTIVE')
+                INSERT INTO conversations (conversation_code, patient_id, whatsapp_number, channel, language, current_intent, conversation_status)
+                VALUES (%s, %s, %s, %s, %s, 'GREETING', 'ACTIVE')
                 RETURNING id;
-            """, (conversation_code, initial_patient_id, whatsapp_number, default_language))
+            """, (conversation_code, initial_patient_id, whatsapp_number, channel_val, default_language))
             conv_id = cur.fetchone()[0]
             conn.commit()
             

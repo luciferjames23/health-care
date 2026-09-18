@@ -1856,15 +1856,15 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_existing_patient"
         elif m_strip in ["try again", "retry", "btn_retry_patient_id"]:
             btn_id = "btn_retry_patient_id"
-        elif m_strip in ["hospital information", "hospital info"]:
+        elif any(kw in m_strip for kw in ["hospital information", "hospital info", "location", "timings", "visiting hours"]):
             btn_id = "btn_hosp_info"
-        elif m_strip in ["doctor availability", "doctor information", "doctor info"]:
+        elif any(kw in m_strip for kw in ["doctor availability", "doctor information", "doctor info", "doctors available", "find doctor", "available doctor", "doctor schedule"]):
             btn_id = "btn_doctor_avail"
-        elif m_strip in ["other services", "other hospital services"]:
+        elif any(kw in m_strip for kw in ["other services", "other hospital services"]):
             btn_id = "btn_other_services"
-        elif m_strip in ["my appointments", "my appts", "my appointment", "appointment details", "check appointment", "view appointment", "show my appointment", "my appointment details", "upcoming appointments"]:
+        elif any(kw in m_strip for kw in ["my appointment", "my appts", "appointment details", "check appointment", "view appointment", "show my appointment", "my appointment details", "upcoming appointment", "my bookings", "check my appt"]) or m_strip in ["my appointments", "my appt"]:
             btn_id = "btn_my_appts"
-        elif m_strip in ["my reports", "my report", "show my reports", "show reports", "reports", "medical reports", "get reports", "view reports"]:
+        elif any(kw in m_strip for kw in ["my report", "show my report", "get report", "view report", "lab report", "test report", "download report", "medical report"]) or m_strip in ["reports", "my reports"]:
             btn_id = "btn_my_reports"
         elif m_strip in ["gpay", "google pay"]:
             btn_id = "btn_pay_gpay"
@@ -1882,11 +1882,11 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_pay_cancel"
         elif m_strip.startswith("pay ₹") or m_strip.startswith("pay rs") or m_strip.startswith("btn_pay_exec") or m_strip in ["pay", "pay now", "make payment", "pay fee", "confirm payment", "pay ₹800", "pay 800", "pay rs 800"]:
             btn_id = "btn_pay_exec"
-        elif m_strip in ["book appointment"]:
+        elif any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]:
             btn_id = "btn_book_appt"
-        elif m_strip in ["confirm appointment", "confirm"]:
+        elif any(kw in m_strip for kw in ["confirm appointment", "confirm appt"]) or m_strip in ["confirm"]:
             btn_id = "btn_confirm_appt"
-        elif m_strip in ["cancel appointment"]:
+        elif any(kw in m_strip for kw in ["cancel appointment", "cancel my appointment", "cancel appt", "cancel booking"]):
             btn_id = "btn_cancel_appt"
         elif m_strip in ["yes, cancel", "yes cancel", "confirm cancel", "yes cancel appointment", "yes, cancel appointment", "cancel it"]:
             b_id_pending = state.get("entities", {}).get("booking_id") or state.get("selected_booking_id")
@@ -2070,12 +2070,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state.setdefault("entities", {})["patient_id"] = p_id
             state["patient_identification_stage"] = "COMPLETED"
 
-    # Patient Identification Gate for unknown / new WhatsApp number
-    if not state.get("patient_id") and state.get("patient_identification_stage") != "COMPLETED":
-        is_farewell = any(kw in (message_text or "").lower() for kw in ["bye", "goodbye", "see you", "take care", "good night", "பாய்", "வணக்கம்"])
-        is_emergency = btn_id == "btn_emergency" or any(kw in (message_text or "").lower() for kw in ["emergency", "ambulance", "911", "icu"])
-        is_patient_select = bool(btn_id and (btn_id.startswith("btn_select_pat_") or btn_id == "btn_switch_patient"))
-        if not is_emergency and not is_farewell and not is_patient_select:
+        is_known_btn = bool(btn_id and btn_id not in ["btn_first_time", "btn_existing_patient", "btn_retry_patient_id"])
+        if not is_emergency and not is_farewell and not is_patient_select and not is_known_btn:
             return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
     if btn_id:
