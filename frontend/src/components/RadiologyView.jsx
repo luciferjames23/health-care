@@ -75,7 +75,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     setError('');
     try {
       // Viewing is workflow state only. It never reruns inference or changes AI status.
-      await radiologyApi.markViewed(id);
+      await radiologyApi.markViewed(id).catch(err => console.warn('markViewed non-critical error:', err));
       const d = await radiologyApi.getStudy(id);
       setDetail(d);
       setTab('analysis');

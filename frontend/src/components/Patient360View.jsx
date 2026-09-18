@@ -1374,8 +1374,9 @@ export default function Patient360View({
                   type="button"
                   onClick={() => {
                     setScanModalOpen(false);
+                    const studyIdentifier = currentScan.original_patient_id || currentScan.study_id || currentScan.scan_id || currentScan.patient_code || p.uhid;
                     if (onOpenRadiologyStudy) {
-                      onOpenRadiologyStudy(currentScan.study_id || currentScan.scan_id);
+                      onOpenRadiologyStudy(studyIdentifier);
                     } else if (onNavigate) {
                       onNavigate('radiology');
                     }
