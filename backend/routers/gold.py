@@ -322,6 +322,8 @@ def get_bed_demand_forecast_summary():
 def get_dim_admission_inputs(
     patient_id: Optional[int] = Query(None, description="Filter by patient_id"),
     patient_number: Optional[str] = Query(None, description="Filter by patient_number (e.g. PAT-10892)"),
+    admission_id: Optional[int] = Query(None, description="Filter by admission_id"),
+    admission_number: Optional[str] = Query(None, description="Filter by admission_number (e.g. MER-ADM-0087230)"),
     admission_type: Optional[str] = Query(None, description="Filter by admission type (Emergency, Urgent, Elective)"),
     admission_status: Optional[str] = Query(None, description="Filter by status (Admitted, In Progress, Discharged)"),
     gender: Optional[str] = Query(None, description="Filter by gender (M, F, Other)"),
@@ -333,12 +335,14 @@ def get_dim_admission_inputs(
 ):
     """Query `health_care.gold.dim_admission_inputs` table with optional filters and pagination."""
     filters = {}
+    if admission_id is not None: filters["admission_id"] = admission_id
+    if admission_number: filters["admission_number"] = admission_number
     if patient_id is not None: filters["patient_id"] = patient_id
     if patient_number: filters["patient_number"] = patient_number
     if admission_type: filters["admission_type"] = admission_type
     if admission_status:
         filters["admission_status"] = admission_status
-    else:
+    elif admission_id is None and patient_id is None and not patient_number and not admission_number:
         filters["discharge_status"] = "Admitted"
     if gender: filters["gender"] = gender
     if admission_date_from: filters["admission_date_from"] = admission_date_from

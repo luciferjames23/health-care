@@ -25,13 +25,29 @@ export default function Patient360View({
     let alive = true;
     const pid = patient?.patient_id || patient?.id;
     const aid = patient?.admission_id;
+    const pnum = patient?.patient_number || patient?.patient_code || patient?.uhid || patient?.mrn;
+    const anum = patient?.admission_number;
 
-    if (pid || aid) {
-      const fetchParams = aid ? { admission_id: aid, limit: 1 } : { patient_id: pid, limit: 1 };
+    const fetchParams = {};
+    if (aid) fetchParams.admission_id = aid;
+    else if (pid) fetchParams.patient_id = pid;
+    else if (pnum) fetchParams.patient_number = pnum;
+    else if (anum) fetchParams.admission_number = anum;
+
+    if (Object.keys(fetchParams).length > 0) {
+      fetchParams.limit = 1;
       apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true })
         .then(res => {
           if (alive && res?.data && res.data.length > 0) {
-            setLiveAdmission(res.data[0]);
+            const fetched = res.data[0];
+            // Safety check: verify that fetched record actually matches target patient/admission
+            const matches = (
+              (!aid || String(fetched.admission_id) === String(aid)) &&
+              (!pid || String(fetched.patient_id) === String(pid))
+            );
+            if (matches) {
+              setLiveAdmission(fetched);
+            }
           }
         })
         .catch(() => {});
@@ -49,7 +65,11 @@ export default function Patient360View({
   // Normalize patient fields with live database values from dim_admission_inputs
   const p = useMemo(() => {
     const d = patient || {};
-    const raw = liveAdmission || d.raw || d;
+    const isMatchingLive = liveAdmission && (
+      (!d.admission_id || String(liveAdmission.admission_id) === String(d.admission_id)) &&
+      (!d.patient_id || String(liveAdmission.patient_id) === String(d.patient_id))
+    );
+    const raw = (isMatchingLive ? liveAdmission : null) || d.raw || d;
     const rawPid = d.patient_id || raw.patient_id || d.id;
     const rawAdmId = d.admission_id || raw.admission_id;
 
@@ -474,7 +494,7 @@ export default function Patient360View({
                   color: p.isCleared ? '#15803d' : '#991b1b',
                 }}
               >
-                {p.isCleared ? 'Bill Cleared · Admitted' : (p.status || 'Admitted')}
+                {p.isCleared ? 'Bill Cleared · Admitted' : (p.outstandingBalance > 0 ? `Pending Clearance · ₹${p.outstandingBalance.toLocaleString('en-IN')}` : 'Pending Bill Clearance')}
               </span>
             </div>
 
@@ -667,14 +687,14 @@ export default function Patient360View({
             >
               <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px' }}>Insurance and billing</div>
               {[
-                ['Estimate', '₹2,45,000'],
-                ['Running bill', '₹3,22,450'],
-                ['Insurance', '₹1,95,000 · Query Raised'],
-                ['Patient share', '₹1,27,450'],
+                ['Bill Number', p.billNumber],
+                ['Net Amount', `₹${p.billNetAmount.toLocaleString('en-IN')}`],
+                ['Status', p.billingStatusDisplay],
+                ['Patient Due', `₹${p.outstandingBalance.toLocaleString('en-IN')}`],
               ].map(([k, v]) => (
                 <div key={k} style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', gap: '4px 12px', padding: '3px 0', fontSize: '12px' }}>
                   <span style={{ color: '#8a9096' }}>{k}</span>
-                  <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#15181b', fontWeight: 600 }}>
+                  <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: p.isCleared ? '#15803d' : (k === 'Patient Due' && p.outstandingBalance > 0 ? '#991b1b' : '#15181b'), fontWeight: 600 }}>
                     {v}
                   </span>
                 </div>

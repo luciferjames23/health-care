@@ -270,6 +270,8 @@ export const apiService = {
   // -------------------------------------------------------------------------
   async getCurrentAdmissions(params = {}, options = {}) {
     const queryParams = new URLSearchParams();
+    if (params.admission_id) queryParams.append("admission_id", params.admission_id);
+    if (params.admission_number) queryParams.append("admission_number", params.admission_number);
     if (params.patient_id) queryParams.append("patient_id", params.patient_id);
     if (params.patient_number) queryParams.append("patient_number", params.patient_number);
     if (params.admission_type) queryParams.append("admission_type", params.admission_type);
