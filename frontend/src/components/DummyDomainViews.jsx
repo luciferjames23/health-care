@@ -1794,7 +1794,7 @@ export function DataDomainView({ domain = 'Patient', onOpenDrawer, onOpenModal }
   const isScenario = d.includes('scenario');
   const isBeforeAfter = d.includes('before') || d.includes('after');
 
-  const title = isPatient ? 'Master Patient Index · Databricks Gold Layer' :
+  const title = isPatient ? 'Master Patient Index · Clinical Database' :
     isOps ? 'Hospital Operational & Throughput Metrics' :
     isClinical ? 'Structured Clinical Observations & Diagnostic Codes' :
     isFinancial ? 'Financial Ledger & AR/AP Fact Records' :
@@ -2595,7 +2595,7 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title={module}
-        subtitle="Governed enterprise infrastructure · connected live to Lakehouse data foundation"
+        subtitle="Governed enterprise infrastructure · connected live to clinical data foundation"
         count={8}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: `Configure ${module}`, text: `Modify settings or credentials for ${module}:` })}
         newLabel="+ Add Configuration"
@@ -2623,7 +2623,7 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
               ['Insurance & TPA Clearinghouse', 'National Health Claims (NHCX)', 'Bidirectional', '3 min polling', 'Web portal manual', 'Healthy'],
               ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Live transaction', 'Paper MAR contingency', 'Healthy'],
               ['WhatsApp Patient Notification Gateway', 'Meta Cloud API', 'Outbound / Inbound', 'Instant', 'SMS fallback', 'Healthy'],
-              ['Databricks Lakehouse Gold Views', 'Delta Lake / SQL', 'Lakehouse Ingestion', '5 min micro-batch', 'Read replica cache', 'Healthy'],
+              ['Clinical Data Foundation Views', 'Clinical SQL Service', 'Registry Ingestion', '5 min interval sync', 'Read replica cache', 'Healthy'],
             ].map(([c, p, d, f, fb, h], i) => (
               <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{c}</td>

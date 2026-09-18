@@ -219,10 +219,18 @@ export default function App() {
           {activePage === 'patient360' && (
             <Patient360View
               patient={selectedPatient}
-              onOpenDischarge={() => handleOpenDischargeSummary(selectedPatient)}
+              onOpenDischarge={() => {
+                setSelectedPatient(null);
+                setActivePage('discharge');
+              }}
               onOpenSoap={handleOpenSoap}
               onBack={() => setActivePage('patients')}
-              onNavigate={setActivePage}
+              onNavigate={(page) => {
+                if (page === 'discharge') {
+                  setSelectedPatient(null);
+                }
+                setActivePage(page);
+              }}
               onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
               onOpenDrawer={setDrawer}
               onOpenModal={setModal}
@@ -344,7 +352,7 @@ export default function App() {
             <AdminSystemView module={activePage === 'integration-arch' ? 'Integration Architecture' : activePage === 'users' ? 'User Accounts & MFA Security' : activePage === 'permissions' ? 'RBAC & ABAC Policy Permission Matrix' : activePage === 'identity' ? 'Patient Identity Resolution & Consent Master' : activePage === 'departments' ? 'Clinical Departments & Specialty Services' : activePage === 'facilities' ? 'Facilities & Housekeeping Bed Management' : activePage === 'integrations' ? 'Interface Connectors (HL7 / FHIR / ASTM)' : 'Enterprise Master Data'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
           )}
 
-          {/* Lakehouse Data Views */}
+          {/* Clinical Data Foundation Views */}
           {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" onOpenDrawer={setDrawer} onOpenModal={setModal} />}

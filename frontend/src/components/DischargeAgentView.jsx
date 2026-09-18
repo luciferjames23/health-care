@@ -494,7 +494,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                 ✓ {flowRunResult.message}
               </div>
               <div style={{ fontSize: '11.5px', color: '#334155' }}>
-                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now committed to the Lakehouse Gold layer and available in the Discharge Command Centre.
+                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now saved to clinical records and available in the Discharge Command Centre.
               </div>
             </div>
           )}
@@ -1014,7 +1014,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#52585e', marginTop: '2px' }}>
                       {isEligible
-                        ? 'The agent is cleared to collect patient context, generate the discharge summary, and commit to the Lakehouse.'
+                        ? 'The agent is cleared to collect patient context, generate the discharge summary, and save to clinical records.'
                         : `The agent has blocked summary generation due to pending requirements: ${pendingReqs.join(', ')}.`}
                     </div>
                   </div>

@@ -118,13 +118,13 @@ export const agentApi = {
       : `${API_BASE_URL}/api/v1/agent/discharge/batch-status`;
     const res = await fetch(url);
     if (!res.ok) {
-      throw new Error(`Failed to load batch status (${res.status})`);
+      throw new Error(`Failed to load discharge status (${res.status})`);
     }
     return await res.json();
   },
 
   /**
-   * Execute 1-Click Fully Automated Autonomous Discharge Batch
+   * Execute 1-Click Fully Automated Autonomous Discharge Summary Generation
    */
   async runBatchDischarge(modelName: string = 'Meta-Llama-3.3-70B-Instruct'): Promise<BatchDischargeSummaryResult> {
     const res = await fetch(`${API_BASE_URL}/api/v1/agent/discharge/batch-generate`, {
@@ -134,7 +134,7 @@ export const agentApi = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Batch generation failed (${res.status})`);
+      throw new Error(err.detail || `Discharge summary generation failed (${res.status})`);
     }
     return await res.json();
   }

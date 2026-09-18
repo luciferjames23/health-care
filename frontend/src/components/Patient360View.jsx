@@ -561,7 +561,13 @@ export default function Patient360View({
             </button>
             <button
               type="button"
-              onClick={() => onOpenDischarge && onOpenDischarge(patient)}
+              onClick={() => {
+                if (onOpenDischarge) {
+                  onOpenDischarge();
+                } else if (onNavigate) {
+                  onNavigate('discharge');
+                }
+              }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -921,7 +927,13 @@ export default function Patient360View({
               p.isCleared ? 'Ready for Sign-Off' : 'Pending Bill Clearance'
             ],
           ]}
-          onRowClick={() => onOpenDischarge && onOpenDischarge(patient)}
+          onRowClick={() => {
+            if (onOpenDischarge) {
+              onOpenDischarge();
+            } else if (onNavigate) {
+              onNavigate('discharge');
+            }
+          }}
         />
       )}
 
@@ -1337,7 +1349,7 @@ export default function Patient360View({
               }}
             >
               <div style={{ fontSize: '11px', color: '#64748b' }}>
-                Powered by Meridian Radiology AI Lakehouse (PostgreSQL rv_pbpkghvg)
+                Powered by Meridian Clinical Imaging Intelligence
               </div>
 
               <div style={{ display: 'flex', gap: '10px' }}>

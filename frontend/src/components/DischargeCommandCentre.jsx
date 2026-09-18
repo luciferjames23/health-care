@@ -95,9 +95,9 @@ export default function DischargeCommandCentre({ selectedPatient, onClearSelecte
     };
   }, []);
 
-  // When navigated with a specific patient, auto-open their discharge summary modal
+  // Only auto-open modal if explicitly requested with autoOpenModal === true
   useEffect(() => {
-    if (!selectedPatient) return;
+    if (!selectedPatient || !selectedPatient.autoOpenModal) return;
 
     const sPid = String(selectedPatient.patient_id || selectedPatient.id || '').trim();
     const sSummaryId = String(selectedPatient.summary_id || '').trim();

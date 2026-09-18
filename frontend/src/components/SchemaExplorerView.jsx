@@ -167,14 +167,14 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'fact_b
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            DATABRICKS LAKEHOUSE · GOLD LAYER METADATA
+            CLINICAL DATA FOUNDATION · SCHEMA METADATA
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <TableProperties style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
-            Gold Schema &amp; Data Dictionary Explorer
+            Clinical Schema &amp; Data Dictionary Explorer
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Inspect table definitions, column types, primary keys, and description metadata for Databricks Gold schema.
+            Inspect table definitions, column types, primary keys, and description metadata for clinical database tables.
           </div>
         </div>
 
@@ -253,7 +253,7 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'fact_b
                       {t.table_name}
                     </div>
                     <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                      {t.domain || 'Gold Lakehouse'}
+                      {t.domain || 'Clinical Schema'}
                     </div>
                   </div>
                   <span style={{
@@ -280,15 +280,15 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'fact_b
                     fontFamily: 'monospace', fontSize: '11px', color: '#0369a1', fontWeight: 600,
                     padding: '2px 8px', background: '#e0f2fe', borderRadius: '12px'
                   }}>
-                    health_care.gold
+                    Clinical Registry
                   </span>
-                  <span style={{ fontSize: '11.5px', color: '#64748b' }}>Delta Lake Format</span>
+                  <span style={{ fontSize: '11.5px', color: '#64748b' }}>Clinical Dataset</span>
                 </div>
                 <h2 style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'monospace', margin: '6px 0 2px', color: '#0f172a' }}>
                   {currentTableObj.table_name}
                 </h2>
                 <div style={{ color: '#52585e', fontSize: '12px' }}>
-                  {currentTableObj.description || 'Gold layer curated analytical dataset.'}
+                  {currentTableObj.description || 'Curated clinical database records.'}
                 </div>
               </div>
 
@@ -314,7 +314,7 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'fact_b
             {loading ? (
               <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                 <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-                <span style={{ fontSize: '12px' }}>Fetching Databricks DESCRIBE TABLE schema...</span>
+                <span style={{ fontSize: '12px' }}>Fetching table schema...</span>
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>

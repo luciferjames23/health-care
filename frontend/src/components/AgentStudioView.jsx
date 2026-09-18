@@ -422,14 +422,14 @@ export const ALL_21_AGENTS = [
     purpose: 'Generates scheduled executive operational summaries, discharge turnaround metrics, and revenue leak analyses.',
     instructions: {
       role: 'You are the Management Analytics Agent.',
-      goal: 'Synthesize Lakehouse Gold data into concise daily operations briefings and KPI variance reports.',
+      goal: 'Synthesize hospital clinical & operational data into concise daily operations briefings and KPI variance reports.',
       safety: 'Mask patient-level identifiable health information (PHI) in aggregate management reports.',
       routing: 'Query Gold Layer -> Aggregate department metrics -> Format executive briefing.',
       escalation: 'Negative metric trend > 10% highlights alert for COO.',
       language: 'Executive English.'
     },
     tools: [
-      { tool: 'Databricks Lakehouse', perm: 'Query Gold Tables', read: true, write: false, appr: 'None', enabled: true }
+      { tool: 'Hospital Database', perm: 'Query Clinical Tables', read: true, write: false, appr: 'None', enabled: true }
     ],
     knowledge: [
       { t: 'Inpatient Discharge SOP', v: '3.1', eff: '01 Jul 2026', status: 'Published' }
@@ -454,12 +454,12 @@ export const ALL_21_AGENTS = [
       role: 'You are the Hospital Forecasting Agent.',
       goal: 'Generate hourly predictive load forecasts for ICU, General Ward, and Staff Roster allocation.',
       safety: 'All staffing and roster modifications require Hospital Management sign-off.',
-      routing: 'Aggregate Gold Data -> Run forecasting models -> Draft roster modifications.',
+      routing: 'Aggregate Clinical Data -> Run forecasting models -> Draft roster modifications.',
       escalation: 'Predicted bed occupancy > 92% triggers amber capacity alert.',
       language: 'Executive English.'
     },
     tools: [
-      { tool: 'Databricks Lakehouse', perm: 'Read Historical Census', read: true, write: false, appr: 'None', enabled: true }
+      { tool: 'Hospital Database', perm: 'Read Historical Census', read: true, write: false, appr: 'None', enabled: true }
     ],
     knowledge: [
       { t: 'Inpatient Discharge SOP', v: '3.1', eff: '01 Jul 2026', status: 'Published' }
@@ -631,17 +631,17 @@ export const ALL_21_AGENTS = [
     humanApproval: 'None',
     toolsCount: 4,
     knowledgeCount: 6,
-    purpose: 'Answers executive queries on hospital census, revenue leakages, discharge bottlenecks, and clinician productivity with Lakehouse citations.',
+    purpose: 'Answers executive queries on hospital census, revenue leakages, discharge bottlenecks, and clinician productivity with verified clinical citations.',
     instructions: {
       role: 'You are the Hospital Management Copilot.',
-      goal: 'Answer strategic, operational, and financial queries using Databricks Gold Layer analytics with full source citations.',
+      goal: 'Answer strategic, operational, and financial queries using verified hospital analytics with full source citations.',
       safety: 'Mask patient-level identifiable health information (PHI); aggregate only across departments unless authorized.',
-      routing: 'Receive natural language prompt -> Query Databricks SQL Sandbox / Gold Views -> Compute metrics -> Format executive briefing.',
+      routing: 'Receive natural language prompt -> Query Clinical Analytics / Operations Views -> Compute metrics -> Format executive briefing.',
       escalation: 'Sensitive financial variance > 15% includes reminder to consult Chief Financial Officer.',
       language: 'Executive English.'
     },
     tools: [
-      { tool: 'Databricks Gold Layer', perm: 'Query Aggregated Analytics', read: true, write: false, appr: 'None', enabled: true }
+      { tool: 'Hospital Clinical Analytics', perm: 'Query Aggregated Analytics', read: true, write: false, appr: 'None', enabled: true }
     ],
     knowledge: [
       { t: 'Inpatient Discharge SOP', v: '3.1', eff: '01 Jul 2026', status: 'Published' }

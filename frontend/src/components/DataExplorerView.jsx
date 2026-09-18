@@ -108,14 +108,14 @@ export default function DataExplorerView({ tables = [], initialTable = 'fact_bed
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            DATABRICKS LAKEHOUSE · INTERACTIVE QUERY VIEWER
+            HOSPITAL DATABASE · INTERACTIVE QUERY VIEWER
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Database style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
             Interactive Data Grid &amp; Query Previewer
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Query live records from Databricks Gold lakehouse tables with real-time pagination and export options.
+            Query live records from hospital database tables with real-time pagination and export options.
           </div>
         </div>
 
@@ -174,7 +174,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'fact_bed
             >
               {tableList.map(t => (
                 <option key={t.table_name} value={t.table_name}>
-                  {t.table_name} ({t.domain || 'Lakehouse'})
+                  {t.table_name} ({t.domain || 'Clinical Data'})
                 </option>
               ))}
             </select>
@@ -239,7 +239,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'fact_bed
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
             <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Gold Lakehouse...</span>
+            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Hospital Database...</span>
           </div>
         ) : filteredRows.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>

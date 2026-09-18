@@ -658,7 +658,7 @@ export default function MasterModal({ modal, onClose, onSubmit, role = 'Hospital
                 <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>
                   {step === 4 && 'Memory & Context Window Configuration: 128k context, short-term session state, audit log persistence.'}
                   {step === 5 && 'Access Control & Guardrails: Governed by role-based authorization. High-tier actions require Human-in-the-Loop.'}
-                  {step === 6 && 'Foundation Model Selection: Databricks Meta-Llama-3-3-70b-Instruct (Serving Endpoint active).'}
+                  {step === 6 && 'Foundation Model Selection: Meta-Llama-3-3-70b-Instruct (Serving Endpoint active).'}
                   {step === 7 && 'Review & Publish: Ready for deployment to active orchestrator.'}
                 </div>
                 <div style={{ color: '#64748b' }}>

@@ -158,7 +158,7 @@ def get_claim_risk(claim_id: str):
         "explainability": {
             "factor_weights": {"Clinical Validation": 30, "Policy Matching": 25},
             "max_score": 100,
-            "methodology": "PostgreSQL Lakehouse AI scoring"
+            "methodology": "Clinical AI scoring"
         }
     }
 

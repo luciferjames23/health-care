@@ -20,10 +20,10 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Sliders style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
-            Databricks &amp; System Configuration
+            Hospital System &amp; Database Configuration
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            View active connection properties for Databricks Lakehouse and FastAPI REST services.
+            View active connection properties for Clinical Database and FastAPI REST services.
           </div>
         </div>
 
@@ -58,7 +58,7 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
                 {isConnected ? 'FastAPI Backend Online & Connected' : 'Local Prototype Engine Active'}
               </div>
               <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                {isConnected ? 'Connected to http://localhost:8000/api/v1/health' : 'Serving rich offline mock data for Databricks Gold schema'}
+                {isConnected ? 'Connected to http://localhost:8000/api/v1/health' : 'Serving rich offline mock data for Clinical schema'}
               </div>
             </div>
           </div>
@@ -80,13 +80,13 @@ export default function SettingsView({ healthInfo, onRefresh, loading }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <Database style={{ width: '18px', height: '18px', color: '#0284c7' }} />
             <div style={{ fontWeight: 700, fontSize: '13.5px', color: '#0f172a' }}>
-              Databricks Gold Layer Metadata
+              Clinical Database Metadata
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontFamily: 'monospace', fontSize: '12px' }}>
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '10px 12px' }}>
-              <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>Databricks Host</div>
+              <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontFamily: 'inherit', marginBottom: '2px' }}>Database Host</div>
               <div style={{ color: '#0f172a', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 dbc-478013da-49af.cloud.databricks.com
               </div>

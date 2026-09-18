@@ -429,7 +429,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
                 : 'Discharge delays are concentrated in insurance preauthorization reviews. Ward turnaround and bed releases are monitored dynamically.'}
             </div>
             <div style={{ marginTop: '8px', fontSize: '11px', color: '#8a9096' }}>
-              Sources: PostgreSQL Lakehouse, LIS &amp; EMR Ingestion Gateway
+              Sources: Clinical EHR Database, LIS &amp; Hospital Registry
             </div>
             <div style={{ display: 'flex', gap: '6px', marginTop: '10px', flexWrap: 'wrap' }}>
               <button
@@ -514,9 +514,9 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
               <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
                 {apiError ? 'Offline (Port 8000)' : 'Online · Port 8000'}
               </span>
-              <span>PostgreSQL Lakehouse</span>
+              <span>Clinical Records Database</span>
               <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? 'Unreachable' : 'Connected (rv_pbpkghvg)'}
+                {apiError ? 'Unreachable' : 'Connected · Online'}
               </span>
               <span>Live Bed Tracker</span>
               <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>

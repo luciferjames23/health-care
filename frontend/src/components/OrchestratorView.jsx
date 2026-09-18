@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 const PIPELINE_NODES = [
   { id: 1, title: 'Omnichannel Ingestion', short: 'WhatsApp · Web · EMR', detail: 'Ingests voice, chat, EMR events, or HL7 diagnostic feeds and standardizes message format.', status: 'Pass', color: 'oklch(0.4 0.12 150)' },
   { id: 2, title: 'Identity & Consent', short: 'UHID + Consent Verify', detail: 'Validates patient UHID, phone OTP, and verifies channel purpose consent (WhatsApp status, reminders).', status: 'Verified', color: 'oklch(0.4 0.12 150)' },
-  { id: 3, title: 'Context Retrieval', short: 'Lakehouse & EMR RAG', detail: 'Retrieves patient longitudinal history, active admission encounter, tariff rules, and clinical SOPs.', status: '12 docs retrieved', color: 'oklch(0.4 0.12 150)' },
+  { id: 3, title: 'Context Retrieval', short: 'Clinical Records & EMR', detail: 'Retrieves patient longitudinal history, active admission encounter, tariff rules, and clinical SOPs.', status: '12 docs retrieved', color: 'oklch(0.4 0.12 150)' },
   { id: 4, title: 'Policy Gateway', short: 'RBAC & Masking', detail: 'Enforces role-based permissions, care-team masking, and verifies clinical decision boundaries.', status: '12 checks passed', color: 'oklch(0.4 0.12 150)' },
   { id: 5, title: 'Agent Selection', short: 'Intent Dispatch', detail: 'Routes task to specialist agent (e.g. AG-19 Discharge Summary, AG-07 Preauth Assembly).', status: 'AG-19 Selected', color: 'oklch(0.5 0.1 200)' },
   { id: 6, title: 'Tool Execution', short: 'Safe Gateway Calls', detail: 'Executes allowed tool calls against EMR, LIS, RIS, Pharmacy, and Billing systems.', status: '3 tools called', color: 'oklch(0.4 0.12 150)' },

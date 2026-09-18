@@ -121,7 +121,7 @@ export default function NotebookRunnerView() {
   const inputRef = useRef(null);
 
   const PRESETS = [
-    { label: 'Batch (87423,87428,87433)', val: '87423,87428,87433' },
+    { label: 'Multiple (87423,87428,87433)', val: '87423,87428,87433' },
     { label: 'Cardiology AMI (87245)', val: '87245' },
     { label: 'GI Surgery (87246)', val: '87246' },
     { label: 'Pulmonology Asthma (87224)', val: '87224' },
@@ -299,7 +299,7 @@ export default function NotebookRunnerView() {
             </span>
           </div>
           <div className="space-y-2 text-xs text-slate-400">
-            <div>1. Resolving clinical inputs and vitals from Delta Lakehouse...</div>
+            <div>1. Resolving clinical inputs and vitals from Patient Records...</div>
             <div>2. Extracting exact prescribed medications and diagnosis parameters...</div>
             <div>3. Formulating structured discharge summaries, treatments & take-home regimen...</div>
             <div>4. Committing output records to <code className="text-cyan-300">dim_generated_discharge_summaries</code>...</div>
@@ -422,7 +422,7 @@ export default function NotebookRunnerView() {
           ))}
 
           {/* Output Table */}
-          <Section title="Lakehouse Gold Output Table" icon={Table2} defaultOpen={false}
+          <Section title="Clinical Summary Output Table" icon={Table2} defaultOpen={false}
             badge={hasRows ? `${generatedSummaries.length} rows` : "empty"}>
             <ResultTable data={generatedSummaries} />
           </Section>

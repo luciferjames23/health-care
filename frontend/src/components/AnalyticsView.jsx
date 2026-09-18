@@ -162,7 +162,7 @@ export default function AnalyticsView() {
             Healthcare Executive Analytics &amp; Clinical Insights
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Real-time analytical dashboards derived dynamically from live PostgreSQL Healthcare database and Databricks Gold tables.
+            Real-time analytical dashboards derived dynamically from live healthcare clinical database.
           </div>
         </div>
 

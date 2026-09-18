@@ -21,8 +21,8 @@ from routers.radiology import router as radiology_router, pacs_router
 from agent.router import router as agent_router
 
 app = FastAPI(
-    title="Healthcare PostgreSQL Lakehouse API",
-    description="REST API service querying Healthcare clinical tables and AI Lakehouse in PostgreSQL (`rv_pbpkghvg` at `rivesca.eu.db.rivestack.io`)",
+    title="Healthcare Clinical Intelligence API",
+    description="REST API service querying Healthcare clinical tables and AI clinical models",
     version="2.1.0"
 )
 
@@ -93,7 +93,7 @@ db_connector = DatabricksConnector()
 @app.get("/")
 def read_root():
     return {
-        "service": "Healthcare PostgreSQL Lakehouse API",
+        "service": "Healthcare Clinical Intelligence API",
         "status": "online",
         "database": Config.POSTGRES_DB,
         "host": Config.POSTGRES_HOST,

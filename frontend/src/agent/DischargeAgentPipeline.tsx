@@ -84,7 +84,7 @@ export default function DischargeAgentPipeline({
         setActiveTab('evaluation');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load admission data from lakehouse');
+      setError(err.message || 'Failed to load admission data');
     } finally {
       setLoading(false);
     }
@@ -117,14 +117,14 @@ export default function DischargeAgentPipeline({
       const result = await agentApi.runBatchDischarge(selectedModel);
 
       setExecutionStep(5);
-      setStatusMessage('Persisting generated summaries into dim_generated_discharge_summaries table...');
+      setStatusMessage('Saving certified discharge summaries into clinical records...');
       await new Promise(r => setTimeout(r, 300));
 
       setBatchData(result);
       setActiveTab('summaries');
       setStatusMessage(`Completed: Checked ${result.total_checked} patients, identified ${result.total_eligible} eligible, generated ${result.total_generated} summaries.`);
     } catch (err: any) {
-      setError(err.message || 'Discharge orchestration batch workflow encountered an error');
+      setError(err.message || 'Discharge summary generation encountered an error');
     } finally {
       setIsExecuting(false);
       setExecutionStep(0);
@@ -559,7 +559,7 @@ export default function DischargeAgentPipeline({
 
         <span style={{ fontSize: '11.5px', color: '#64748b' }}>
           {activeTab === 'summaries'
-            ? 'Completed discharge records stored in Lakehouse'
+            ? 'Completed discharge records stored in patient registry'
             : `Vitals stability evaluated via ${selectedModel}`}
         </span>
       </div>
@@ -595,7 +595,7 @@ export default function DischargeAgentPipeline({
                   cursor: 'pointer'
                 }}
               >
-                Execute Discharge Batch
+                Generate Discharge Summaries
               </button>
             </div>
           ) : pendingSummaries.length === 0 ? (
@@ -612,7 +612,7 @@ export default function DischargeAgentPipeline({
                 All Discharge Summaries Have Been Signed Off & Approved
               </div>
               <p style={{ fontSize: '12.5px', margin: '0', color: '#64748b', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
-                All {signedOffCount} eligible patient discharge summaries have been signed off, certified, and committed to Lakehouse storage.
+                All {signedOffCount} eligible patient discharge summaries have been signed off, certified, and saved to patient records.
               </p>
             </div>
           ) : (
@@ -1209,7 +1209,7 @@ export default function DischargeAgentPipeline({
               alignItems: 'center'
             }}>
               <div style={{ fontSize: '11px', color: '#64748b' }}>
-                Model: <strong>{selectedSummary.model_name}</strong> · Stored in <code>dim_generated_discharge_summaries</code>
+                Model: <strong>{selectedSummary.model_name}</strong> · Verified Clinical Record
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button

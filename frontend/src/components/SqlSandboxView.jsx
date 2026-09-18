@@ -136,14 +136,14 @@ export default function SqlSandboxView() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            DATABRICKS LAKEHOUSE · INTERACTIVE SQL SANDBOX
+            HOSPITAL DATABASE · INTERACTIVE SQL QUERY CONSOLE
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Terminal style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
-            Databricks SQL Query Sandbox
+            Hospital Database Query Sandbox
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Execute SQL queries directly against Delta Lake Gold tables in <span style={{ fontFamily: 'monospace', color: '#0284c7' }}>health_care.gold</span>.
+            Execute SQL queries directly against hospital records and clinical tables.
           </div>
         </div>
 
