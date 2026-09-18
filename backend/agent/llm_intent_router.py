@@ -488,7 +488,7 @@ SUPPORTED INTENTS (return exactly one):
 - PATIENT_DETAILS_UPDATE: Updating personal info (name, phone, DOB, email)
 - DEPENDENT_BOOKING: Booking a NEW appointment for a family member (son, daughter, wife, husband, mother, father, child)
 - PRE_ADMISSION: Pre-admission registration, clearance, confirming admission ("confirm admission", "btn_confirm_admission"), cancelling admission ("cancel admission"), pre-admission requirements or documents
-- EMERGENCY: Chest pain, severe difficulty breathing, sudden stroke, heavy bleeding, life-threatening emergency
+- EMERGENCY: Severe acute sudden chest pain, severe difficulty breathing, sudden stroke, heavy bleeding, life-threatening emergency (routine/mild chest pain consultations go to BOOK_APPOINTMENT -> Cardiology)
 - HUMAN_ESCALATION: Asking to talk to a human agent, staff, operator, or customer care
 - GENERAL_MEDICAL_QUERY: General healthcare or medical advice question
 - THANK_YOU: Thanking the bot ("thank you", "thanks", "appreciated")

@@ -298,10 +298,12 @@ def detect_intent(text: str, current_intent: str = None) -> str:
     """
     text_lower = (text or "").lower().strip()
 
-    # --- Priority 0: Emergency --- Always checked regardless of context
-    for pattern in PATTERNS["EMERGENCY_GUIDANCE"]:
-        if re.search(pattern, text_lower, re.IGNORECASE):
-            return "EMERGENCY_GUIDANCE"
+    # --- Priority 0: Emergency ---
+    is_routine_booking_context = any(w in text_lower for w in ["appointment", "book", "consultation", "schedule", "checkup", "doctor for"]) and not any(w in text_lower for w in ["severe", "acute", "sudden", "emergency", "crushing", "unconscious", "cannot", "can't", "stroke", "heart attack", "heavy bleeding"])
+    if not is_routine_booking_context:
+        for pattern in PATTERNS["EMERGENCY_GUIDANCE"]:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return "EMERGENCY_GUIDANCE"
 
     # --- Priority 1: Human escalation ---
     for pattern in PATTERNS["HUMAN_ESCALATION"]:

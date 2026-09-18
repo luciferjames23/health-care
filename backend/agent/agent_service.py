@@ -1945,6 +1945,19 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         elif m_strip in ["change reason", "btn_chg_reason"]:
             btn_id = "btn_chg_reason"
 
+        # Check natural language date inputs if doctor is selected or date is requested
+        if not btn_id and message_text:
+            curr_stage = state.get("conversation_state") or state.get("booking_stage")
+            curr_doc = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+            if curr_doc or curr_stage in ["DATE_REQUIRED", "AWAITING_DATE", "DOCTOR_SELECTED"]:
+                try:
+                    from agent.date_normalizer import parse_and_normalize_date
+                    norm_d, is_amb, err = parse_and_normalize_date(message_text)
+                    if norm_d:
+                        btn_id = f"btn_date_{norm_d}"
+                except Exception:
+                    pass
+
         # Check against translated menu button titles for all 7 languages
         if not btn_id:
             for lang_code, btn_dict in language_service.MENU_BUTTON_TRANSLATIONS.items():
@@ -2071,7 +2084,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["patient_identification_stage"] = "COMPLETED"
 
         is_known_btn = bool(btn_id and btn_id not in ["btn_first_time", "btn_existing_patient", "btn_retry_patient_id"])
-        if not is_emergency and not is_farewell and not is_patient_select and not is_known_btn:
+        if not matched and not is_known_btn:
             return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
     if btn_id:
@@ -2718,19 +2731,19 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     "interactive_buttons": state["interactive_buttons"]
                 }
             elif pending_action in ("MY_APPOINTMENTS", "APPOINTMENT_STATUS"):
-                return process_agent_message(conversation_code, "my appointments", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "my appointments", language_override=current_lang)
             elif pending_action in ("PATIENT_REPORTS", "PATIENT_DOCUMENTS"):
-                return process_agent_message(conversation_code, "show my reports", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "show my reports", language_override=current_lang)
             elif pending_action in ("CANCEL_APPOINTMENT", "CANCEL"):
-                return process_agent_message(conversation_code, "cancel appointment", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "cancel appointment", language_override=current_lang)
             elif pending_action in ("RESCHEDULE_APPOINTMENT", "RESCHEDULE"):
-                return process_agent_message(conversation_code, "reschedule appointment", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "reschedule appointment", language_override=current_lang)
             elif pending_action in ("BILLING_AND_PAYMENTS", "BILLING", "PAYMENT"):
-                return process_agent_message(conversation_code, "show my bill", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "show my bill", language_override=current_lang)
             elif pending_action == "PRE_ADMISSION":
-                return process_agent_message(conversation_code, "pre-admission", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "pre-admission", language_override=current_lang)
             elif pending_action in ("PROFILE_UPDATE", "PATIENT_DETAILS_UPDATE", "CHANGE_PROFILE"):
-                return process_agent_message(conversation_code, "change profile", patient_code=patient_code, language=current_lang)
+                return process_agent_message(conversation_code, patient_code, "change profile", language_override=current_lang)
             
             return build_patient_profile_response(conversation_code, state, current_lang)
 
@@ -4201,12 +4214,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 target_date = btn_id.split("btn_date_")[1]  # e.g. "2026-09-15"
             except IndexError:
                 target_date = (today + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        print(f"[BUTTON_ROUTING] Date button tap: date={target_date}")
+        doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+        if doc_id:
+            sync_selected_doctor_state(state, doc_id)
+
+        print(f"[BUTTON_ROUTING] Date button tap: date={target_date}, doc_id={doc_id}")
         print(f"[DATE_STATE_DEBUG] btn_date handler: setting appointment_date={target_date}, clearing appointment_time")
         state["entities"]["appointment_date"] = target_date
         state["entities"]["appointment_time"] = None
+        state["booking_stage"] = "AWAITING_TIME"
+        state["conversation_state"] = "TIME_REQUIRED"
         state["intent"] = "BOOK_APPOINTMENT"
-        doc_id = state["entities"].get("doctor_id")
+
         if doc_id:
             doc_info = resolve_doctor_details(doc_id)
             res_slots = tool_registry.tool_get_available_slots(conversation_code, doc_id, target_date)

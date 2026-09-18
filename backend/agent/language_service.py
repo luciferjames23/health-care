@@ -255,7 +255,7 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_my_profile": "My Profile",
         "btn_my_appts": "My Appointments",
         "btn_cancel_appt": "Cancel Appointment",
-        "btn_reschedule_appt": "Reschedule Appointment",
+        "btn_reschedule_appt": "Reschedule Appt",
         "btn_new_patient": "New Patient",
         "btn_hosp_info": "Hospital Information",
         "btn_my_reports": "My Reports",

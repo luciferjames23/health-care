@@ -128,9 +128,6 @@ def identify_patient_by_phone(phone_number: str) -> Dict[str, Any]:
             "patients": [],
             "error": str(e)
         }
-    finally:
-        cur.close()
-        conn.close()
 
 
 def format_patient_details_response(patient_dict: Optional[Dict[str, Any]], whatsapp_number: str, lang: str = "ENGLISH") -> str:
