@@ -52,6 +52,7 @@ export const DEMO_ROLES = [
 ];
 
 export const ROLE_PAGE_ACCESS = {
+  'Admin': null, // Full platform access
   'Hospital Management': null, // Full platform access
   'AI Administrator': null, // Full platform access
   'IT Administrator': null, // Full platform access

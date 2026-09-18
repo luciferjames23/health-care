@@ -1,6 +1,27 @@
 import React from 'react';
 import { ALL_ROLES, DEMO_ROLES } from '../services/meridianData';
 
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
+const FALLBACK_DB_USERS = [
+  { username: 'admin', role: 'Hospital Management', name: 'System Admin', dept: 'Administration', specialization: 'Administration', title: 'Admin' },
+  { username: 'doctor_1', role: 'Doctor', name: 'Dr. Priya Patel', dept: 'Cardiology', specialization: 'Cardiologist', title: 'Cardiologist' },
+  { username: 'doctor_2', role: 'Doctor', name: 'Dr. Ravi Reddy', dept: 'Orthopedics', specialization: 'Orthopedist', title: 'Orthopedist' },
+  { username: 'doctor_3', role: 'Doctor', name: 'Dr. Anjali Iyer', dept: 'Pediatrics', specialization: 'Pediatrician', title: 'Pediatrician' },
+  { username: 'doctor_4', role: 'Doctor', name: 'Dr. Vikram Singh', dept: 'Neurology', specialization: 'Neurologist', title: 'Neurologist' },
+  { username: 'doctor_5', role: 'Doctor', name: 'Dr. Neha Nair', dept: 'Gynecology', specialization: 'Gynecologist', title: 'Gynecologist' },
+  { username: 'doctor_6', role: 'Doctor', name: 'Dr. Suresh Menon', dept: 'Surgery', specialization: 'Surgeon', title: 'Surgeon' },
+  { username: 'doctor_7', role: 'Doctor', name: 'Dr. Divya Verma', dept: 'Emergency', specialization: 'ER Physician', title: 'ER Physician' },
+  { username: 'doctor_8', role: 'Doctor', name: 'Dr. Rahul Kumar', dept: 'Intensive Care Unit', specialization: 'Intensivist', title: 'Intensivist' },
+  { username: 'doctor_9', role: 'Doctor', name: 'Dr. Sneha Das', dept: 'Laboratory', specialization: 'Pathologist', title: 'Pathologist' },
+  { username: 'doctor_10', role: 'Doctor', name: 'Dr. Karthik Bose', dept: 'Pharmacy', specialization: 'Pharmacologist', title: 'Pharmacologist' },
+  { username: 'doctor_11', role: 'Doctor', name: 'Dr. Pooja Pillai', dept: 'Oncology', specialization: 'Oncologist', title: 'Oncologist' },
+  { username: 'doctor_12', role: 'Doctor', name: 'Dr. Arjun Rao', dept: 'Administration', specialization: 'Administrator', title: 'Administrator' },
+  { username: 'doctor_13', role: 'Doctor', name: 'Dr. Meenakshi Gupta', dept: 'General Medicine', specialization: 'General Physician', title: 'General Physician' },
+  { username: 'doctor_14', role: 'Doctor', name: 'Dr. Sanjay Jain', dept: 'Cardiology', specialization: 'Cardiologist', title: 'Cardiologist' },
+  { username: 'doctor_15', role: 'Doctor', name: 'Dr. Amit Sharma', dept: 'Orthopedics', specialization: 'Orthopedist', title: 'Orthopedist' },
+];
+
 export default function TopHeader({
   role,
   setRole,
@@ -39,13 +60,77 @@ export default function TopHeader({
     }
   };
 
-  const initials = user?.name
-    ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-    : 'AM';
+  // Fetch dynamic users and specializations from database
+  const [dbUsers, setDbUsers] = React.useState(FALLBACK_DB_USERS);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    async function loadUsers() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/users`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.users && data.users.length > 0 && isMounted) {
+            setDbUsers(data.users);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load dynamic users in TopHeader:', err);
+      }
+    }
+    loadUsers();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Merge database users with other domain roles
+  const combinedUsers = React.useMemo(() => {
+    const list = (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS).map(u => {
+      const isAdm = (u.role === 'Admin' || u.role === 'ADMIN' || u.username === 'admin');
+      const normalizedRole = isAdm ? 'Hospital Management' : (u.role || 'Doctor');
+      const spec = u.specialization || u.title || u.dept || (isAdm ? 'Administration' : 'General Medicine');
+      return {
+        username: u.username,
+        name: u.name,
+        role: normalizedRole,
+        dept: u.dept || 'General Medicine',
+        specialization: spec,
+        title: spec
+      };
+    });
+
+    const existingUsernames = new Set(list.map(u => u.username?.toLowerCase()));
+
+    // Other non-doctor roles from DEMO_ROLES
+    const extraRoles = DEMO_ROLES
+      .filter(d => d.role !== 'Doctor' && !existingUsernames.has(d.username?.toLowerCase()))
+      .map(d => ({
+        username: d.username,
+        name: d.name,
+        role: d.role,
+        dept: d.dept || d.role,
+        specialization: d.title || d.dept || d.role,
+        title: d.title || d.dept || d.role
+      }));
+
+    return [...list, ...extraRoles];
+  }, [dbUsers]);
 
   // Available users for current selected role
-  const usersForCurrentRole = DEMO_ROLES.filter(r => r.role === role);
-  const displayUsers = usersForCurrentRole.length > 0 ? usersForCurrentRole : DEMO_ROLES;
+  const usersForCurrentRole = React.useMemo(() => {
+    if (!role) return combinedUsers;
+    const targetRole = role.toLowerCase();
+    const filtered = combinedUsers.filter(r => {
+      const rRole = (r.role || '').toLowerCase();
+      if (rRole === targetRole) return true;
+      if (targetRole === 'hospital management' && (rRole === 'admin' || rRole === 'hospital management')) return true;
+      return false;
+    });
+    return filtered.length > 0 ? filtered : combinedUsers;
+  }, [combinedUsers, role]);
+
+  const initials = user?.name
+    ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'DR';
 
   return (
     <header style={{
@@ -248,9 +333,19 @@ export default function TopHeader({
             onChange={e => {
               const nextRole = e.target.value;
               setRole(nextRole);
-              const matched = DEMO_ROLES.find(r => r.role === nextRole);
+              const matched = combinedUsers.find(r => 
+                r.role?.toLowerCase() === nextRole.toLowerCase() ||
+                (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
+              );
               if (matched && setUser) {
-                setUser({ name: matched.name, role: matched.role, dept: matched.dept || matched.role, username: matched.username, title: matched.title });
+                setUser({
+                  username: matched.username,
+                  name: matched.name,
+                  role: matched.role,
+                  dept: matched.dept || matched.role,
+                  specialization: matched.specialization,
+                  title: matched.title
+                });
               }
             }}
             style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
@@ -263,32 +358,52 @@ export default function TopHeader({
         <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
           <span>User</span>
           <select
-            value={user?.username || (displayUsers[0]?.username)}
+            value={user?.username || (usersForCurrentRole[0]?.username)}
             onChange={e => {
-              const u = DEMO_ROLES.find(r => r.username === e.target.value);
+              const u = combinedUsers.find(r => r.username === e.target.value);
               if (u && setUser) {
-                setUser({ name: u.name, role: u.role, dept: u.dept || u.role, username: u.username, title: u.title });
-                setRole(u.role);
+                setUser({
+                  username: u.username,
+                  name: u.name,
+                  role: u.role,
+                  dept: u.dept || u.role,
+                  specialization: u.specialization,
+                  title: u.title
+                });
+                if (setRole && u.role) {
+                  setRole(u.role);
+                }
               }
             }}
-            style={{ height: '28px', maxWidth: '240px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
+            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
           >
-            {displayUsers.map(r => (<option key={r.username} value={r.username}>{r.name} · {r.dept || r.role}</option>))}
+            {usersForCurrentRole.map(r => (
+              <option key={r.username} value={r.username}>
+                {r.name} · {r.specialization || r.dept || r.role}
+              </option>
+            ))}
           </select>
         </label>
 
-        {/* Avatar + name + sign out */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '8px', borderLeft: '1px solid #e3e6e8' }}>
-          <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Avatar + name + specialization + sign out */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', borderLeft: '1px solid #e3e6e8' }}>
+          <span style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             {initials}
           </span>
-          <span style={{ fontWeight: 600, fontSize: '12px', whiteSpace: 'nowrap', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {user?.name || 'Dr. Arjun Menon'}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, justifyContent: 'center' }}>
+            <span style={{ fontWeight: 600, fontSize: '12px', whiteSpace: 'nowrap', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>
+              {user?.name || 'Dr. Rahul Kumar'}
+            </span>
+            {(user?.specialization || user?.dept) && (
+              <span style={{ fontSize: '10px', color: '#626d77', whiteSpace: 'nowrap', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.1' }}>
+                {user?.specialization || user?.dept}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={onSignOut}
-            style={{ height: '28px', padding: '0 9px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', color: '#52585e', fontSize: '11px' }}
+            style={{ height: '28px', padding: '0 9px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', color: '#52585e', fontSize: '11px', flexShrink: 0 }}
           >
             Sign out
           </button>

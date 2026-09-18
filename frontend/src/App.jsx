@@ -81,14 +81,8 @@ export default function App() {
     // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
     apiService.preloadAllGoldData();
   }, []);
-  const [auth, setAuth] = useState({
-    username: 'meera.iyer',
-    name: 'Meera Iyer',
-    role: 'Hospital Management',
-    dept: 'Administration'
-  });
-
-  const [role, setRoleState] = useState('Hospital Management');
+  const [auth, setAuth] = useState(null);
+  const [role, setRoleState] = useState(null);
   const [activePage, setActivePage] = useState('command');
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
@@ -131,6 +125,7 @@ export default function App() {
 
   const handleSignOut = () => {
     setAuth(null);
+    setRoleState(null);
   };
 
   const handleAskAi = (query) => {
