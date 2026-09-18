@@ -334,7 +334,15 @@ def validate_extraction(
     # ------------------------------------------------------------------
     raw_dept = cleaned.get("department")
     if raw_dept:
-        _log(f"PASS   department={raw_dept!r} (validated by llm_intent_router)", grounding_log)
+        state_has_doc = bool(conversation_state.get("selected_doctor_id") or (conversation_state.get("entities") or {}).get("doctor_id") or conversation_state.get("selected_doctor_name"))
+        state_dept = conversation_state.get("selected_department_name") or conversation_state.get("department_name")
+        if (state_has_doc or state_dept) and not _value_mentioned_in_message(raw_dept, msg_lower) and not _quote_in_message(raw_dept, msg_lower):
+            _log(f"REJECT department={raw_dept!r} -- not mentioned in patient message, preserving active state department={state_dept!r}", grounding_log)
+            cleaned["department"] = None
+            if "department" not in rejected_fields:
+                rejected_fields.append("department")
+        else:
+            _log(f"PASS   department={raw_dept!r} (validated by llm_intent_router)", grounding_log)
 
     # ------------------------------------------------------------------
     # 7. Stale carryover guard -- detect if LLM silently repeated prior state

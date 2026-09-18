@@ -11,7 +11,7 @@ import db_config
 
 import copy
 
-from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone
+from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 
 def get_default_state():
     return {
@@ -88,24 +88,17 @@ def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_num
 
     if whatsapp_number:
         try:
-            cond = get_phone_query_condition()
-            params = get_phone_query_params(whatsapp_number)
-            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' LIMIT 1;"
-            cur.execute(query, params)
-            row = cur.fetchone()
-            if row:
-                pat_id, curr_wnum = row[0], row[1]
-                # Sync whatsapp_number if empty or not updated
-                if not curr_wnum and whatsapp_number:
-                    try:
-                        cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (whatsapp_number, pat_id))
-                    except Exception:
-                        pass
-                return pat_id
+            import agent.patient_identification_service as patient_id_service
+            pats = patient_id_service.get_all_patients_by_phone(whatsapp_number)
+            if len(pats) == 1:
+                return pats[0]["id"]
+            elif len(pats) > 1:
+                return None
         except Exception as e:
             print("Error in resolve_valid_patient_id:", e)
 
     return None
+
 
 def get_conversation_state(conversation_code: str, whatsapp_number: str = "919999999999", default_language: str = "ENGLISH") -> dict:
     """
@@ -114,10 +107,10 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
     If it exists, retrieves the state from the metadata of the latest logged message.
     Validates and reconciles patient_id against the patients table.
     """
-    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code and conversation_code.startswith("WA_"):
-        parts = conversation_code.split("_")
-        if len(parts) >= 2 and parts[1].isdigit():
-            whatsapp_number = parts[1]
+    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code:
+        extracted = extract_whatsapp_number(conversation_code)
+        if extracted and extracted != "919999999999":
+            whatsapp_number = extracted
 
     conn = db_config.get_db_connection()
     cur = conn.cursor()
@@ -283,6 +276,16 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
                 LIMIT 1
             );
         """, (json.dumps(state_dict, default=str), conversation_code))
+        
+        if cur.rowcount == 0:
+            cur.execute("SELECT id FROM conversations WHERE conversation_code = %s;", (conversation_code,))
+            c_row = cur.fetchone()
+            if c_row:
+                cur.execute("""
+                    INSERT INTO messages (conversation_id, sender_type, message_type, message_text, metadata)
+                    VALUES (%s, 'SYSTEM', 'SYSTEM', 'State checkpoint', %s::jsonb);
+                """, (c_row[0], json.dumps(state_dict, default=str)))
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -290,3 +293,4 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
     finally:
         cur.close()
         conn.close()
+

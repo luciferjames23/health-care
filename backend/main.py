@@ -11,15 +11,19 @@ if str(BASE_DIR) not in sys.path:
 
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
-from routers.gold import router as gold_router
-from routers.bronze import router as bronze_router
-from routers.notebook import router as notebook_router
-from routers.jobrun import router as jobrun_router
-from routers.discharge_agent import router as discharge_agent_router
-from routers.discharge_summary_llm import router as discharge_summary_llm_router
-from routers.radiology import router as radiology_router, pacs_router
-from agent.router import router as agent_router
-from routers.financial_revenue import router as finance_router
+try:
+    from routers.gold import router as gold_router
+    from routers.bronze import router as bronze_router
+    from routers.notebook import router as router_notebook
+    from routers.jobrun import router as jobrun_router
+    from routers.discharge_agent import router as discharge_agent_router
+    from routers.discharge_summary_llm import router as discharge_summary_llm_router
+    from routers.radiology import router as radiology_router, pacs_router
+    from agent.router import router as agent_router
+    from routers.financial_revenue import router as finance_router
+    HAS_ML_ROUTERS = True
+except Exception as _e:
+    HAS_ML_ROUTERS = False
 
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
@@ -35,16 +39,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(gold_router)
-app.include_router(bronze_router)
-app.include_router(notebook_router)
-app.include_router(jobrun_router)
-app.include_router(discharge_agent_router)
-app.include_router(discharge_summary_llm_router)
-app.include_router(radiology_router)
-app.include_router(pacs_router)
-app.include_router(agent_router)
-app.include_router(finance_router)
+if HAS_ML_ROUTERS:
+    app.include_router(gold_router)
+    app.include_router(bronze_router)
+    app.include_router(router_notebook)
+    app.include_router(jobrun_router)
+    app.include_router(discharge_agent_router)
+    app.include_router(discharge_summary_llm_router)
+    app.include_router(radiology_router)
+    app.include_router(pacs_router)
+    app.include_router(agent_router)
+    app.include_router(finance_router)
 
 # --- Prototype AI Patient Desk, Appointments & Operational Routers ---
 import api.agent_routes as proto_agent_routes

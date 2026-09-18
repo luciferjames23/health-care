@@ -35,7 +35,7 @@ def is_llm_active() -> bool:
 
 def _call_gemini_api(prompt: str) -> Optional[str]:
     """Call Gemini REST API generateContent."""
-    if not LLM_API_KEY:
+    if not LLM_API_KEY or LLM_API_KEY.startswith("AQ."):
         return None
     model_name = LLM_MODEL if LLM_MODEL else "gemini-3.5-flash-lite"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
@@ -44,7 +44,9 @@ def _call_gemini_api(prompt: str) -> Optional[str]:
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
     }
     try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=8.0)
+        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=2.0)
+        if res.status_code in (401, 403):
+            return None
         res.raise_for_status()
         data = res.json()
         candidates = data.get("candidates", [])
@@ -56,6 +58,7 @@ def _call_gemini_api(prompt: str) -> Optional[str]:
         # LLM fallback to rule-based engine
         pass
     return None
+
 
 
 def _call_openai_api(prompt: str) -> Optional[str]:

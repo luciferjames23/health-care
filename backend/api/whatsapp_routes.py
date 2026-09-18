@@ -43,6 +43,7 @@ import agent.message_aggregator as message_aggregator
 import voice.speech_to_text as speech_to_text
 import voice.text_to_speech as text_to_speech
 import voice.whatsapp_client as whatsapp_client
+from utils.phone_utils import normalize_phone
 
 # Module-level aggregator singleton — 3 s debounce window
 _aggregator = message_aggregator.get_aggregator(window_seconds=1.5)
@@ -135,14 +136,21 @@ from datetime import datetime, timezone, timedelta
 
 def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
     """Finds active conversation code for the whatsapp number or creates a new unique one."""
+    if not whatsapp_number:
+        return f"WA_919999999999_{int(time.time())}"
+
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
+        norm_wnum = normalize_phone(whatsapp_number)
         cur.execute("""
             SELECT id, conversation_code, last_message_at FROM conversations 
-            WHERE whatsapp_number = %s AND conversation_status = 'ACTIVE'
+            WHERE (
+                whatsapp_number = %s OR 
+                (whatsapp_number IS NOT NULL AND RIGHT(REGEXP_REPLACE(whatsapp_number, '[^0-9]', '', 'g'), 10) = %s AND %s <> '')
+            ) AND conversation_status = 'ACTIVE'
             ORDER BY id DESC LIMIT 1;
-        """, (whatsapp_number,))
+        """, (whatsapp_number, norm_wnum, norm_wnum))
         row = cur.fetchone()
         if row:
             conv_id, conv_code, last_msg_at = row[0], row[1], row[2]
@@ -156,6 +164,8 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
                     conn.commit()
                 else:
                     return conv_code
+            else:
+                return conv_code
 
         # Generate a unique session ID if none active
         base_code = f"WA_{whatsapp_number}"
@@ -167,6 +177,7 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
     finally:
         cur.close()
         conn.close()
+
 
 
 def process_and_send_reply(session_code: str, sender_num: str, message_id: str, body_text: str, button_id: str = None):

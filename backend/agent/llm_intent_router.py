@@ -239,6 +239,9 @@ def _call_gemini(prompt: str) -> Optional[str]:
         },
     }
 
+    if not LLM_API_KEY or LLM_API_KEY.startswith("AQ."):
+        return None
+
     # Try primary model, then fallback models
     models_to_try = [model_name, "gemini-3.5-flash-lite", "gemini-2.5-flash"]
     seen = set()
@@ -255,10 +258,14 @@ def _call_gemini(prompt: str) -> Optional[str]:
                 timeout=2.0,
                 verify=verify_ssl,
             )
+            if res.status_code in (401, 403):
+                _log(f"Gemini API authentication error ({res.status_code}), falling back to rule-based router immediately")
+                break
             if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
                 _log(f"Model {attempt_model} returned 404, trying gemini-1.5-flash-latest")
                 continue
             res.raise_for_status()
+
             data = res.json()
             candidates = data.get("candidates", [])
             if candidates:

@@ -157,13 +157,19 @@ def start_watcher(analyze_study: Callable[[str, str], None], interval_seconds: i
 
     def _run() -> None:
         logger.info("Demo PACS auto-analysis watcher started (poll every %ss)", interval_seconds)
+        orthanc_reachable = True
         while _stop_event is not None and not _stop_event.is_set():
             try:
                 scan_once(analyze_study)
+                if not orthanc_reachable:
+                    logger.info("Demo PACS watcher successfully reconnected to Orthanc.")
+                    orthanc_reachable = True
             except OrthancError as exc:
                 # Orthanc may be started after the API.  This is not fatal;
                 # retry on the next poll rather than killing the backend.
-                logger.warning("Demo PACS watcher could not reach Orthanc: %s", exc)
+                if orthanc_reachable:
+                    logger.warning("Demo PACS watcher could not reach Orthanc: %s (suppressing further repeated warnings)", exc)
+                    orthanc_reachable = False
             except Exception:
                 logger.exception("Unexpected Demo PACS watcher error")
 

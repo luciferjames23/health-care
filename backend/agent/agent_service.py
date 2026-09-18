@@ -26,7 +26,7 @@ import agent.patient_identification_service as patient_id_service
 import agent.response_validator as response_validator
 import agent.grounding_validator as grounding_validator
 import agent.conversation_stages as conversation_stages
-from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone
+from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 
 
 def format_time_12h(time_str: str) -> str:
@@ -887,24 +887,8 @@ def handle_unknown_patient_identification_flow(
       - AWAITING_PATIENT_ID: Prompt for Patient ID, validate against DB, link WhatsApp number, show confirmation + Main Menu
       - REGISTRATION: Collect registration fields (name, dob, gender, auto-retrieved phone), duplicate check, create patient, show confirmation + Main Menu
     """
-    whatsapp_val = "919999999999"
-    conn = db_config.get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-        w_row = cur.fetchone()
-        if w_row and w_row[0]:
-            whatsapp_val = w_row[0]
-    except Exception:
-        pass
-    finally:
-        cur.close()
-        conn.close()
+    whatsapp_val = extract_whatsapp_number(conversation_code, state)
 
-    if whatsapp_val == "919999999999" and conversation_code and conversation_code.startswith("WA_"):
-        parts = conversation_code.split("_")
-        if len(parts) >= 2 and parts[1].isdigit():
-            whatsapp_val = parts[1]
 
     stage = state.get("patient_identification_stage")
     msg_raw = (message_text or "").strip()
@@ -1341,20 +1325,15 @@ def ensure_patient_selected(conversation_code: str, state: dict, current_lang: s
     Returns (is_selected: bool, response_dict: dict or None).
     If is_selected is False, response_dict contains the interactive patient selection prompt.
     """
-    w_num = conversation_code.replace("WA_", "").split("_")[0]
-    conn = db_config.get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-        r = cur.fetchone()
-        if r and r[0]:
-            w_num = r[0]
-    finally:
-        cur.close()
-        conn.close()
-
+def ensure_patient_selected(conversation_code: str, state: dict, current_lang: str, action_intent: str) -> tuple:
+    """
+    Validates patient selection for multi-patient WhatsApp contact numbers.
+    Returns (is_selected: bool, response_dict: dict or None).
+    If is_selected is False, response_dict contains the interactive patient selection prompt.
+    """
+    w_num = extract_whatsapp_number(conversation_code, state)
     all_pats = patient_id_service.get_all_patients_by_phone(w_num)
-    if not all_pats:
+    if not all_pats or state.get("active_workflow") == "REGISTRATION" or state.get("conversation_state") == "REGISTER_NEW_PATIENT" or state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"]:
         return True, None
 
     # Rule 1: Single Patient -> auto-select
@@ -1382,18 +1361,7 @@ def prompt_patient_selection(conversation_code: str, state: dict, current_lang: 
     Renders an interactive patient selection screen when multiple patient records
     are associated with a single WhatsApp contact number.
     """
-    w_num = conversation_code.replace("WA_", "").split("_")[0]
-    conn = db_config.get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-        r = cur.fetchone()
-        if r and r[0]:
-            w_num = r[0]
-    finally:
-        cur.close()
-        conn.close()
-
+    w_num = extract_whatsapp_number(conversation_code, state)
     patients = patient_id_service.get_all_patients_by_phone(w_num)
     if not patients:
         return build_patient_profile_response(conversation_code, state, current_lang)
@@ -1444,19 +1412,9 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
     Fetches ground truth patient record from PostgreSQL database,
     formats clean Patient Profile Details, and returns response payload.
     """
-    w_num = conversation_code.replace("WA_", "").split("_")[0]
-    conn = db_config.get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-        r = cur.fetchone()
-        if r and r[0]:
-            w_num = r[0]
-    finally:
-        cur.close()
-        conn.close()
-
+    w_num = extract_whatsapp_number(conversation_code, state)
     all_pats = patient_id_service.get_all_patients_by_phone(w_num)
+
     if len(all_pats) > 1 and not state.get("selected_patient_id"):
         return prompt_patient_selection(conversation_code, state, current_lang, action_intent="PATIENT_PROFILE")
 
@@ -1467,7 +1425,11 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
         conn = db_config.get_db_connection()
         cur = conn.cursor()
         try:
-            cur.execute("SELECT id, patient_code, first_name, last_name, phone, whatsapp_number, date_of_birth, gender FROM patients WHERE id = %s AND status = 'ACTIVE';", (pat_id,))
+            cur.execute("""
+                SELECT id, patient_code, first_name, last_name, phone, whatsapp_number, date_of_birth, gender 
+                FROM patients 
+                WHERE (CAST(id AS TEXT) = %s OR patient_code = %s) AND (status IS NULL OR status = 'ACTIVE');
+            """, (str(pat_id), str(pat_id)))
             row = cur.fetchone()
             if row:
                 p_data = {
@@ -1507,6 +1469,7 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
         )
     else:
         resp = "No patient profile was found linked to your session."
+
 
     buttons = [
         language_service.get_translated_button("btn_change_profile", current_lang),
@@ -1948,8 +1911,20 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # Check natural language date inputs if doctor is selected or date is requested
         if not btn_id and message_text:
             curr_stage = state.get("conversation_state") or state.get("booking_stage")
-            curr_doc = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
-            if curr_doc or curr_stage in ["DATE_REQUIRED", "AWAITING_DATE", "DOCTOR_SELECTED"]:
+            curr_doc = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id") or state.get("doctor_id")
+            if not curr_doc and state.get("selected_doctor_name"):
+                try:
+                    conn_d = db_config.get_db_connection()
+                    cur_d = conn_d.cursor()
+                    cur_d.execute("SELECT id FROM doctors WHERE display_name ILIKE %s AND status = 'ACTIVE';", (f"%{state['selected_doctor_name']}%",))
+                    r_d = cur_d.fetchone()
+                    if r_d:
+                        curr_doc = r_d[0]
+                    cur_d.close()
+                    conn_d.close()
+                except Exception:
+                    pass
+            if curr_doc or curr_stage in ["DATE_REQUIRED", "AWAITING_DATE", "DOCTOR_SELECTED", "DOCTOR_SELECTION_REQUIRED", "AWAITING_TIME", "AWAITING_DOCTOR"] or state.get("intent") == "BOOK_APPOINTMENT":
                 try:
                     from agent.date_normalizer import parse_and_normalize_date
                     norm_d, is_amb, err = parse_and_normalize_date(message_text)
@@ -1969,7 +1944,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     break
 
         # Check text replies for matching patient name or patient code linked to sender's WhatsApp number
-        if not btn_id and message_text:
+        is_in_registration = (state.get("active_workflow") == "REGISTRATION" or 
+                              state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
+                              state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"])
+        if not btn_id and message_text and not is_in_registration:
             m_txt = message_text.strip().lower()
             w_num = conversation_code.replace("WA_", "").split("_")[0]
             conn = db_config.get_db_connection()
@@ -2649,17 +2627,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             target_pid_str = btn_id.replace("btn_select_pat_", "").strip()
             target_pid = int(target_pid_str) if target_pid_str.isdigit() else target_pid_str
             
-            w_num = conversation_code.replace("WA_", "").split("_")[0]
-            conn = db_config.get_db_connection()
-            cur = conn.cursor()
-            try:
-                cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-                r = cur.fetchone()
-                if r and r[0]:
-                    w_num = r[0]
-            finally:
-                cur.close()
-                conn.close()
+            w_num = extract_whatsapp_number(conversation_code, state)
+
 
             linked_pats = patient_id_service.get_all_patients_by_phone(w_num)
             valid_ids = [p["id"] for p in linked_pats] + [p.get("patient_code") for p in linked_pats if p.get("patient_code")]
@@ -3278,10 +3247,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 cur = conn.cursor()
                 try:
                     cur.execute("""
-                        INSERT INTO payments (payment_reference, patient_id, amount, currency, payment_method, payment_status, created_at, updated_at)
-                        VALUES (%s, %s, %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                        VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         RETURNING id;
-                    """, (pay_ref, pat_id, fee_val, method_code))
+                    """, (pay_ref, pat_id, pat_id, fee_val, method_code))
                     pay_db_id = cur.fetchone()[0]
                     conn.commit()
                 except Exception as e:
@@ -3476,9 +3445,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     cur.execute("""
                         SELECT booking_id FROM appointments 
                         WHERE patient_id = %s AND doctor_id = %s AND appointment_date = %s 
+                          AND appointment_time::text LIKE %s
                           AND status NOT IN ('CANCELLED', 'RESCHEDULED')
                         ORDER BY id DESC LIMIT 1;
-                    """, (booking_pat_id, doc_id, appt_date))
+                    """, (booking_pat_id, doc_id, appt_date, f"{appt_time}%"))
                     b_row = cur.fetchone()
                     if b_row:
                         res = {"success": True, "data": {"booking_id": b_row[0]}}
@@ -3683,10 +3653,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     cur = conn.cursor()
                     try:
                         cur.execute("""
-                            INSERT INTO payments (payment_reference, patient_id, amount, currency, payment_method, payment_status, created_at, updated_at)
-                            VALUES (%s, %s, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                            VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             RETURNING id;
-                        """, (pay_ref, pat_id, fee_val))
+                        """, (pay_ref, pat_id, pat_id, fee_val))
                         pay_db_id = cur.fetchone()[0]
                         conn.commit()
                     except Exception as e:
@@ -4214,7 +4184,19 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 target_date = btn_id.split("btn_date_")[1]  # e.g. "2026-09-15"
             except IndexError:
                 target_date = (today + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+        doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id") or state.get("doctor_id")
+        if not doc_id and state.get("selected_doctor_name"):
+            conn_d = db_config.get_db_connection()
+            cur_d = conn_d.cursor()
+            try:
+                cur_d.execute("SELECT id FROM doctors WHERE display_name ILIKE %s AND status = 'ACTIVE';", (f"%{state['selected_doctor_name']}%",))
+                row_d = cur_d.fetchone()
+                if row_d:
+                    doc_id = row_d[0]
+            finally:
+                cur_d.close()
+                conn_d.close()
+
         if doc_id:
             sync_selected_doctor_state(state, doc_id)
 
@@ -4222,6 +4204,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         print(f"[DATE_STATE_DEBUG] btn_date handler: setting appointment_date={target_date}, clearing appointment_time")
         state["entities"]["appointment_date"] = target_date
         state["entities"]["appointment_time"] = None
+        state["selected_slot_id"] = None
         state["booking_stage"] = "AWAITING_TIME"
         state["conversation_state"] = "TIME_REQUIRED"
         state["intent"] = "BOOK_APPOINTMENT"
@@ -4235,8 +4218,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             else:
                 return build_verified_date_selection_response(conversation_code, state, doc_id, doc_info, failed_date=target_date, current_lang=current_lang, intent="BOOK_APPOINTMENT")
         else:
-            # No doctor yet — just store the date and continue to normal flow
-            pass
+            # Check if department is active in state to prevent resetting to General Medicine
+            dept_id = state.get("selected_department_id") or state.get("entities", {}).get("department_id")
+            dept_name = state.get("selected_department_name") or state.get("department_name")
+            if dept_id or dept_name:
+                state["booking_stage"] = "AWAITING_DOCTOR"
+                state["conversation_state"] = "DOCTOR_SELECTION_REQUIRED"
 
     elif btn_id in ["btn_change_time", "btn_chg_time"] or (message_text and message_text.strip().lower() in ["change time", "btn_change_time"]):
         print("[BUTTON_ROUTING] Change time button tap")
@@ -4608,7 +4595,11 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     ]
     is_show_all = any(phrase in safe_msg.lower() for phrase in ["all profile", "all profiles", "registered in this number", "registered with this number"])
 
-    if (detected_intent in patient_specific_intents or is_show_all):
+    is_in_registration = (state.get("active_workflow") == "REGISTRATION" or 
+                          state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
+                          state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"])
+
+    if (detected_intent in patient_specific_intents or is_show_all) and not is_in_registration:
         w_num = conversation_code.replace("WA_", "").split("_")[0]
         conn = db_config.get_db_connection()
         cur = conn.cursor()
@@ -4672,6 +4663,156 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["booking_for"] = _b_for
         if _rel:
             state["patient_relationship"] = _rel
+
+    # Registration Workflow Guard: Intercept user text input during patient registration
+    reg_stage = state.get("registration_stage") or state.get("patient_identification_stage")
+    is_reg_context = (state.get("active_workflow") == "REGISTRATION" or 
+                      state.get("conversation_state") in ["REGISTER_NEW_PATIENT", "AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or 
+                      reg_stage in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER", "REGISTRATION"])
+    
+    if is_reg_context:
+        msg_lwr = message_text.lower().strip()
+        cancel_words = ["cancel", "exit", "stop", "back", "main menu"]
+        if any(w in msg_lwr for w in cancel_words) or btn_id == "btn_main_menu":
+            state["active_workflow"] = None
+            state["registration_stage"] = None
+            state["patient_identification_stage"] = None
+            state["conversation_state"] = "ACTIVE"
+        else:
+            # Check for comma-separated or multi-field responses (e.g. "Arokiya, 15/08/1990, Female")
+            parts = [p.strip() for p in re.split(r"[,;]+", message_text) if p.strip()]
+            
+            if reg_stage in ["AWAITING_NAME", "REGISTER_NEW_PATIENT", "REGISTRATION"] or not state.get("registration_name"):
+                if btn_id and btn_id.startswith("btn_g_"):
+                    # User clicked gender button early
+                    g_val = "Female" if "female" in btn_id else ("Male" if "male" in btn_id else "Other")
+                    state["registration_gender"] = g_val
+                else:
+                    name_val = parts[0] if parts else message_text.strip()
+                    if name_val and not name_val.startswith("btn_"):
+                        state["registration_name"] = name_val
+                    
+                    if len(parts) > 1:
+                        norm_d, _, _ = date_normalizer.parse_and_normalize_date(parts[1])
+                        if norm_d:
+                            state["registration_dob"] = norm_d
+                    
+                    if len(parts) > 2:
+                        g_lower = parts[2].lower()
+                        if "female" in g_lower:
+                            state["registration_gender"] = "Female"
+                        elif "male" in g_lower:
+                            state["registration_gender"] = "Male"
+                        elif "other" in g_lower:
+                            state["registration_gender"] = "Other"
+
+            elif reg_stage == "AWAITING_DOB" or (state.get("registration_name") and not state.get("registration_dob")):
+                if btn_id and btn_id.startswith("btn_g_"):
+                    g_val = "Female" if "female" in btn_id else ("Male" if "male" in btn_id else "Other")
+                    state["registration_gender"] = g_val
+                else:
+                    norm_d, _, _ = date_normalizer.parse_and_normalize_date(message_text.strip())
+                    state["registration_dob"] = norm_d or message_text.strip()
+                    if len(parts) > 1:
+                        g_lower = parts[1].lower()
+                        if "female" in g_lower:
+                            state["registration_gender"] = "Female"
+                        elif "male" in g_lower:
+                            state["registration_gender"] = "Male"
+                        elif "other" in g_lower:
+                            state["registration_gender"] = "Other"
+
+            elif reg_stage == "AWAITING_GENDER" or (state.get("registration_name") and state.get("registration_dob") and not state.get("registration_gender")):
+                g_lower = message_text.strip().lower()
+                if "female" in g_lower or btn_id == "btn_g_female":
+                    state["registration_gender"] = "Female"
+                elif "male" in g_lower or btn_id == "btn_g_male":
+                    state["registration_gender"] = "Male"
+                else:
+                    state["registration_gender"] = "Other"
+
+            # Determine next prompt / completion
+            if not state.get("registration_name"):
+                state["registration_stage"] = "AWAITING_NAME"
+                state["active_workflow"] = "REGISTRATION"
+                state["conversation_state"] = "REGISTER_NEW_PATIENT"
+                resp = "Welcome to Meridian Hospital. I'll help you get registered. May I have your full name?"
+                buttons = []
+            elif not state.get("registration_dob"):
+                state["registration_stage"] = "AWAITING_DOB"
+                state["active_workflow"] = "REGISTRATION"
+                state["conversation_state"] = "REGISTER_NEW_PATIENT"
+                resp = f"Thank you, *{state['registration_name']}*! Please provide your Date of Birth (e.g., 15/08/1990 or YYYY-MM-DD):"
+                buttons = []
+            elif not state.get("registration_gender"):
+                state["registration_stage"] = "AWAITING_GENDER"
+                state["active_workflow"] = "REGISTRATION"
+                state["conversation_state"] = "REGISTER_NEW_PATIENT"
+                resp = f"Got it! Please select your gender:"
+                buttons = [
+                    language_service.get_translated_button("btn_g_male", current_lang),
+                    language_service.get_translated_button("btn_g_female", current_lang),
+                    language_service.get_translated_button("btn_g_other", current_lang)
+                ]
+            else:
+                # All required registration fields collected! Create Patient Record in PostgreSQL.
+                reg_name = state.get("registration_name") or "Patient"
+                name_parts = reg_name.split(maxsplit=1)
+                first_name = name_parts[0]
+                last_name = name_parts[1] if len(name_parts) > 1 else "."
+                reg_dob = state.get("registration_dob") or "2000-01-01"
+                reg_gender = state.get("registration_gender") or "Male"
+                user_phone = state.get("whatsapp_number") or extract_whatsapp_number(conversation_code)
+
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
+                    row = cur.fetchone()
+                    next_num = (row[0] + 1) if (row and row[0]) else 100010
+                    next_code = f"P{next_num}"
+
+                    cur.execute("""
+                        INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
+                        RETURNING id;
+                    """, (next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
+                    new_pat_id = cur.fetchone()[0]
+                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                    conn.commit()
+                finally:
+                    cur.close()
+                    conn.close()
+
+                state["patient_id"] = new_pat_id
+                state["selected_patient_id"] = new_pat_id
+                state["entities"]["patient_id"] = new_pat_id
+                state["registration_stage"] = "COMPLETED"
+                state["active_workflow"] = None
+                state["conversation_state"] = "ACTIVE"
+
+                buttons = [
+                    language_service.get_translated_button("btn_book_appt", current_lang),
+                    language_service.get_translated_button("btn_my_appts", current_lang),
+                    language_service.get_translated_button("btn_my_profile", current_lang)
+                ]
+                resp = (
+                    f"🎉 *Registration Successful!*\n\n"
+                    f"Welcome to Meridian Hospital, *{reg_name}*.\n"
+                    f"• *Patient ID:* `{next_code}`\n"
+                    f"• *Phone:* {user_phone}\n\n"
+                    f"How can I help you today?"
+                )
+
+            state["interactive_buttons"] = buttons
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_REGISTRATION", state)
+            return {
+                "response": resp,
+                "intent": "PATIENT_REGISTRATION",
+                "language": current_lang,
+                "interactive_buttons": buttons
+            }
 
     # Fix 6: Pending-stage guard for AWAITING_CANCEL_REASON
     if state.get("pending_stage") == "AWAITING_CANCEL_REASON":
@@ -6767,10 +6908,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         cur = conn.cursor()
                         try:
                             cur.execute("""
-                                INSERT INTO payments (payment_reference, patient_id, amount, currency, payment_method, payment_status, created_at, updated_at)
-                                VALUES (%s, %s, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                                VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 RETURNING id;
-                            """, (pay_ref, pat_id, fee_val))
+                            """, (pay_ref, pat_id, pat_id, fee_val))
                             pay_db_id = cur.fetchone()[0]
                             conn.commit()
                         except Exception as e:
@@ -8115,10 +8256,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     cur = conn.cursor()
                     try:
                         cur.execute("""
-                            INSERT INTO payments (payment_reference, patient_id, amount, currency, payment_method, payment_status, created_at, updated_at)
-                            VALUES (%s, %s, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                            VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             RETURNING id;
-                        """, (pay_ref, pat_id, fee_val))
+                        """, (pay_ref, pat_id, pat_id, fee_val))
                         pay_db_id = cur.fetchone()[0]
                         conn.commit()
                     except Exception as e:
