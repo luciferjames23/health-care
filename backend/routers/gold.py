@@ -646,9 +646,17 @@ def get_bed_management_data(
         cur.close()
         conn.close()
 
-        # Discharged set - Discharge summary table is source of truth
-        discharged_ids = {str(r["patient_id"]).strip() for r in ds_data if r.get("patient_id") is not None}
-        discharged_adm_ids = {str(r["admission_id"]).strip() for r in ds_data if r.get("admission_id")}
+        # Discharged set - Only Approved / Finalized discharge summaries count as discharged & bed released
+        discharged_ids = {
+            str(r["patient_id"]).strip() 
+            for r in ds_data 
+            if r.get("patient_id") is not None and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
+        }
+        discharged_adm_ids = {
+            str(r["admission_id"]).strip() 
+            for r in ds_data 
+            if r.get("admission_id") and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
+        }
 
         # Build active bed -> patient map (excluding discharged patients)
         bed_patient_map = {}

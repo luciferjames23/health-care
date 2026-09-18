@@ -790,8 +790,9 @@ export function parseAdmissionLlmRecord(record) {
   const ewsType = ewsScore >= 3 ? 'red' : ewsScore >= 1 ? 'amber' : 'green';
 
   const primaryDiagnosis = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || record.primary_diagnosis || 'Observation';
-  const admissionNumber = adm.admission_number || `MER-ADM-${record.admission_id}`;
-  const attendingDoctor = adm.attending_doctor || `Consultant #${record.doctor_id || 1}`;
+  const patientNumber = record.patient_number || record.patient_code || demo.patient_number || (record.patient_id ? `MER-PAT-${String(record.patient_id).padStart(7, '0')}` : `MER-PAT-${record.patient_id}`);
+  const admissionNumber = adm.admission_number || record.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : `MER-ADM-${record.admission_id}`);
+  const attendingDoctor = adm.attending_doctor || record.attending_doctor || `Consultant #${record.doctor_id || 1}`;
 
   return {
     id: String(record.admission_id || record.patient_id),
@@ -809,8 +810,9 @@ export function parseAdmissionLlmRecord(record) {
     emergencyContact: `${demo.emergency_contact_name || 'Relative'} · ${demo.emergency_contact_phone || 'N/A'}`,
     preferredLanguage: demo.preferred_language || 'English',
     maritalStatus: demo.marital_status || 'Single',
-    mrn: admissionNumber,
-    patient_number: admissionNumber,
+    uhid: patientNumber,
+    mrn: patientNumber,
+    patient_number: patientNumber,
     admission_number: admissionNumber,
     admission_date: adm.admission_date || record.admission_date,
     admitted: adm.admission_date ? new Date(adm.admission_date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently Admitted',
@@ -841,6 +843,15 @@ export function parseAdmissionLlmRecord(record) {
     latest_med: meds.length > 0 ? meds[0].medication_name : 'Standard Protocol',
     procedures: procs,
     billing: bill,
+    bill_number: record.bill_number || bill.bill_number || (record.admission_id ? `MER-BIL-${String(record.admission_id).padStart(7, '0')}` : 'MER-BIL-0087223'),
+    bill_net_amount: record.bill_net_amount !== undefined && record.bill_net_amount !== null
+      ? Number(record.bill_net_amount)
+      : Number(bill.bill_net_amount || bill.bill_gross_amount || 168000),
+    bill_status: record.bill_status || bill.bill_status || 'Pending',
+    bill_clearance_status: record.bill_clearance_status || bill.bill_clearance_status || record.bill_status || 'Pending',
+    outstanding_balance: record.outstanding_balance !== undefined && record.outstanding_balance !== null
+      ? Number(record.outstanding_balance)
+      : Number(bill.outstanding_balance || bill.patient_copay || 0),
     vital_signs_list: vitals.vital_signs_list || [],
     lab_results: parsedJson.lab_results || {},
     insurance_policy: bill.bill_insurance_portion > 0 ? {
@@ -925,12 +936,19 @@ export function parseDischargeSummaryRecord(record) {
   }
   const displaySex = extractedSex.toLowerCase().startsWith('f') ? 'F' : extractedSex.toLowerCase().startsWith('m') ? 'M' : extractedSex;
 
+  const patientNumber = record.patient_number || record.patient_code || (record.patient_id ? `MER-PAT-${String(record.patient_id).padStart(7, '0')}` : `MER-PAT-${record.summary_id}`);
+  const admissionNumber = record.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : '');
+
   return {
     id: `DC-${String(record.summary_id || record.admission_id).padStart(2, '0')}`,
     summary_id: record.summary_id,
     admission_id: record.admission_id,
     patient_id: record.patient_id,
     doctor_id: record.doctor_id,
+    uhid: patientNumber,
+    mrn: patientNumber,
+    patient_number: patientNumber,
+    admission_number: admissionNumber,
     patient: resolvedPatientName,
     patient_name: resolvedPatientName,
     name: resolvedPatientName,

@@ -65,12 +65,19 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
         const dischargedTracker = extractDischargedPatientIds(rawDischarges);
         
-        // Discharge API and admission status: remove discharged patients from current admissions
+        // Discharge API and admission status: remove actually discharged patients from current admissions
         const actualAdmissions = rawAdmissions.filter(p => {
           const st = (p.discharge_status || p.admission_status || '').toLowerCase();
           if (st === 'discharged') return false;
           return !dischargedTracker.has(p);
         });
+
+        // Only count summaries that are ACTUALLY approved / signed off as discharged patients
+        const actuallyDischargedCount = rawDischarges.filter(r => {
+          const st = String(r.approval_status || r.status || '').trim().toLowerCase();
+          return st === 'approved' || st === 'signed' || st === 'signed off' || st === 'completed';
+        }).length;
+
         const discharges = rawDischarges.map(parseDischargeSummaryRecord).filter(Boolean);
         const kpisObj = bmRes?.kpis || {};
         const wardsList = bmRes?.wards || [];
@@ -79,13 +86,11 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         let totalBeds = kpisObj.total_beds !== undefined 
           ? kpisObj.total_beds 
           : wardsList.reduce((acc, w) => acc + (w.total_beds || 0), 0);
-        let occupiedBeds = kpisObj.occupied_beds !== undefined 
-          ? kpisObj.occupied_beds 
-          : actualAdmissions.length;
+        let occupiedBeds = actualAdmissions.length > 0 
+          ? actualAdmissions.length 
+          : (kpisObj.occupied_beds !== undefined ? kpisObj.occupied_beds : 0);
         let maintenanceBeds = kpisObj.maintenance_beds || 0;
-        let availableBeds = kpisObj.available_beds !== undefined 
-          ? kpisObj.available_beds 
-          : (totalBeds > 0 ? Math.max(0, totalBeds - occupiedBeds - maintenanceBeds) : 0);
+        let availableBeds = totalBeds > 0 ? Math.max(0, totalBeds - occupiedBeds - maintenanceBeds) : 0;
         let occupancyRate = totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 0;
         let totalWards = kpisObj.total_wards !== undefined 
           ? kpisObj.total_wards 
@@ -93,12 +98,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         let totalRooms = kpisObj.total_rooms !== undefined 
           ? kpisObj.total_rooms 
           : wardsList.reduce((acc, w) => acc + (w.rooms_count || w.rooms?.length || 0), 0);
-        // Active inpatients in hospital matches occupied beds (each admitted inpatient occupies 1 bed)
-        let activeAdmissionsCount = occupiedBeds;
+        // Active inpatients in hospital matches actual admissions
+        let activeAdmissionsCount = actualAdmissions.length;
 
         setLiveKpis({
           active_admissions: activeAdmissionsCount,
-          discharged_patients: discharges.length,
+          discharged_patients: actuallyDischargedCount,
           total_beds: totalBeds,
           occupied_beds: occupiedBeds,
           available_beds: availableBeds,

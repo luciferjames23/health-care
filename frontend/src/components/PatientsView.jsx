@@ -107,20 +107,15 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
 
     return list.filter(p => {
       const pidStr = p.patient_id !== undefined && p.patient_id !== null ? String(p.patient_id).trim() : "";
-      const codeStr = p.patient_code ? String(p.patient_code).toLowerCase() : "";
-      const mrnStr = p.mrn ? String(p.mrn).toLowerCase() : "";
-      const uhidStr = p.uhid ? String(p.uhid).toLowerCase() : "";
-      const computedUhid = pidStr ? `mer-2026-${pidStr.padStart(6, "0")}` : "";
+      const patNumStr = String(p.patient_number || p.patient_code || p.uhid || "").toLowerCase();
 
-      // When user searches a numeric ID (e.g. 87226), match exact patient_id or patient UHID/code!
-      // Do NOT match admission_id or discharge summary id.
+      // When user searches a numeric ID (e.g. 87314), match EXACT patient_id or patient UHID/code!
+      // NEVER match admission_id or admission_number when searching by numeric patient ID.
       if (isDigits) {
         return (
           pidStr === s ||
-          computedUhid.endsWith(s) ||
-          mrnStr.endsWith(s) ||
-          uhidStr.endsWith(s) ||
-          codeStr.endsWith(s)
+          patNumStr === s ||
+          patNumStr.endsWith(s)
         );
       }
 
@@ -129,13 +124,12 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
       const diagnosis = p.diagnosis ? p.diagnosis.toLowerCase() : "";
       const diagnoses = p.diagnoses ? String(p.diagnoses).toLowerCase() : "";
       const phone = p.phone ? String(p.phone).toLowerCase() : "";
+      const admNumStr = String(p.admission_number || "").toLowerCase();
 
       return (
         pidStr.includes(s) ||
-        codeStr.includes(s) ||
-        mrnStr.includes(s) ||
-        uhidStr.includes(s) ||
-        computedUhid.includes(s) ||
+        patNumStr.includes(s) ||
+        admNumStr.includes(s) ||
         name.includes(s) ||
         doctor.includes(s) ||
         diagnosis.includes(s) ||
@@ -220,7 +214,7 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
 
             {rows.map((p, idx) => {
               const pill = getStatusPill(p._status);
-              const uhid = p.mrn || (p.patient_id ? `MER-2026-${String(p.patient_id).padStart(6,"0")}` : `MER-2026-${String(idx+1).padStart(6,"0")}`);
+              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7,"0")}` : (p.mrn || `MER-PAT-${String(idx+1).padStart(7,"0")}`));
               return (
                 <div key={p.id || p.patient_id || idx}
                   onClick={() => onSelectPatient && onSelectPatient(p)}

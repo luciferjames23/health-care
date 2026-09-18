@@ -71,7 +71,13 @@ export default function ClinicalWorkspaceView({
 
   const filtered = patientList.filter(p => {
     if (!search.trim()) return true;
-    const s = search.toLowerCase();
+    const s = search.toLowerCase().trim();
+    const isDigits = /^\d+$/.test(s);
+    if (isDigits) {
+      const pid = String(p.patient_id || '');
+      const patNum = String(p.patient_number || p.mrn || '').toLowerCase();
+      return pid === s || patNum.endsWith(s);
+    }
     return (p.name && p.name.toLowerCase().includes(s)) ||
            (p.bed && p.bed.toLowerCase().includes(s)) ||
            (p.diagnosis && p.diagnosis.toLowerCase().includes(s)) ||
