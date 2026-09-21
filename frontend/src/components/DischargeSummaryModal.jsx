@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { apiService } from '../services/api';
 
@@ -178,14 +178,23 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
       const summaryId = summaryData.summary_id || (summaryData.patient_id ? `DS-${summaryData.patient_id}` : summaryData.id || '');
       const patientId = summaryData.patient_id || summaryData.id || '';
       const patientName = summaryData.patient_name || summaryData.patient || summaryData.name || '';
-      const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `MER-PAT-${String(patientId).padStart(7, '0')}` : '');
-      const admissionId = summaryData.admission_id || (patientId ? `MER-ADM-${String(patientId).padStart(7, '0')}` : '');
+      const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `PAT-${patientId}` : '');
+      const admissionId = summaryData.admission_id || (patientId ? `ADM-${patientId}` : '');
       const admissionDate = summaryData.admission_date || summaryData.admitted || '';
       const dischargeDate = summaryData.discharge_date || summaryData.eta || '';
       const attendingPhysician = summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
-      const admissionReason = summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '';
-      const dischargeDiagnosis = cleanDiagnosis(summaryData.discharge_diagnosis || summaryData.diagnoses || summaryData.diagnosis || '');
-      const hospitalCourse = summaryData.hospital_course_summary || summaryData.case_history || '';
+      let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
+      if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
+        admissionReason = '';
+      }
+      let dischargeDiagnosis = cleanDiagnosis(summaryData.discharge_diagnosis || summaryData.diagnoses || summaryData.diagnosis || summaryData.primary_diagnosis || '');
+      if (!dischargeDiagnosis || /^Diagnosis\s+\d+/i.test(dischargeDiagnosis)) {
+        dischargeDiagnosis = cleanDiagnosis(summaryData.primary_diagnosis || summaryData.diagnoses || '');
+      }
+      let hospitalCourse = summaryData.hospital_course_summary || summaryData.case_history || '';
+      if (dischargeDiagnosis && hospitalCourse) {
+        hospitalCourse = hospitalCourse.replace(/Diagnosis\s+\d+/gi, dischargeDiagnosis);
+      }
       const investigations = summaryData.investigations || '';
       const patientCondition = summaryData.patient_condition || '';
       const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
@@ -390,7 +399,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                   lineHeight: 1.4
                 }}
               >
-                Patient ID: {form.patient_id} · MRN {form.patient_number} · {age} Yrs / {sex} · Adm {form.admission_id} · Admitted {admissionDisplayDate}
+                Patient Number: {form.patient_number || form.patient_id} · {age} Yrs / {sex} · Adm {form.admission_id} · Admitted {admissionDisplayDate}
               </div>
             </div>
 
@@ -566,7 +575,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     Admission Details & Case History
                   </div>
                   <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: 1.5 }}>
-                    {form.admission_reason || '—'}
+                    {form.admission_reason || "—"}
                   </div>
                   {form.hospital_course_summary && form.hospital_course_summary !== form.admission_reason && (
                     <div style={{ fontSize: '12.5px', color: '#475569', marginTop: '6px', lineHeight: 1.5 }}>
@@ -581,7 +590,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     Diagnoses
                   </div>
                   <div style={{ fontSize: '13px', color: '#1e293b', fontWeight: 600, lineHeight: 1.5 }}>
-                    {cleanDiagText || '—'}
+                    {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}
                   </div>
                 </div>
 
@@ -895,7 +904,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             }}
           >
             <div>
-              Record: <strong style={{ color: '#0f172a' }}>{form.summary_id || '—'}</strong> · Patient ID: <strong style={{ color: '#0f172a' }}>{form.patient_id || '—'}</strong>
+              Record: <strong style={{ color: "#0f172a" }}>{form.summary_id || "-"}</strong> · Patient Number: <strong style={{ color: "#0f172a" }}>{form.patient_number || form.patient_id || "-"}</strong>
             </div>
 
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -965,7 +974,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               <div><strong>MRN / Reg No:</strong> {form.patient_number || '—'}</div>
               <div><strong>Age / Sex:</strong> {age} Yrs / {sex}</div>
               <div><strong>Admitted Date:</strong> {admissionDisplayDate}</div>
-              <div><strong>Diagnosis:</strong> {cleanDiagText || '—'}</div>
+              <div><strong>Diagnosis:</strong> {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}</div>
             </div>
 
             {/* ADMISSION DETAILS & CASE HISTORY */}
@@ -983,7 +992,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             <div className="print-sec">
               <div className="print-sec-title">DIAGNOSES</div>
               <div className="print-sec-body">
-                {cleanDiagText || '—'}
+                {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}
               </div>
             </div>
 

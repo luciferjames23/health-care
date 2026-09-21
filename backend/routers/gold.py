@@ -350,7 +350,33 @@ def get_dim_admission_inputs(
     if risk_score_gt is not None: filters["risk_score_gt"] = risk_score_gt
 
     try:
-        return db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=limit, offset=offset)
+        res = db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=limit, offset=offset)
+        data = res.get("data", [])
+        if data:
+            try:
+                conn = db_connector.get_connection()
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("""
+                    SELECT a.admission_id, a.patient_id, b.bed_number, r.room_number, w.ward_name, b.bed_type
+                    FROM admissions a
+                    JOIN beds b ON a.bed_id = b.bed_id
+                    JOIN rooms r ON b.room_id = r.room_id
+                    JOIN wards w ON b.ward_id = w.ward_id;
+                """)
+                bed_map = {r['admission_id']: r for r in cur.fetchall()}
+                cur.close()
+                conn.close()
+
+                for row in data:
+                    b_info = bed_map.get(row.get('admission_id'))
+                    if b_info:
+                        row['bed_number'] = b_info['bed_number']
+                        row['room_number'] = b_info['room_number']
+                        row['ward_name'] = b_info['ward_name']
+                        row['bed_type'] = b_info['bed_type']
+            except Exception:
+                pass
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query dim_admission_inputs: {str(e)}")
 

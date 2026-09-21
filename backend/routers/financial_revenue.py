@@ -258,6 +258,164 @@ def get_bills(
         conn.close()
 
 
+@router.get("/bills/admission/{admission_id}")
+def get_bill_by_admission(admission_id: int):
+    """
+    Get deep billing details for a specific admission, including room charges,
+    pharmacy sales/medications, laboratory orders/results, and payments.
+    """
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT bill_id FROM bills WHERE admission_id = %s ORDER BY bill_id DESC LIMIT 1", (admission_id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            conn.close()
+            return get_bill_detail(row[0])
+            
+        # If no direct bill row exists in `bills`, check dim_admission_inputs
+        cur.execute("""
+            SELECT a.admission_id, a.patient_id, a.admission_number, a.admission_date, a.discharge_date,
+                   a.admission_type, a.reason_for_admission, a.discharge_status,
+                   p.patient_code, p.first_name, p.last_name, p.phone, p.gender, p.blood_group,
+                   dai.llm_input_json
+            FROM admissions a
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN dim_admission_inputs dai ON a.admission_id = dai.admission_id
+            WHERE a.admission_id = %s
+        """, (admission_id,))
+        adm = cur.fetchone()
+        if not adm:
+            raise HTTPException(status_code=404, detail="Admission not found")
+            
+        adm_data = serialize_row(cur, adm)
+        p_name = f"{adm_data.get('first_name') or ''} {adm_data.get('last_name') or ''}".strip() or "Patient"
+        
+        # Parse llm_input_json if available
+        llm_json = {}
+        if adm_data.get("llm_input_json"):
+            try:
+                llm_json = json.loads(adm_data["llm_input_json"]) if isinstance(adm_data["llm_input_json"], str) else adm_data["llm_input_json"]
+            except Exception:
+                llm_json = {}
+                
+        billing_info = llm_json.get("billing", {})
+        
+        # Fetch pharmacy items
+        cur.execute("""
+            SELECT 
+                psi.sale_item_id,
+                psi.sale_id,
+                COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
+                m.generic_name,
+                m.category,
+                psi.quantity,
+                psi.unit_price,
+                psi.discount_amount,
+                psi.tax_amount,
+                psi.net_amount,
+                ps.sale_date,
+                ps.payment_status
+            FROM pharmacy_sales ps
+            JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
+            LEFT JOIN medications m ON psi.medication_id = m.medication_id
+            WHERE ps.admission_id = %s
+            ORDER BY psi.sale_item_id ASC
+        """, (admission_id,))
+        pharmacy_items = serialize_rows(cur, cur.fetchall())
+        
+        # Fetch lab items
+        cur.execute("""
+            SELECT 
+                lo.lab_order_id,
+                lo.ordered_date,
+                lo.priority,
+                lo.status as order_status,
+                COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
+                lt.test_category,
+                COALESCE(lt.standard_charge, 0.0) as unit_price,
+                1 as quantity,
+                COALESCE(lt.standard_charge, 0.0) as net_amount,
+                lr.test_parameter,
+                lr.result_value,
+                lr.unit,
+                lr.reference_range,
+                lr.abnormal_flag
+            FROM lab_orders lo
+            LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
+            WHERE lo.admission_id = %s
+            ORDER BY lo.lab_order_id ASC
+        """, (admission_id,))
+        lab_items = serialize_rows(cur, cur.fetchall())
+        
+        gross = float(billing_info.get("bill_gross_amount") or 0.0)
+        net = float(billing_info.get("bill_net_amount") or gross)
+        pat_amt = float(billing_info.get("bill_patient_portion") or billing_info.get("outstanding_balance") or net)
+        ins_amt = float(billing_info.get("bill_insurance_portion") or 0.0)
+        
+        bill_obj = {
+            "bill_id": admission_id,
+            "bill_number": billing_info.get("bill_number") or f"MER-BIL-{str(admission_id).zfill(7)}",
+            "bill_date": adm_data.get("admission_date"),
+            "patient_id": adm_data.get("patient_id"),
+            "admission_id": admission_id,
+            "gross_amount": gross,
+            "discount_amount": float(billing_info.get("bill_discount_amount") or 0.0),
+            "tax_amount": float(billing_info.get("bill_tax_amount") or 0.0),
+            "net_amount": net,
+            "insurance_amount": ins_amt,
+            "patient_amount": pat_amt,
+            "bill_status": billing_info.get("bill_status") or "Pending",
+            "patient_name": p_name,
+            "uhid": adm_data.get("patient_code") or f"MER-PAT-{str(adm_data.get('patient_id') or 0).zfill(7)}",
+            "phone": adm_data.get("phone") or "—",
+            "gender": adm_data.get("gender") or "—",
+            "blood_group": adm_data.get("blood_group") or "—",
+            "admission_number": adm_data.get("admission_number"),
+            "admission_date": adm_data.get("admission_date"),
+            "discharge_date": adm_data.get("discharge_date"),
+            "items": [],
+            "pharmacy_items": pharmacy_items,
+            "lab_items": lab_items,
+            "payments": [],
+            "claims": []
+        }
+        return {"success": True, "bill": bill_obj}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching bill for admission {admission_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/bills/patient/{patient_id}")
+def get_bill_by_patient(patient_id: int):
+    """
+    Get latest bill details for a specific patient.
+    """
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1", (patient_id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            conn.close()
+            return get_bill_detail(row[0])
+            
+        cur.execute("SELECT admission_id FROM admissions WHERE patient_id = %s ORDER BY admission_id DESC LIMIT 1", (patient_id,))
+        adm_row = cur.fetchone()
+        if adm_row and adm_row[0]:
+            conn.close()
+            return get_bill_by_admission(adm_row[0])
+            
+        raise HTTPException(status_code=404, detail="No billing record found for this patient")
+    finally:
+        conn.close()
+
+
 @router.get("/bills/{bill_id}")
 def get_bill_detail(bill_id: int):
     """
@@ -265,7 +423,9 @@ def get_bill_detail(bill_id: int):
     - Master bill metadata & amounts
     - Patient identity and demographics
     - Encounter & admission details
-    - Itemized breakdown from bill_items
+    - Itemized breakdown from bill_items (Room, Procedures, Consultations)
+    - Linked pharmacy sales items (Medications, Dispensed Drugs)
+    - Linked laboratory investigations & test charges
     - Associated payments and transaction logs
     - Linked insurance claims (if any)
     """
@@ -315,6 +475,9 @@ def get_bill_detail(bill_id: int):
             raise HTTPException(status_code=404, detail="Bill not found")
         bill_meta = serialize_row(cur, bill_row)
         
+        admission_id = bill_meta.get("admission_id")
+        patient_id = bill_meta.get("patient_id")
+        
         # 2. Bill Items Breakdown
         cur.execute("""
             SELECT 
@@ -342,7 +505,61 @@ def get_bill_detail(bill_id: int):
         """, (bill_id,))
         items = serialize_rows(cur, cur.fetchall())
         
-        # 3. Payments
+        # 3. Linked Pharmacy Items
+        pharmacy_items = []
+        if admission_id or patient_id:
+            cur.execute("""
+                SELECT 
+                    psi.sale_item_id,
+                    psi.sale_id,
+                    COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
+                    m.generic_name,
+                    m.category,
+                    psi.quantity,
+                    psi.unit_price,
+                    psi.discount_amount,
+                    psi.tax_amount,
+                    psi.net_amount,
+                    ps.sale_date,
+                    ps.payment_status
+                FROM pharmacy_sales ps
+                JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
+                LEFT JOIN medications m ON psi.medication_id = m.medication_id
+                WHERE (ps.admission_id = %s AND %s IS NOT NULL) 
+                   OR (ps.patient_id = %s AND %s IS NOT NULL)
+                ORDER BY psi.sale_item_id ASC
+            """, (admission_id, admission_id, patient_id, patient_id))
+            pharmacy_items = serialize_rows(cur, cur.fetchall())
+            
+        # 4. Linked Lab Investigation Orders & Tests
+        lab_items = []
+        if admission_id or patient_id:
+            cur.execute("""
+                SELECT 
+                    lo.lab_order_id,
+                    lo.ordered_date,
+                    lo.priority,
+                    lo.status as order_status,
+                    COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
+                    lt.test_category,
+                    COALESCE(lt.standard_charge, 0.0) as unit_price,
+                    1 as quantity,
+                    COALESCE(lt.standard_charge, 0.0) as net_amount,
+                    lr.test_parameter,
+                    lr.result_value,
+                    lr.unit,
+                    lr.reference_range,
+                    lr.abnormal_flag
+                FROM lab_orders lo
+                LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+                LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
+                WHERE (lo.admission_id = %s AND %s IS NOT NULL)
+                   OR (lo.patient_id = %s AND %s IS NOT NULL)
+                ORDER BY lo.lab_order_id ASC
+            """, (admission_id, admission_id, patient_id, patient_id))
+            lab_items = serialize_rows(cur, cur.fetchall())
+        
+        # 5. Payments
         cur.execute("""
             SELECT 
                 id as payment_id,
@@ -362,7 +579,7 @@ def get_bill_detail(bill_id: int):
         """, (bill_id,))
         payments = serialize_rows(cur, cur.fetchall())
         
-        # 4. Insurance Claims on this Bill or Patient
+        # 6. Insurance Claims on this Bill or Patient
         cur.execute("""
             SELECT 
                 claim_id,
@@ -395,6 +612,8 @@ def get_bill_detail(bill_id: int):
                 "patient_name": p_name,
                 "uhid": bill_meta.get("patient_code") or f"MER-PAT-{str(bill_meta.get('patient_id') or 0).zfill(7)}",
                 "items": items,
+                "pharmacy_items": pharmacy_items,
+                "lab_items": lab_items,
                 "payments": payments,
                 "claims": claims
             }
@@ -828,3 +1047,62 @@ def record_payment(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+@router.post("/clear-bill", summary="Clear Patient Bill & Grant Financial Clearance")
+def finance_clear_bill(
+    patient_id: Optional[Any] = Body(None),
+    admission_id: Optional[Any] = Body(None),
+    bill_number: Optional[str] = Body(None),
+    amount: Optional[float] = Body(None),
+    payment_method: str = Body("UPI"),
+    remarks: Optional[str] = Body("Cleared via Finance Portal")
+):
+    """
+    Clears / settles the outstanding balance for a patient, admission, or bill.
+    Updates dim_admission_inputs, bills, and payments in PostgreSQL.
+    """
+    from routers.discharge_agent import clear_patient_bill_internal
+    return clear_patient_bill_internal(
+        patient_id=patient_id,
+        admission_id=admission_id,
+        bill_number=bill_number,
+        amount=amount,
+        payment_method=payment_method,
+        remarks=remarks
+    )
+
+
+@router.post("/bills/{bill_id}/clear", summary="Clear Bill by Bill ID")
+def finance_clear_bill_by_id(
+    bill_id: int,
+    payment_method: str = Query("UPI"),
+    amount: Optional[float] = Query(None)
+):
+    """
+    Clears / settles a specific bill by bill_id.
+    """
+    from routers.discharge_agent import clear_patient_bill_internal
+    return clear_patient_bill_internal(
+        bill_id=bill_id,
+        amount=amount,
+        payment_method=payment_method
+    )
+
+
+@router.post("/patients/{patient_id}/clear-bill", summary="Clear Bill by Patient ID")
+def finance_clear_bill_by_patient_id(
+    patient_id: str,
+    payment_method: str = Query("UPI"),
+    amount: Optional[float] = Query(None)
+):
+    """
+    Clears / settles all outstanding bills for a patient by patient_id.
+    """
+    from routers.discharge_agent import clear_patient_bill_internal
+    return clear_patient_bill_internal(
+        patient_id=patient_id,
+        amount=amount,
+        payment_method=payment_method
+    )
+

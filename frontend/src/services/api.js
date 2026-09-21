@@ -818,7 +818,8 @@ export function parseAdmissionLlmRecord(record) {
   const ews = ewsScore >= 3 ? `High ${ewsScore}` : ewsScore >= 1 ? `Alert ${ewsScore}` : 'Normal 0';
   const ewsType = ewsScore >= 3 ? 'red' : ewsScore >= 1 ? 'amber' : 'green';
 
-  const primaryDiagnosis = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || record.primary_diagnosis || 'Observation';
+  const rawPrimaryDiag = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || record.primary_diagnosis || adm.reason_for_admission || record.reason_for_admission || 'Observation';
+  const primaryDiagnosis = resolveClinicalDiagnosis(rawPrimaryDiag, adm.reason_for_admission || record.reason_for_admission);
   const patientNumber = record.patient_number || record.patient_code || demo.patient_number || (record.patient_id ? `MER-PAT-${String(record.patient_id).padStart(7, '0')}` : `MER-PAT-${record.patient_id}`);
   const admissionNumber = adm.admission_number || record.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : `MER-ADM-${record.admission_id}`);
   const attendingDoctor = adm.attending_doctor || record.attending_doctor || `Consultant #${record.doctor_id || 1}`;
@@ -854,9 +855,11 @@ export function parseAdmissionLlmRecord(record) {
     doctor: attendingDoctor,
     doctor_name: attendingDoctor,
     doctor_specialty: adm.doctor_specialization || 'Clinical Specialist',
-    doctor_qualification: adm.doctor_qualification || 'MBBS, MD',
-    bed: record.bed_number || `Bed ${(record.patient_id % 40) + 1}`,
+    bed: record.bed_number || 'Unassigned',
+    bed_number: record.bed_number || 'Unassigned',
+    room_number: record.room_number || '',
     ward: record.ward_name || 'Inpatient Wing',
+    ward_name: record.ward_name || 'Inpatient Wing',
     status: 'Admitted',
     discharge_status: adm.discharge_status || 'Admitted',
     current_stay_days: adm.current_stay_days || 1,
@@ -901,11 +904,79 @@ export function parseAdmissionLlmRecord(record) {
   };
 }
 
+export const CLINICAL_DIAGNOSIS_MAP = {
+  '0': 'Acute Febrile Illness (High Fever)',
+  '1': 'Acute Abdominal Pain',
+  '2': 'Acute Gastroenteritis',
+  '3': 'Bronchial Asthma (Acute Exacerbation)',
+  '4': 'Acute Coronary Syndrome / Chest Pain',
+  '5': 'Cholelithiasis (Gallstone Disease)',
+  '6': 'Diabetic Ketoacidosis (DKA)',
+  '7': 'Preterm Labor Complication',
+  '8': 'Acute Cerebrovascular Accident (Stroke)',
+  '9': 'Traumatic Bone Fracture',
+  'high fever': 'Acute Febrile Illness (High Fever)',
+  'abdominal pain': 'Acute Abdominal Pain',
+  'gastroenteritis': 'Acute Gastroenteritis',
+  'asthma': 'Bronchial Asthma (Acute Exacerbation)',
+  'chest pain': 'Acute Coronary Syndrome / Chest Pain',
+  'cholelithiasis': 'Cholelithiasis (Gallstone Disease)',
+  'dka': 'Diabetic Ketoacidosis (DKA)',
+  'preterm labor': 'Preterm Labor Complication',
+  'stroke': 'Acute Cerebrovascular Accident (Stroke)',
+  'fracture': 'Traumatic Bone Fracture'
+};
+
+export function resolveClinicalDiagnosis(rawDiag, reasonForAdmission) {
+  if (Array.isArray(rawDiag) && rawDiag.length === 0 && !reasonForAdmission) {
+    return '';
+  }
+  
+  const strDiag = Array.isArray(rawDiag) ? rawDiag.join(', ').trim() : String(rawDiag || '').trim();
+  const strReason = String(reasonForAdmission || '').trim();
+
+  if ((!strDiag || strDiag === '[]' || strDiag.toLowerCase() === 'none') && !strReason) {
+    return '';
+  }
+
+  // 1. Check strDiag first if present
+  if (strDiag && strDiag !== '[]' && strDiag.toLowerCase() !== 'none') {
+    const numMatch = strDiag.match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
+    if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
+      return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
+    }
+    if (CLINICAL_DIAGNOSIS_MAP[strDiag.toLowerCase()]) {
+      return CLINICAL_DIAGNOSIS_MAP[strDiag.toLowerCase()];
+    }
+    if (!/^diagnosis\b/i.test(strDiag) && strDiag !== 'Observation') {
+      return cleanDiagnosis(strDiag);
+    }
+  }
+
+  // 2. If strDiag was empty or generic, fall back to reasonForAdmission
+  if (strReason) {
+    const reasonNumMatch = strReason.match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
+    if (reasonNumMatch && CLINICAL_DIAGNOSIS_MAP[reasonNumMatch[1]]) {
+      return CLINICAL_DIAGNOSIS_MAP[reasonNumMatch[1]];
+    }
+    if (CLINICAL_DIAGNOSIS_MAP[strReason.toLowerCase()]) {
+      return CLINICAL_DIAGNOSIS_MAP[strReason.toLowerCase()];
+    }
+    return cleanDiagnosis(strReason);
+  }
+
+  return cleanDiagnosis(strDiag || 'Clinical Inpatient Evaluation');
+}
+
 /**
  * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
  */
 export function cleanDiagnosis(diag) {
   if (!diag || typeof diag !== 'string') return '';
+  const numMatch = diag.trim().match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
+  if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
+    return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
+  }
   return diag
     // Remove secondary diagnosis labels when followed by empty brackets []
     .replace(/(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]/gi, '')

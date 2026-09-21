@@ -92,6 +92,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(null);
   const [modal, setModal] = useState(null);
   const [alertsCount, setAlertsCount] = useState(0);
+  const [soapReturnPage, setSoapReturnPage] = useState('patient360');
 
   useEffect(() => {
     let isMounted = true;
@@ -152,6 +153,7 @@ export default function App() {
   };
 
   const handleOpenSoap = (patient) => {
+    setSoapReturnPage(activePage === 'soap' ? soapReturnPage : activePage);
     setSelectedPatient(patient);
     setActivePage('soap');
   };
@@ -227,7 +229,15 @@ export default function App() {
             <SoapNoteView
               patient={selectedPatient}
               doctorName={auth?.name}
-              onBack={() => setActivePage('clinical')}
+              onBack={() => {
+                if (soapReturnPage === 'patient360' && selectedPatient) {
+                  setActivePage('patient360');
+                } else if (soapReturnPage && soapReturnPage !== 'soap') {
+                  setActivePage(soapReturnPage);
+                } else {
+                  setActivePage(selectedPatient ? 'patient360' : 'clinical');
+                }
+              }}
               onOpenPatient={handleSelectPatient}
             />
           )}

@@ -44,6 +44,8 @@ export const financialApi = {
   },
   
   getBillDetail: (billId) => request(`/api/finance/bills/${billId}`),
+  getBillByAdmission: (admissionId) => request(`/api/finance/bills/admission/${admissionId}`),
+  getBillByPatient: (patientId) => request(`/api/finance/bills/patient/${patientId}`),
   
   getInsuranceClaims: (params = {}) => {
     const q = new URLSearchParams();
