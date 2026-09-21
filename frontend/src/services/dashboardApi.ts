@@ -342,7 +342,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
       if (res.status === 401) {
         sessionStorage.removeItem('meridian_user');
       }
-      return null;
+      return (data && typeof data === 'object' ? { success: false, error: errorMsg, ...data } : { success: false, error: errorMsg }) as unknown as T;
     }
     return data as T;
   } catch (err) {

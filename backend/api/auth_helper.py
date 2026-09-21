@@ -103,12 +103,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
     """Dependency injection to enforce ADMIN role."""
-    if user.get("role") != "ADMIN":
+    role = str(user.get("role", "")).upper()
+    if role != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin authorization required")
     return user
 
 def require_doctor_or_admin(user: dict = Depends(get_current_user)) -> dict:
     """Dependency injection to allow either ADMIN or DOCTOR role."""
-    if user.get("role") not in ["ADMIN", "DOCTOR"]:
+    role = str(user.get("role", "")).upper()
+    if role not in ["ADMIN", "DOCTOR"]:
         raise HTTPException(status_code=403, detail="Admin or Doctor authorization required")
     return user
