@@ -60,8 +60,11 @@ DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", "require"))
 _pool_lock = threading.Lock()
 _connection_pool = None  # Lazy-initialized on first call
 
-_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
-_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+# This database role is shared with other services and administrative clients.
+# Increase DB_POOL_MAX only when the role has spare connection capacity.
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "1"))
+_pool_slots = threading.BoundedSemaphore(_POOL_MAX)
 
 
 class _PooledConnection:
@@ -86,6 +89,12 @@ class _PooledConnection:
     def rollback(self):
         return self._conn.rollback()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     @property
     def autocommit(self):
         return self._conn.autocommit
@@ -108,6 +117,8 @@ class _PooledConnection:
                 self._conn.close()
             except Exception:
                 pass
+        finally:
+            _pool_slots.release()
 
 
 def _get_pool(database_name=None):
@@ -129,11 +140,12 @@ def _get_pool(database_name=None):
                 user=DB_USER,
                 password=DB_PASSWORD,
                 sslmode=DB_SSLMODE,
+                connect_timeout=10,
             )
             print(f"[PERF] Shared PostgreSQL connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
         except Exception as exc:
-            print(f"[PERF] Failed to initialize connection pool: {exc}. Falling back to direct connections.")
-            _connection_pool = None
+            # Do not bypass the pool when the server rejects connections.
+            raise
         return _connection_pool
 
 
@@ -143,23 +155,14 @@ def get_db_connection(database_name=None):
     Uses connection pooling when available.
     """
     pool = _get_pool(database_name)
-    if pool is not None:
-        try:
-            raw_conn = pool.getconn()
-            if raw_conn and not raw_conn.closed:
-                return _PooledConnection(raw_conn, pool)
-        except Exception:
-            pass  # Fallback to direct connect
-
-    dbname = database_name or DB_NAME
-    return psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        database=dbname,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        sslmode=DB_SSLMODE,
-    )
+    if not _pool_slots.acquire(timeout=10):
+        raise psycopg2.pool.PoolError("Database connection pool is busy; retry shortly.")
+    try:
+        raw_conn = pool.getconn()
+    except Exception:
+        _pool_slots.release()
+        raise
+    return _PooledConnection(raw_conn, pool)
 
 
 def get_db_connection_string(database_name=None):

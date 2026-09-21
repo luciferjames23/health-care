@@ -19,7 +19,7 @@ export default function BedDemandView({ onSelectPatient }) {
     }
     setError(null);
     try {
-      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from live APIs
+      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from APIs
       const [bmRes, wardsRes, dcRes] = await Promise.all([
         apiService.getBedManagementData({}, { forceRefresh: isSilent }).catch(() => null),
         apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
@@ -60,7 +60,7 @@ export default function BedDemandView({ onSelectPatient }) {
       setBedManagement(bmRes);
       setWardList(wardsRes?.data || []);
     } catch (err) {
-      console.error("Failed to load live bed management data:", err);
+      console.error("Failed to load bed management data:", err);
       setError(err.message || 'Failed to connect to Bed & Ward backend APIs');
     } finally {
       setLoading(false);
@@ -250,7 +250,7 @@ export default function BedDemandView({ onSelectPatient }) {
             Hospital Ward, Room & Bed Management
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Real-time live telemetry connecting <strong style={{ color: 'oklch(0.4 0.1 200)' }}>Ward → Room → Bed → Patient</strong> across all hospital wards
+            Real-time telemetry connecting <strong style={{ color: 'oklch(0.4 0.1 200)' }}>Ward → Room → Bed → Patient</strong> across all hospital wards
           </div>
         </div>
 
@@ -293,7 +293,7 @@ export default function BedDemandView({ onSelectPatient }) {
             }}
           >
             <span>↻</span>
-            <span>{loading ? 'Syncing...' : 'Sync Live APIs'}</span>
+            <span>{loading ? 'Syncing...' : 'Sync APIs'}</span>
           </button>
 
           <button
@@ -454,7 +454,7 @@ export default function BedDemandView({ onSelectPatient }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {loading && !bedManagement ? (
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Live Ward &amp; Bed Matrix...</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Ward &amp; Bed Matrix...</div>
               <div style={{ fontSize: '12px' }}>Fetching ward, room & bed data from clinical data system…</div>
             </div>
           ) : filteredWards.length === 0 ? (

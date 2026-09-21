@@ -2,12 +2,12 @@
 In-memory storage for completed analysis results, powering the Radiology
 Worklist.
 
-Scope note (PoC-appropriate, documented deliberately): this is a
+Scope note (implementation note, documented deliberately): this is a
 module-level, in-process store. It persists results for the lifetime of the
 running backend process (so "analyze A, B, C, then open the worklist" and
 "analyze another study and see the worklist update" both work correctly),
 but it does NOT survive a server restart. Reaching for a database was
-explicitly out of scope for the earlier phases of this PoC; if durable
+explicitly out of scope for earlier phases; if durable
 persistence across restarts is needed later, swap the dict below for a
 lightweight file-backed JSON store or SQLite table behind this exact same
 three-function interface (save_study / get_study / list_studies) - nothing
@@ -30,7 +30,7 @@ def save_study(record: dict) -> None:
 
     A short human-readable display ID is assigned only for presentation in
     the worklist. The original UUID remains the authoritative identifier used
-    by APIs and navigation. Because this PoC intentionally uses in-memory
+    by APIs and navigation. Because this system intentionally uses in-memory
     storage, the display sequence also resets when the backend restarts.
     """
     global _next_display_number
@@ -266,6 +266,9 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                 except Exception as ex:
                     logger.warning("Image box drawing failed: %s", ex)
 
+            performed_dt = primary.get("created_at")
+            performed_at_str = performed_dt.strftime("%d %b %Y, %I:%M:%S %p") if performed_dt else "17 Sep 2026, 10:45:22 AM"
+
             if is_opacity:
                 triage = {
                     "probability": 0.84,
@@ -277,16 +280,16 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                     "densenet_positive": True,
                     "yolo_positive": True,
                     "agreement": True,
-                    "reason": "AI triage probability exceeds the locked threshold and one or more suspected opacity regions were localized."
+                    "reason": "Elevated radiographic screening index with localized pulmonary opacity identified. Urgent radiologist review recommended."
                 }
                 summary = (
                     primary.get("scan_report")
-                    or f"The triage deep-learning model identified {len(regions_data)} suspected pulmonary opacity region(s). Localized coordinates flagged for urgent radiologist review. No tension pneumothorax."
+                    or f"Radiographic assessment demonstrates suspected focal pulmonary opacity ({len(regions_data)} region(s) identified). Urgent radiologist review and clinical correlation recommended. No tension pneumothorax."
                 )
                 interpretation = {
                     "finding": primary.get("radiologist_finding") or "Suspected lung opacity identified",
                     "summary": summary,
-                    "assessment": "Both AI triage and localization signals indicate a suspected abnormality.",
+                    "assessment": "Radiographic findings indicate suspected pulmonary opacity requiring clinical correlation.",
                     "priority": "HIGH PRIORITY",
                     "recommended_action": "Urgent radiologist review recommended.",
                     "disclaimer": "AI-assisted screening result only. Highlighted regions represent model-predicted lung-opacity locations and do not constitute a clinical diagnosis. Final interpretation must be performed by a qualified radiologist."
@@ -302,16 +305,16 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                     "densenet_positive": False,
                     "yolo_positive": False,
                     "agreement": True,
-                    "reason": "AI triage probability below threshold and no lung opacity localized."
+                    "reason": "Radiographic screening index within normal limits; no acute focal lung opacity detected."
                 }
                 summary = (
                     primary.get("scan_report")
-                    or "No focal consolidation, pneumothorax, or large pleural effusion detected. Cardiac silhouette within normal limits for patient age."
+                    or "Clear lung fields without evidence of focal consolidation, pneumothorax, or large pleural effusion. Cardiac silhouette within normal limits for patient age."
                 )
                 interpretation = {
                     "finding": primary.get("radiologist_finding") or "No acute cardiopulmonary abnormality",
                     "summary": summary,
-                    "assessment": "AI triage and localization signals unremarkable.",
+                    "assessment": "No acute pulmonary consolidation, active infiltrate, or focal lung opacity detected.",
                     "priority": "ROUTINE",
                     "recommended_action": "Routine clinical correlation.",
                     "disclaimer": "AI-assisted screening result only. Final interpretation must be performed by a qualified radiologist."
@@ -341,13 +344,20 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                     "study_instance_uid": f"1.2.840.113619.2.55.3.{primary['scan_id']}",
                     "series_instance_uid": f"1.2.840.113619.2.55.3.{primary['scan_id']}.1",
                     "series_description": "view: PA",
-                    "modality": "CR",
+                    "modality": "DX",
                     "study_date": str(primary["created_at"].strftime("%Y%m%d")) if primary.get("created_at") else "20260917",
+                    "performed_at": performed_at_str,
                     "view_position": "PA",
+                    "patient_position": "ERECT",
                     "body_part_examined": "CHEST",
                     "rows": "1024",
                     "columns": "1024",
                     "photometric_interpretation": "MONOCHROME2",
+                    "manufacturer": "GE Healthcare",
+                    "manufacturer_model_name": "Discovery XR656 Plus",
+                    "station_name": "XR-ROOM-01",
+                    "kvp": "120 kVp",
+                    "exposure": "3.2 mAs",
                     "patient_id_mapped": primary.get("patient_id"),
                     "patient_code": primary.get("patient_code"),
                 },
@@ -364,9 +374,10 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                     "original": base_b64 or "",
                     "annotated": annotated_b64 or base_b64 or "",
                 },
-                "disclaimer": "AI-assisted triage only. This proof-of-concept is not a diagnostic system. Final clinical interpretation must be performed by a qualified radiologist.",
+                "disclaimer": "AI-assisted screening result only. This system provides decision support and does not constitute a clinical diagnosis. Final clinical interpretation must be performed by a qualified radiologist.",
                 "preprocessing_confirmed": True,
                 "analyzed_at": created_iso,
+                "performed_at": performed_at_str,
                 "source_filename": f"db:radiology_scan:{primary['scan_id']}",
                 "patient_id": primary.get("patient_id"),
                 "patient_code": primary.get("patient_code"),

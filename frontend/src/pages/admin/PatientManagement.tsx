@@ -49,7 +49,7 @@ const PatientManagement: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2>Patient Management</h2>
-          <p>All registered patients — live data from hospital database</p>
+          <p>All registered patients — database records</p>
         </div>
         <button
           className="btn btn-primary"

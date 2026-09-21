@@ -17,7 +17,7 @@ Endpoints:
   GET  /api/dashboard/charts/intent-breakdown   — intent distribution
   POST /api/dashboard/doctors/{id}/status    — activate/deactivate doctor
 
-All queries read from the live PostgreSQL database (healthcare).
+All queries read from the PostgreSQL database (healthcare).
 No mock or hardcoded data is used in production paths.
 """
 

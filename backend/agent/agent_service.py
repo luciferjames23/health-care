@@ -3275,7 +3275,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 f"Time: {format_time_12h(appt_time)}\n\n"
                 f"Amount: {fee_str}\n"
                 f"Payment Method: {display_name}\n\n"
-                f"This is a demo payment for the Meridian Hospital Patient Desk POC.\n"
+                f"This is a demo payment for the Meridian Hospital Patient Desk.\n"
                 f"No real payment will be processed."
             )
             pay_prompt_buttons = [

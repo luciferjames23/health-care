@@ -287,7 +287,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing consultations and procedures scheduled under your care`
-              : 'View, filter, sort and manage hospital appointments — live database'}
+              : 'View, filter, sort and manage hospital appointments — database records'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

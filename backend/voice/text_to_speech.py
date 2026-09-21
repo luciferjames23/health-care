@@ -7,7 +7,7 @@ Supports: English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu.
 Enables pluggable/replaceable TTS providers.
 Provides a mock implementation that generates valid base64 audio data URI silence/beeps.
 
-Step 5.2 — Meridian Hospital POC
+Step 5.2 — Meridian Hospital
 """
 
 import abc

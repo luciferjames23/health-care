@@ -63,7 +63,7 @@ class DatabricksConnector:
         return not self.is_connection_available()
 
     def get_connection(self):
-        """Returns a live PostgreSQL connection."""
+        """Returns an active PostgreSQL connection."""
         if not self.is_connection_available():
             raise RuntimeError("Database connection is in temporary cooldown. Retrying soon.")
         try:
@@ -101,7 +101,7 @@ class DatabricksConnector:
         return v
 
     def resolve_table_name(self, table_name: str) -> str:
-        """Resolves alias table names to live PostgreSQL tables."""
+        """Resolves alias table names to active PostgreSQL tables."""
         t = table_name.lower().strip()
         if t == "dim_discharge_input":
             return "dim_admission_inputs"

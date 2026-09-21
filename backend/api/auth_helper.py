@@ -87,13 +87,13 @@ def get_hashed_password(plain_password: str) -> str:
 # ─── FastAPI Dependencies ──────────────────────────────────────────────────────
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Dependency injection to authenticate requests via JWT with seamless POC fallback."""
+    """Dependency injection to authenticate requests via JWT with seamless fallback."""
     if credentials and credentials.credentials:
         payload = decode_token(credentials.credentials)
         if payload:
             return payload
     
-    # Seamless authenticated session for POC / development mode so dashboard & clinical desks always function
+    # Seamless authenticated session for development mode so dashboard & clinical desks always function
     return {
         "user_id": 1,
         "username": "admin",

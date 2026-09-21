@@ -81,7 +81,7 @@ export const agentApi = {
   },
 
   /**
-   * Step 4: Physician Sign-Off & Live Database Execution
+   * Step 4: Physician Sign-Off & Database Execution
    */
   async physicianSignOff(params: {
     admissionId: number;

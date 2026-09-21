@@ -58,7 +58,7 @@ _initialized = False
 
 
 def initialize_radiology() -> None:
-    """Load the existing PoC models once and start the existing PACS watcher."""
+    """Load the existing models once and start the existing PACS watcher."""
     global _initialized
     if _initialized:
         return

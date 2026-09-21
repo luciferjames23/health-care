@@ -13,7 +13,7 @@ logger = logging.getLogger("meridian.radiology.db")
 
 
 def get_connection():
-    """Establish and return a live PostgreSQL connection."""
+    """Establish and return an active PostgreSQL connection."""
     return psycopg2.connect(
         host=config.POSTGRES_HOST,
         port=config.POSTGRES_PORT,

@@ -64,7 +64,7 @@ export default function ClinicalWorkspaceView({
           setPatientList([]);
         }
       } catch (err) {
-        console.error("Failed to fetch live admitted patients:", err);
+        console.error("Failed to fetch admitted patients:", err);
         setError(err.message || 'Failed to connect to Admissions API');
       } finally {
         setLoading(false);
@@ -207,7 +207,7 @@ export default function ClinicalWorkspaceView({
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Data Sync</div>
           <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-            Live · Up to date
+            Active · Up to date
           </div>
         </div>
       </div>

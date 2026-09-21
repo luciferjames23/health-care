@@ -257,7 +257,7 @@ export default function AuthScreen({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span style={{ fontWeight: 600, fontSize: '12px' }}>Hospital Accounts &amp; Staff Directory</span>
               <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#0284c7' }}>
-                {loadingUsers ? 'loading database...' : `live table (${activeUsers.length} accounts)`}
+                {loadingUsers ? 'loading database...' : `directory (${activeUsers.length} accounts)`}
               </span>
             </div>
 

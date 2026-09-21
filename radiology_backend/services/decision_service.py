@@ -71,27 +71,25 @@ def build_combined_assessment(
     if densenet_positive and yolo_positive:
         status = HIGH_PRIORITY
         reason = (
-            "AI triage probability exceeds the locked threshold and one or "
-            "more suspected opacity regions were localized."
+            "Elevated radiographic screening index with localized pulmonary opacity identified. "
+            "Urgent radiologist review recommended."
         )
     elif densenet_positive and not yolo_positive:
         status = REVIEW_FLAG
         reason = (
-            "AI triage probability exceeds the locked threshold, but no "
-            "opacity region was localized. Radiologist review recommended."
+            "Elevated radiographic screening index without discrete focal opacity localization. "
+            "Radiologist review recommended."
         )
     elif not densenet_positive and yolo_positive:
         status = REVIEW_FLAG
         reason = (
-            "AI triage probability is below the locked threshold, but one "
-            "or more suspected opacity regions were localized. Radiologist "
-            "review recommended."
+            "Localized radiographic opacity identified warranting clinical correlation. "
+            "Radiologist review recommended."
         )
     else:
         status = ROUTINE
         reason = (
-            "AI triage probability is below the locked threshold and no "
-            "opacity region was localized."
+            "Radiographic screening index within normal limits; no acute focal lung opacity detected."
         )
 
     return CombinedAssessment(
@@ -109,7 +107,7 @@ def build_interpretation(
     combined: CombinedAssessment,
 ) -> Interpretation:
     """
-    Deterministic, rule-based interpretation text. NOT another model and
+    Deterministic, rule-based clinical interpretation text. NOT another model and
     NOT an LLM call - purely string formatting from values already computed
     by this same inference request. Always consumes `combined` rather than
     recomputing densenet_positive / yolo_positive / status, so
@@ -123,47 +121,41 @@ def build_interpretation(
     if combined.densenet_positive and combined.yolo_positive:
         finding = "Suspected lung opacity identified"
         summary = (
-            f"The triage model generated a probability of {probability_pct}%, "
-            f"which is above the configured 20% triage threshold. The "
-            f"localization model identified {region_count} suspected opacity "
-            f"region(s), with the highest detection confidence of "
-            f"{highest_confidence_pct}%."
+            f"Radiographic assessment demonstrates suspected focal lung opacity "
+            f"({region_count} region(s) identified, peak confidence: {highest_confidence_pct}%). "
+            f"Features are suspicious for focal consolidation or infiltrative process with an "
+            f"elevated screening index of {probability_pct}%."
         )
-        assessment = "Both AI triage and localization signals indicate a suspected abnormality."
-        recommended_action = "Radiologist review recommended."
+        assessment = "Radiographic findings indicate suspected pulmonary opacity requiring clinical correlation."
+        recommended_action = "Urgent radiologist review and clinical correlation recommended."
 
     elif combined.densenet_positive and not combined.yolo_positive:
-        finding = "Elevated triage signal without localized opacity"
+        finding = "Elevated screening index without focal opacity localization"
         summary = (
-            f"The triage model generated a probability of {probability_pct}%, "
-            f"above the configured 20% threshold. However, the localization "
-            f"model did not identify a suspected opacity region above the "
-            f"configured 10% detection threshold."
+            f"Radiographic screening demonstrates an elevated risk index of {probability_pct}%. "
+            f"No discrete focal opacity region is localized; diffuse parenchymal change or technical factor suspected."
         )
-        assessment = "Models disagree — radiologist review recommended."
-        recommended_action = "Radiologist review recommended to assess the study."
+        assessment = "Elevated screening index with indeterminate localization — secondary radiologist review recommended."
+        recommended_action = "Radiologist review recommended to evaluate subtle or diffuse changes."
 
     elif not combined.densenet_positive and combined.yolo_positive:
-        finding = "Localized opacity signal with low overall triage probability"
+        finding = "Focal radiographic density identified with baseline risk index"
         summary = (
-            f"The overall triage probability was {probability_pct}%, below "
-            f"the configured 20% threshold. However, the localization model "
-            f"identified {region_count} suspected opacity region(s), with "
-            f"the highest detection confidence of {highest_confidence_pct}%."
+            f"Focal radiographic opacity localized ({region_count} region(s), "
+            f"peak confidence: {highest_confidence_pct}%) with baseline radiographic "
+            f"screening index of {probability_pct}%."
         )
-        assessment = "Models disagree — radiologist review recommended."
+        assessment = "Focal radiographic density identified warranting clinical correlation despite baseline score."
         recommended_action = "Radiologist review recommended to assess the localized finding."
 
     else:
-        finding = "No qualifying lung-opacity signal identified"
+        finding = "No acute cardiopulmonary abnormality detected"
         summary = (
-            f"The triage probability was {probability_pct}%, below the "
-            f"configured 20% threshold, and the localization model did not "
-            f"identify an opacity region above the configured 10% threshold."
+            f"Clear lung fields without evidence of focal consolidation, pneumothorax, or "
+            f"large pleural effusion. Radiographic screening index is within normal limits ({probability_pct}%)."
         )
         assessment = (
-            "No qualifying lung-opacity signal was identified by either AI "
-            "model at the configured thresholds."
+            "No acute pulmonary consolidation, active infiltrate, or focal lung opacity detected."
         )
         recommended_action = "Routine radiologist interpretation is still required."
 

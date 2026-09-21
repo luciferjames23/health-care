@@ -50,7 +50,7 @@ const ICON_CONFIG = {
   waiting: { icon: '◔', bg: '#ffffff', color: '#52585e', border: '2px solid #c9cdd1' }
 };
 
-// Helper to generate dynamic live case interactive state
+// Helper to generate dynamic case interactive state
 function createCaseInitialState(base) {
   if (!base) return {};
   const isReady = base.category === 'Ready';
@@ -207,7 +207,7 @@ export default function DischargeCommandCentre({
     }, 4500);
   }, []);
 
-  // Fetch live backend data
+  // Fetch backend data
   const loadDischargeCandidates = useCallback(async (isSilent = false) => {
     if (!isSilent && rawSummaries.length === 0 && rawAdmissions.length === 0) setLoading(true);
     setError(null);
@@ -223,7 +223,7 @@ export default function DischargeCommandCentre({
       setRawBeds(resBeds?.data || []);
       setRawWards(resWards?.data || []);
     } catch (err) {
-      if (!isSilent) setError(err.message || 'Failed to fetch live discharge candidates.');
+      if (!isSilent) setError(err.message || 'Failed to fetch discharge candidates.');
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -240,7 +240,7 @@ export default function DischargeCommandCentre({
     };
   }, [loadDischargeCandidates]);
 
-  // Build live cases strictly from original live backend data
+  // Build cases strictly from original backend data
   const allCases = useMemo(() => {
     const admMap = {};
     rawAdmissions.forEach(a => {
@@ -263,17 +263,17 @@ export default function DischargeCommandCentre({
     const processedPatientIds = new Set();
     const resultCases = [];
 
-    // 1. Live Generated Discharge Summaries (dim_generated_discharge_summaries)
+    // 1. Generated Discharge Summaries (dim_generated_discharge_summaries)
     rawSummaries.forEach((c, index) => {
       const parsed = parseDischargeSummaryRecord(c);
       if (!parsed) return;
-      const pid = String(parsed.patient_id || parsed.id || `LIVE-${index}`);
+      const pid = String(parsed.patient_id || parsed.id || `CASE-${index}`);
       processedPatientIds.add(pid);
       if (c.admission_id) processedPatientIds.add(`adm_${c.admission_id}`);
 
       const adm = admMap[pid] || admMap[`adm_${c.admission_id}`] || {};
       const matchedBed = bedMap[pid];
-      const caseId = parsed.summary_id ? `DIS-SUM-${parsed.summary_id}` : `DIS-LIVE-${index + 1}`;
+      const caseId = parsed.summary_id ? `DIS-SUM-${parsed.summary_id}` : `DIS-CASE-${index + 1}`;
 
       const rawBillNet = parseFloat(adm.bill_net_amount || (c.admission_id ? 120000 + ((c.admission_id % 70) * 1500) : 121500));
       const billNet = rawBillNet > 0 ? rawBillNet : 121500;
@@ -364,7 +364,7 @@ export default function DischargeCommandCentre({
       });
     });
 
-    // 2. Live Inpatient Admissions (dim_admission_inputs)
+    // 2. Inpatient Admissions (dim_admission_inputs)
     rawAdmissions.forEach((adm, index) => {
       const pid = String(adm.patient_id || adm.id || '');
       const aid = String(adm.admission_id || '');
@@ -512,7 +512,7 @@ export default function DischargeCommandCentre({
     }
   }, [selectedPatient, allCases]);
 
-  // Compute live enriched discharge case objects
+  // Compute enriched discharge case objects
   const enrichedCases = useMemo(() => {
     return allCases.map(base => {
       const st = caseStates[base.id] || createCaseInitialState(base);

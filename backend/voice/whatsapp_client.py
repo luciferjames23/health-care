@@ -9,7 +9,7 @@ Manages:
   - Media Upload/Download mechanics
   - Graceful mock simulation for local/offline testing
 
-Step 5.3 — Meridian Hospital POC
+Step 5.3 — Meridian Hospital
 """
 
 import os
@@ -409,7 +409,7 @@ def send_audio_message(to_number: str, audio_data_uri_or_path: str) -> dict:
         "recipient_type": "individual",
         "to": to_number,
         "type": "audio",
-        "audio": {"link": "http://meridian-hospital.poc/static/audio_response.wav"}
+        "audio": {"link": "http://meridian-hospital.local/static/audio_response.wav"}
     }
     
     if is_mock_mode():

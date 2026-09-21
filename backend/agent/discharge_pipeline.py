@@ -439,7 +439,7 @@ class DischargeAgentPipeline:
         summary_payload: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        STEP 4: Physician Sign-Off and Live Database Execution
+        STEP 4: Physician Sign-Off and Database Execution
         1. Persists the approved discharge summary into `dim_generated_discharge_summaries`.
         2. Updates `admissions.discharge_status` to 'Discharged'.
         3. Updates `admissions.discharge_date` to CURRENT_TIMESTAMP.
@@ -863,7 +863,7 @@ class DischargeAgentPipeline:
                 clinical_passed = len(clinical_reasons) == 0
 
                 # --- STEP 3: VITAL SIGNS STATUS CHECK (EVALUATED VIA GROQ LLM) ---
-                # Evaluated based on Step 1: Live Groq LLM inference executes for bill-cleared candidates
+                # Evaluated based on Step 1: Groq LLM inference executes for bill-cleared candidates
                 vitals_eval = self.evaluate_vitals_stability_with_llm(
                     vitals=r,
                     patient_context={

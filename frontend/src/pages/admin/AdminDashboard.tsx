@@ -143,7 +143,7 @@ const AdminDashboard: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2>Meridian Hospital — Administration Analytics</h2>
-            <p>{greeting}, Admin · Live date-wise operational data</p>
+            <p>{greeting}, Admin · Date-wise operational data</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button

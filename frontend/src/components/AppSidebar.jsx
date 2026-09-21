@@ -8,8 +8,8 @@ export const NAV_GROUPS = [
     items: [
       { id: 'command', label: 'Command Centre' },
       { id: 'patients', label: 'Patients' },
-      { id: 'appointments', label: 'Appointments', badge: 'Live DB' },
-      { id: 'pre-admission', label: 'Pre-Admission Desk', badge: 'Live' },
+      { id: 'appointments', label: 'Appointments' },
+      { id: 'pre-admission', label: 'Pre-Admission Desk' },
       { id: 'doctor-management', label: 'Doctor Directory' },
       { id: 'admissions', label: 'Admissions' },
       { id: 'bedboard', label: 'Bed Board' },
@@ -38,7 +38,7 @@ export const NAV_GROUPS = [
       { id: 'lab', label: 'Lab Dashboard' },
       { id: 'criticalvalues', label: 'Results & Critical Values' },
       { id: 'diagnostics', label: 'Diagnostics' },
-      { id: 'radiology', label: 'Radiology', badge: 'Live PoC' },
+      { id: 'radiology', label: 'Radiology' },
     ]
   },
   {
@@ -79,7 +79,7 @@ export const NAV_GROUPS = [
     title: 'ADMINISTRATION',
     items: [
       { id: 'integration-arch', label: 'Integration Architecture' },
-      { id: 'escalations', label: 'Human Escalations', badge: 'Live' },
+      { id: 'escalations', label: 'Human Escalations' },
       { id: 'notifications', label: 'Notifications', badge: '26', badgeColor: 'oklch(0.45 0.17 25)' },
       { id: 'config', label: 'Configuration' },
       { id: 'reports', label: 'Reports' },
@@ -99,7 +99,7 @@ export const NAV_GROUPS = [
     title: 'AI PLATFORM',
     items: [
       { id: 'assistant', label: 'Hospital Assistant' },
-      { id: 'ai-desk', label: 'AI Patient Desk', badge: 'Live AI', badgeColor: 'oklch(0.5 0.18 150)' },
+      { id: 'ai-desk', label: 'AI Patient Desk' },
       { id: 'patient-chat', label: 'Patient Portal Chat', badge: 'Interactive' },
       { id: 'ai-command', label: 'AI Command Centre' },
       { id: 'agents', label: 'Agents' },

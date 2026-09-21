@@ -326,13 +326,24 @@ export default function App() {
           )}
 
           {activePage === 'criticalvalues' && (
-            <ResultsCriticalValuesView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+            <ResultsCriticalValuesView
+              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
+              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+            />
           )}
           {activePage === 'diagnostics' && (
-            <DiagnosticsView onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }} />
+            <DiagnosticsView
+              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
+              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+            />
           )}
           {activePage === 'radiology' && (
-            <RadiologyView requestedStudyId={requestedRadiologyStudy} onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)} currentUser={auth} />
+            <RadiologyView
+              requestedStudyId={requestedRadiologyStudy}
+              onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)}
+              currentUser={auth}
+              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+            />
           )}
 
           {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
@@ -427,7 +438,7 @@ export default function App() {
                     {activePage} Management
                   </div>
                   <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-                    Governed enterprise records · live clinical data platform
+                    Governed enterprise records · clinical data platform
                   </div>
                 </div>
                 <button

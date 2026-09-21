@@ -162,7 +162,7 @@ export default function AnalyticsView() {
             Healthcare Executive Analytics &amp; Clinical Insights
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Real-time analytical dashboards derived dynamically from live healthcare clinical database.
+            Real-time analytical dashboards derived dynamically from healthcare clinical database.
           </div>
         </div>
 
@@ -187,7 +187,7 @@ export default function AnalyticsView() {
             fontSize: '11.5px', color: '#334155', fontFamily: 'monospace'
           }}>
             <Database style={{ width: '13px', height: '13px', color: '#10b981' }} />
-            <span>PostgreSQL: live 68 tables</span>
+            <span>PostgreSQL: 68 tables</span>
           </div>
         </div>
       </div>
@@ -265,7 +265,7 @@ export default function AnalyticsView() {
                 Hospital Encounter Volume Breakdown
               </div>
               <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                Live distribution across admissions, ER triage, and outpatient visits
+                Distribution across admissions, ER triage, and outpatient visits
               </div>
             </div>
           </div>
@@ -341,7 +341,7 @@ export default function AnalyticsView() {
               Top Primary Diagnoses (ICD-10 Classification)
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-              Most frequent clinical primary diagnosis codes recorded in live encounters
+              Most frequent clinical primary diagnosis codes recorded in patient encounters
             </div>
           </div>
         </div>

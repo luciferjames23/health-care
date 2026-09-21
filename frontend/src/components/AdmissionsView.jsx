@@ -279,7 +279,7 @@ export default function AdmissionsView({
         {loading && admissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Inpatient Admissions...</div>
-            <div style={{ fontSize: '12px' }}>Fetching live admission records from clinical data system…</div>
+            <div style={{ fontSize: '12px' }}>Fetching admission records from clinical data system…</div>
           </div>
         ) : filteredAdmissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>

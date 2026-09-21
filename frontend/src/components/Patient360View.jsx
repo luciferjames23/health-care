@@ -123,7 +123,6 @@ export default function Patient360View({
 
     if (!aid && !pid && !bid) return;
 
-    setBillLoading(true);
     const fetchBill = async () => {
       try {
         let res = null;
@@ -141,8 +140,6 @@ export default function Patient360View({
         }
       } catch (err) {
         console.warn("Failed to load live bill details:", err);
-      } finally {
-        if (alive) setBillLoading(false);
       }
     };
 
@@ -208,9 +205,9 @@ export default function Patient360View({
       .find(cand => cand && !isSyntheticBed(cand));
     const bed = validCandidate || 'BED-0193';
     const room = assignedBed?.room_number || liveAdmission?.room_number || raw.room_number || 'RM-044';
+    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || 'Clinical Services';
     const ward = assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept;
     const doctor = d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || 'Dr. Sneha Das';
-    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || 'Clinical Services';
     const insurer = d.insurer || d.insurance || (billing.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate');
     const risk = d.risk || (vitals.latest_heart_rate > 100 || vitals.latest_oxygen_saturation < 95 ? 'Moderate' : 'None');
     const attendant = d.attendant || (demo.emergency_contact_name ? `${demo.emergency_contact_name} · ${lang}` : 'Family Member · ' + lang);

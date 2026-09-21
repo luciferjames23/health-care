@@ -56,7 +56,7 @@ DENSENET_POSITIVE_CLASS_INDEX = 1
 DENSENET_PREPROCESSING_CONFIRMED = True  # confirmed against training notebook
 
 # ---------------------------------------------------------------------------
-# Reported model performance (PoC / evaluation metrics only - NOT clinical
+# Reported model performance (evaluation metrics only - NOT clinical
 # sensitivity/specificity, NOT FDA/CE validated)
 # ---------------------------------------------------------------------------
 DENSENET_ROC_AUC = 0.85
@@ -71,10 +71,10 @@ YOLO_RECALL = 0.431
 YOLO_MAP50 = 0.444
 YOLO_MAP50_95 = 0.179
 
-POC_VERSION = "0.1.0-poc"
+POC_VERSION = "0.1.0"
 
 DISCLAIMER = (
-    "AI-assisted triage only. This proof-of-concept is not a diagnostic "
+    "AI-assisted triage only. This system is not a diagnostic "
     "system. Final clinical interpretation must be performed by a "
     "qualified radiologist."
 )

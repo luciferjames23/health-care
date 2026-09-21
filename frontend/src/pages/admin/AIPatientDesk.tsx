@@ -82,7 +82,7 @@ const AIPatientDesk: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h2>Meridian AI Patient Desk</h2>
-            <p>AI-powered conversational assistance — live data from database</p>
+            <p>AI-powered conversational assistance — data from database</p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <button className="btn btn-secondary btn-sm" onClick={loadData} disabled={loading}

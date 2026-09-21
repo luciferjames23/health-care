@@ -31,7 +31,7 @@ const DepartmentPage: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h2>Departments & Specialties</h2>
-            <p>All active hospital departments — live from database</p>
+            <p>All active hospital departments — database records</p>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={loadDepartments} disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

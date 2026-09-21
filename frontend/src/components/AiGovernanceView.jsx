@@ -224,7 +224,7 @@ export default function AiGovernanceView({ initialTab = 'governance' }) {
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '24px', textAlign: 'center' }}>
           <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '6px' }}>{activeTab.toUpperCase()} Module</div>
           <div style={{ color: '#52585e', fontSize: '12px', maxWidth: '500px', margin: '0 auto', lineHeight: 1.5 }}>
-            Live enterprise telemetry stream connected with Hospital Information Systems and the AI Governance Audit gateway.
+            Enterprise telemetry stream connected with Hospital Information Systems and the AI Governance Audit gateway.
           </div>
         </div>
       )}

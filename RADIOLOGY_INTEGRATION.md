@@ -1,10 +1,10 @@
-# Live Radiology PoC integration
+# Radiology Integration
 
-This branch preserves the existing healthcare application and adds three non-duplicating views over one live Radiology PoC result source.
+This branch preserves the existing healthcare application and adds three non-duplicating views over one Radiology result source.
 
 - Results & Critical Values: attention/notification view only (HIGH PRIORITY + REVIEW FLAG). It does not run AI.
 - Diagnostics: cross-diagnostic imaging status/overview. It does not run AI.
-- Radiology / PACS: full live PoC workflow: worklist, manual DICOM analysis, PACS studies, detailed DenseNet/YOLO result and OHIF viewer.
+- Radiology / PACS: full workflow: worklist, manual DICOM analysis, PACS studies, detailed DenseNet/YOLO result and OHIF viewer.
 
 ## Services
 
@@ -31,4 +31,4 @@ For Demo PACS + OHIF, use the included `radiology_ohif_demo/` Docker Compose set
 
 ## Important
 
-The original locked Radiology PoC backend was copied unchanged, including model files, thresholds, inference, decision logic, Orthanc watcher, worklist/viewed behavior and tests. The new healthcare screens only consume its existing API.
+The original locked Radiology backend was copied unchanged, including model files, thresholds, inference, decision logic, Orthanc watcher, worklist/viewed behavior and tests. The new healthcare screens only consume its existing API.

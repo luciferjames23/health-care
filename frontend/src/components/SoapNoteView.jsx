@@ -91,7 +91,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           setRecState('done');
         }
       } catch (err) {
-        console.warn("Using live SOAP note data:", err);
+        console.warn("Using SOAP note data:", err);
       }
     }
     loadDbDrafts();
@@ -210,7 +210,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
             </button>
             {dbDrafts.length > 0 && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8a9096', fontSize: '11.5px' }}>
-                <span>Load Live Draft</span>
+                <span>Load Draft</span>
                 <select
                   onChange={(e) => {
                     const found = dbDrafts.find(d => String(d.draft_id) === e.target.value);

@@ -175,7 +175,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Tracks OPD check-ins, consultation wait times, token calling displays, and detects bottleneck delays across specialties.',
     instructions: {
       role: 'You are the Queue & Patient Flow Agent.',
-      goal: 'Optimize consultation queue sequencing, update waiting display tokens, and notify patients of live queue position.',
+      goal: 'Optimize consultation queue sequencing, update waiting display tokens, and notify patients of queue position.',
       safety: 'Do not reorder emergency patients; emergency triage acuity always overrides routine queue order.',
       routing: 'Check-in event -> Calculate doctor consultation velocity -> Push estimated turn time.',
       escalation: 'OP wait > 30 min triggers notification to Front Desk Executive.',
@@ -270,7 +270,7 @@ export const ALL_21_AGENTS = [
       role: 'You are the Discharge Orchestration Agent.',
       goal: 'Maintain the critical path DAG for all inpatient discharges from doctor intent to bed release, dynamically adjusting ETA.',
       safety: 'Never bypass doctor summary sign-off or final billing clearance. Patient cannot be released if clinical hold is active.',
-      routing: 'Doctor intent -> Dispatch parallel tasks to Pharmacy, Billing, TPA -> Update live board -> Trigger Housekeeping.',
+      routing: 'Doctor intent -> Dispatch parallel tasks to Pharmacy, Billing, TPA -> Update board -> Trigger Housekeeping.',
       escalation: 'Dependency stalled > 45m beyond SLA notifies Operations Head.',
       language: 'Bilingual ETA broadcasts.'
     },
@@ -359,7 +359,7 @@ export const ALL_21_AGENTS = [
     humanApproval: 'None',
     toolsCount: 4,
     knowledgeCount: 4,
-    purpose: 'Real-time call transcription, caller intent detection, sentiment monitoring, and agent-assist copilot suggestions during live calls.',
+    purpose: 'Real-time call transcription, caller intent detection, sentiment monitoring, and agent-assist copilot suggestions during active calls.',
     instructions: {
       role: 'You are the Contact Centre Telephony Copilot.',
       goal: 'Transcribe caller speech, retrieve relevant patient record context, and suggest answers to the human agent.',
@@ -769,7 +769,7 @@ All ${totalPending} active summaries are persisted in the PostgreSQL lakehouse a
         output: outputText
       });
     } catch (err) {
-      console.warn('Playground live run fallback:', err);
+      console.warn('Playground run fallback:', err);
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
       setPlayResult({
         executionId: `EXE-2026-${Math.floor(100000 + Math.random() * 900000)}`,

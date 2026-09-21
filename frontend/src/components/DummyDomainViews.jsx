@@ -169,7 +169,7 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Consultant Appointments & OPD Token Queue"
-        subtitle="Live out-patient consultation appointments, automated queue management, and doctor check-in desk"
+        subtitle="Out-patient consultation appointments, automated queue management, and doctor check-in desk"
         count={filtered.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'appt', title: 'New Outpatient Appointment' })}
         newLabel="+ New Appointment"
@@ -328,7 +328,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Emergency & Trauma Resuscitation Board"
-        subtitle="Live emergency department triage, trauma bay occupancy, and vital resuscitation alerts"
+        subtitle="Emergency department triage, trauma bay occupancy, and vital resuscitation alerts"
         count={EMERGENCY_CASES.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
         newLabel="+ Triage & Admit"
@@ -510,7 +510,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Inpatient Nursing Station & Shift Tasks"
-        subtitle="Live ward nurse assignment, scheduled drug administration, and clinical care checklists"
+        subtitle="Ward nurse assignment, scheduled drug administration, and clinical care checklists"
         count={NURSING_TASKS.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Staff Nurse / User' })}
         newLabel="+ Add Nurse"
@@ -698,7 +698,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Operating Theatres & Surgical Suite"
-        subtitle="Live OT suite tracking, intra-operative milestones, anesthesia records, and PACU recovery"
+        subtitle="OT suite tracking, intra-operative milestones, anesthesia records, and PACU recovery"
         count={SURGERY_CASES.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Surgical Service / OT Procedure' })}
         newLabel="+ Schedule OT Case"
@@ -2150,7 +2150,7 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
         { k: 'Known Drug Interactions', v: d.interactions },
       ],
       actions: [
-        { label: 'Check Live Inventory', primary: true, on: () => alert(`Central stock check for ${d.generic}: 420 units available`) },
+        { label: 'Check Inventory', primary: true, on: () => alert(`Central stock check for ${d.generic}: 420 units available`) },
         { label: 'Edit Formulary Parameters', on: () => onOpenModal && onOpenModal({ kind: 'reason', title: 'Edit Drug Master', text: `Modify formulation or interaction alerts for ${d.generic}:` }) }
       ]
     });
@@ -2595,7 +2595,7 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title={module}
-        subtitle="Governed enterprise infrastructure · connected live to clinical data foundation"
+        subtitle="Governed enterprise infrastructure · connected to clinical data foundation"
         count={8}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: `Configure ${module}`, text: `Modify settings or credentials for ${module}:` })}
         newLabel="+ Add Configuration"
@@ -2621,7 +2621,7 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
               ['LIS (Laboratory Information System)', 'ASTM 1394 / TCP', 'Read-only', 'Real-time analyzer push', 'Manual entry fallback', 'Healthy'],
               ['RIS / PACS Imaging & Studies', 'DICOM / DIMSE', 'Read-only', 'On study complete', 'Radiology workstation', 'Healthy'],
               ['Insurance & TPA Clearinghouse', 'National Health Claims (NHCX)', 'Bidirectional', '3 min polling', 'Web portal manual', 'Healthy'],
-              ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Live transaction', 'Paper MAR contingency', 'Healthy'],
+              ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Direct transaction', 'Paper MAR contingency', 'Healthy'],
               ['WhatsApp Patient Notification Gateway', 'Meta Cloud API', 'Outbound / Inbound', 'Instant', 'SMS fallback', 'Healthy'],
               ['Clinical Data Foundation Views', 'Clinical SQL Service', 'Registry Ingestion', '5 min interval sync', 'Read replica cache', 'Healthy'],
             ].map(([c, p, d, f, fb, h], i) => (

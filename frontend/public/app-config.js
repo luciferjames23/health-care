@@ -27,7 +27,7 @@ window.config = {
         supportsFuzzyMatching: false,
         supportsWildcard: true,
 
-        // IMPORTANT: Orthanc is a live DICOMweb server, not a Static-WADO
+        // IMPORTANT: Orthanc is an active DICOMweb server, not a Static-WADO
         // filesystem.  staticWado: true breaks frame retrieval with Orthanc.
         staticWado: false,
 

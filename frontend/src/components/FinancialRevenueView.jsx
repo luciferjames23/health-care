@@ -661,7 +661,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     <tr>
                       <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
                         <Spin size={24} />
-                        <div style={{ marginTop: "10px" }}>Loading live PostgreSQL bills ledger...</div>
+                        <div style={{ marginTop: "10px" }}>Loading PostgreSQL bills ledger...</div>
                       </td>
                     </tr>
                   ) : bills.length === 0 ? (
@@ -943,7 +943,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     <tr>
                       <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
                         <Spin size={24} />
-                        <div style={{ marginTop: "10px" }}>Loading live insurance claims from PostgreSQL...</div>
+                        <div style={{ marginTop: "10px" }}>Loading insurance claims from PostgreSQL...</div>
                       </td>
                     </tr>
                   ) : claims.length === 0 ? (

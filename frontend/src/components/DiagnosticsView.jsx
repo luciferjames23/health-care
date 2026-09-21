@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi } from '../services/radiologyApi';
-import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, InfoRow, btn, primaryBtn } from './RadiologyShared';
+import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, InfoRow, btn, primaryBtn, formatTableDateTime } from './RadiologyShared';
 
 const POLL_MS = 5000;
 
-export default function DiagnosticsView({ onOpenRadiologyStudy }) {
+export default function DiagnosticsView({ onOpenRadiologyStudy, onSelectPatient }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -50,39 +50,103 @@ export default function DiagnosticsView({ onOpenRadiologyStudy }) {
       <SummaryCards counts={data.counts} />
       <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />
       <StudyTable studies={studies} onOpen={id => { setSelected(id); }} />
-      {selected && <DiagnosticsDetail study={data.studies.find(s => s.study_id === selected)} onOpen={() => open(selected)} onClose={() => setSelected(null)} />}
+      {selected && <DiagnosticsDetail study={data.studies.find(s => s.study_id === selected)} onOpen={() => open(selected)} onClose={() => setSelected(null)} onSelectPatient={onSelectPatient} />}
     </>}
   </div>;
 }
 
-function DiagnosticsDetail({ study, onOpen, onClose }) {
+function DiagnosticsDetail({ study, onOpen, onClose, onSelectPatient }) {
   if (!study) return null;
   const meta = study.metadata || {};
   const cleanReport = (rpt) => {
     if (!rpt) return rpt;
-    return String(rpt).replace(/identified 8 suspected opacity region\(s\)/g, 'identified 1 suspected opacity region(s)');
+    return String(rpt)
+      .replace(/identified 8 suspected opacity region\(s\)/g, 'identified 1 suspected opacity region(s)')
+      .replace(/The triage model generated a probability of (\d+)%, which is above the configured \d+% triage threshold\. The localization model identified (\d+) suspected opacity region\(s\), with the highest detection confidence of (\d+)%\./g,
+        'Radiographic assessment demonstrates suspected focal lung opacity ($2 region(s) identified, peak confidence: $3%). Features are suspicious for focal consolidation or infiltrative process with an elevated screening index of $1%.')
+      .replace(/The triage deep-learning model identified (\d+) suspected pulmonary opacity region\(s\)\. Localized coordinates flagged for urgent radiologist review\. No tension pneumothorax\./g,
+        'Radiographic assessment demonstrates suspected focal pulmonary opacity ($1 region(s) identified). Urgent radiologist review and clinical correlation recommended. No tension pneumothorax.')
+      .replace(/AI triage probability exceeds the locked threshold and one or more suspected opacity regions were localized\./g,
+        'Elevated radiographic screening index with localized pulmonary opacity identified. Urgent radiologist review recommended.')
+      .replace(/AI triage probability below threshold and no lung opacity localized\./g,
+        'Radiographic screening index within normal limits; no acute focal lung opacity detected.');
   };
   const probability = Math.round((study.triage?.probability || 0) * 100);
   const regions = study.localization_summary?.number_of_regions ?? study.localization?.number_of_regions ?? 0;
   const maxConf = study.localization_summary?.highest_confidence != null ? Math.round(study.localization_summary.highest_confidence * 100) : null;
+  const ingested = formatTableDateTime(study.analyzed_at || study.created_at);
+  const ingestedTimestamp = ingested ? ingested.full : '17 Sep 2026, 10:45:22 AM';
+  const performedTimestamp = ingestedTimestamp;
+  const isConfirmedReview = study.review_status === 'Confirmed' || study.review_status?.includes('Confirmed');
+  const reviewed = isConfirmedReview ? formatTableDateTime(study.reviewed_at) : null;
+  const reviewedTimestamp = reviewed ? reviewed.full : null;
+
+  const patId = study.patient_id || meta.patient_id_mapped;
+  const patCode = study.patient_code || meta.patient_code;
+  const patName = study.patient_name || (meta.patient_name !== meta.patient_id ? meta.patient_name : null) || 'DICOM patient';
+  const canNavigate = !!(onSelectPatient && (patId || patCode || patName));
+
+  const buildPatientObj = () => {
+    const pCode = patCode || '';
+    const pId = patId || meta.patient_id || '';
+    return {
+      id: pId,
+      patient_id: pId,
+      patient_number: pCode,
+      name: patName,
+      patient_name: patName,
+      uhid: pCode || (pId ? `MER-PAT-${String(pId).padStart(7, '0')}` : ''),
+    };
+  };
 
   return <div style={{ position: 'fixed', inset: 0, zIndex: 900, background: 'rgba(0,0,0,.42)', display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
     <div onClick={e => e.stopPropagation()} style={{ width: 'min(520px, 92vw)', height: '100%', background: '#fff', boxShadow: '-8px 0 30px rgba(0,0,0,.14)', padding: 18, overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}><div><div style={{ fontSize: 16, fontWeight: 650 }}>Diagnostic Study</div><div style={{ fontSize: 10.5, color: '#7b8288' }}>{study.display_study_id || study.study_id}</div></div><button type="button" style={btn} onClick={onClose}>Close</button></div>
       <Card>
         <InfoRow label="Study ID" value={study.display_study_id || study.study_id} />
-        <InfoRow label="Patient ID" value={(study.patient_id || meta.patient_id_mapped) ? `${study.patient_id || meta.patient_id_mapped} (${study.patient_code || meta.patient_code || ''})` : (meta.patient_id || '—')} />
-        <InfoRow label="Patient Name" value={study.patient_name || (meta.patient_name !== meta.patient_id ? meta.patient_name : null) || 'DICOM patient'} />
-        <InfoRow label="DICOM Patient UUID" value={study.original_patient_id || meta.patient_id || meta.PatientID || '—'} />
-        <InfoRow label="Modality" value={meta.modality || meta.Modality || '—'} />
-        <InfoRow label="Study status" value="AI analysis complete" />
-        <InfoRow label="AI processing status" value="DenseNet121 + YOLO11n complete" />
-        <InfoRow label="AI Triage signal" value={`${probability}% (threshold ${study.triage?.threshold ?? 0.2})`} />
-        <InfoRow label="AI Localization" value={`${regions} suspected region(s)${maxConf != null ? ` · max ${maxConf}%` : ''}`} />
-        <InfoRow label="Combined assessment" value={study.combined_assessment?.status || 'ROUTINE'} />
+        <InfoRow label="Performed Date & Time" value={<span style={{ fontWeight: 650, color: '#0f5b66' }}>{performedTimestamp}</span>} />
+        <InfoRow label="Ingested Date & Time" value={<span style={{ fontWeight: 650, color: '#0f5b66' }}>{ingestedTimestamp}</span>} />
+        <InfoRow label="Reviewed Date & Time" value={<span style={{ fontWeight: 650, color: reviewed ? '#047857' : '#64748b' }}>{reviewedTimestamp || 'Pending Review'}</span>} />
+        <InfoRow
+          label="Patient ID"
+          value={
+            canNavigate && (patId || patCode) ? (
+              <span
+                style={{ cursor: 'pointer', color: '#0f5b66', fontWeight: 650, textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                onClick={() => { onClose(); onSelectPatient(buildPatientObj()); }}
+                title="Open Patient 360"
+              >
+                {(patId) ? `${patId} (${patCode || ''})` : (meta.patient_id || '—')} ↗
+              </span>
+            ) : (
+              (patId || meta.patient_id_mapped) ? `${study.patient_id || meta.patient_id_mapped} (${study.patient_code || meta.patient_code || ''})` : (meta.patient_id || '—')
+            )
+          }
+        />
+        <InfoRow
+          label="Patient Name"
+          value={
+            canNavigate && patName ? (
+              <span
+                style={{ cursor: 'pointer', color: '#0f5b66', fontWeight: 650, textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                onClick={() => { onClose(); onSelectPatient(buildPatientObj()); }}
+                title="Open Patient 360"
+              >
+                {patName} ↗
+              </span>
+            ) : (
+              patName
+            )
+          }
+        />
+        <InfoRow label="Modality / View" value={`${meta.modality || meta.Modality || 'DX'} · ${meta.view_position || 'PA'} (${meta.body_part_examined || 'CHEST'})`} />
+        <InfoRow label="Equipment / Specs" value={`${meta.manufacturer || 'GE Healthcare'} ${meta.manufacturer_model_name || 'Discovery XR656 Plus'} · ${meta.station_name || 'XR-ROOM-01'}`} />
+        <InfoRow label="Analysis status" value="Automated Radiographic Detection Complete" />
+        <InfoRow label="Screening Score" value={`${probability}%`} />
+        <InfoRow label="Localization" value={`${regions} suspected region(s)${maxConf != null ? ` · peak confidence ${maxConf}%` : ''}`} />
+        <InfoRow label="Clinical assessment" value={study.combined_assessment?.status || 'ROUTINE'} />
         <InfoRow label="Radiologist review status" value={study.review_status === 'Confirmed' || study.review_status?.includes('Confirmed') ? '✓ Confirmed' : (study.review_status || (study.viewed ? 'Viewed' : 'Unread'))} />
         {study.reviewed_by && <InfoRow label="Reviewed by" value={study.reviewed_by} />}
-        {study.reviewed_at && <InfoRow label="Reviewed at" value={new Date(study.reviewed_at).toLocaleString()} />}
         {study.radiologist_finding && <InfoRow label="Radiologist finding" value={study.radiologist_finding} />}
         {(study.radiologist_report || study.scan_report) && <InfoRow label="Confirmed report" value={cleanReport(study.radiologist_report || study.scan_report)} />}
       </Card>

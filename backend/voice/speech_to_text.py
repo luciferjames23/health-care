@@ -7,7 +7,7 @@ Supports: English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu.
 Enables pluggable/replaceable STT providers.
 Provides a mock implementation for development and testing.
 
-Step 5.2 — Meridian Hospital POC
+Step 5.2 — Meridian Hospital
 """
 
 import abc

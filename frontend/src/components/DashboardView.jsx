@@ -32,7 +32,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
           <div className="max-w-xl">
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-3">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-              Live PostgreSQL Clinical & AI System
+              PostgreSQL Clinical & AI System
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
               Healthcare Analytics Command Centre
@@ -97,7 +97,7 @@ export default function DashboardView({ summary, onSelectTable, onNavigateTab })
             </div>
             <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3 text-cyan-400" />
-              {bedKpis.total_beds ? `${bedKpis.available_beds || 0} available · ${bedKpis.occupied_beds || 0} occupied` : 'Live bed census'}
+              {bedKpis.total_beds ? `${bedKpis.available_beds || 0} available · ${bedKpis.occupied_beds || 0} occupied` : 'Bed census'}
             </p>
           </div>
         </div>

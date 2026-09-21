@@ -115,12 +115,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
         setLiveWards(wardsList);
 
-        // Build live exceptions from active discharge cases
+          // Build exceptions from active discharge cases
         if (discharges.length > 0) {
           const exList = discharges.slice(0, 5).map((c) => ({
             ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
             owner: c.doctor || 'Attending Physician',
-            age: 'Live Record',
+            age: 'Active Record',
             pri: c.approval_status === 'Approved' ? 'Low' : 'High',
             priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
             reason: c.diagnoses ? (c.diagnoses.length > 55 ? `${c.diagnoses.slice(0, 55)}...` : c.diagnoses) : 'Clinical summary review',
@@ -144,7 +144,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       } catch (err) {
         console.warn("Failed to load Command Centre metrics:", err);
         if (isMounted) {
-          setApiError(err.message || "Failed to load live metrics from backend API");
+          setApiError(err.message || "Failed to load metrics from backend API");
           setLiveKpis(null);
           setLiveWards([]);
           setLiveExceptions([]);
@@ -176,7 +176,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'adm', 
       t: 'Currently Admitted Patients', 
       v: liveKpis ? String(liveKpis.active_admissions) : (apiError ? '—' : null), 
-      sub: liveKpis ? `Active inpatients across ${liveKpis.total_wards} wards` : (apiError ? 'API Offline · No live data' : 'Active inpatients across all wards'), 
+      sub: liveKpis ? `Active inpatients across ${liveKpis.total_wards} wards` : (apiError ? 'API Offline · No data' : 'Active inpatients across all wards'), 
       c: 'oklch(0.5 0.1 200)', 
       target: 'clinical' 
     },
@@ -184,7 +184,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'dis', 
       t: 'Discharged Patient Records', 
       v: liveKpis ? String(liveKpis.discharged_patients) : (apiError ? '—' : null), 
-      sub: apiError ? 'API Offline · No live data' : 'Patients discharged from inpatient care', 
+      sub: apiError ? 'API Offline · No data' : 'Patients discharged from inpatient care', 
       c: 'oklch(0.4 0.12 150)', 
       target: 'discharge' 
     },
@@ -251,7 +251,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600 }}>Command Centre</div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Live Clinical Operational Intelligence
+            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Clinical Operational Intelligence
           </div>
         </div>
 
@@ -297,10 +297,10 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
             <span style={{ fontSize: '18px' }}>⚠️</span>
             <div>
               <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'oklch(0.4 0.16 25)' }}>
-                Live API Offline · Backend Unreachable
+                API Offline · Backend Unreachable
               </div>
               <div style={{ fontSize: '11.5px', color: '#667085', marginTop: '2px' }}>
-                {apiError} All static mock data has been removed. Live dynamic data will display once backend responds.
+                {apiError} All static mock data has been removed. Dynamic data will display once backend responds.
               </div>
             </div>
           </div>
@@ -384,7 +384,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
             {exceptions.length === 0 ? (
               <div style={{ padding: '24px 14px', textAlign: 'center', color: '#8a9096', fontSize: '12px' }}>
-                {apiError ? '⚠️ Live discharge exceptions cannot be loaded because the API is offline.' : 'No active operational exceptions.'}
+                {apiError ? '⚠️ Discharge exceptions cannot be loaded because the API is offline.' : 'No active operational exceptions.'}
               </div>
             ) : (
               exceptions.map((it, idx) => (
@@ -420,12 +420,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)' }} />
               <span style={{ fontWeight: 600, fontSize: '12.5px' }}>Management Copilot</span>
               <span style={{ marginLeft: 'auto', font: '500 10px ui-monospace, Menlo, monospace', color: 'oklch(0.5 0.1 300)' }}>
-                {apiError ? 'OFFLINE' : 'LIVE AI'}
+                {apiError ? 'OFFLINE' : 'ONLINE'}
               </span>
             </div>
             <div style={{ lineHeight: 1.5, color: '#52585e', fontSize: '12px' }}>
               {apiError
-                ? 'Copilot telemetry is paused while the backend is unreachable. Connect the FastAPI server to resume live operational intelligence.'
+                ? 'Copilot telemetry is paused while the backend is unreachable. Connect the FastAPI server to resume operational intelligence.'
                 : 'Discharge delays are concentrated in insurance preauthorization reviews. Ward turnaround and bed releases are monitored dynamically.'}
             </div>
             <div style={{ marginTop: '8px', fontSize: '11px', color: '#8a9096' }}>
@@ -518,7 +518,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
               <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
                 {apiError ? 'Unreachable' : 'Connected · Online'}
               </span>
-              <span>Live Bed Tracker</span>
+              <span>Bed Tracker</span>
               <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
                 {apiError ? '—' : `${liveKpis?.total_beds ?? 0} beds dynamic`}
               </span>

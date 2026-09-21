@@ -40,7 +40,7 @@ export default function TopHeader({
   const [showNewMenu, setShowNewMenu] = React.useState(false);
   const [switchingDoctor, setSwitchingDoctor] = React.useState(null);
 
-  // Dynamic real-time live clock and calendar date
+  // Dynamic real-time clock and calendar date
   const [now, setNow] = React.useState(new Date());
 
   React.useEffect(() => {
@@ -177,7 +177,7 @@ export default function TopHeader({
           </button>
         </form>
 
-        {/* Dynamic Real-time Live Clock */}
+        {/* Dynamic Real-time Clock */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>
           <span>{liveDateStr}</span>
           <span style={{ fontWeight: 600, color: '#15181b' }}>{liveTimeStr}</span>

@@ -408,7 +408,7 @@ const PreAdmissionPage: React.FC = () => {
             Patient Admission & Pre-Admission Follow-up
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Register pre-admissions, manage lifecycle, track documents, and view live WhatsApp interactions
+            Register pre-admissions, manage lifecycle, track documents, and view WhatsApp interactions
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

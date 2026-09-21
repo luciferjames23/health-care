@@ -7,21 +7,13 @@ from typing import Any, Dict, List, Optional
 import psycopg2
 import psycopg2.extras
 
-from radiology_ai import config
-
 logger = logging.getLogger("meridian.radiology.db")
 
 
 def get_connection():
-    """Establish and return a live PostgreSQL connection."""
-    return psycopg2.connect(
-        host=config.POSTGRES_HOST,
-        port=config.POSTGRES_PORT,
-        dbname=config.POSTGRES_DB,
-        user=config.POSTGRES_USER,
-        password=config.POSTGRES_PASSWORD,
-        connect_timeout=15,
-    )
+    """Establish and return an active PostgreSQL connection."""
+    from db_config import get_db_connection
+    return get_db_connection()
 
 
 def init_radiology_scan_table():
@@ -282,8 +274,9 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
     clean_ids = [str(x).strip() for x in original_ids if x and str(x).strip()]
     if not clean_ids:
         return {}
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT DISTINCT ON (rs.original_patient_id)
@@ -320,10 +313,14 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
                 }
             return mapping
     except Exception as e:
-        logger.error("Error looking up patient mapping by original_patient_id: %s", e)
+        logger.warning("Error looking up patient mapping by original_patient_id: %s", e)
         return {}
     finally:
-        conn.close()
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def get_patient_mapping_by_original_id(original_id: str) -> Optional[Dict[str, Any]]:

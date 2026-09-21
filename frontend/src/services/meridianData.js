@@ -58,7 +58,7 @@ export const ROLE_PAGE_ACCESS = {
   'IT Administrator': null, // Full platform access
   'Auditor': null, // Full platform access
   'Doctor': [
-    // 8 Live Data Pages (preserved)
+    // 8 Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
     'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
@@ -72,7 +72,7 @@ export const ROLE_PAGE_ACCESS = {
     'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions', 'agents'
   ],
   'Nurse': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent',
     // Operational & Clinical
     'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'otschedule', 'surgery',
@@ -86,7 +86,7 @@ export const ROLE_PAGE_ACCESS = {
     'approvals', 'knowledge', 'trainer', 'assistant', 'exceptions', 'agents'
   ],
   'Front Office': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard',
     // Operational
     'appointments', 'emergency', 'schedules', 'patient360', 'deathmlc',
@@ -98,7 +98,7 @@ export const ROLE_PAGE_ACCESS = {
     'knowledge', 'trainer', 'assistant'
   ],
   'Billing': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'discharge', 'discharge-agent',
     // Financial & Revenue
     'billing', 'insurance', 'claims', 'finance', 'tax',
@@ -110,7 +110,7 @@ export const ROLE_PAGE_ACCESS = {
     'hr-dashboard', 'notifications', 'reports'
   ],
   'Finance Manager': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'discharge-agent',
     // Financial & Revenue
     'billing', 'insurance', 'claims', 'finance', 'tax',
@@ -122,7 +122,7 @@ export const ROLE_PAGE_ACCESS = {
     'approvals', 'exceptions', 'audit', 'cost', 'assistant', 'hr-dashboard', 'notifications', 'reports', 'config'
   ],
   'Insurance': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'discharge', 'discharge-agent',
     // Financial & Revenue
     'billing', 'insurance', 'claims',
@@ -132,7 +132,7 @@ export const ROLE_PAGE_ACCESS = {
     'hr-dashboard', 'notifications', 'reports'
   ],
   'Radiologist': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'diagnostics', 'radiology',
     // Operational & Platform
     'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
@@ -140,7 +140,7 @@ export const ROLE_PAGE_ACCESS = {
     'hr-dashboard', 'notifications', 'reports'
   ],
   'Laboratory': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'criticalvalues', 'diagnostics',
     // Operational & Platform
     'lab', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant',
@@ -148,7 +148,7 @@ export const ROLE_PAGE_ACCESS = {
     'hr-dashboard', 'notifications', 'reports'
   ],
   'Pathologist': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'criticalvalues', 'diagnostics',
     // Operational & Platform
     'lab', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
@@ -156,7 +156,7 @@ export const ROLE_PAGE_ACCESS = {
     'hr-dashboard', 'notifications', 'reports'
   ],
   'Pharmacy': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'patients', 'discharge',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',
@@ -180,7 +180,7 @@ export const ROLE_PAGE_ACCESS = {
     'patients', 'settings', 'assistant'
   ],
   'Governance Officer': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command',
     // Financial & Revenue
     'tax',
@@ -191,7 +191,7 @@ export const ROLE_PAGE_ACCESS = {
     'evals', 'observability', 'cost', 'incidents', 'risk', 'governance', 'audit', 'trainer', 'assistant', 'deathmlc'
   ],
   'IT Administrator': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'bedboard',
     // Financial & Revenue
     'tax',
@@ -201,7 +201,7 @@ export const ROLE_PAGE_ACCESS = {
     'ai-command', 'observability', 'incidents', 'audit', 'assistant', 'schedules'
   ],
   'Auditor': [
-    // Live Data Pages (preserved)
+    // Core Data Pages (preserved)
     'command', 'bedboard',
     // Financial & Revenue
     'billing', 'claims', 'finance',
