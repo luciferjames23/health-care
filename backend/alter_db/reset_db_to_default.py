@@ -166,6 +166,29 @@ def reset_database_to_default():
             WHERE summary_id NOT IN %s AND patient_id IN %s;
         """, (tuple(ORIGINAL_APPROVED_SUMMARY_IDS), tuple(ORIGINAL_SUMMARY_PIDS)))
 
+        # Update admissions and dim_admission_inputs for the 2 approved/discharged patients
+        cur.execute("""
+            UPDATE admissions
+            SET discharge_status = 'Discharged', discharge_date = CURRENT_TIMESTAMP
+            WHERE admission_id IN %s;
+        """, (tuple(ORIGINAL_APPROVED_SUMMARY_IDS),))
+        cur.execute("""
+            UPDATE dim_admission_inputs
+            SET discharge_status = 'Discharged'
+            WHERE admission_id IN %s;
+        """, (tuple(ORIGINAL_APPROVED_SUMMARY_IDS),))
+        cur.execute("""
+            UPDATE admissions
+            SET discharge_status = 'Admitted', discharge_date = NULL
+            WHERE admission_id NOT IN %s AND admission_id <= 87432;
+        """, (tuple(ORIGINAL_APPROVED_SUMMARY_IDS),))
+        cur.execute("""
+            UPDATE dim_admission_inputs
+            SET discharge_status = 'Admitted'
+            WHERE admission_id NOT IN %s AND admission_id <= 87432;
+        """, (tuple(ORIGINAL_APPROVED_SUMMARY_IDS),))
+        cur.execute("UPDATE beds SET status = 'Available' WHERE bed_id IN (177, 182);")
+
         # 4. Clean up any newly added test admissions above baseline (87432)
         cur.execute("SELECT bed_id FROM admissions WHERE admission_id > 87432;")
         new_beds = [r[0] for r in cur.fetchall() if r[0]]

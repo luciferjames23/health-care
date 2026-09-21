@@ -281,8 +281,9 @@ export default function DischargeCommandCentre({
       const bed = matchedBed?.bed_number || adm.bed_number || (c.admission_id ? `W-${(c.admission_id % 150) + 101}` : `C-${400 + index}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
-      const isApproved = String(parsed.approval_status || '').toLowerCase().includes('approv');
-      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
+      const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+      const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
 
       let category = 'Approval required';
       let blocker = 'summary → prescription';
@@ -290,18 +291,16 @@ export default function DischargeCommandCentre({
 
       if (isDischarged) {
         category = 'Completed';
-        blocker = 'Clear';
+        blocker = 'Discharged';
         initialStatus = 'Completed';
-      } else if (isApproved) {
-        if (rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
-          category = 'Ready';
-          blocker = 'Clear';
-          initialStatus = 'Ready';
-        } else {
-          category = 'Blocked';
-          blocker = 'billing → insurance → transport';
-          initialStatus = 'Blocked · billing';
-        }
+      } else if (rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
+      } else {
+        category = 'Blocked';
+        blocker = 'billing → insurance → transport';
+        initialStatus = 'Blocked · billing';
       }
 
       resultCases.push({
@@ -319,11 +318,12 @@ export default function DischargeCommandCentre({
         admission_id: adm.admission_id || c.admission_id || `ADM-2026-${400 + index}`,
         diagnoses: cleanDiagnosis(parsed.diagnoses || adm.primary_diagnosis || 'Inpatient observation and clinical management'),
         intentAt: '09:00',
-        initialEta: isApproved ? 'Now' : '12:30',
-        owner: isApproved ? 'Ready for release' : doctorName,
+        initialEta: isDischarged ? 'Discharged' : 'Now',
+        owner: isDischarged ? 'Discharged' : 'Ready for release',
         category,
         blocker,
         initialStatus,
+        isCompleted: isDischarged,
         case_history: c.case_history || '',
         investigations: c.investigations || '',
         treatment: c.treatment || '',
@@ -378,12 +378,17 @@ export default function DischargeCommandCentre({
       const rawBal = parseFloat(adm.outstanding_balance != null ? adm.outstanding_balance : (adm.llm_input_json?.billing?.outstanding_balance || 0));
       const insCoverage = Math.max(0, billNet - rawBal);
       const clearance = String(adm.bill_clearance_status || adm.llm_input_json?.billing?.bill_clearance_status || '').toLowerCase();
+      const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
 
       let category = 'Blocked';
       let blocker = 'billing → insurance → transport';
       let initialStatus = 'Blocked · billing';
 
-      if (clearance === 'cleared' && rawBal === 0) {
+      if (isDischarged) {
+        category = 'Completed';
+        blocker = 'Discharged';
+        initialStatus = 'Completed';
+      } else if (clearance === 'cleared' && rawBal === 0) {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -427,11 +432,12 @@ export default function DischargeCommandCentre({
         admission_id: adm.admission_id || `ADM-2026-${adm.id || index + 1}`,
         diagnoses: cleanDiagnosis(adm.primary_diagnosis || 'Inpatient admission under clinical observation'),
         intentAt: '09:15',
-        initialEta: category === 'Ready' ? 'Now' : '13:30',
-        owner: 'Discharge Orchestration Agent',
+        initialEta: isDischarged ? 'Discharged' : category === 'Ready' ? 'Now' : '13:30',
+        owner: isDischarged ? 'Discharged' : 'Discharge Orchestration Agent',
         category,
         blocker,
         initialStatus,
+        isCompleted: isDischarged,
         case_history: adm.llm_input || `Patient ${patientName} admitted for ${adm.reason_for_admission || adm.primary_diagnosis || 'treatment'}.`,
         investigations: labText,
         treatment: treatmentText,
