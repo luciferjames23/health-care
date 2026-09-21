@@ -308,16 +308,6 @@ export default function TopHeader({
           )}
         </div>
 
-        {/* Alerts badge */}
-        <button
-          type="button"
-          style={{ height: '28px', padding: '0 9px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px' }}
-        >
-          <span>Alerts</span>
-          <span style={{ minWidth: '18px', padding: '1px 5px', borderRadius: '9px', background: 'oklch(0.5 0.18 25)', color: '#fff', fontSize: '10px', fontWeight: 700, textAlign: 'center' }}>
-            {alertsCount}
-          </span>
-        </button>
       </div>
 
       {/* ── Row 2: Role / User / avatar / sign out / mobile ── */}
@@ -408,15 +398,6 @@ export default function TopHeader({
             Sign out
           </button>
         </div>
-
-        {/* Mobile button */}
-        <button
-          type="button"
-          onClick={onOpenMobile}
-          style={{ height: '28px', padding: '0 10px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11.5px', fontWeight: 500, color: '#15181b' }}
-        >
-          Mobile
-        </button>
       </div>
     </header>
   );
