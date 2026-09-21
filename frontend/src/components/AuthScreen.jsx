@@ -22,14 +22,25 @@ const FALLBACK_DB_USERS = [
   { username: 'doctor_15', role: 'Doctor', name: 'Dr. Amit Sharma', dept: 'Orthopedics', title: 'Orthopedist' },
 ];
 
-export default function AuthScreen({ onLoginSuccess }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+export default function AuthScreen({
+  onLoginSuccess,
+  initialUsername = null,
+  initialInfo = ''
+}) {
+  const [username, setUsername] = useState(initialUsername || 'admin');
+  const [password, setPassword] = useState(initialUsername ? '' : DEMO_PASSWORD);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const [info, setInfo] = useState(initialInfo || '');
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const passwordInputRef = React.useRef(null);
+
+  useEffect(() => {
+    if (initialUsername && passwordInputRef.current) {
+      setTimeout(() => passwordInputRef.current?.focus(), 100);
+    }
+  }, [initialUsername]);
 
   useEffect(() => {
     let isMounted = true;
@@ -40,9 +51,11 @@ export default function AuthScreen({ onLoginSuccess }) {
           const data = await res.json();
           if (data.users && data.users.length > 0 && isMounted) {
             setUsersList(data.users);
-            const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
-            if (defaultUser) {
-              setUsername(defaultUser.username);
+            if (!initialUsername) {
+              const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
+              if (defaultUser) {
+                setUsername(defaultUser.username);
+              }
             }
           }
         }
@@ -54,7 +67,7 @@ export default function AuthScreen({ onLoginSuccess }) {
     }
     loadUsers();
     return () => { isMounted = false; };
-  }, []);
+  }, [initialUsername]);
 
   const activeUsers = usersList.length > 0 ? usersList : FALLBACK_DB_USERS;
 
@@ -188,9 +201,11 @@ export default function AuthScreen({ onLoginSuccess }) {
                 <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Password</span>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <input
+                    ref={passwordInputRef}
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
+                    placeholder="Enter password (e.g. Hospital@2026)"
                     style={{
                       flex: 1, height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
                       padding: '0 10px', fontSize: '13px', outline: 'none', minWidth: 0, background: '#fff'

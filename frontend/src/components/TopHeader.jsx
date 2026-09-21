@@ -34,9 +34,11 @@ export default function TopHeader({
   onOpenMobile,
   onAskAi,
   onOpenModal,
+  onSwitchUserPromptPassword,
 }) {
   const [askInput, setAskInput] = React.useState('');
   const [showNewMenu, setShowNewMenu] = React.useState(false);
+  const [switchingDoctor, setSwitchingDoctor] = React.useState(null);
 
   // Dynamic real-time live clock and calendar date
   const [now, setNow] = React.useState(new Date());
@@ -327,15 +329,16 @@ export default function TopHeader({
                 r.role?.toLowerCase() === nextRole.toLowerCase() ||
                 (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
               );
-              if (matched && setUser) {
-                setUser({
-                  username: matched.username,
-                  name: matched.name,
-                  role: matched.role,
-                  dept: matched.dept || matched.role,
-                  specialization: matched.specialization,
-                  title: matched.title
-                });
+              if (matched && matched.username !== user?.username) {
+                setSwitchingDoctor(matched);
+                setTimeout(() => {
+                  if (onSwitchUserPromptPassword) {
+                    onSwitchUserPromptPassword(matched);
+                  } else if (setUser) {
+                    setUser(matched);
+                  }
+                  setSwitchingDoctor(null);
+                }, 700);
               }
             }}
             style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
@@ -350,19 +353,19 @@ export default function TopHeader({
           <select
             value={user?.username || (usersForCurrentRole[0]?.username)}
             onChange={e => {
-              const u = combinedUsers.find(r => r.username === e.target.value);
-              if (u && setUser) {
-                setUser({
-                  username: u.username,
-                  name: u.name,
-                  role: u.role,
-                  dept: u.dept || u.role,
-                  specialization: u.specialization,
-                  title: u.title
-                });
-                if (setRole && u.role) {
-                  setRole(u.role);
-                }
+              const selectedUsername = e.target.value;
+              const u = combinedUsers.find(r => r.username === selectedUsername);
+              if (u && u.username !== user?.username) {
+                // Trigger loading and redirect to enter password for this doctor
+                setSwitchingDoctor(u);
+                setTimeout(() => {
+                  if (onSwitchUserPromptPassword) {
+                    onSwitchUserPromptPassword(u);
+                  } else if (setUser) {
+                    setUser(u);
+                  }
+                  setSwitchingDoctor(null);
+                }, 700);
               }
             }}
             style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
@@ -399,6 +402,41 @@ export default function TopHeader({
           </button>
         </div>
       </div>
+
+      {/* Doctor Switch Loading Overlay */}
+      {switchingDoctor && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(21, 24, 27, 0.72)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '14px',
+          color: '#fff',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{
+            width: '44px',
+            height: '44px',
+            border: '3.5px solid rgba(255,255,255,0.2)',
+            borderTop: '3.5px solid #38bdf8',
+            borderRadius: '50%',
+            animation: 'kpi-spin 0.7s linear infinite'
+          }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '4px' }}>
+              Switching Account · {switchingDoctor.name}
+            </div>
+            <div style={{ fontSize: '12px', color: '#cbd5e1' }}>
+              Redirecting to verification... Please enter password for {switchingDoctor.name}.
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

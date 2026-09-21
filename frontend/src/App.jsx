@@ -124,9 +124,21 @@ export default function App() {
     }
   };
 
+  const [authScreenUsername, setAuthScreenUsername] = useState(null);
+  const [authScreenInfo, setAuthScreenInfo] = useState('');
+
   const handleSignOut = () => {
     setAuth(null);
     setRoleState(null);
+    setAuthScreenUsername(null);
+    setAuthScreenInfo('');
+  };
+
+  const handleSwitchUserPromptPassword = (targetUser) => {
+    setAuthScreenUsername(targetUser?.username || null);
+    setAuthScreenInfo(`Please enter password to verify and sign in as ${targetUser?.name || targetUser?.username}.`);
+    setSelectedPatient(null);
+    setAuth(null);
   };
 
   const handleAskAi = (query) => {
@@ -153,9 +165,13 @@ export default function App() {
   if (!auth) {
     return (
       <AuthScreen
+        initialUsername={authScreenUsername}
+        initialInfo={authScreenInfo}
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
+          setAuthScreenUsername(null);
+          setAuthScreenInfo('');
         }}
       />
     );
@@ -174,6 +190,7 @@ export default function App() {
         onOpenMobile={() => setShowMobile(true)}
         onAskAi={handleAskAi}
         onOpenModal={setModal}
+        onSwitchUserPromptPassword={handleSwitchUserPromptPassword}
       />
 
       {/* Main App Layout: Sidebar + Workspace View */}
