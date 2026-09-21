@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds } from "../services/api";
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor } from "../services/api";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -23,7 +23,16 @@ const insurer = (p) => p.insurer || p.insurance || p.insurance_company || p.payo
 
 const GRID = "160px minmax(140px,1fr) 80px 90px 120px 150px 130px 140px";
 
-export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }) {
+export default function PatientsView({
+  onSelectPatient,
+  onOpenSoap,
+  onNavigate,
+  doctorName = null,
+  userRole = 'Hospital Management'
+}) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [admitted, setAdmitted] = useState([]);
@@ -101,6 +110,13 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
       : filter === "IP" ? admitted
       : filter === "Discharged" ? discharged
       : admitted.filter(p => p._type === filter);
+
+    if (activeDoctorName) {
+      list = list.filter(p =>
+        matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)
+      );
+    }
+
     if (!search.trim()) return list;
     const s = search.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
@@ -137,7 +153,7 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
         phone.includes(s)
       );
     });
-  }, [admitted, discharged, filter, search]);
+  }, [admitted, discharged, filter, search, activeDoctorName]);
 
   const total = admitted.length + discharged.length;
 
@@ -158,11 +174,17 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
         <div>
           <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px" }}>
             <span onClick={() => onNavigate && onNavigate("command")} style={{ cursor: "pointer", color: "oklch(0.5 0.1 200)" }}>{"\u2190 Back"}</span>
-            {" \u00b7 "}<span>Clinical Workspace</span>{" \u00b7 "}<span>Patients</span>
+            {" \u00b7 "}<span>Clinical Workspace</span>{" \u00b7 "}<span>{isDoctor ? 'My Patients' : 'Patients'}</span>
           </div>
-          <div style={{ fontSize: "20px", fontWeight: 600 }}>Patients</div>
+          <div style={{ fontSize: "20px", fontWeight: 600 }}>
+            {isDoctor && activeDoctorName ? `Patients · ${activeDoctorName}` : 'Patients'}
+          </div>
           <div style={{ color: "#8a9096", fontSize: "11.5px", marginTop: "2px" }}>
-            {loading ? "Loading patients\u2026" : `${total} patients \u00b7 shared Patient 360 across every module`}
+            {loading
+              ? "Loading patients…"
+              : isDoctor && activeDoctorName
+                ? `Doctor Scope: ${activeDoctorName} · Showing ${rows.length} patient${rows.length === 1 ? '' : 's'} under your care`
+                : `${total} patients · shared Patient 360 across every module`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>

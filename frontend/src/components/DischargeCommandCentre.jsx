@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiService, parseDischargeSummaryRecord, cleanDiagnosis } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
@@ -168,8 +168,13 @@ export default function DischargeCommandCentre({
   selectedPatient,
   onClearSelectedPatient,
   onSelectPatient,
+  doctorName = null,
+  userRole = 'Hospital Management',
   _onNavigate
 }) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
+
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'table'
   const [search, setSearch] = useState('');
   const [activeCaseId, setActiveCaseId] = useState(null);
@@ -470,8 +475,12 @@ export default function DischargeCommandCentre({
       });
     });
 
+    if (activeDoctorName) {
+      return resultCases.filter(c => matchesDoctor(c.doctor, activeDoctorName));
+    }
+
     return resultCases;
-  }, [rawSummaries, rawAdmissions, rawBeds, rawWards]);
+  }, [rawSummaries, rawAdmissions, rawBeds, rawWards, activeDoctorName]);
 
   // Set default selected card to first case when cases load
   useEffect(() => {
@@ -2089,10 +2098,12 @@ export default function DischargeCommandCentre({
             <span>Discharge</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b', lineHeight: 1.2 }}>
-            Discharge command centre
+            Discharge command centre {isDoctor && activeDoctorName ? `· ${activeDoctorName}` : ''}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
-            25 active cases · dependency graph, predicted ready time and critical path by Discharge Orchestration Agent v3.0.2
+            {isDoctor && activeDoctorName
+              ? `Doctor Scope: ${activeDoctorName} · Showing ${allCases.length} assigned discharge case${allCases.length === 1 ? '' : 's'}`
+              : `${allCases.length} active hospital cases · dependency graph, predicted ready time and critical path by Discharge Orchestration Agent v3.0.2`}
           </div>
         </div>
 

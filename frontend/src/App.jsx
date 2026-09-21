@@ -187,7 +187,8 @@ export default function App() {
 
           {activePage === 'clinical' && (
             <ClinicalWorkspaceView
-              doctorName={auth.name}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
             />
@@ -200,13 +201,15 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
               onNavigate={setActivePage}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
             />
           )}
 
           {activePage === 'soap' && (
             <SoapNoteView
               patient={selectedPatient}
-              doctorName={auth.name}
+              doctorName={auth?.name}
               onBack={() => setActivePage('clinical')}
               onOpenPatient={handleSelectPatient}
             />
@@ -238,6 +241,8 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
               onNavigate={setActivePage}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
             />
           )}
 
@@ -246,6 +251,8 @@ export default function App() {
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
               onNavigate={setActivePage}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
             />
           )}
 
@@ -302,7 +309,12 @@ export default function App() {
           )}
 
           {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
-          {activePage === 'appointments' && <AppointmentManagement />}
+          {activePage === 'appointments' && (
+            <AppointmentManagement
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
+            />
+          )}
           {activePage === 'ai-desk' && <AIPatientDesk />}
           {activePage === 'pre-admission' && <PreAdmissionPage />}
           {activePage === 'doctor-management' && <DoctorManagement />}

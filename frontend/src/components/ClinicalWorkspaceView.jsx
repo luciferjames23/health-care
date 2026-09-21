@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from '../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 
 export default function ClinicalWorkspaceView({
-  doctorName = 'Dr. Arjun Menon',
+  doctorName = 'Dr. Priya Patel',
+  userRole = 'Doctor',
   onSelectPatient,
   onOpenSoap,
 }) {
@@ -10,6 +11,9 @@ export default function ClinicalWorkspaceView({
   const [patientList, setPatientList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
 
   useEffect(() => {
     async function loadInpatients() {
@@ -67,9 +71,17 @@ export default function ClinicalWorkspaceView({
       }
     }
     loadInpatients();
-  }, [doctorName]);
+  }, [activeDoctorName]);
 
-  const filtered = patientList.filter(p => {
+  // Doctor-scoped list
+  const scopedPatientList = useMemo(() => {
+    if (!activeDoctorName) return patientList;
+    return patientList.filter(p =>
+      matchesDoctor(p.doctor || p.doctor_name || p.attending_physician, activeDoctorName)
+    );
+  }, [patientList, activeDoctorName]);
+
+  const filtered = scopedPatientList.filter(p => {
     if (!search.trim()) return true;
     const s = search.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
@@ -90,13 +102,17 @@ export default function ClinicalWorkspaceView({
       {/* Breadcrumb & heading */}
       <div>
         <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-          <span>Clinical Workspace</span> › <span>Clinical Workspace</span>
+          <span>Clinical Workspace</span> › <span>{isDoctor ? 'My Patients' : 'All Wards'}</span>
         </div>
         <div style={{ fontSize: '20px', fontWeight: 600 }}>
-          Clinical workspace · patients under {doctorName}
+          {isDoctor && activeDoctorName
+            ? `Clinical workspace · patients under ${activeDoctorName}`
+            : `Clinical workspace · all inpatients (${patientList.length})`}
         </div>
         <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px', maxWidth: '850px' }}>
-          Scope comes from the signed-in user ({doctorName} · Doctor), not the role label. Open a row for diagnoses, allergies, notes, orders and prescriptions. AI drafts stay drafts until a clinician signs.
+          {isDoctor && activeDoctorName
+            ? `Scope comes from the signed-in user (${activeDoctorName} · Doctor). Showing ${scopedPatientList.length} admitted patient${scopedPatientList.length === 1 ? '' : 's'} assigned to your clinical care.`
+            : `Hospital-wide clinical view. Showing all ${patientList.length} admitted patients across all hospital departments.`}
         </div>
       </div>
 
@@ -165,27 +181,27 @@ export default function ClinicalWorkspaceView({
       {/* Summary KPI stats */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Inpatients</div>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>{isDoctor ? 'My Inpatients' : 'Active Inpatients'}</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1 }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Attending Doctor Filter</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '16px', lineHeight: 1.6, color: '#15181b', fontWeight: 600 }}>
-            {doctorName.split(' ')[1] || doctorName}
+            {isDoctor && activeDoctorName ? (activeDoctorName.split(' ')[1] || activeDoctorName) : 'All Doctors'}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Critical / Alert EWS</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Prescriptions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.rx && p.rx !== '—').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.filter(p => p.rx && p.rx !== '—').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>

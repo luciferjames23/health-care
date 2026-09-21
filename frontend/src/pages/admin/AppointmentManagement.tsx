@@ -88,7 +88,18 @@ function getStatusBadge(status: string) {
   };
 }
 
-const AppointmentManagement: React.FC = () => {
+interface AppointmentManagementProps {
+  doctorName?: string | null;
+  userRole?: string;
+}
+
+const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
+  doctorName = null,
+  userRole = 'Hospital Management'
+}) => {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
+
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
@@ -114,11 +125,24 @@ const AppointmentManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
 
-  // Load static filter options
+  // Load static filter options & auto-bind doctor if doctor role
   useEffect(() => {
-    fetchDoctors().then(res => setDoctors(Array.isArray(res?.doctors) ? res.doctors : []));
+    fetchDoctors().then(res => {
+      const docList = Array.isArray(res?.doctors) ? res.doctors : [];
+      setDoctors(docList);
+      if (isDoctor && activeDoctorName) {
+        const cleanName = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+        const matched = docList.find(d => {
+          const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          return dName.includes(cleanName) || cleanName.includes(dName);
+        });
+        if (matched) {
+          setDoctorFilter(matched.id);
+        }
+      }
+    });
     fetchDepartments().then(res => setDepartments(Array.isArray(res?.departments) ? res.departments : []));
-  }, []);
+  }, [isDoctor, activeDoctorName]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -255,13 +279,15 @@ const AppointmentManagement: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Front Office & Patients</span> › <span>Appointments</span>
+            <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Schedule' : 'Appointments'}</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>
-            Appointment Management
+            {isDoctor && activeDoctorName ? `Appointment Schedule · ${activeDoctorName}` : 'Appointment Management'}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            View, filter, sort and manage hospital appointments — live database
+            {isDoctor && activeDoctorName
+              ? `Doctor Scope: ${activeDoctorName} · Showing consultations and procedures scheduled under your care`
+              : 'View, filter, sort and manage hospital appointments — live database'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

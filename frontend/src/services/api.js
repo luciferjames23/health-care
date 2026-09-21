@@ -754,6 +754,29 @@ export function filterDischargedPatients(admissions = [], discharges = []) {
 }
 
 /**
+ * Robust matcher to verify if a patient/admission doctor belongs to the target logged-in doctor.
+ * Handles titles, credentials, and parenthetical specializations.
+ */
+export function matchesDoctor(recordDoc, targetDocName) {
+  if (!targetDocName) return true; // No restriction for hospital management / admin
+  if (!recordDoc) return false;
+
+  const normalize = (str) =>
+    String(str)
+      .split(',')[0] // strip degrees like ", MBBS, MD"
+      .split('(')[0] // strip parenthetical roles like "(Cardiologist)"
+      .toLowerCase()
+      .replace(/^dr\.?\s*/i, '') // strip "Dr." or "Dr "
+      .replace(/[^a-z0-9]/g, '');
+
+  const normTarget = normalize(targetDocName);
+  const normRecord = normalize(recordDoc);
+
+  if (!normTarget || !normRecord) return true;
+  return normRecord.includes(normTarget) || normTarget.includes(normRecord);
+}
+
+/**
  * Utility to unpack a dim_admission_inputs record into a standardized patient view model
  */
 export function parseAdmissionLlmRecord(record) {
