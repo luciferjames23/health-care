@@ -11,19 +11,62 @@ if str(BASE_DIR) not in sys.path:
 
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
+# Safely import and mount available routers
+routers_to_mount = []
+
 try:
     from routers.gold import router as gold_router
+    routers_to_mount.append(gold_router)
+except Exception as e:
+    print(f"Failed to load gold router: {e}")
+
+try:
     from routers.bronze import router as bronze_router
+    routers_to_mount.append(bronze_router)
+except Exception as e:
+    print(f"Failed to load bronze router: {e}")
+
+try:
     from routers.notebook import router as router_notebook
+    routers_to_mount.append(router_notebook)
+except Exception as e:
+    print(f"Failed to load notebook router: {e}")
+
+try:
     from routers.jobrun import router as jobrun_router
+    routers_to_mount.append(jobrun_router)
+except Exception as e:
+    print(f"Failed to load jobrun router: {e}")
+
+try:
     from routers.discharge_agent import router as discharge_agent_router
+    routers_to_mount.append(discharge_agent_router)
+except Exception as e:
+    print(f"Failed to load discharge_agent router: {e}")
+
+try:
     from routers.discharge_summary_llm import router as discharge_summary_llm_router
+    routers_to_mount.append(discharge_summary_llm_router)
+except Exception as e:
+    print(f"Failed to load discharge_summary_llm router: {e}")
+
+try:
     from routers.radiology import router as radiology_router, pacs_router
+    routers_to_mount.extend([radiology_router, pacs_router])
+except Exception as e:
+    print(f"Radiology router unavailable: {e}")
+
+try:
     from agent.router import router as agent_router
+    routers_to_mount.append(agent_router)
+except Exception as e:
+    print(f"Failed to load agent router: {e}")
+
+try:
     from routers.financial_revenue import router as finance_router
-    HAS_ML_ROUTERS = True
-except Exception as _e:
-    HAS_ML_ROUTERS = False
+    routers_to_mount.append(finance_router)
+except Exception as e:
+    print(f"Failed to load finance router: {e}")
 
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
@@ -39,17 +82,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if HAS_ML_ROUTERS:
-    app.include_router(gold_router)
-    app.include_router(bronze_router)
-    app.include_router(router_notebook)
-    app.include_router(jobrun_router)
-    app.include_router(discharge_agent_router)
-    app.include_router(discharge_summary_llm_router)
-    app.include_router(radiology_router)
-    app.include_router(pacs_router)
-    app.include_router(agent_router)
-    app.include_router(finance_router)
+for r in routers_to_mount:
+    app.include_router(r)
+
 
 # --- Prototype AI Patient Desk, Appointments & Operational Routers ---
 import api.agent_routes as proto_agent_routes

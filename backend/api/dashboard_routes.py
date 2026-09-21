@@ -1151,48 +1151,56 @@ def create_doctor(body: NewDoctorRequest, admin_user: dict = Depends(require_adm
             raise HTTPException(status_code=400, detail=f"Email '{clean_email}' is already in use by another doctor.")
 
         # 4. Get DOCTOR role ID
-        cur.execute("SELECT id FROM roles WHERE name = 'DOCTOR';")
+        cur.execute("SELECT id FROM roles WHERE UPPER(name) = 'DOCTOR';")
         role_row = cur.fetchone()
         if not role_row:
             raise HTTPException(status_code=500, detail="DOCTOR role not found in database. Please contact admin.")
         doctor_role_id = role_row[0]
 
-        # 5. Create user account with email & phone populated
-        password_hash = get_hashed_password(body.password)
-        cur.execute(
-            """
-            INSERT INTO users (username, password_hash, role_id, email, phone, first_name, last_name, is_active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            RETURNING id;
-            """,
-            (clean_username, password_hash, doctor_role_id, clean_email, clean_phone, body.first_name.strip(), body.last_name.strip())
-        )
-        user_id = cur.fetchone()[0]
-
-        # 6. Generate a doctor code
+        # 5. Generate doctor code and display name
         cur.execute("SELECT COUNT(*) FROM doctors;")
         count = cur.fetchone()[0]
         doctor_code = f"DOC{(count + 1):04d}"
-
-        # 7. Build display_name
         display_name = f"Dr. {body.first_name.strip()} {body.last_name.strip()}"
+        today_date = date.today().isoformat()
+        staff_code = f"STF-{doctor_code}"
 
-        # 8. Create doctor record
+        # 6. Create user account with required staff & constraint fields
+        password_hash = get_hashed_password(body.password)
+        cur.execute(
+            """
+            INSERT INTO users (
+                username, password_hash, role_id, email, phone, first_name, last_name, 
+                is_active, must_change_password, staff_code, staff_name, staff_type,
+                department_id, joining_date, experience, salary, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, %s, %s, 'Doctor', %s, %s, %s, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id;
+            """,
+            (
+                clean_username, password_hash, doctor_role_id, clean_email, clean_phone, 
+                body.first_name.strip(), body.last_name.strip(), staff_code, display_name,
+                body.department_id, today_date, body.experience_years
+            )
+        )
+        user_id = cur.fetchone()[0]
+
+        # 7. Create doctor record
         cur.execute(
             """
             INSERT INTO doctors (
                 user_id, doctor_code, display_name, first_name, last_name,
                 specialization, qualification, experience_years,
-                phone, email, consultation_fee, department_id, status,
+                phone, email, consultation_fee, department_id, status, joining_date,
                 created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE',
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', %s,
                       CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id;
             """,
             (
                 user_id, doctor_code, display_name, body.first_name.strip(), body.last_name.strip(),
                 body.specialization.strip(), body.qualification.strip(), body.experience_years,
-                clean_phone, clean_email, body.consultation_fee, body.department_id
+                clean_phone, clean_email, body.consultation_fee, body.department_id, today_date
             )
         )
         doctor_id = cur.fetchone()[0]
