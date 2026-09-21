@@ -599,6 +599,32 @@ def mark_message_read(message_id: str) -> dict:
         return {"success": True, "fallback": True}
 
 
+def send_typing_indicator(to_number: str) -> dict:
+    """Sends/simulates typing status before processing AI response."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "action",
+        "action": "typing_on"
+    }
+    if is_mock_mode():
+        log_outbound_simulation("typing_indicator", to_number, payload)
+        return {"success": True}
+    url = f"{get_api_url()}/{get_phone_number_id()}/messages"
+    headers = {
+        "Authorization": f"Bearer {get_access_token()}",
+        "Content-Type": "application/json"
+    }
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=5)
+        res.raise_for_status()
+        return {"success": True}
+    except Exception as e:
+        if "401" not in str(e) and "400" not in str(e):
+            print(f"[WhatsApp] send_typing_indicator error: {e}")
+        log_outbound_simulation("typing_indicator", to_number, payload)
+        return {"success": True, "fallback": True}
 
 
 def process_incoming_whatsapp_payload(payload: dict) -> dict:

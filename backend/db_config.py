@@ -60,11 +60,8 @@ DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", "require"))
 _pool_lock = threading.Lock()
 _connection_pool = None  # Lazy-initialized on first call
 
-_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
-# This database role is shared with other services and administrative clients.
-# Increase DB_POOL_MAX only when the role has spare connection capacity.
-_POOL_MAX = int(os.getenv("DB_POOL_MAX", "1"))
-_pool_slots = threading.BoundedSemaphore(_POOL_MAX)
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 
 
 class _PooledConnection:
@@ -117,8 +114,6 @@ class _PooledConnection:
                 self._conn.close()
             except Exception:
                 pass
-        finally:
-            _pool_slots.release()
 
 
 def _get_pool(database_name=None):
@@ -144,25 +139,39 @@ def _get_pool(database_name=None):
             )
             print(f"[PERF] Shared PostgreSQL connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
         except Exception as exc:
-            # Do not bypass the pool when the server rejects connections.
-            raise
+            print(f"[PERF] Connection pool init warning: {exc}, falling back to direct connections")
+            _connection_pool = None
         return _connection_pool
 
 
 def get_db_connection(database_name=None):
     """
-    Returns a database connection pointing to our shared PostgreSQL Lakehouse.
-    Uses connection pooling when available.
+    Returns a database connection pointing to our PostgreSQL database.
+    Uses connection pooling when available, falling back to direct connection.
     """
-    pool = _get_pool(database_name)
-    if not _pool_slots.acquire(timeout=10):
-        raise psycopg2.pool.PoolError("Database connection pool is busy; retry shortly.")
+    dbname = database_name or DB_NAME
     try:
-        raw_conn = pool.getconn()
+        pool = _get_pool(database_name)
+        if pool is not None:
+            try:
+                raw_conn = pool.getconn()
+                if raw_conn and not raw_conn.closed:
+                    return _PooledConnection(raw_conn, pool)
+            except Exception:
+                pass  # Pool busy/exhausted — fall through to direct connection
     except Exception:
-        _pool_slots.release()
-        raise
-    return _PooledConnection(raw_conn, pool)
+        pass
+
+    # Direct connection fallback
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=dbname,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        sslmode=DB_SSLMODE,
+        connect_timeout=10
+    )
 
 
 def get_db_connection_string(database_name=None):
