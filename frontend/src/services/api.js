@@ -670,6 +670,33 @@ export const apiService = {
   },
 
   // -------------------------------------------------------------------------
+  // Clear Patient Bill & Grant Financial Clearance
+  // POST /api/v1/discharge-agent/patient/{patient_id}/clear-bill
+  // -------------------------------------------------------------------------
+  async clearPatientBill(patientId, params = {}, options = {}) {
+    const pid = String(patientId || '').trim();
+    if (!pid) throw new Error("patient_id is required to clear bill");
+    const queryParams = new URLSearchParams();
+    if (params.payment_method) queryParams.append("payment_method", params.payment_method);
+    if (params.amount !== undefined && params.amount !== null) queryParams.append("amount", params.amount);
+    const qs = queryParams.toString() ? '?' + queryParams.toString() : '';
+
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/patient/${encodeURIComponent(pid)}/clear-bill${qs}`, {
+      method: 'POST',
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || errBody?.message || `HTTP error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-agent/patient/${pid}/clear-bill`, data);
+    return data;
+  },
+
+
+  // -------------------------------------------------------------------------
   // Actual Currently Admitted Patients (Excludes all Discharged Patients)
   // -------------------------------------------------------------------------
   async getActualCurrentAdmissions(params = {}) {
@@ -1077,5 +1104,50 @@ export function parseDischargeSummaryRecord(record) {
     model_name: record.source_table || record.source_system || 'LLM Agent',
     raw: record
   };
+}
+
+/**
+ * Accurately calculate the discharge cases count matching DischargeCommandCentre logic
+ */
+export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = [], doctorName = null) {
+  const admMap = {};
+  rawAdmissions.forEach(a => {
+    const pid = String(a.patient_id || a.id || '');
+    if (pid) admMap[pid] = a;
+    const aid = String(a.admission_id || '');
+    if (aid) admMap['adm_' + aid] = a;
+  });
+
+  const processedPatientIds = new Set();
+  const cases = [];
+
+  // 1. Summaries
+  rawSummaries.forEach((c, index) => {
+    const parsed = parseDischargeSummaryRecord(c);
+    if (!parsed) return;
+    const pid = String(parsed.patient_id || parsed.id || ('CASE-' + index));
+    processedPatientIds.add(pid);
+    if (c.admission_id) processedPatientIds.add('adm_' + c.admission_id);
+
+    const adm = admMap[pid] || admMap['adm_' + c.admission_id] || {};
+    const doc = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
+    cases.push({ doctor: doc });
+  });
+
+  // 2. Admissions
+  rawAdmissions.forEach((adm, index) => {
+    const pid = String(adm.patient_id || adm.id || ('ADM-' + index));
+    if (processedPatientIds.has(pid) || (adm.admission_id && processedPatientIds.has('adm_' + adm.admission_id))) {
+      return;
+    }
+    processedPatientIds.add(pid);
+    const doc = adm.attending_doctor || adm.doctor_name || 'Dr. Sneha Das';
+    cases.push({ doctor: doc });
+  });
+
+  if (doctorName) {
+    return cases.filter(c => matchesDoctor(c.doctor, doctorName)).length;
+  }
+  return cases.length;
 }
 

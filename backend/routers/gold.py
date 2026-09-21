@@ -663,13 +663,11 @@ def get_bed_management_data(
 
         cur.execute("""
             SELECT 
-                a.admission_id, a.admission_number, a.patient_id, a.bed_id, a.admission_date,
-                COALESCE(d.first_name || ' ' || d.last_name, 'Patient #' || a.patient_id) as patient_name,
-                COALESCE(d.attending_doctor, 'Doctor #' || a.doctor_id) as attending_doctor,
-                COALESCE(d.primary_diagnosis, a.reason_for_admission) as primary_diagnosis
-            FROM admissions a
-            LEFT JOIN dim_admission_inputs d ON a.admission_id = d.admission_id
-            WHERE a.discharge_status = 'Admitted';
+                admission_id, admission_number, patient_id, patient_number,
+                first_name, last_name, attending_doctor, primary_diagnosis,
+                bed_number, room_number, ward_name, admission_date, discharge_status
+            FROM dim_admission_inputs
+            WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged';
         """)
         admissions_data = cur.fetchall()
 
@@ -688,24 +686,37 @@ def get_bed_management_data(
             if r.get("admission_id") and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
         }
 
-        # Build active bed -> patient map (excluding discharged patients)
+        # Build active bed -> patient map (keyed by bed_number and bed_id)
         bed_patient_map = {}
         for a in admissions_data:
             pid = str(a.get("patient_id")).strip() if a.get("patient_id") else None
             aid = str(a.get("admission_id")).strip() if a.get("admission_id") else None
+            bnum = str(a.get("bed_number")).strip() if a.get("bed_number") else None
+
             if (pid and pid in discharged_ids) or (aid and aid in discharged_adm_ids):
                 continue
-            bid = a.get("bed_id")
-            if bid:
-                bed_patient_map[bid] = {
-                    "patient_id": a.get("patient_id"),
-                    "admission_id": a.get("admission_id"),
-                    "admission_number": a.get("admission_number"),
-                    "patient_name": a.get("patient_name"),
-                    "attending_doctor": a.get("attending_doctor"),
-                    "primary_diagnosis": a.get("primary_diagnosis"),
-                    "admission_date": a.get("admission_date").isoformat() if a.get("admission_date") else None
-                }
+
+            pname = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() or f"Patient #{a.get('patient_id')}"
+            diag = a.get("primary_diagnosis") or "Inpatient Observation"
+            doc = a.get("attending_doctor") or "Attending Consultant"
+
+            patient_dict = {
+                "id": a.get("patient_id"),
+                "patient_id": a.get("patient_id"),
+                "admission_id": a.get("admission_id"),
+                "admission_number": a.get("admission_number"),
+                "patient_number": a.get("patient_number"),
+                "name": pname,
+                "patient_name": pname,
+                "attending_doctor": doc,
+                "doctor": doc,
+                "primary_diagnosis": diag,
+                "diagnosis": diag,
+                "admission_date": a.get("admission_date").isoformat() if a.get("admission_date") else None
+            }
+
+            if bnum:
+                bed_patient_map[bnum] = patient_dict
 
         occupied_count = 0
         available_count = 0
@@ -714,14 +725,15 @@ def get_bed_management_data(
         beds_by_room = {}
         for b in beds_data:
             bid = b.get("bed_id")
+            bnum = b.get("bed_number")
             rid = b.get("room_id")
             wid = b.get("ward_id")
-            assigned = bed_patient_map.get(bid)
 
+            assigned = bed_patient_map.get(bnum) or bed_patient_map.get(str(bid)) or bed_patient_map.get(bid)
             raw_status = str(b.get("status") or "").strip().lower()
             is_maint = raw_status in ["maintenance", "blocked", "cleaning", "reserved"]
 
-            if assigned:
+            if assigned and raw_status != "available":
                 bed_status = "Occupied"
                 occupied_count += 1
             elif is_maint:
@@ -730,20 +742,22 @@ def get_bed_management_data(
             else:
                 bed_status = "Available"
                 available_count += 1
+                assigned = None
 
             if occupancy_status and bed_status.lower() != occupancy_status.lower():
                 continue
 
             bed_obj = {
                 "bed_id": bid,
-                "bed_number": b.get("bed_number"),
+                "bed_number": bnum,
                 "room_id": rid,
                 "ward_id": wid,
                 "bed_type": b.get("bed_type"),
                 "daily_charge": float(b.get("daily_charge")) if b.get("daily_charge") else 0.0,
                 "status": bed_status,
                 "is_occupied": bed_status == "Occupied",
-                "assigned_patient": assigned
+                "assigned_patient": assigned,
+                "patient": assigned
             }
             beds_by_room.setdefault(rid, []).append(bed_obj)
 

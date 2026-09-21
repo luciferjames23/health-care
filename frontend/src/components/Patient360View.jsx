@@ -560,6 +560,99 @@ export default function Patient360View({
     { type: 'Discharge summary', owner: p.doctor, age: p.isCleared ? 'Ready' : '2 d 19 h' },
   ], [p]);
 
+  const [clearingBill, setClearingBill] = useState(false);
+
+  // Handler to clear patient bill via API: POST /api/v1/discharge-agent/patient/{patient_id}/clear-bill
+  const handleClearBill = async () => {
+    const cleanNum = (val) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      const m = str.match(/\d+/);
+      return m ? m[0].replace(/^0+/, '') || '0' : str;
+    };
+
+    const targetPid = (
+      cleanNum(p.patient_id) ||
+      cleanNum(patient?.patient_id) ||
+      cleanNum(patient?.id) ||
+      cleanNum(p.admission_id) ||
+      cleanNum(patient?.admission_id) ||
+      cleanNum(p.uhid) ||
+      cleanNum(p.encounter) ||
+      cleanNum(p.billNumber)
+    );
+
+    if (!targetPid) {
+      alert("Unable to identify patient or admission ID for bill clearance.");
+      return;
+    }
+
+    setClearingBill(true);
+    try {
+      const res = await apiService.clearPatientBill(targetPid);
+
+      // Immediately update local state in Patient360View
+      setLiveAdmission(prev => prev ? {
+        ...prev,
+        bill_status: 'Paid',
+        bill_clearance_status: 'Cleared',
+        outstanding_balance: 0.0
+      } : {
+        bill_status: 'Paid',
+        bill_clearance_status: 'Cleared',
+        outstanding_balance: 0.0
+      });
+
+      setLiveBill(prev => prev ? {
+        ...prev,
+        bill_status: 'Settled',
+        patient_amount: 0.0,
+        outstanding_balance: 0.0
+      } : {
+        bill_status: 'Settled',
+        patient_amount: 0.0,
+        outstanding_balance: 0.0
+      });
+
+      // Update open drawer immediately to reflect cleared status & NOC action
+      if (onOpenDrawer) {
+        onOpenDrawer({
+          title: `${p.billNumber} · ${p.name}`,
+          sub: `Admission: ${p.encounter} · Bed: ${p.bed}`,
+          badges: [
+            { t: 'Cleared · Paid in Full', bg: '#dcfce7', fg: '#15803d' }
+          ],
+          facts: [
+            { k: 'Hospital & Bed Charges', v: `₹${hospitalSum.toLocaleString('en-IN')}` },
+            { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
+            { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
+            { k: 'Actual Gross Bill', v: `₹${p.billNetAmount.toLocaleString('en-IN')}`, b: true },
+            { k: 'Insurance / Settled', v: `₹${p.billNetAmount.toLocaleString('en-IN')}` },
+            { k: 'Patient Share / Due', v: '₹0', b: true },
+            { k: 'TPA / Insurer', v: p.insurer },
+            { k: 'Financial Clearance', v: 'Cleared · Paid' }
+          ],
+          actions: [
+            { label: 'Print Financial NOC / Clearance', primary: true, on: () => alert(`Financial Clearance NOC verified for ${p.name}`) },
+            { label: 'Print Itemized Bill' }
+          ]
+        });
+      }
+
+      alert(res?.message || `✅ Bill successfully cleared and settled for ${p.name}!`);
+
+      // Broadcast update event to all other open views
+      window.dispatchEvent(new CustomEvent('hc_api_updated', {
+        detail: { action: 'bill_cleared', patient_id: targetPid }
+      }));
+    } catch (err) {
+      console.error("Failed to clear patient bill:", err);
+      alert(`Failed to clear bill: ${err.message || err}`);
+    } finally {
+      setClearingBill(false);
+    }
+  };
+
   // Handler to open deep dynamic itemized bill detail drawer
   const handleOpenBillDrawer = () => {
     if (onOpenDrawer) {
@@ -589,7 +682,7 @@ export default function Patient360View({
         actions: [
           isCleared
             ? { label: 'Print Financial NOC / Clearance', primary: true, on: () => alert(`Financial Clearance NOC verified for ${p.name}`) }
-            : { label: 'Settle Cashless Co-Pay', primary: true, on: () => alert(`Payment processed for ${p.name}`) },
+            : { label: clearingBill ? 'Settling Bill...' : 'Settle Cashless Co-Pay', primary: true, disabled: clearingBill, on: handleClearBill },
           { label: 'Print Itemized Bill' }
         ]
       });
@@ -1589,6 +1682,22 @@ export default function Patient360View({
             </div>
 
             <div style={{ marginTop: '14px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {!p.isCleared && (
+                <button
+                  type="button"
+                  onClick={handleClearBill}
+                  disabled={clearingBill}
+                  style={{
+                    height: '32px', padding: '0 14px', borderRadius: '6px',
+                    border: '1px solid #059669', background: '#059669',
+                    color: '#fff', fontWeight: 600, cursor: clearingBill ? 'not-allowed' : 'pointer', fontSize: '12px',
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                    opacity: clearingBill ? 0.7 : 1
+                  }}
+                >
+                  <span>💳</span> {clearingBill ? 'Settling Bill...' : 'Settle Cashless Co-Pay'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleOpenBillDrawer}

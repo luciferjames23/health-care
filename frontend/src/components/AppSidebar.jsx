@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, computeDischargeCasesCount } from '../services/api';
 import { ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
@@ -139,17 +139,45 @@ export const NAV_GROUPS = [
   }
 ];
 
-export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor' }) {
-  const [dischargeCount, setDischargeCount] = useState(null);
+export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor', doctorName = null, dischargeCount: externalDischargeCount = null }) {
+  const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
 
+  // Synchronize when external dischargeCount is passed down
+  useEffect(() => {
+    if (externalDischargeCount !== null && externalDischargeCount !== undefined) {
+      setDischargeCount(externalDischargeCount);
+    }
+  }, [externalDischargeCount]);
+
+  // Listen to live discharge count updates emitted from DischargeCommandCentre
+  useEffect(() => {
+    const handleCountUpdate = (e) => {
+      const count = e.detail?.count;
+      if (count !== undefined && count !== null) {
+        setDischargeCount(count);
+      }
+    };
+    window.addEventListener('hc_discharge_count_updated', handleCountUpdate);
+    return () => window.removeEventListener('hc_discharge_count_updated', handleCountUpdate);
+  }, []);
+
+  // Fetch discharge count dynamically combining summaries and admissions matching doctor/role
   useEffect(() => {
     let isMounted = true;
     async function fetchDischargeCount() {
       try {
-        const res = await apiService.getDischargedPatients({}, { forceRefresh: true });
+        const [resSummaries, resAdmissions] = await Promise.all([
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+        ]);
         if (!isMounted) return;
-        const total = res?.data?.length;
-        if (total !== undefined) {
+        const targetDoctor = userRole === 'Doctor' ? doctorName : null;
+        const total = computeDischargeCasesCount(
+          resSummaries?.data || [],
+          resAdmissions?.data || [],
+          targetDoctor
+        );
+        if (total !== undefined && total !== null) {
           setDischargeCount(total);
         }
       } catch (err) {
@@ -159,7 +187,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
     fetchDischargeCount();
 
-    const timer = setInterval(fetchDischargeCount, 6000);
+    const timer = setInterval(fetchDischargeCount, 8000);
     const handleUpdate = () => fetchDischargeCount();
     window.addEventListener('hc_api_updated', handleUpdate);
 
@@ -168,7 +196,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
       clearInterval(timer);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [doctorName, userRole]);
 
   const allowedPages = ROLE_PAGE_ACCESS[userRole];
 

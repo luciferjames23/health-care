@@ -111,6 +111,15 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
         sec_diag_str = ""
     sec_diag_str = re.sub(r'\[\s*\]', '', sec_diag_str).strip()
 
+    # Resolve bed_number: prefer explicit bed_number, then format bed_id as BED-0xxx
+    raw_bed = adm.get("bed_number") or adm.get("bed_id")
+    if raw_bed and str(raw_bed).isdigit():
+        bed_number = f"BED-{str(raw_bed).zfill(4)}"
+    elif raw_bed:
+        bed_number = str(raw_bed)
+    else:
+        bed_number = None
+
     return {
         "patient_id": adm.get("patient_id") or pid_str,
         "patient_number": adm.get("patient_number") or f"MER-PAT-{pid_str}",
@@ -137,7 +146,8 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
         "bill_clearance_status": adm.get("bill_clearance_status") or adm.get("bill_status") or "Pending",
         "bill_net_amount": float(adm.get("bill_net_amount", 0.0) or 0.0),
         "outstanding_balance": float(adm.get("outstanding_balance", 0.0) if adm.get("outstanding_balance") is not None else 0.0),
-        "risk_score": float(adm.get("risk_score", 0.42) or 0.42)
+        "risk_score": float(adm.get("risk_score", 0.42) or 0.42),
+        "bed_number": bed_number
     }
 
 
@@ -636,7 +646,8 @@ def list_discharge_agent_patients():
                 "vitals_issues": vitals_issues,
                 "is_eligible": is_ready,
                 "has_generated_summary": False,
-                "risk_score": p_info["risk_score"]
+                "risk_score": p_info["risk_score"],
+                "bed_number": p_info.get("bed_number")
             })
 
         return {
@@ -1057,6 +1068,16 @@ def clear_patient_bill_internal(
                 LIMIT 1;
             """, (parsed_pid,))
             adm_row = cur.fetchone()
+            if not adm_row:
+                cur.execute("""
+                    SELECT admission_id, patient_id, first_name, last_name, 
+                           bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                    FROM dim_admission_inputs
+                    WHERE admission_id = %s
+                    ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+                    LIMIT 1;
+                """, (parsed_pid,))
+                adm_row = cur.fetchone()
 
         if not adm_row and parsed_bid is not None:
             cur.execute("""
@@ -1116,9 +1137,10 @@ def clear_patient_bill_internal(
                    OR (%s IS NOT NULL AND b.bill_number = %s)
                    OR (%s IS NOT NULL AND b.admission_id = %s)
                    OR (%s IS NOT NULL AND b.patient_id = %s)
+                   OR (%s IS NOT NULL AND b.admission_id = %s)
                 ORDER BY (b.bill_status != 'Settled') DESC, b.bill_id DESC
                 LIMIT 1;
-            """, (parsed_bid, parsed_bid, b_num, b_num, parsed_aid, parsed_aid, parsed_pid, parsed_pid))
+            """, (parsed_bid, parsed_bid, b_num, b_num, parsed_aid, parsed_aid, parsed_pid, parsed_pid, parsed_pid, parsed_pid))
             b_row = cur.fetchone()
             if not b_row:
                 raise HTTPException(

@@ -14,7 +14,7 @@ export default function BedDemandView({ onSelectPatient }) {
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadAllBedData = useCallback(async (isSilent = false) => {
-    if (!isSilent && !bedManagement) {
+    if (!isSilent) {
       setLoading(true);
     }
     setError(null);
@@ -35,6 +35,11 @@ export default function BedDemandView({ onSelectPatient }) {
             (r.beds || []).forEach(b => {
               const p = b.assigned_patient || b.patient;
               if (p) {
+                p.name = p.name || p.patient_name || 'Inpatient';
+                p.patient_name = p.patient_name || p.name || 'Inpatient';
+                p.diagnosis = p.diagnosis || p.primary_diagnosis || 'Inpatient Observation';
+                p.primary_diagnosis = p.primary_diagnosis || p.diagnosis;
+                p.doctor = p.doctor || p.attending_doctor || 'Attending Physician';
                 b.patient = p;
                 b.assigned_patient = p;
               }
@@ -43,11 +48,14 @@ export default function BedDemandView({ onSelectPatient }) {
               const aid = b.admission_id || p?.admission_id;
 
               const isDischarged = dischargedTracker.has({ patient_id: pid, patient_number: pnum, admission_id: aid });
-              if (isDischarged || !p) {
+              if (isDischarged || !p || b.status === 'Available') {
                 b.status = 'Available';
                 b.is_occupied = false;
                 b.assigned_patient = null;
                 b.patient = null;
+              } else if (b.status === 'Maintenance') {
+                b.status = 'Maintenance';
+                b.is_occupied = false;
               } else {
                 b.status = 'Occupied';
                 b.is_occupied = true;
@@ -65,14 +73,14 @@ export default function BedDemandView({ onSelectPatient }) {
     } finally {
       setLoading(false);
     }
-  }, [bedManagement]);
+  }, []);
 
   useEffect(() => {
     loadAllBedData();
 
     const timer = setInterval(() => {
       loadAllBedData(true);
-    }, 6000);
+    }, 15000);
 
     const handleUpdate = () => loadAllBedData(true);
     window.addEventListener('hc_api_updated', handleUpdate);
@@ -149,7 +157,7 @@ export default function BedDemandView({ onSelectPatient }) {
             // Status filter
             if (statusFilter === 'Occupied' && b.status !== 'Occupied') return false;
             if (statusFilter === 'Available' && b.status !== 'Available') return false;
-            if (statusFilter === 'Maintenance' && b.status === 'Occupied') return false;
+            if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return false;
 
             // Search query
             if (searchQuery.trim()) {
@@ -184,6 +192,7 @@ export default function BedDemandView({ onSelectPatient }) {
           if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) return;
           if (statusFilter === 'Occupied' && b.status !== 'Occupied') return;
           if (statusFilter === 'Available' && b.status !== 'Available') return;
+          if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return;
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             const matchBed = (b.bed_number || '').toLowerCase().includes(q);

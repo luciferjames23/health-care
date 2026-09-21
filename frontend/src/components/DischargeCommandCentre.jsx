@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
@@ -170,7 +170,8 @@ export default function DischargeCommandCentre({
   onSelectPatient,
   doctorName = null,
   userRole = 'Hospital Management',
-  _onNavigate
+  _onNavigate,
+  onUpdateCaseCount
 }) {
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? doctorName : null;
@@ -187,7 +188,7 @@ export default function DischargeCommandCentre({
   const [rawAdmissions, setRawAdmissions] = useState([]);
   const [rawBeds, setRawBeds] = useState([]);
   const [rawWards, setRawWards] = useState([]);
-  const [familyMsgLang, setFamilyMsgLang] = useState('TA'); // 'TA' or 'EN'
+  const [familyMsgLang, setFamilyMsgLang] = useState('EN'); // 'TA' or 'EN'
   const [toasts, setToasts] = useState([]);
 
   // Per-case interactive state (workflow state machine)
@@ -283,7 +284,7 @@ export default function DischargeCommandCentre({
       const doctorName = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
       const patientName = parsed.patient_name || (adm.first_name ? `${adm.first_name} ${adm.last_name}` : `Patient ${pid}`);
-      const bed = matchedBed?.bed_number || adm.bed_number || (c.admission_id ? `W-${(c.admission_id % 150) + 101}` : `C-${400 + index}`);
+      const bed = matchedBed?.bed_number || adm.bed_number || adm.bed_id || (c.admission_id ? `BED-${String(c.admission_id).padStart(4, '0')}` : `BED-${String(400 + index).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
@@ -356,7 +357,7 @@ export default function DischargeCommandCentre({
           completeness: '100%',
           owner: 'K. Meena (Insurance)',
           submitted: '09:10',
-          age: '1 h 40 m',
+          age: adm.age_at_admission ? `${adm.age_at_admission} Yrs` : (c.age ? `${c.age} Yrs` : '-'),
           lifecycle: isApproved ? 'Preauth approved' : 'Preauth enhancement in progress',
           claim: isApproved ? 'Ready to submit upon discharge' : 'Under medical review',
           denialRisk: rawBal > 20000 ? '24% (Medium)' : '8% (Low)'
@@ -379,7 +380,7 @@ export default function DischargeCommandCentre({
       const patientName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || `Patient ${pid}`;
       const doctorName = adm.attending_doctor || 'Attending Physician';
       const doctorSpecialty = adm.doctor_specialization || 'Treating Specialist';
-      const bed = matchedBed?.bed_number || adm.bed_number || (adm.admission_id ? `B-${(adm.admission_id % 150) + 101}` : `W-${301 + index}`);
+      const bed = matchedBed?.bed_number || adm.bed_number || adm.bed_id || (adm.admission_id ? `BED-${String(adm.admission_id).padStart(4, '0')}` : `BED-${String(301 + index).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
       const billNet = parseFloat(adm.bill_net_amount || (adm.llm_input_json?.billing?.bill_net_amount) || 120000);
@@ -473,7 +474,7 @@ export default function DischargeCommandCentre({
           completeness: '100%',
           owner: 'K. Meena (Insurance)',
           submitted: '09:20',
-          age: '1 h 15 m',
+          age: adm.age_at_admission ? `${adm.age_at_admission} Yrs` : '-',
           lifecycle: 'Preauth review with insurer',
           claim: 'Drafted in portal',
           denialRisk: rawBal > 50000 ? '28% (Medium)' : '10% (Low)'
@@ -487,6 +488,17 @@ export default function DischargeCommandCentre({
 
     return resultCases;
   }, [rawSummaries, rawAdmissions, rawBeds, rawWards, activeDoctorName]);
+
+  // Notify sidebar/parent of live discharge count whenever allCases changes
+  useEffect(() => {
+    const count = allCases.length;
+    if (onUpdateCaseCount) {
+      onUpdateCaseCount(count);
+    }
+    window.dispatchEvent(new CustomEvent('hc_discharge_count_updated', {
+      detail: { count }
+    }));
+  }, [allCases.length, onUpdateCaseCount]);
 
   // Set default selected card to first case when cases load
   useEffect(() => {
@@ -1067,7 +1079,7 @@ export default function DischargeCommandCentre({
                 </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Owner</div>
-                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{dc.owner && dc.owner !== 'Discharged' ? dc.owner : (dc.doctor || 'Dr. Priya Patel (Oncology)')}</div>
+                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{dc.isCompleted ? (dc.doctor || dc.owner || 'Attending Physician') : (dc.owner && dc.owner !== 'Discharged' && dc.owner !== 'Ready for release' ? dc.owner : (dc.doctor || 'Attending Physician'))}</div>
                 </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Critical path</div>
@@ -1694,21 +1706,6 @@ export default function DischargeCommandCentre({
                     <span style={{ color: '#52585e', fontSize: '11.5px', lineHeight: 1.45 }}>
                       Bills are voided or refunded with Finance approval, never deleted
                     </span>
-                  </div>
-
-                  <div style={{ border: '1px solid oklch(0.85 0.05 300)', borderRadius: '8px', padding: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)' }} />
-                      <span style={{ fontWeight: 600, fontSize: '12px', color: '#15181b' }}>
-                        AI GENERATED · plain-language explanation · Billing Transparency Agent
-                      </span>
-                    </div>
-                    <div style={{ lineHeight: 1.55, color: '#52585e', fontSize: '12px' }}>
-                      Charges follow Tariff FY26-27 v1.3. The variance comes from an extra day of stay and additional consumables.
-                    </div>
-                    <div style={{ marginTop: '6px', fontSize: '11px', color: '#8a9096' }}>
-                      Tariff FY26-27 v1.3 · confidence 95% · the billing executive remains responsible for the final response
-                    </div>
                   </div>
 
                   <div style={{ borderTop: '1px solid #eef0f1', paddingTop: '10px' }}>

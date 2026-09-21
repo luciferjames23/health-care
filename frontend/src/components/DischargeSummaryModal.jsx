@@ -574,9 +574,11 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '4px' }}>
                     Admission Details & Case History
                   </div>
-                  <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: 1.5 }}>
-                    {form.admission_reason || "—"}
-                  </div>
+                  {form.admission_reason && form.admission_reason.trim() !== '-' && form.admission_reason.trim() !== '—' && form.admission_reason.trim() !== '–' && (
+                    <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: 1.5 }}>
+                      {form.admission_reason}
+                    </div>
+                  )}
                   {form.hospital_course_summary && form.hospital_course_summary !== form.admission_reason && (
                     <div style={{ fontSize: '12.5px', color: '#475569', marginTop: '6px', lineHeight: 1.5 }}>
                       {form.hospital_course_summary}

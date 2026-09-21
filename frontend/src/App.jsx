@@ -93,6 +93,12 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const [alertsCount, setAlertsCount] = useState(0);
   const [soapReturnPage, setSoapReturnPage] = useState('patient360');
+  const [dischargeCount, setDischargeCount] = useState(null);
+  useEffect(() => {
+    // Reset dischargeCount when doctor scope or user role switches
+    setDischargeCount(null);
+  }, [auth?.name, role]);
+
 
   useEffect(() => {
     let isMounted = true;
@@ -197,7 +203,13 @@ export default function App() {
 
       {/* Main App Layout: Sidebar + Workspace View */}
       <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
-        <AppSidebar activePage={activePage} setActivePage={setActivePage} userRole={role} />
+        <AppSidebar
+          activePage={activePage}
+          setActivePage={setActivePage}
+          userRole={role}
+          doctorName={role === 'Doctor' ? auth?.name : null}
+          dischargeCount={dischargeCount}
+        />
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
           {activePage === 'command' && (
@@ -222,6 +234,7 @@ export default function App() {
               onNavigate={setActivePage}
               doctorName={role === 'Doctor' ? auth?.name : null}
               userRole={role}
+              onUpdateCaseCount={setDischargeCount}
             />
           )}
 
