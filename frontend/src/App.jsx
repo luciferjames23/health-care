@@ -148,25 +148,53 @@ export default function App() {
     setAuth(null);
   };
 
+  const [navHistory, setNavHistory] = useState([]);
+
+  const handleNavigate = (newPage, newPatient = undefined) => {
+    if (newPage === activePage && (newPatient === undefined || newPatient === selectedPatient)) {
+      return;
+    }
+    setNavHistory(prev => {
+      // Don't push duplicate identical states
+      if (prev.length > 0 && prev[prev.length - 1].page === activePage) {
+        return prev;
+      }
+      return [...prev, { page: activePage, patient: selectedPatient }];
+    });
+    setActivePage(newPage);
+    if (newPatient !== undefined) {
+      setSelectedPatient(newPatient);
+    }
+  };
+
+  const handleStepBack = () => {
+    if (navHistory.length > 0) {
+      const prevEntry = navHistory[navHistory.length - 1];
+      setNavHistory(prev => prev.slice(0, -1));
+      setActivePage(prevEntry.page);
+      setSelectedPatient(prevEntry.patient);
+    } else {
+      setActivePage('command');
+      setSelectedPatient(null);
+    }
+  };
+
   const handleAskAi = (query) => {
     setAiPrompt(query);
-    setActivePage('assistant');
+    handleNavigate('assistant');
   };
 
   const handleSelectPatient = (patient) => {
-    setSelectedPatient(patient);
-    setActivePage('patient360');
+    handleNavigate('patient360', patient);
   };
 
   const handleOpenSoap = (patient) => {
     setSoapReturnPage(activePage === 'soap' ? soapReturnPage : activePage);
-    setSelectedPatient(patient);
-    setActivePage('soap');
+    handleNavigate('soap', patient);
   };
 
   const handleOpenDischargeSummary = (patientOrSummary) => {
-    setSelectedPatient(patientOrSummary);
-    setActivePage('discharge');
+    handleNavigate('discharge', patientOrSummary);
   };
 
   // If not authenticated, display login screen
@@ -205,7 +233,7 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
         <AppSidebar
           activePage={activePage}
-          setActivePage={setActivePage}
+          setActivePage={(page) => handleNavigate(page)}
           userRole={role}
           doctorName={role === 'Doctor' ? auth?.name : null}
           dischargeCount={dischargeCount}
@@ -213,7 +241,7 @@ export default function App() {
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
           {activePage === 'command' && (
-            <CommandCentreView onNavigate={setActivePage} onAskAi={handleAskAi} />
+            <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
           )}
 
           {activePage === 'clinical' && (
@@ -231,7 +259,7 @@ export default function App() {
               onClearSelectedPatient={() => setSelectedPatient(null)}
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
-              onNavigate={setActivePage}
+              onNavigate={(p) => handleNavigate(p)}
               doctorName={role === 'Doctor' ? auth?.name : null}
               userRole={role}
               onUpdateCaseCount={setDischargeCount}
@@ -242,15 +270,7 @@ export default function App() {
             <SoapNoteView
               patient={selectedPatient}
               doctorName={auth?.name}
-              onBack={() => {
-                if (soapReturnPage === 'patient360' && selectedPatient) {
-                  setActivePage('patient360');
-                } else if (soapReturnPage && soapReturnPage !== 'soap') {
-                  setActivePage(soapReturnPage);
-                } else {
-                  setActivePage(selectedPatient ? 'patient360' : 'clinical');
-                }
-              }}
+              onBack={handleStepBack}
               onOpenPatient={handleSelectPatient}
             />
           )}
@@ -260,17 +280,17 @@ export default function App() {
               patient={selectedPatient}
               onOpenDischarge={() => {
                 setSelectedPatient(null);
-                setActivePage('discharge');
+                handleNavigate('discharge');
               }}
               onOpenSoap={handleOpenSoap}
-              onBack={() => setActivePage('patients')}
+              onBack={handleStepBack}
               onNavigate={(page) => {
                 if (page === 'discharge') {
                   setSelectedPatient(null);
                 }
-                setActivePage(page);
+                handleNavigate(page);
               }}
-              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
+              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); handleNavigate('radiology'); }}
               onOpenDrawer={setDrawer}
               onOpenModal={setModal}
             />
@@ -280,7 +300,7 @@ export default function App() {
             <PatientsView
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
-              onNavigate={setActivePage}
+              onNavigate={(p) => handleNavigate(p)}
               doctorName={role === 'Doctor' ? auth?.name : null}
               userRole={role}
             />
@@ -290,7 +310,7 @@ export default function App() {
             <AdmissionsView
               onSelectPatient={handleSelectPatient}
               onOpenSoap={handleOpenSoap}
-              onNavigate={setActivePage}
+              onNavigate={(p) => handleNavigate(p)}
               doctorName={role === 'Doctor' ? auth?.name : null}
               userRole={role}
             />
@@ -299,7 +319,7 @@ export default function App() {
           {activePage === 'bedboard' && <BedDemandView onSelectPatient={handleSelectPatient} />}
 
           {activePage === 'assistant' && (
-            <HospitalAssistantView onNavigate={setActivePage} defaultQuery={aiPrompt} />
+            <HospitalAssistantView onNavigate={(p) => handleNavigate(p)} defaultQuery={aiPrompt} />
           )}
 
           {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}

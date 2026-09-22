@@ -2,6 +2,7 @@ import re
 import time
 import datetime
 import uuid
+import logging
 from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 from services.discharge_generator import generate_and_persist_discharge_summaries
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/discharge-agent",
@@ -28,6 +31,18 @@ class ClearBillRequest(BaseModel):
     payment_method: Optional[str] = "UPI"
     payment_reference: Optional[str] = None
     remarks: Optional[str] = "Cleared via Bill Clearance API"
+
+
+class SimulateInsurerRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    bill_id: Optional[Union[str, int]] = None
+    bill_number: Optional[str] = None
+    decision: str = "approve"  # "approve" / "approved" or "reject" / "rejected"
+    insurer: Optional[str] = None
+    amount: Optional[float] = None
+    remarks: Optional[str] = None
+
 
 
 class GenerateVitalsRequest(BaseModel):
@@ -1225,10 +1240,11 @@ def clear_patient_bill_internal(
 
         cur.execute("""
             INSERT INTO payments (
-                bill_id, patient_id, amount, payment_method,
+                id, bill_id, patient_id, amount, payment_method,
                 payment_status, payer_type, payment_reference,
                 transaction_reference, payment_date, created_at, updated_at
             ) VALUES (
+                (SELECT COALESCE(MAX(id), 0) + 1 FROM payments),
                 %s, %s, %s, %s,
                 'SUCCESS', 'PATIENT', %s,
                 %s, %s, %s, %s
@@ -1314,6 +1330,348 @@ def clear_patient_bill_by_id(
         amount=amount,
         payment_method=payment_method
     )
+
+
+def simulate_insurer_decision_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    bill_id: Optional[Union[str, int]] = None,
+    bill_number: Optional[str] = None,
+    decision: str = "approve",
+    insurer: Optional[str] = None,
+    amount: Optional[float] = None,
+    remarks: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Simulates insurer preauth / enhancement approval or rejection in PostgreSQL Lakehouse:
+    1. Updates or inserts record in `insurance_claims`:
+       - Approved: claim_status='Approved', approved_amount=amount, rejected_amount=0, settlement_date=CURRENT_DATE
+       - Rejected: claim_status='Rejected', approved_amount=0, rejected_amount=amount, rejection_reason=remarks
+    2. Updates `bills`:
+       - Approved: insurance_amount=amount, patient_amount=GREATEST(0, net_amount - amount)
+       - Rejected: insurance_amount=0, patient_amount=net_amount
+    3. Updates `dim_admission_inputs`:
+       - Approved: outstanding_balance=GREATEST(0, bill_net_amount - amount)
+       - Rejected: outstanding_balance=bill_net_amount
+    4. Clears DatabricksConnector cache so frontend queries see real-time updates.
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+    parsed_bid = _parse_id_numeric(bill_id)
+    b_num = str(bill_number).strip() if bill_number else None
+
+    if not any([parsed_pid, parsed_aid, parsed_bid, b_num]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier must be provided: patient_id, admission_id, bill_id, or bill_number."
+        )
+
+    is_approve = str(decision).strip().lower() in ("approve", "approved", "accept", "accepted")
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Step 1: Look up admission in dim_admission_inputs
+        adm_row = None
+        if parsed_aid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and parsed_pid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE patient_id = %s
+                ORDER BY admission_id DESC
+                LIMIT 1;
+            """, (parsed_pid,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and b_num:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE bill_number = %s
+                LIMIT 1;
+            """, (b_num,))
+            adm_row = cur.fetchone()
+
+        resolved_aid = adm_row[0] if adm_row else parsed_aid
+        resolved_pid = adm_row[1] if adm_row else parsed_pid
+        resolved_b_num = adm_row[4] if adm_row else b_num
+        bill_net = float(adm_row[5] if adm_row and adm_row[5] is not None else 187500.0)
+        pat_name = f"{adm_row[2] or ''} {adm_row[3] or ''}".strip() if adm_row else f"Patient #{resolved_pid}"
+
+        # Step 2: Find linked bill in bills table (prioritizing active admission)
+        bill_row = None
+        if resolved_aid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE admission_id = %s
+                ORDER BY bill_id DESC
+                LIMIT 1;
+            """, (resolved_aid,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and parsed_bid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE bill_id = %s
+                LIMIT 1;
+            """, (parsed_bid,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and resolved_b_num:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE bill_number = %s
+                LIMIT 1;
+            """, (resolved_b_num,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and resolved_pid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE patient_id = %s
+                ORDER BY (admission_id IS NOT NULL) DESC, bill_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            bill_row = cur.fetchone()
+
+        resolved_bid = bill_row[0] if bill_row else (parsed_bid or resolved_aid)
+        if bill_row and bill_row[2]:
+            bill_net = float(bill_row[2])
+
+        # Step 3: Find insurance details from patient_insurance
+        ins_provider = insurer
+        pol_num = None
+        if resolved_pid:
+            cur.execute("""
+                SELECT insurance_provider, policy_number
+                FROM patient_insurance
+                WHERE patient_id = %s
+                ORDER BY insurance_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            pi_row = cur.fetchone()
+            if pi_row:
+                ins_provider = insurer or pi_row[0]
+                pol_num = pi_row[1]
+
+        if not ins_provider:
+            ins_provider = "Star Health"
+        if not pol_num:
+            pol_num = f"POL-{resolved_pid or resolved_aid or '2026'}"
+
+        claim_amt = float(amount) if amount is not None and float(amount) > 0 else bill_net
+
+        # Step 4: Upsert insurance_claims (linked to current bill/admission)
+        existing_claim = None
+        if resolved_bid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE bill_id = %s
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_bid,))
+            existing_claim = cur.fetchone()
+
+        if not existing_claim and resolved_aid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE bill_id IN (SELECT bill_id FROM bills WHERE admission_id = %s)
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_aid,))
+            existing_claim = cur.fetchone()
+
+        if not existing_claim and resolved_pid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE patient_id = %s
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            existing_claim = cur.fetchone()
+
+        now_date = datetime.date.today()
+        claim_id = None
+
+        if existing_claim:
+            claim_id = existing_claim[0]
+            if is_approve:
+                cur.execute("""
+                    UPDATE insurance_claims
+                    SET claim_status = 'Approved',
+                        approved_amount = %s,
+                        rejected_amount = 0.00,
+                        settled_amount = %s,
+                        outstanding_amount = 0.00,
+                        rejection_reason = NULL,
+                        settlement_date = %s,
+                        insurance_provider = %s,
+                        policy_number = %s,
+                        bill_id = %s
+                    WHERE claim_id = %s;
+                """, (claim_amt, claim_amt, now_date, ins_provider, pol_num, resolved_bid, claim_id))
+            else:
+                cur.execute("""
+                    UPDATE insurance_claims
+                    SET claim_status = 'Rejected',
+                        approved_amount = 0.00,
+                        rejected_amount = %s,
+                        settled_amount = 0.00,
+                        outstanding_amount = %s,
+                        rejection_reason = %s,
+                        settlement_date = NULL,
+                        insurance_provider = %s,
+                        policy_number = %s,
+                        bill_id = %s
+                    WHERE claim_id = %s;
+                """, (claim_amt, claim_amt, remarks or "Enhancement rejected · patient liability counselling needed", ins_provider, pol_num, resolved_bid, claim_id))
+        else:
+            claim_num = f"MER-CLM-{str(resolved_aid or resolved_bid or resolved_pid or 1000).zfill(7)}"
+            if is_approve:
+                cur.execute("""
+                    INSERT INTO insurance_claims (
+                        claim_id, claim_number, patient_id, bill_id, insurance_provider,
+                        policy_number, claim_date, claimed_amount, approved_amount,
+                        rejected_amount, settled_amount, outstanding_amount,
+                        claim_status, rejection_reason, settlement_date
+                    ) VALUES (
+                        (SELECT COALESCE(MAX(claim_id), 0) + 1 FROM insurance_claims),
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        0.00, %s, 0.00,
+                        'Approved', NULL, %s
+                    ) RETURNING claim_id;
+                """, (claim_num, resolved_pid, resolved_bid, ins_provider, pol_num, now_date, claim_amt, claim_amt, claim_amt, now_date))
+            else:
+                cur.execute("""
+                    INSERT INTO insurance_claims (
+                        claim_id, claim_number, patient_id, bill_id, insurance_provider,
+                        policy_number, claim_date, claimed_amount, approved_amount,
+                        rejected_amount, settled_amount, outstanding_amount,
+                        claim_status, rejection_reason, settlement_date
+                    ) VALUES (
+                        (SELECT COALESCE(MAX(claim_id), 0) + 1 FROM insurance_claims),
+                        %s, %s, %s, %s,
+                        %s, %s, %s, 0.00,
+                        %s, 0.00, %s,
+                        'Rejected', %s, NULL
+                    ) RETURNING claim_id;
+                """, (claim_num, resolved_pid, resolved_bid, ins_provider, pol_num, now_date, claim_amt, claim_amt, claim_amt, remarks or "Enhancement rejected · patient liability counselling needed"))
+            claim_id = cur.fetchone()[0]
+
+        # Step 5: Update bills table
+        if resolved_bid:
+            if is_approve:
+                cur.execute("""
+                    UPDATE bills
+                    SET insurance_amount = %s,
+                        patient_amount = GREATEST(0.00, net_amount - %s)
+                    WHERE bill_id = %s;
+                """, (claim_amt, claim_amt, resolved_bid))
+            else:
+                cur.execute("""
+                    UPDATE bills
+                    SET insurance_amount = 0.00,
+                        patient_amount = net_amount
+                    WHERE bill_id = %s;
+                """, (resolved_bid,))
+
+        # Step 6: Update dim_admission_inputs
+        new_balance = max(0.0, bill_net - claim_amt) if is_approve else bill_net
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET outstanding_balance = %s
+                WHERE admission_id = %s;
+            """, (new_balance, resolved_aid))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET outstanding_balance = %s
+                WHERE patient_id = %s;
+            """, (new_balance, resolved_pid))
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        return {
+            "success": True,
+            "decision": "Approved" if is_approve else "Rejected",
+            "message": f"Insurance {('approved for Rs. ' + str(claim_amt)) if is_approve else 'enhancement rejected'} successfully for {pat_name}",
+            "claim_id": claim_id,
+            "patient_id": resolved_pid,
+            "admission_id": resolved_aid,
+            "insurer": ins_provider,
+            "claimed_amount": claim_amt,
+            "approved_amount": claim_amt if is_approve else 0.0,
+            "rejected_amount": 0.0 if is_approve else claim_amt,
+            "outstanding_balance": new_balance,
+            "claim_status": "Approved" if is_approve else "Rejected"
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error simulating insurer decision: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/simulate-insurer", summary="Simulate Insurer Approval or Rejection")
+def simulate_insurer_decision_api(request: SimulateInsurerRequest):
+    """
+    Simulates insurer preauth / enhancement approval or rejection and updates PostgreSQL.
+    """
+    return simulate_insurer_decision_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        bill_id=request.bill_id,
+        bill_number=request.bill_number,
+        decision=request.decision,
+        insurer=request.insurer,
+        amount=request.amount,
+        remarks=request.remarks
+    )
+
+
+@router.post("/patient/{patient_id}/simulate-insurer", summary="Simulate Insurer Approval or Rejection by Patient ID")
+def simulate_insurer_by_patient_id(
+    patient_id: str,
+    decision: str = Query("approve"),
+    amount: Optional[float] = Query(None),
+    insurer: Optional[str] = Query(None)
+):
+    """
+    Convenience endpoint to simulate insurer decision by patient ID in URL.
+    """
+    return simulate_insurer_decision_internal(
+        patient_id=patient_id,
+        decision=decision,
+        amount=amount,
+        insurer=insurer
+    )
+
 
 
 def generate_and_save_vitals_internal(

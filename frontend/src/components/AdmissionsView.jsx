@@ -164,7 +164,15 @@ export default function AdmissionsView({
       {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span
+              onClick={() => onNavigate ? onNavigate('clinical') : (window.history.length > 1 ? window.history.back() : null)}
+              style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}
+              title="Return to Clinical Workspace"
+            >
+              ← Back
+            </span>
+            <span>·</span>
             <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Admissions' : 'Inpatient Admissions'}</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600 }}>

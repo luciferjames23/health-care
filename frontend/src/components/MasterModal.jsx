@@ -238,22 +238,45 @@ export default function MasterModal({ modal, onClose, onSubmit, role = 'Hospital
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              height: '30px',
-              width: '30px',
-              borderRadius: '6px',
-              border: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              color: '#64748b',
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                height: '30px',
+                padding: '0 10px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                color: '#0284c7',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Step back / Close"
+            >
+              ← Back
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                height: '30px',
+                width: '30px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {error && (

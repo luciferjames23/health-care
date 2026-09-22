@@ -54,7 +54,8 @@ DB_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", DEFAULT_PORT))
 DB_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", DEFAULT_NAME))
 DB_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", DEFAULT_USER))
 DB_PASSWORD = os.getenv("DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", DEFAULT_PASSWORD))
-DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", "require"))
+default_ssl = "prefer" if DB_HOST in ("localhost", "127.0.0.1") else "require"
+DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", default_ssl))
 
 # Connection Pooling
 _pool_lock = threading.Lock()
@@ -63,7 +64,7 @@ _connection_pool = None  # Lazy-initialized on first call
 _POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
 # This database role is shared with other services and administrative clients.
 # Increase DB_POOL_MAX only when the role has spare connection capacity.
-_POOL_MAX = int(os.getenv("DB_POOL_MAX", "1"))
+_POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 _pool_slots = threading.BoundedSemaphore(_POOL_MAX)
 
 

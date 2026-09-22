@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { apiService } from '../services/api';
+import { apiService, synthesizeClinicalDetails } from '../services/api';
 
 /**
  * Strips any Tamil instructions from discharge advice / followup text
@@ -175,28 +175,24 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
   useEffect(() => {
     if (summaryData) {
+      const clinical = synthesizeClinicalDetails(summaryData);
+
       const summaryId = summaryData.summary_id || (summaryData.patient_id ? `DS-${summaryData.patient_id}` : summaryData.id || '');
       const patientId = summaryData.patient_id || summaryData.id || '';
-      const patientName = summaryData.patient_name || summaryData.patient || summaryData.name || '';
+      const patientName = clinical.patientName || summaryData.patient_name || summaryData.patient || summaryData.name || '';
       const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `PAT-${patientId}` : '');
       const admissionId = summaryData.admission_id || (patientId ? `ADM-${patientId}` : '');
       const admissionDate = summaryData.admission_date || summaryData.admitted || '';
       const dischargeDate = summaryData.discharge_date || summaryData.eta || '';
-      const attendingPhysician = summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
+      const attendingPhysician = clinical.doctor || summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
       let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
       if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
         admissionReason = '';
       }
-      let dischargeDiagnosis = cleanDiagnosis(summaryData.discharge_diagnosis || summaryData.diagnoses || summaryData.diagnosis || summaryData.primary_diagnosis || '');
-      if (!dischargeDiagnosis || /^Diagnosis\s+\d+/i.test(dischargeDiagnosis)) {
-        dischargeDiagnosis = cleanDiagnosis(summaryData.primary_diagnosis || summaryData.diagnoses || '');
-      }
-      let hospitalCourse = summaryData.hospital_course_summary || summaryData.case_history || '';
-      if (dischargeDiagnosis && hospitalCourse) {
-        hospitalCourse = hospitalCourse.replace(/Diagnosis\s+\d+/gi, dischargeDiagnosis);
-      }
-      const investigations = summaryData.investigations || '';
-      const patientCondition = summaryData.patient_condition || '';
+      const dischargeDiagnosis = clinical.primaryDiag;
+      const hospitalCourse = clinical.narrative;
+      const investigations = clinical.investigations;
+      const patientCondition = clinical.condition;
       const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
       const followup = stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || '');
       const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
@@ -403,8 +399,39 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               </div>
             </div>
 
-            {/* Action Buttons: Print, Edit, Close */}
+            {/* ACTIONS: BACK / PRINT / EDIT / CLOSE */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isEditing) {
+                    setForm(originalForm);
+                    setIsEditing(false);
+                  } else {
+                    onClose();
+                  }
+                }}
+                style={{
+                  height: '32px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#0284c7',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
+                title={isEditing ? 'Step back to Summary View' : 'Step back / Close'}
+              >
+                ← Back
+              </button>
               <button
                 type="button"
                 onClick={handlePrint}
@@ -572,18 +599,11 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                 {/* SECTION 1: ADMISSION DETAILS & CASE HISTORY */}
                 <div>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Admission Details & Case History
+                    Admission Details &amp; Case History
                   </div>
-                  {form.admission_reason && form.admission_reason.trim() !== '-' && form.admission_reason.trim() !== '—' && form.admission_reason.trim() !== '–' && (
-                    <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: 1.5 }}>
-                      {form.admission_reason}
-                    </div>
-                  )}
-                  {form.hospital_course_summary && form.hospital_course_summary !== form.admission_reason && (
-                    <div style={{ fontSize: '12.5px', color: '#475569', marginTop: '6px', lineHeight: 1.5 }}>
-                      {form.hospital_course_summary}
-                    </div>
-                  )}
+                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5 }}>
+                    {form.hospital_course_summary || form.admission_reason || 'Patient admitted for clinical management.'}
+                  </div>
                 </div>
 
                 {/* SECTION 2: DIAGNOSES (Cleaned, NO brackets []) */}
@@ -983,10 +1003,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             <div className="print-sec">
               <div className="print-sec-title">ADMISSION DETAILS &amp; CASE HISTORY</div>
               <div className="print-sec-body">
-                {form.admission_reason || '—'}
-                {form.hospital_course_summary && form.hospital_course_summary !== form.admission_reason && (
-                  <div style={{ marginTop: '5px' }}>{form.hospital_course_summary}</div>
-                )}
+                {form.hospital_course_summary || form.admission_reason || '—'}
               </div>
             </div>
 

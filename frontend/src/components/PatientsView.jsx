@@ -172,9 +172,18 @@ export default function PatientsView({
       {/* breadcrumb + title + actions */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px" }}>
-            <span onClick={() => onNavigate && onNavigate("command")} style={{ cursor: "pointer", color: "oklch(0.5 0.1 200)" }}>{"\u2190 Back"}</span>
-            {" \u00b7 "}<span>Clinical Workspace</span>{" \u00b7 "}<span>{isDoctor ? 'My Patients' : 'Patients'}</span>
+          <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
+            <span
+              onClick={() => onNavigate ? onNavigate('clinical') : (window.history.length > 1 ? window.history.back() : null)}
+              style={{ color: "#0284c7", cursor: "pointer", fontWeight: 600 }}
+              title="Return to Clinical Workspace"
+            >
+              ← Back
+            </span>
+            <span>·</span>
+            <span>Clinical Workspace</span>
+            <span>·</span>
+            <span>{isDoctor ? 'My Patients' : 'Patients'}</span>
           </div>
           <div style={{ fontSize: "20px", fontWeight: 600 }}>
             {isDoctor && activeDoctorName ? `Patients · ${activeDoctorName}` : 'Patients'}

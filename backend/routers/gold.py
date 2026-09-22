@@ -364,6 +364,25 @@ def get_dim_admission_inputs(
                     JOIN wards w ON b.ward_id = w.ward_id;
                 """)
                 bed_map = {r['admission_id']: r for r in cur.fetchall()}
+
+                # Enrich with live insurance claims and patient insurance
+                cur.execute("""
+                    SELECT DISTINCT ON (patient_id)
+                        patient_id, bill_id, insurance_provider, policy_number, claim_status,
+                        approved_amount, rejected_amount, claimed_amount
+                    FROM insurance_claims
+                    ORDER BY patient_id, claim_date DESC, claim_id DESC;
+                """)
+                claim_map = {r['patient_id']: r for r in cur.fetchall()}
+
+                cur.execute("""
+                    SELECT DISTINCT ON (patient_id)
+                        patient_id, insurance_provider, policy_number, coverage_limit, status
+                    FROM patient_insurance
+                    ORDER BY patient_id, insurance_id DESC;
+                """)
+                ins_map = {r['patient_id']: r for r in cur.fetchall()}
+
                 cur.close()
                 conn.close()
 
@@ -374,6 +393,19 @@ def get_dim_admission_inputs(
                         row['room_number'] = b_info['room_number']
                         row['ward_name'] = b_info['ward_name']
                         row['bed_type'] = b_info['bed_type']
+
+                    c_info = claim_map.get(row.get('patient_id'))
+                    i_info = ins_map.get(row.get('patient_id'))
+                    if c_info:
+                        row['insurance_provider'] = c_info.get('insurance_provider') or row.get('insurance_provider')
+                        row['claim_status'] = c_info.get('claim_status')
+                        row['insurance_status'] = c_info.get('claim_status')
+                        row['approved_amount'] = float(c_info.get('approved_amount') or 0.0)
+                        row['rejected_amount'] = float(c_info.get('rejected_amount') or 0.0)
+                        row['policy_number'] = c_info.get('policy_number')
+                    elif i_info:
+                        row['insurance_provider'] = i_info.get('insurance_provider') or row.get('insurance_provider')
+                        row['policy_number'] = i_info.get('policy_number')
             except Exception:
                 pass
         return res
@@ -470,6 +502,34 @@ def get_dim_generated_discharge_summaries(
                     row["patient_name"] = m.group(1).strip()
             if not row.get("primary_consultant") and row.get("doctor_name"):
                 row["primary_consultant"] = row.get("doctor_name")
+
+        # Enrich with actual hospital bed number and ward from admissions & beds tables
+        adm_ids = [r["admission_id"] for r in res.get("data", []) if r.get("admission_id")]
+        if adm_ids:
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name
+                    FROM admissions a
+                    LEFT JOIN beds b ON a.bed_id = b.bed_id
+                    LEFT JOIN wards w ON b.ward_id = w.ward_id
+                    WHERE a.admission_id = ANY(%s)
+                """, (adm_ids,))
+                bed_info = {row[0]: {"bed_id": row[1], "bed_number": row[2], "bed_type": row[3], "ward_name": row[4]} for row in cur.fetchall()}
+                cur.close()
+                conn.close()
+                for row in res.get("data", []):
+                    aid = row.get("admission_id")
+                    if aid in bed_info:
+                        row["bed_id"] = bed_info[aid]["bed_id"]
+                        row["bed_number"] = bed_info[aid]["bed_number"]
+                        row["bed_type"] = bed_info[aid]["bed_type"]
+                        row["ward_name"] = bed_info[aid]["ward_name"]
+            except Exception as be:
+                print(f"[WARN] Failed to enrich discharge summaries with bed info: {be}")
+
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query dim_generated_discharge_summaries: {str(e)}")
@@ -530,6 +590,30 @@ def get_generated_discharge_summary_by_id(summary_id: str):
         m = re.search(r'The patient(?:,\s*|\s+)([A-Z][a-zA-Z\s]+?)(?:,|\s+a|\s+an|\s+was|\s+is|\s+aged|\s+\d)', rec["case_history"])
         if m:
             rec["patient_name"] = m.group(1).strip()
+
+    if rec.get("admission_id"):
+        try:
+            import db_config
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name
+                FROM admissions a
+                LEFT JOIN beds b ON a.bed_id = b.bed_id
+                LEFT JOIN wards w ON b.ward_id = w.ward_id
+                WHERE a.admission_id = %s
+            """, (rec["admission_id"],))
+            brow = cur.fetchone()
+            cur.close()
+            conn.close()
+            if brow:
+                rec["bed_id"] = brow[1]
+                rec["bed_number"] = brow[2]
+                rec["bed_type"] = brow[3]
+                rec["ward_name"] = brow[4]
+        except Exception as be:
+            print(f"[WARN] Failed to enrich single summary with bed info: {be}")
+
     return rec
 
 
@@ -599,10 +683,44 @@ def update_dim_generated_discharge_summary(
                 break
 
     if not matched:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Discharge summary '{id_str}' not found in health_care.gold.dim_generated_discharge_summaries."
-        )
+        # Upsert: create a new record in dim_generated_discharge_summaries for this admission/patient
+        import re
+        clean_pid = None
+        try:
+            digits = re.sub(r"[^\d]", "", id_str)
+            clean_pid = int(digits) if digits else None
+        except Exception:
+            clean_pid = None
+
+        new_record = {
+            "patient_id": clean_pid,
+            "diagnoses": payload.diagnoses or "Inpatient admission under clinical observation",
+            "case_history": payload.case_history or payload.hospital_course_summary or "",
+            "investigations": payload.investigations or "",
+            "treatment": payload.treatment or "",
+            "primary_consultant": payload.attending_physician or payload.approved_by or "Attending Physician",
+            "discharge_advice": payload.discharge_advice or payload.followup_instructions or "",
+            "surgery_details": payload.surgery_details or "",
+            "patient_condition": payload.patient_condition or "",
+            "approval_status": payload.approval_status or "Approved"
+        }
+        ins_dict = {k: v for k, v in new_record.items() if v is not None}
+        try:
+            cols = list(ins_dict.keys())
+            vals = [list(ins_dict.values())]
+            db_connector.insert_batch_fast("dim_generated_discharge_summaries", cols, vals)
+            return {
+                "status": "success",
+                "message": f"Discharge summary '{id_str}' successfully created in gold.dim_generated_discharge_summaries.",
+                "summary_id": f"DS-{clean_pid}" if clean_pid else id_str,
+                "patient_id": clean_pid,
+                "data": ins_dict
+            }
+        except Exception as insert_err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Discharge summary '{id_str}' not found and creation failed: {str(insert_err)}"
+            )
 
     actual_sid = matched.get("summary_id")
     update_dict = {k: v for k, v in payload.dict().items() if v is not None}

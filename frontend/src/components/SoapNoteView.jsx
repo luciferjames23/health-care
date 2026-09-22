@@ -196,18 +196,6 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           </div>
 
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={onBack}
-              style={{
-                height: '30px', padding: '0 12px', borderRadius: '6px',
-                border: '1px solid #c8d0d6', background: '#f8f9fa',
-                color: '#15181b', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px',
-                display: 'inline-flex', alignItems: 'center', gap: '4px'
-              }}
-            >
-              ← Back
-            </button>
             {dbDrafts.length > 0 && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8a9096', fontSize: '11.5px' }}>
                 <span>Load Draft</span>

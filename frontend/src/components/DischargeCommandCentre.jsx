@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor } from '../services/api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor, synthesizeClinicalDetails } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
@@ -64,6 +64,14 @@ function createCaseInitialState(base) {
   const patAmt = base.billDetails?.patient || 0;
   const insurer = base.insurer || 'Star Health';
 
+  const insClaimStatus = String(base.claimStatus || base.insuranceStatus || '').trim().toLowerCase();
+  const isInsApproved = isReady || isCompleted || insClaimStatus.includes('approv') || insClaimStatus.includes('settle');
+  const isInsRejected = insClaimStatus.includes('reject') || insClaimStatus.includes('deni');
+
+  const billClearance = String(base.billClearanceStatus || '').toLowerCase();
+  const bStatus = String(base.billStatus || '').toLowerCase();
+  const isBillCleared = isReady || isCompleted || billClearance === 'cleared' || bStatus === 'paid' || bStatus === 'settled' || patAmt === 0;
+
   return {
     deps: {
       clinical: {
@@ -82,13 +90,13 @@ function createCaseInitialState(base) {
         time: '09:05'
       },
       billing: {
-        status: isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending',
-        note: isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`,
+        status: isBillCleared ? 'done' : isInsApproved ? 'approval' : (isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending'),
+        note: isBillCleared ? 'Final bill released by Billing Desk' : isInsApproved ? 'Final bill ready · awaiting Billing release' : (isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`),
         time: '09:05'
       },
       insurance: {
-        status: isReady || isCompleted ? 'done' : blocker.includes('insurance') ? 'blocked' : 'waiting',
-        note: isReady || isCompleted ? `Approved by ${insurer}` : `Enhancement submitted · awaiting response from ${insurer}`,
+        status: isInsApproved ? 'done' : isInsRejected ? 'blocked' : (isReady || isCompleted ? 'done' : blocker.includes('insurance') ? 'blocked' : 'waiting'),
+        note: isInsApproved ? `Approved by ${insurer}` : isInsRejected ? 'Enhancement rejected · patient liability counselling needed' : (isReady || isCompleted ? `Approved by ${insurer}` : `Enhancement submitted · awaiting response from ${insurer}`),
         time: '09:15'
       },
       housekeeping: {
@@ -112,12 +120,12 @@ function createCaseInitialState(base) {
         time: '09:01'
       }
     },
-    paStatus: isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer',
-    paApproved: isReady || isCompleted ? actualAmt : insAmt,
-    paLiability: isReady || isCompleted ? 0 : patAmt,
-    billStatus: isReady || isCompleted ? 'Released' : 'Provisional',
-    billInsurance: isReady || isCompleted ? actualAmt : insAmt,
-    billPatient: isReady || isCompleted ? 0 : patAmt,
+    paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
+    paApproved: isInsApproved ? actualAmt : isInsRejected ? 0 : (isReady || isCompleted ? actualAmt : insAmt),
+    paLiability: isInsApproved ? 0 : isInsRejected ? actualAmt : (isReady || isCompleted ? 0 : patAmt),
+    billStatus: isBillCleared ? 'Released' : 'Provisional',
+    billInsurance: isInsApproved ? actualAmt : isInsRejected ? 0 : (isReady || isCompleted ? actualAmt : insAmt),
+    billPatient: isBillCleared || isInsApproved ? 0 : (isReady || isCompleted ? 0 : patAmt),
     approvals: isReady || isCompleted ? [] : [
       ...(isApproval || blocker.includes('summary') ? [
         {
@@ -129,22 +137,36 @@ function createCaseInitialState(base) {
           details: 'AI draft generated from clinical notes & lab reports'
         }
       ] : []),
-      {
-        id: `AP-${base.id}-02`,
-        type: 'Preauth submission',
-        action: `Submit enhancement · ${insurer}`,
-        owner: 'Insurance Desk',
-        time: '30m ago',
-        details: `Enhancement packet ₹${actualAmt.toLocaleString('en-IN')} assembled`
-      },
-      {
-        id: `AP-${base.id}-03`,
-        type: 'Billing release',
-        action: 'Release final bill & gate pass',
-        owner: 'Billing Desk',
-        time: '45m ago',
-        details: 'Awaiting insurer settlement and doctor signature'
-      }
+      ...(!isInsApproved && !isInsRejected ? [
+        {
+          id: `AP-${base.id}-02`,
+          type: 'Preauth submission',
+          action: `Submit enhancement · ${insurer}`,
+          owner: 'Insurance Desk',
+          time: '30m ago',
+          details: `Enhancement packet ₹${actualAmt.toLocaleString('en-IN')} assembled`
+        }
+      ] : []),
+      ...(isInsRejected ? [
+        {
+          id: `AP-${base.id}-APPEAL`,
+          type: 'Claim appeal',
+          action: `Submit appeal · ${insurer}`,
+          owner: 'Insurance Desk',
+          time: 'Just now',
+          details: 'Enhancement rejected · appeal packet assembled by Claim Denial Agent'
+        }
+      ] : []),
+      ...(!isBillCleared ? [
+        {
+          id: `AP-${base.id}-03`,
+          type: 'Billing release',
+          action: 'Release final bill & gate pass',
+          owner: 'Billing Desk',
+          time: '45m ago',
+          details: isInsApproved ? 'Insurer approved · ready for final billing release' : 'Awaiting insurer settlement and doctor signature'
+        }
+      ] : [])
     ],
     steps: [
       { t: '09:02', what: 'Orchestrator · Identity ✓ Consent ✓ Intent discharge.coordinate → Discharge Agent', col: '#0284c7', res: 'Allowed' },
@@ -251,9 +273,26 @@ export default function DischargeCommandCentre({
       if (aid) admMap[`adm_${aid}`] = a;
     });
 
-    const bedMap = {};
+    const bedById = {};
     rawBeds.forEach(b => {
-      if (b.patient_id) bedMap[String(b.patient_id)] = b;
+      if (b.bed_id != null) bedById[String(b.bed_id)] = b;
+      if (b.id != null) bedById[String(b.id)] = b;
+    });
+
+    const bedByPatientId = {};
+    const bedByAdmissionId = {};
+    rawAdmissions.forEach(a => {
+      const pid = String(a.patient_id || a.id || '');
+      const aid = String(a.admission_id || '');
+      const bNumber = a.bed_number || (a.bed_id != null && bedById[String(a.bed_id)]?.bed_number);
+      const bedObj = {
+        bed_number: bNumber,
+        bed_id: a.bed_id,
+        bed_type: a.bed_type || (a.bed_id != null && bedById[String(a.bed_id)]?.bed_type),
+        ward_name: a.ward_name
+      };
+      if (pid) bedByPatientId[pid] = bedObj;
+      if (aid) bedByAdmissionId[aid] = bedObj;
     });
 
     const wardMap = {};
@@ -273,7 +312,7 @@ export default function DischargeCommandCentre({
       if (c.admission_id) processedPatientIds.add(`adm_${c.admission_id}`);
 
       const adm = admMap[pid] || admMap[`adm_${c.admission_id}`] || {};
-      const matchedBed = bedMap[pid];
+      const matchedBed = (c.admission_id && bedByAdmissionId[String(c.admission_id)]) || bedByPatientId[pid];
       const caseId = parsed.summary_id ? `DIS-SUM-${parsed.summary_id}` : `DIS-CASE-${index + 1}`;
 
       const rawBillNet = parseFloat(adm.bill_net_amount || (c.admission_id ? 120000 + ((c.admission_id % 70) * 1500) : 121500));
@@ -284,7 +323,8 @@ export default function DischargeCommandCentre({
       const doctorName = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
       const patientName = parsed.patient_name || (adm.first_name ? `${adm.first_name} ${adm.last_name}` : `Patient ${pid}`);
-      const bed = matchedBed?.bed_number || adm.bed_number || adm.bed_id || (c.admission_id ? `BED-${String(c.admission_id).padStart(4, '0')}` : `BED-${String(400 + index).padStart(4, '0')}`);
+      const resolvedBedNum = c.bed_number || matchedBed?.bed_number || adm.bed_number || (adm.bed_id != null && bedById[String(adm.bed_id)]?.bed_number);
+      const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
@@ -375,12 +415,13 @@ export default function DischargeCommandCentre({
       processedPatientIds.add(pid);
       if (aid) processedPatientIds.add(`adm_${aid}`);
 
-      const matchedBed = bedMap[pid];
+      const matchedBed = (aid && bedByAdmissionId[aid]) || bedByPatientId[pid];
       const caseId = `DIS-ADM-${adm.admission_id || adm.id || index + 1}`;
       const patientName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || `Patient ${pid}`;
       const doctorName = adm.attending_doctor || 'Attending Physician';
       const doctorSpecialty = adm.doctor_specialization || 'Treating Specialist';
-      const bed = matchedBed?.bed_number || adm.bed_number || adm.bed_id || (adm.admission_id ? `BED-${String(adm.admission_id).padStart(4, '0')}` : `BED-${String(301 + index).padStart(4, '0')}`);
+      const resolvedBedNum = adm.bed_number || matchedBed?.bed_number || (adm.bed_id != null && bedById[String(adm.bed_id)]?.bed_number);
+      const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
       const billNet = parseFloat(adm.bill_net_amount || (adm.llm_input_json?.billing?.bill_net_amount) || 120000);
@@ -388,6 +429,9 @@ export default function DischargeCommandCentre({
       const insCoverage = Math.max(0, billNet - rawBal);
       const clearance = String(adm.bill_clearance_status || adm.llm_input_json?.billing?.bill_clearance_status || '').toLowerCase();
       const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
+      const claimStatus = String(adm.claim_status || adm.insurance_status || '').trim();
+      const isClaimApproved = claimStatus.toLowerCase().includes('approv') || claimStatus.toLowerCase().includes('settle');
+      const isClaimRejected = claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni');
 
       let category = 'Blocked';
       let blocker = 'billing → insurance → transport';
@@ -401,6 +445,18 @@ export default function DischargeCommandCentre({
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
+      } else if (isClaimApproved && (clearance === 'cleared' || rawBal === 0)) {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
+      } else if (isClaimApproved) {
+        category = 'In progress';
+        blocker = 'billing';
+        initialStatus = 'In progress · billing';
+      } else if (isClaimRejected) {
+        category = 'Blocked';
+        blocker = 'insurance';
+        initialStatus = 'Blocked · insurance';
       } else if (clearance === 'partial payment' || (rawBal > 0 && rawBal < billNet)) {
         category = 'In progress';
         blocker = (index % 2 === 0) ? 'housekeeping' : 'transport';
@@ -426,6 +482,22 @@ export default function DischargeCommandCentre({
         ? labsList.map(l => `${l.test_parameter || 'Test'}: ${l.result_value || ''} ${l.unit || ''} (${l.verification_status || 'Verified'})`).join('; ')
         : 'Routine clinical investigations performed.';
 
+      // Synthesize clean narrative and clinical fields matching Image 2
+      const clinical = synthesizeClinicalDetails({
+        ...adm,
+        patient_name: patientName,
+        attending_physician: doctorName,
+        doctor_specialization: doctorSpecialty,
+        primary_diagnosis: cleanDiagnosis(adm.primary_diagnosis || 'Inpatient admission under clinical observation'),
+        age: adm.age_at_admission || 45,
+        gender: adm.gender || 'Patient',
+        admission_type: adm.admission_type || 'Emergency',
+        admission_date: adm.admission_date,
+        reason_for_admission: adm.reason_for_admission,
+        current_stay_days: adm.current_stay_days,
+        investigations: labText
+      });
+
       resultCases.push({
         id: caseId,
         patient_id: pid,
@@ -439,7 +511,7 @@ export default function DischargeCommandCentre({
         paRef: `REF-${adm.admission_id || 91100 + index}`,
         billId: adm.bill_number || `BILL-${30500 + index}`,
         admission_id: adm.admission_id || `ADM-2026-${adm.id || index + 1}`,
-        diagnoses: cleanDiagnosis(adm.primary_diagnosis || 'Inpatient admission under clinical observation'),
+        diagnoses: clinical.primaryDiag,
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
         dischargeTime: '10:30',
@@ -450,34 +522,47 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
-        case_history: adm.llm_input || `Patient ${patientName} admitted for ${adm.reason_for_admission || adm.primary_diagnosis || 'treatment'}.`,
-        investigations: labText,
+        claimStatus: claimStatus,
+        insuranceStatus: claimStatus,
+        billStatus: adm.bill_status || '',
+        billClearanceStatus: adm.bill_clearance_status || '',
+        case_history: clinical.narrative,
+        hospital_course_summary: clinical.narrative,
+        investigations: clinical.investigations,
         treatment: treatmentText,
         discharge_advice: '1. Continue maintenance medications as directed.\n2. Scheduled review with attending physician in 7 days.\n3. Low sodium and cardiac diet recommended.\n4. Call emergency if chest discomfort or severe pain develops.',
-        patient_condition: 'Hemodynamically stable, conscious and oriented.',
-        rawRecord: adm,
+        patient_condition: clinical.condition,
+        rawRecord: {
+          ...adm,
+          case_history: clinical.narrative,
+          hospital_course_summary: clinical.narrative,
+          investigations: clinical.investigations,
+          patient_condition: clinical.condition,
+          diagnoses: clinical.primaryDiag,
+          primary_diagnosis: clinical.primaryDiag
+        },
         billDetails: {
           estimated: Math.round(billNet * 0.95),
           actual: billNet,
           variance: Math.round(billNet * 0.05),
           variancePct: 5,
-          insurance: insCoverage,
-          patient: rawBal,
-          paid: billNet - rawBal,
-          due: rawBal
+          insurance: isClaimApproved ? billNet : (isClaimRejected ? 0 : insCoverage),
+          patient: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal),
+          paid: isClaimApproved ? billNet : Math.max(0, billNet - rawBal),
+          due: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal)
         },
         insuranceDetails: {
           estimate: Math.round(billNet * 0.95),
           requested: billNet,
-          approved: insCoverage,
-          liability: rawBal,
+          approved: isClaimApproved ? billNet : (isClaimRejected ? 0 : insCoverage),
+          liability: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal),
           completeness: '100%',
           owner: 'K. Meena (Insurance)',
           submitted: '09:20',
           age: adm.age_at_admission ? `${adm.age_at_admission} Yrs` : '-',
-          lifecycle: 'Preauth review with insurer',
-          claim: 'Drafted in portal',
-          denialRisk: rawBal > 50000 ? '28% (Medium)' : '10% (Low)'
+          lifecycle: isClaimApproved ? 'Enhancement approved by insurer' : (isClaimRejected ? 'Enhancement rejected · appeal required' : 'Preauth review with insurer'),
+          claim: isClaimApproved ? 'Approved by insurer' : (isClaimRejected ? 'Claim appeal assembly' : 'Drafted in portal'),
+          denialRisk: isClaimRejected ? '100% (Denied)' : (isClaimApproved ? '0% (Approved)' : (rawBal > 50000 ? '28% (Medium)' : '10% (Low)'))
         }
       });
     });
@@ -744,15 +829,16 @@ export default function DischargeCommandCentre({
     });
   };
 
-  const handleReleaseFinalBill = (caseId) => {
+  const handleReleaseFinalBill = async (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
+    // 1. Optimistic UI update
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
 
       const nextDeps = {
         ...cur.deps,
-        billing: { status: 'done', note: 'Final bill released by Billing', time: '11:16' }
+        billing: { status: 'done', note: 'Final bill released by Billing Desk', time: '11:16' }
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Billing release');
       const nextSteps = [
@@ -764,20 +850,44 @@ export default function DischargeCommandCentre({
         ...(cur.log || [])
       ];
 
-      notify('Final bill released', `${targetCase.patient || 'Patient'} · final charges settled`, 'Medium', 'Billing Desk');
+      notify('Final bill released', `${targetCase.patient || 'Patient'} · final charges settled & updated in DB`, 'Medium', 'Billing Desk');
 
-      const updated = { ...cur, deps: nextDeps, billStatus: 'Released', approvals: nextApprovals, steps: nextSteps, log: nextLog };
+      const updated = { ...cur, deps: nextDeps, billStatus: 'Released', billPatient: 0, approvals: nextApprovals, steps: nextSteps, log: nextLog };
       return { ...prev, [caseId]: checkAndAdvanceCase(caseId, updated) };
     });
+
+    // 2. Persist to PostgreSQL Database
+    try {
+      const cleanNum = (val) => {
+        if (!val) return null;
+        const m = String(val).match(/\d+/);
+        return m ? m[0] : null;
+      };
+      const pId = cleanNum(targetCase.patient_id);
+      const aId = cleanNum(targetCase.admission_id) || cleanNum(targetCase.id);
+      await apiService.clearPatientBill({
+        patient_id: pId,
+        admission_id: aId,
+        amount: targetCase.billDetails?.actual || targetCase.billDetails?.patient || 0,
+        payment_method: 'UPI',
+        remarks: 'Released via Discharge Command Centre'
+      });
+      loadDischargeCandidates(true);
+    } catch (err) {
+      console.error('Failed to persist bill clearance to DB:', err);
+      notify('Database sync error', `Bill settlement DB write failed: ${err.message}`, 'High', 'Billing Desk');
+    }
   };
 
-  const handleSimulateInsurerApprove = (caseId) => {
+  const handleSimulateInsurerApprove = async (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
+    const requestedAmt = targetCase.billDetails?.actual || 187500;
+
+    // 1. Optimistic UI update
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
 
-      const requestedAmt = targetCase.billDetails?.actual || 204589;
       const nextDeps = {
         ...cur.deps,
         insurance: { status: 'done', note: `Approved by ${targetCase.insurer || 'Star Health'} 11:12`, time: '11:12' },
@@ -795,16 +905,42 @@ export default function DischargeCommandCentre({
         ...(cur.log || [])
       ];
 
-      notify('Insurer approved', `${targetCase.patient || 'Patient'} · ${targetCase.insurer || 'Star Health'} approved ₹${requestedAmt.toLocaleString('en-IN')} · patient notified in Tamil`, 'High', 'Insurance Preauth Agent');
+      notify('Insurer approved', `${targetCase.patient || 'Patient'} · ${targetCase.insurer || 'Star Health'} approved ₹${requestedAmt.toLocaleString('en-IN')} · updated in DB`, 'High', 'Insurance Preauth Agent');
 
       const updated = { ...cur, deps: nextDeps, paStatus: 'Approved', paApproved: requestedAmt, paLiability: 0, billInsurance: requestedAmt, billPatient: 0, approvals: nextApprovals, steps: nextSteps, log: nextLog };
       return { ...prev, [caseId]: checkAndAdvanceCase(caseId, updated) };
     });
+
+    // 2. Persist to PostgreSQL Database
+    try {
+      const cleanNum = (val) => {
+        if (!val) return null;
+        const m = String(val).match(/\d+/);
+        return m ? m[0] : null;
+      };
+      const pId = cleanNum(targetCase.patient_id);
+      const aId = cleanNum(targetCase.admission_id) || cleanNum(targetCase.id);
+      await apiService.simulateInsuranceDecision({
+        patient_id: pId,
+        admission_id: aId,
+        decision: 'approve',
+        insurer: targetCase.insurer || 'Star Health',
+        amount: requestedAmt,
+        remarks: 'Preauth enhancement approved'
+      });
+      loadDischargeCandidates(true);
+    } catch (err) {
+      console.error('Failed to persist insurance approval to DB:', err);
+      notify('Database sync error', `Insurance approval DB write failed: ${err.message}`, 'High', 'Insurance Preauth Agent');
+    }
   };
 
-  const handleSimulateInsurerReject = (caseId) => {
+  const handleSimulateInsurerReject = async (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
+    const requestedAmt = targetCase.billDetails?.actual || 187500;
+
+    // 1. Optimistic UI update
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
 
@@ -832,11 +968,34 @@ export default function DischargeCommandCentre({
         ...(cur.log || [])
       ];
 
-      notify('Insurer rejected', `${targetCase.patient || 'Patient'} · appeal packet being prepared by Claim Denial Agent`, 'High', 'Claim Denial Agent');
+      notify('Insurer rejected', `${targetCase.patient || 'Patient'} · enhancement rejected · updated in DB`, 'High', 'Claim Denial Agent');
 
-      const updated = { ...cur, deps: nextDeps, paStatus: 'Rejected', eta: '14:30', approvals: nextApprovals, steps: nextSteps, log: nextLog };
+      const updated = { ...cur, deps: nextDeps, paStatus: 'Rejected', paApproved: 0, paLiability: requestedAmt, billInsurance: 0, billPatient: requestedAmt, eta: '14:30', approvals: nextApprovals, steps: nextSteps, log: nextLog };
       return { ...prev, [caseId]: updated };
     });
+
+    // 2. Persist to PostgreSQL Database
+    try {
+      const cleanNum = (val) => {
+        if (!val) return null;
+        const m = String(val).match(/\d+/);
+        return m ? m[0] : null;
+      };
+      const pId = cleanNum(targetCase.patient_id);
+      const aId = cleanNum(targetCase.admission_id) || cleanNum(targetCase.id);
+      await apiService.simulateInsuranceDecision({
+        patient_id: pId,
+        admission_id: aId,
+        decision: 'reject',
+        insurer: targetCase.insurer || 'Star Health',
+        amount: requestedAmt,
+        remarks: 'Enhancement rejected · patient liability counselling needed'
+      });
+      loadDischargeCandidates(true);
+    } catch (err) {
+      console.error('Failed to persist insurance rejection to DB:', err);
+      notify('Database sync error', `Insurance rejection DB write failed: ${err.message}`, 'High', 'Claim Denial Agent');
+    }
   };
 
   const handleTogglePause = (caseId) => {
@@ -1522,28 +1681,30 @@ export default function DischargeCommandCentre({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                style={{
-                  marginTop: '10px',
-                  width: '100%',
-                  height: '30px',
-                  borderRadius: '6px',
-                  border: '1px solid #e3e6e8',
-                  background: '#fff',
-                  color: '#0284c7',
-                  fontWeight: 600,
-                  fontSize: '11.5px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-              >
-                <span>📄</span> View Full Discharge Summary Document / Print
-              </button>
+              {(dc.isCompleted || dc.statusKind === 'ready' || dc.statusKind === 'done' || dc.status === 'Ready' || dc.status === 'Completed' || dc.category === 'Ready' || dc.category === 'Completed') && (
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(true)}
+                  style={{
+                    marginTop: '10px',
+                    width: '100%',
+                    height: '30px',
+                    borderRadius: '6px',
+                    border: '1px solid #e3e6e8',
+                    background: '#fff',
+                    color: '#0284c7',
+                    fontWeight: 600,
+                    fontSize: '11.5px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>📄</span> View Full Discharge Summary Document / Print
+                </button>
+              )}
 
               <div style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', background: '#f6f7f8' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
@@ -2039,6 +2200,10 @@ export default function DischargeCommandCentre({
           summaryData={{
             ...(dc.rawRecord || {}),
             ...dc,
+            case_history: dc.case_history,
+            hospital_course_summary: dc.hospital_course_summary || dc.case_history,
+            investigations: dc.investigations,
+            patient_condition: dc.patient_condition,
             diagnoses: dc.diagnoses || (dc.rawRecord && dc.rawRecord.diagnoses),
             primary_diagnosis: dc.diagnoses,
             patient_number: dc.patient_number || (dc.rawRecord && dc.rawRecord.patient_number) || `PAT-${dc.patient_id}`,
@@ -2101,7 +2266,13 @@ export default function DischargeCommandCentre({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 500 }}>← Back</span>
+            <span
+              onClick={() => onNavigate ? onNavigate('clinical') : (window.history.length > 1 ? window.history.back() : null)}
+              style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}
+              title="Return to Clinical Workspace"
+            >
+              ← Back
+            </span>
             <span>·</span>
             <span>Clinical Workspace</span>
             <span>›</span>
