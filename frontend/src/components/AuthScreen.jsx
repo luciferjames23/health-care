@@ -3,17 +3,27 @@ import { selectAccount } from '../services/accountSession';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
+const getPasswordForUser = (uname) => {
+  if (!uname) return 'Hospital@2026';
+  const lower = uname.toLowerCase();
+  if (lower === 'admin') return 'admin123';
+  return 'Hospital@2026';
+};
+
 export default function AuthScreen({
   onLoginSuccess,
   initialUsername = null,
   initialInfo = ''
 }) {
   const [username, setUsername] = useState(initialUsername || 'admin');
+  const [password, setPassword] = useState(() => getPasswordForUser(initialUsername || 'admin'));
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(initialInfo || '');
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
+
   useEffect(() => {
     let isMounted = true;
     async function loadUsers() {
@@ -27,6 +37,7 @@ export default function AuthScreen({
               const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
               if (defaultUser) {
                 setUsername(defaultUser.username);
+                setPassword(getPasswordForUser(defaultUser.username));
               }
             }
           }
@@ -44,6 +55,7 @@ export default function AuthScreen({
   useEffect(() => {
     if (initialUsername) {
       setUsername(initialUsername);
+      setPassword(getPasswordForUser(initialUsername));
     }
   }, [initialUsername]);
 
@@ -58,19 +70,31 @@ export default function AuthScreen({
     return rank(a) - rank(b);
   });
 
-  const selectedUser = usersList.find(u => u.username === username) ||
-                       (initialUsername ? usersList.find(u => u.username === initialUsername) : null) ||
+  const selectedUser = usersList.find(u => u.username?.toLowerCase() === (username || '').trim().toLowerCase()) ||
+                       usersList.find(u => u.username === initialUsername) ||
                        activeUsers[0];
 
-  const handleSelectRole = async (user) => {
-    if (signingIn || !user) return;
-    setUsername(user.username);
+  const handleSignIn = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (signingIn) return;
+    const targetUsername = (username || '').trim();
+    if (!targetUsername) {
+      setError('Please enter a username.');
+      return;
+    }
     setSigningIn(true);
     setError('');
-    setInfo(`Signing in as ${user.name || user.username}…`);
-    try { onLoginSuccess(await selectAccount(user.username)); }
-    catch (error) { setError(error.message); setInfo(''); }
-    finally { setSigningIn(false); }
+    const targetName = selectedUser?.name || targetUsername;
+    setInfo(`Signing in as ${targetName}…`);
+    try {
+      const user = await selectAccount(targetUsername);
+      onLoginSuccess(user);
+    } catch (err) {
+      setError(err.message || 'Unable to sign in.');
+      setInfo('');
+    } finally {
+      setSigningIn(false);
+    }
   };
 
 
@@ -174,29 +198,103 @@ export default function AuthScreen({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  id="sign-in-submit-btn"
-                  disabled={signingIn}
-                  onClick={() => handleSelectRole(selectedUser)}
-                  style={{
-                    height: '38px',
-                    borderRadius: '6px',
-                    border: 0,
-                    background: 'oklch(0.5 0.1 200)',
-                    color: '#fff',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    transition: 'opacity 0.15s'
-                  }}
-                >
-                  {signingIn ? 'Signing in…' : `Sign in as ${selectedUser.name} →`}
-                </button>
+                {/* Editable Username and Password fields above the Sign In button */}
+                <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '2px' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Username</span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => {
+                        setUsername(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Username"
+                      autoComplete="username"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Password</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          color: 'oklch(0.5 0.1 200)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0
+                        }}
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => {
+                        setPassword(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Password"
+                      autoComplete="current-password"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    id="sign-in-submit-btn"
+                    disabled={signingIn}
+                    style={{
+                      height: '38px',
+                      borderRadius: '6px',
+                      border: 0,
+                      background: 'oklch(0.5 0.1 200)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      marginTop: '4px',
+                      transition: 'opacity 0.15s'
+                    }}
+                  >
+                    {signingIn ? 'Signing in…' : `Sign in as ${selectedUser.name} →`}
+                  </button>
+                </form>
               </div>
             )}
 
@@ -216,7 +314,7 @@ export default function AuthScreen({
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
               {activeUsers.map((r) => {
-                const isSelected = (username === r.username || selectedUser?.username === r.username);
+                const isSelected = (username?.toLowerCase() === r.username?.toLowerCase() || selectedUser?.username?.toLowerCase() === r.username?.toLowerCase());
                 return (
                   <button
                     key={r.username}
@@ -224,7 +322,8 @@ export default function AuthScreen({
                     disabled={signingIn}
                     onClick={() => {
                       setUsername(r.username);
-                      handleSelectRole(r);
+                      setPassword(getPasswordForUser(r.username));
+                      setError('');
                     }}
                     style={{
                       height: '28px', padding: '0 10px', borderRadius: '14px',

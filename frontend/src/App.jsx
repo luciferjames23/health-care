@@ -248,7 +248,7 @@ export default function App() {
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
-          setActivePage(userObj.canAccessRadiology ? "radiology" : userObj.role?.toLowerCase() === "doctor" ? "clinical" : "command");
+          setActivePage('command');
           setAuthScreenUsername(null);
           setAuthScreenInfo('');
         }}
