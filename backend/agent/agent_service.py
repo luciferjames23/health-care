@@ -4339,6 +4339,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
     # Pre-resolve patient ID & info from active phone using Patient Identification Service (if not already resolved in state)
     if not state.get("patient_info") or not state.get("patient_id"):
+        conn = None
+        cur = None
         try:
             w_num = None
             if conversation_code and conversation_code.startswith("WA_"):
@@ -4346,7 +4348,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 if len(parts) >= 2 and parts[1].isdigit():
                     w_num = parts[1]
             if not w_num:
-                conn, cur = None, None
                 try:
                     conn = db_config.get_db_connection()
                     if conn:
@@ -4367,6 +4368,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     state["entities"]["patient_id"] = p_data["id"]
                     state["patient_info"] = p_data
                     conn, cur = None, None
+                    conn = None
+                    cur = None
                     try:
                         conn = db_config.get_db_connection()
                         if conn:

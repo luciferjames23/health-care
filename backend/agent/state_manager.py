@@ -88,12 +88,20 @@ def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_num
 
     if whatsapp_number:
         try:
-            import agent.patient_identification_service as patient_id_service
-            pats = patient_id_service.get_all_patients_by_phone(whatsapp_number)
-            if len(pats) == 1:
-                return pats[0]["id"]
-            elif len(pats) > 1:
-                return None
+            cond = get_phone_query_condition()
+            params = get_phone_query_params(whatsapp_number)
+            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' LIMIT 1;"
+            cur.execute(query, params)
+            row = cur.fetchone()
+            if row:
+                pat_id, curr_wnum = row[0], row[1]
+                # Sync whatsapp_number if empty or not updated
+                if not curr_wnum and whatsapp_number:
+                    try:
+                        cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (whatsapp_number, pat_id))
+                    except Exception:
+                        pass
+                return pat_id
         except Exception as e:
             print("Error in resolve_valid_patient_id:", e)
 
