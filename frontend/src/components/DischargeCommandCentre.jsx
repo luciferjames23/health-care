@@ -1156,27 +1156,20 @@ export default function DischargeCommandCentre({
 
         {/* Breadcrumb Navigation matching prototype */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#8a9096' }}>
-          <button
-            type="button"
+          <span
             onClick={() => {
               setActiveCaseId(null);
               setActiveDrawer(null);
               if (onClearSelectedPatient) onClearSelectedPatient();
             }}
             style={{
-              border: 0,
-              background: 'transparent',
               color: '#0284c7',
               cursor: 'pointer',
-              fontWeight: 600,
-              padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px'
+              fontWeight: 600
             }}
           >
-            ← Back
-          </button>
+            Discharge board
+          </span>
           <span>·</span>
           <span>Clinical Workspace</span>
           <span>›</span>
@@ -2266,14 +2259,6 @@ export default function DischargeCommandCentre({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span
-              onClick={() => onNavigate ? onNavigate('clinical') : (window.history.length > 1 ? window.history.back() : null)}
-              style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}
-              title="Return to Clinical Workspace"
-            >
-              ← Back
-            </span>
-            <span>·</span>
             <span>Clinical Workspace</span>
             <span>›</span>
             <span>Discharge</span>

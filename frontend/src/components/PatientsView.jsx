@@ -68,14 +68,27 @@ export default function PatientsView({
         const rawAdmissions = ar?.data || [];
         const actualAdmitted = rawAdmissions
           .filter(r => !dischargedTracker.has(r))
-          .map(r => ({ ...parseAdmissionLlmRecord(r), _type: "IP", _status: parseAdmissionLlmRecord(r).status || "Admitted" }));
+          .map(r => {
+            const parsed = parseAdmissionLlmRecord(r);
+            const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+            return {
+              ...parsed,
+              name: pName,
+              patient_name: pName,
+              _type: "IP",
+              _status: parsed.status || "Admitted"
+            };
+          });
 
         const parsedDischarged = actuallyDischargedRecords.map(r => {
           const d = parseDischargeSummaryRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
           return {
             ...d,
-            name: d.patient || d.name,
-            age: d.age || r.age,
+            name: pName,
+            patient_name: pName,
+            patient: pName,
+            age: d.age || r.age_at_admission || r.age,
             sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
             gender: d.gender || r.gender || 'Unknown',
             _type: "Discharged",
@@ -172,18 +185,8 @@ export default function PatientsView({
       {/* breadcrumb + title + actions */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px", display: "flex", alignItems: "center", gap: "4px" }}>
-            <span
-              onClick={() => onNavigate ? onNavigate('clinical') : (window.history.length > 1 ? window.history.back() : null)}
-              style={{ color: "#0284c7", cursor: "pointer", fontWeight: 600 }}
-              title="Return to Clinical Workspace"
-            >
-              ← Back
-            </span>
-            <span>·</span>
-            <span>Clinical Workspace</span>
-            <span>·</span>
-            <span>{isDoctor ? 'My Patients' : 'Patients'}</span>
+          <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px" }}>
+            <span>Clinical Workspace</span>{" · "}<span>{isDoctor ? 'My Patients' : 'Patients'}</span>
           </div>
           <div style={{ fontSize: "20px", fontWeight: 600 }}>
             {isDoctor && activeDoctorName ? `Patients · ${activeDoctorName}` : 'Patients'}

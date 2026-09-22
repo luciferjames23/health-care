@@ -807,13 +807,6 @@ export default function Patient360View({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Top Breadcrumb */}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-        <span
-          onClick={onBack}
-          style={{ cursor: 'pointer', color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}
-        >
-          ← Back
-        </span>
-        {' · '}
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
         <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{p.uhid}</span>
       </div>

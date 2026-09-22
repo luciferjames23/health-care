@@ -168,13 +168,17 @@ export default function App() {
   };
 
   const handleStepBack = () => {
+    if (selectedPatient && activePage === 'discharge') {
+      setSelectedPatient(null);
+      return;
+    }
     if (navHistory.length > 0) {
       const prevEntry = navHistory[navHistory.length - 1];
       setNavHistory(prev => prev.slice(0, -1));
       setActivePage(prevEntry.page);
       setSelectedPatient(prevEntry.patient);
     } else {
-      setActivePage('command');
+      setActivePage(role === 'Doctor' ? 'clinical' : 'command');
       setSelectedPatient(null);
     }
   };
@@ -240,6 +244,67 @@ export default function App() {
         />
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
+          {/* Unified Module Step-Back Navigation Header for all non-root modules */}
+          {activePage !== 'command' && (
+            <div
+              id="module-stepback-header"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                marginBottom: '14px',
+                paddingBottom: '10px',
+                borderBottom: '1px solid #eef0f2'
+              }}
+            >
+              <button
+                type="button"
+                id="btn-step-back"
+                onClick={handleStepBack}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#0284c7',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#f0f9ff';
+                  e.currentTarget.style.borderColor = '#7dd3fc';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }}
+                title="Step back to previous screen"
+              >
+                <span>←</span>
+                <span>Back</span>
+              </button>
+              <span style={{ color: '#94a3b8', fontSize: '11px' }}>·</span>
+              <span style={{ color: '#334155', fontSize: '12.5px', fontWeight: 600, textTransform: 'capitalize' }}>
+                {activePage.replace(/-/g, ' ')}
+              </span>
+              {selectedPatient && (selectedPatient.name || selectedPatient.patient_name || selectedPatient.patient) && (
+                <>
+                  <span style={{ color: '#94a3b8', fontSize: '11px' }}>›</span>
+                  <span style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>
+                    {selectedPatient.name || selectedPatient.patient_name || selectedPatient.patient}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
           {activePage === 'command' && (
             <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
           )}

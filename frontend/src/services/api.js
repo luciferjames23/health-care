@@ -868,15 +868,30 @@ export function parseAdmissionLlmRecord(record) {
   const procs = parsedJson.procedures?.procedures_list || [];
   const bill = parsedJson.billing || {};
 
-  const firstName = demo.first_name || '';
-  const lastName = demo.last_name || '';
-  const fullName = `${firstName} ${lastName}`.trim() || record.patient_name || `Patient #${record.patient_id}`;
+  const firstName = record.first_name || demo.first_name || '';
+  const lastName = record.last_name || demo.last_name || '';
+  const fullName = `${firstName} ${lastName}`.trim() || record.patient_name || record.patient || record.name || (record.patient_id ? `Patient #${record.patient_id}` : 'Patient');
 
-  const temp = Number(vitals.latest_temperature) || 98.6;
-  const hr = Number(vitals.latest_heart_rate) || 72;
-  const sbp = Number(vitals.latest_systolic_bp) || 120;
-  const dbp = Number(vitals.latest_diastolic_bp) || 80;
-  const spo2 = Number(vitals.latest_oxygen_saturation) || 98;
+  const age = record.age_at_admission ?? record.age ?? demo.age_at_admission ?? demo.age ?? 45;
+  const rawGender = record.gender || demo.gender || 'Unknown';
+  const sex = rawGender.toLowerCase().startsWith('f') ? 'F' : rawGender.toLowerCase().startsWith('m') ? 'M' : (rawGender === 'Other' ? 'Other' : 'M');
+  const bloodGroup = record.blood_group || demo.blood_group || 'O+';
+  const phone = record.phone || demo.phone || '+91 98100 00000';
+  const email = record.email || demo.email || (record.patient_id ? `patient.${record.patient_id}@hospital.com` : 'patient@hospital.com');
+  const address = (record.address || record.city || record.state)
+    ? [record.address, record.city, record.state, record.postal_code].filter(Boolean).join(', ')
+    : ([demo.address, demo.city, demo.state, demo.postal_code].filter(Boolean).join(', ') || 'Metropolitan Medical Ward');
+  const emergencyContact = record.emergency_contact_name
+    ? `${record.emergency_contact_name} · ${record.emergency_contact_phone || 'N/A'}`
+    : `${demo.emergency_contact_name || 'Relative'} · ${demo.emergency_contact_phone || 'N/A'}`;
+  const preferredLanguage = record.preferred_language || demo.preferred_language || 'Tamil';
+  const maritalStatus = record.marital_status || demo.marital_status || 'Single';
+
+  const temp = Number(vitals.latest_temperature || record.latest_temperature) || 98.6;
+  const hr = Number(vitals.latest_heart_rate || record.latest_heart_rate) || 72;
+  const sbp = Number(vitals.latest_systolic_bp || record.latest_systolic_bp) || 120;
+  const dbp = Number(vitals.latest_diastolic_bp || record.latest_diastolic_bp) || 80;
+  const spo2 = Number(vitals.latest_oxygen_saturation || record.latest_oxygen_saturation) || 98;
 
   let ewsScore = 0;
   if (temp > 100.4 || temp < 96) ewsScore += 2;
@@ -886,11 +901,16 @@ export function parseAdmissionLlmRecord(record) {
   const ews = ewsScore >= 3 ? `High ${ewsScore}` : ewsScore >= 1 ? `Alert ${ewsScore}` : 'Normal 0';
   const ewsType = ewsScore >= 3 ? 'red' : ewsScore >= 1 ? 'amber' : 'green';
 
-  const rawPrimaryDiag = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || record.primary_diagnosis || adm.reason_for_admission || record.reason_for_admission || 'Observation';
+  const rawPrimaryDiag = record.primary_diagnosis || diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || adm.reason_for_admission || record.reason_for_admission || 'Observation';
   const primaryDiagnosis = resolveClinicalDiagnosis(rawPrimaryDiag, adm.reason_for_admission || record.reason_for_admission);
   const patientNumber = record.patient_number || record.patient_code || demo.patient_number || (record.patient_id ? `MER-PAT-${String(record.patient_id).padStart(7, '0')}` : `MER-PAT-${record.patient_id}`);
-  const admissionNumber = adm.admission_number || record.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : `MER-ADM-${record.admission_id}`);
-  const attendingDoctor = adm.attending_doctor || record.attending_doctor || `Consultant #${record.doctor_id || 1}`;
+  const admissionNumber = record.admission_number || adm.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : `MER-ADM-${record.admission_id}`);
+  const attendingDoctor = record.attending_doctor || adm.attending_doctor || `Consultant #${record.doctor_id || 1}`;
+  const doctorSpecialty = record.doctor_specialization || adm.doctor_specialization || 'Clinical Specialist';
+  const wardName = record.ward_name || adm.ward_name || 'Emerald Semi-Private';
+  const bedNum = record.bed_number || 'Unassigned';
+  const department = record.department_name || wardName || doctorSpecialty || 'General Medicine';
+  const insurer = record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate');
 
   return {
     id: String(record.admission_id || record.patient_id),
@@ -898,39 +918,44 @@ export function parseAdmissionLlmRecord(record) {
     admission_id: record.admission_id,
     doctor_id: record.doctor_id,
     name: fullName,
-    age: demo.age_at_admission || record.age || 45,
-    sex: demo.gender ? (demo.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
-    gender: demo.gender || 'Unknown',
-    bloodGroup: demo.blood_group || 'O+',
-    phone: demo.phone || '+91 98100 00000',
-    email: demo.email || `patient.${record.patient_id}@hospital.com`,
-    address: [demo.address, demo.city, demo.state, demo.postal_code].filter(Boolean).join(', ') || 'Metropolitan Medical Ward',
-    emergencyContact: `${demo.emergency_contact_name || 'Relative'} · ${demo.emergency_contact_phone || 'N/A'}`,
-    preferredLanguage: demo.preferred_language || 'English',
-    maritalStatus: demo.marital_status || 'Single',
+    patient_name: fullName,
+    patient: fullName,
+    age,
+    sex,
+    gender: rawGender,
+    bloodGroup,
+    phone,
+    email,
+    address,
+    emergencyContact,
+    preferredLanguage,
+    language: preferredLanguage,
+    maritalStatus,
+    department,
+    dept: department,
     uhid: patientNumber,
     mrn: patientNumber,
     patient_number: patientNumber,
     admission_number: admissionNumber,
     admission_date: adm.admission_date || record.admission_date,
-    admitted: adm.admission_date ? new Date(adm.admission_date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently Admitted',
-    admission_type: adm.admission_type || 'Referral',
-    admission_source: adm.admission_source || 'Emergency Bay',
-    reason_for_admission: adm.reason_for_admission || primaryDiagnosis,
+    admitted: (adm.admission_date || record.admission_date) ? new Date(adm.admission_date || record.admission_date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently Admitted',
+    admission_type: adm.admission_type || record.admission_type || 'Referral',
+    admission_source: adm.admission_source || record.admission_source || 'Emergency Bay',
+    reason_for_admission: adm.reason_for_admission || record.reason_for_admission || primaryDiagnosis,
     diagnosis: primaryDiagnosis,
     primary_diagnosis: primaryDiagnosis,
     diagnoses_list: diag.diagnoses_list || [],
     doctor: attendingDoctor,
     doctor_name: attendingDoctor,
-    doctor_specialty: adm.doctor_specialization || 'Clinical Specialist',
-    bed: record.bed_number || 'Unassigned',
-    bed_number: record.bed_number || 'Unassigned',
+    doctor_specialty: doctorSpecialty,
+    bed: bedNum,
+    bed_number: bedNum,
     room_number: record.room_number || '',
-    ward: record.ward_name || 'Inpatient Wing',
-    ward_name: record.ward_name || 'Inpatient Wing',
+    ward: wardName,
+    ward_name: wardName,
     status: 'Admitted',
-    discharge_status: adm.discharge_status || 'Admitted',
-    current_stay_days: adm.current_stay_days || 1,
+    discharge_status: record.discharge_status || adm.discharge_status || 'Admitted',
+    current_stay_days: record.current_stay_days || adm.current_stay_days || 1,
     ews,
     ewsType,
     temperature: temp,
@@ -954,18 +979,20 @@ export function parseAdmissionLlmRecord(record) {
       : Number(bill.outstanding_balance || bill.patient_copay || 0),
     vital_signs_list: vitals.vital_signs_list || [],
     lab_results: parsedJson.lab_results || {},
+    insurer,
+    insurance: insurer,
+    insurance_company: insurer,
     insurance_policy: bill.bill_insurance_portion > 0 ? {
-      provider: 'Comprehensive Cashless Mediclaim',
-      policy_number: `POL-2024-${String(record.patient_id).padStart(7, '0')}`,
+      provider: insurer,
+      policy_number: record.policy_number || `POL-2024-${String(record.patient_id).padStart(7, '0')}`,
       coverage_limit: `₹${(Number(bill.bill_gross_amount || 50000) * 3).toLocaleString()}`,
       status: 'Active · Pre-Authorized'
     } : {
-      provider: 'Hospital Direct Billing / TPA',
-      policy_number: `POL-DIR-${String(record.patient_id).padStart(6, '0')}`,
+      provider: insurer,
+      policy_number: record.policy_number || `POL-DIR-${String(record.patient_id).padStart(6, '0')}`,
       coverage_limit: '₹5,00,000',
       status: 'Self Pay / Corporate'
     },
-    insurer: bill.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate',
     orders_count: procs.length || 1,
     latest_modality: procs.length > 0 ? procs[0].procedure_name : 'Routine Care',
     raw: record

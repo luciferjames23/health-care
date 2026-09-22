@@ -155,20 +155,8 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {/* Navigation Breadcrumb with Back */}
+      {/* Navigation Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#687076' }}>
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            background: 'none', border: 'none', padding: '2px 6px',
-            color: 'oklch(0.4 0.14 200)', cursor: 'pointer', fontWeight: 600,
-            fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px'
-          }}
-        >
-          ← Back
-        </button>
-        <span>·</span>
         <span>Patient 360</span>
         <span>›</span>
         <span style={{ color: '#15181b', fontWeight: 600 }}>{pName}</span>

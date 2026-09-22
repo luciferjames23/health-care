@@ -387,6 +387,11 @@ def get_dim_admission_inputs(
                 conn.close()
 
                 for row in data:
+                    fn = (row.get('first_name') or '').strip()
+                    ln = (row.get('last_name') or '').strip()
+                    if fn or ln:
+                        row['patient_name'] = f"{fn} {ln}".strip()
+
                     b_info = bed_map.get(row.get('admission_id'))
                     if b_info:
                         row['bed_number'] = b_info['bed_number']
@@ -461,7 +466,12 @@ def get_current_admission_llm_input_by_id(admission_id: str):
         data = res.get("data", [])
     if not data:
         raise HTTPException(status_code=404, detail=f"Admission LLM record '{admission_id}' not found.")
-    return data[0]
+    rec = data[0]
+    fn = (rec.get('first_name') or '').strip()
+    ln = (rec.get('last_name') or '').strip()
+    if fn or ln:
+        rec['patient_name'] = f"{fn} {ln}".strip()
+    return rec
 
 
 # ---------------------------------------------------------------------------

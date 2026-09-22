@@ -824,7 +824,7 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
             onClick={() => setSelectedAgentId(null)}
             style={{ cursor: 'pointer', color: '#0f766e', fontWeight: 500 }}
           >
-            ← Back
+            All Agents
           </span>
           <span style={{ color: '#8a9096' }}>·</span>
           <span
@@ -1169,8 +1169,6 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '2px' }}>
-            <span onClick={() => onNavigate('command')} style={{ cursor: 'pointer', color: 'oklch(0.4 0.1 200)' }}>← Back</span>
-            {' '}·{' '}
             <span>Command Centre</span> › <span>Agents</span>
           </div>
           <div style={{ fontSize: '22px', fontWeight: 700, color: '#15181b' }}>
