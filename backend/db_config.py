@@ -54,8 +54,19 @@ DB_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", DEFAULT_PORT))
 DB_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", DEFAULT_NAME))
 DB_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", DEFAULT_USER))
 DB_PASSWORD = os.getenv("DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", DEFAULT_PASSWORD))
-# Local development PostgreSQL may not provide TLS; remote connections still require it.
-_DEFAULT_SSLMODE = "prefer" if DB_HOST in {"localhost", "127.0.0.1", "::1"} else "require"
+# Local development PostgreSQL may not provide TLS; remote cloud connections still require it.
+# Treat loopback addresses AND RFC-1918 private LAN addresses as non-SSL-required hosts.
+def _is_local_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+_DEFAULT_SSLMODE = "prefer" if _is_local_host(DB_HOST) else "require"
 DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMODE))
 
 # Connection Pooling

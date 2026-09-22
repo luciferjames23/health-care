@@ -823,6 +823,13 @@ export default function Patient360View({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {(currentUser?.role?.toLowerCase() === 'doctor' || currentUser?.role?.toLowerCase() === 'radiologist') && (
+        <XrayOrders
+          key={p.patient_id}
+          patient={p}
+          radiologist={currentUser?.role?.toLowerCase() === 'radiologist'}
+        />
+      )}
       {/* Top Breadcrumb */}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}

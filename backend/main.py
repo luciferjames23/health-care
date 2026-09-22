@@ -51,8 +51,8 @@ except Exception as e:
     print(f"Failed to load discharge_summary_llm router: {e}")
 
 try:
-    from routers.radiology import router as radiology_router, pacs_router
-    routers_to_mount.extend([radiology_router, pacs_router])
+    from routers.radiology import router as radiology_router, pacs_router, scans_router
+    routers_to_mount.extend([radiology_router, pacs_router, scans_router])
 except Exception as e:
     print(f"Radiology router unavailable: {e}")
 
