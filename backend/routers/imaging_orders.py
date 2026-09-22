@@ -57,10 +57,17 @@ def list_orders(patient_id: int | None = Query(None, gt=0), user=Depends(order_u
         clauses.append('o.patient_id=%s')
         params.append(patient_id)
     where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
-    with db_config.get_db_connection() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(ORDER_SELECT + where + " ORDER BY CASE WHEN o.status='Uploaded' THEN 1 ELSE 0 END, CASE WHEN o.priority='Urgent' THEN 0 ELSE 1 END, o.created_at DESC LIMIT 200", params)
-            return {'orders': [dict(row) for row in cur.fetchall()]}
+    try:
+        with db_config.get_db_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                # Guard: table may not exist in this environment
+                cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='radiology_orders' LIMIT 1")
+                if not cur.fetchone():
+                    return {'orders': []}
+                cur.execute(ORDER_SELECT + where + " ORDER BY CASE WHEN o.status='Uploaded' THEN 1 ELSE 0 END, CASE WHEN o.priority='Urgent' THEN 0 ELSE 1 END, o.created_at DESC LIMIT 200", params)
+                return {'orders': [dict(row) for row in cur.fetchall()]}
+    except Exception as exc:
+        raise HTTPException(503, f'X-ray order service unavailable: {exc}')
 
 
 @router.post('', status_code=201)
@@ -73,6 +80,10 @@ def create_order(body: NewOrder, user=Depends(order_user)):
     accession = 'XR' + body.request_id.hex[:14].upper()
     with db_config.get_db_connection() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Guard: table may not exist in this environment
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='radiology_orders' LIMIT 1")
+            if not cur.fetchone():
+                raise HTTPException(503, 'X-ray ordering is not set up in this database. Run the database migration scripts first.')
             cur.execute('SELECT id FROM patients WHERE id=%s', (body.patient_id,))
             if not cur.fetchone():
                 raise HTTPException(404, 'Patient not found.')

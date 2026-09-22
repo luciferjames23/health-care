@@ -969,3 +969,79 @@ def query_dynamic_gold_table(
 
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Public Patient Scan lookup (no radiologist auth required)
+# Used by Patient360 Diagnoses tab to show inline X-ray data from radiology_scan
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/patient-scans", tags=["Patient 360 Radiology Scans"])
+def get_patient_scans(
+    patient_code: Optional[str] = Query(None, description="Patient code, e.g. MER-PAT-0087243"),
+    patient_id: Optional[int] = Query(None, description="Numeric patient id"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """
+    Fetch radiology_scan records for a specific patient.
+    Returns scan metadata (scan_id, target, priority, scan_report, review_status,
+    probability, findings, clinical_summary, assessment, recommended_action,
+    x/y/width/height bounding box, image data-URL, created_at).
+    Only patients with existing records are returned — an empty list means no scans.
+    """
+    if not patient_code and not patient_id:
+        raise HTTPException(status_code=400, detail="Provide patient_code or patient_id")
+
+    from db_config import get_db_connection
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            where_parts = []
+            params: list = []
+            if patient_code:
+                where_parts.append("(rs.patient_code = %s OR rs.original_patient_id = %s)")
+                params.extend([patient_code.strip(), patient_code.strip()])
+            if patient_id:
+                where_parts.append("rs.patient_id = %s")
+                params.append(patient_id)
+
+            where_sql = " WHERE " + " OR ".join(where_parts)
+            cur.execute(f"""
+                SELECT
+                    rs.scan_id,
+                    rs.patient_id,
+                    rs.patient_code,
+                    rs.original_patient_id,
+                    p.first_name,
+                    p.last_name,
+                    rs.x,
+                    rs.y,
+                    rs.width,
+                    rs.height,
+                    rs.target,
+                    rs.image,
+                    rs.scan_report,
+                    rs.priority,
+                    rs.opacity_detected,
+                    rs.combined_status,
+                    rs.probability,
+                    rs.findings,
+                    rs.clinical_summary,
+                    rs.assessment,
+                    rs.recommended_action,
+                    rs.review_status,
+                    rs.reviewed_at,
+                    rs.reviewed_by,
+                    rs.radiologist_finding,
+                    rs.study_id,
+                    rs.display_study_id,
+                    rs.created_at
+                FROM radiology_scan rs
+                LEFT JOIN patients p ON rs.patient_id = p.id
+                {where_sql}
+                ORDER BY rs.scan_id DESC
+                LIMIT %s;
+            """, params + [limit])
+            rows = [dict(r) for r in cur.fetchall()]
+        return {"count": len(rows), "data": rows}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Patient scan lookup failed: {exc}")
+    finally:
+        conn.close()

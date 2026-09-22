@@ -17,7 +17,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
   const [priority, setPriority] = useState('Routine');
   const [indication, setIndication] = useState('');
   const requestId = useRef(null);
-  const patientId = patient?.patient_id;
+  const patientId = patient?.patient_id || patient?.id || patient?.raw?.patient_id;
   const refresh = useCallback(async () => {
     if (!radiologist && !patientId) { setLoading(false); return; }
     try { setOrders((await imagingOrdersApi.list(patientId)).orders); setError(''); }

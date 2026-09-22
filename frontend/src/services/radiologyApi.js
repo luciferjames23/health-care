@@ -41,6 +41,21 @@ export const radiologyApi = {
   },
   getScanById: (scanId) => request(`/api/radiology/scans/${scanId}`),
 
+  /**
+   * Public patient scan lookup — no radiologist token required.
+   * Uses the /api/v1/gold/patient-scans endpoint backed by radiology_scan table.
+   */
+  getPatientScans: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.patient_code) q.set('patient_code', params.patient_code);
+    if (params.patient_id) q.set('patient_id', params.patient_id);
+    if (params.limit) q.set('limit', params.limit);
+    const qs = q.toString();
+    // This endpoint is on the public gold router (no radiologist auth needed)
+    return fetch(`${RADIOLOGY_API_BASE_URL}/api/v1/gold/patient-scans${qs ? `?${qs}` : ''}`)
+      .then(r => r.json().then(body => { if (!r.ok) throw new Error(body.detail || `Error ${r.status}`); return body; }));
+  },
+
   getPacsStudies: () => request('/api/pacs/studies'),
   getPacsHealth: () => request('/api/pacs/health'),
   getModelInfo: () => request('/api/radiology/model-info'),

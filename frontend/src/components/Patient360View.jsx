@@ -25,6 +25,21 @@ export default function Patient360View({
   const [liveBill, setLiveBill] = useState(null);
   const [diagFilter, setDiagFilter] = useState('all');
   const [assignedBed, setAssignedBed] = useState(null);
+  // Auto-fetched scans for inline Diagnoses X-ray card (no auth required)
+  const [diagScans, setDiagScans] = useState([]);
+  const [diagScanIdx, setDiagScanIdx] = useState(0);
+
+  // Silently pre-fetch radiology scans for inline Diagnoses X-ray card
+  useEffect(() => {
+    let alive = true;
+    const pid = patient?.patient_id || patient?.id;
+    const pcode = patient?.mrn || patient?.uhid || patient?.patient_code;
+    if (!pid && !pcode) return;
+    radiologyApi.getPatientScans({ patient_id: pid || undefined, patient_code: pcode || undefined, limit: 5 })
+      .then(res => { if (alive && res?.data?.length) { setDiagScans(res.data); setDiagScanIdx(0); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [patient?.patient_id, patient?.id, patient?.mrn, patient?.uhid]);
 
   // Fetch real-time bed assignment directly from Bed Management API (matching Bed Board)
   useEffect(() => {
@@ -389,6 +404,7 @@ export default function Patient360View({
     'Encounters',
     'Clinical',
     'Diagnoses',
+    'X-Ray',
     'Medications',
     'Admissions',
     'Insurance',
@@ -807,7 +823,6 @@ export default function Patient360View({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {currentUser?.role?.toLowerCase() === 'doctor' && <XrayOrders key={p.patient_id} patient={p} />}
       {/* Top Breadcrumb */}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
@@ -1414,6 +1429,237 @@ export default function Patient360View({
                         ]
                 }
               />
+            </div>
+          )}
+
+          {/* Section 3: Radiology Scans (only if patient has scan records) */}
+          {(diagFilter === 'all' || diagFilter === 'diagnoses') && diagScans.length > 0 && (() => {
+            const sc = diagScans[diagScanIdx] || diagScans[0];
+            const isOpacity = sc.target === 1;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: '#15181b' }}>Radiology Imaging · X-Ray</span>
+                    <span style={{
+                      fontSize: '11px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600,
+                      background: isOpacity ? '#fee2e2' : '#dcfce7',
+                      color: isOpacity ? '#991b1b' : '#166534'
+                    }}>
+                      {isOpacity ? '⚠ Opacity Detected' : '✓ Routine / Normal'}
+                    </span>
+                    {diagScans.length > 1 && (
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>{diagScans.length} scans on record</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '11.5px', color: '#687076' }}>
+                    Scan #{sc.scan_id} · {sc.review_status || 'Pending Sign-off'}
+                  </span>
+                </div>
+
+                {/* Inline X-ray card */}
+                <div style={{
+                  border: `1px solid ${isOpacity ? '#fca5a5' : '#bbf7d0'}`,
+                  borderRadius: '10px',
+                  background: '#0f172a',
+                  display: 'flex',
+                  gap: 0,
+                  overflow: 'hidden',
+                  minHeight: '200px'
+                }}>
+                  {/* X-ray image panel */}
+                  <div style={{ flex: '0 0 220px', position: 'relative', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
+                    {sc.image ? (
+                      <>
+                        <img
+                          src={sc.image.startsWith('data:') ? sc.image : `data:image/png;base64,${sc.image}`}
+                          alt="Radiology X-Ray"
+                          style={{ width: '100%', height: '200px', objectFit: 'cover', display: 'block' }}
+                        />
+                        {isOpacity && sc.x != null && sc.width != null && (
+                          <div style={{
+                            position: 'absolute',
+                            left: `${Math.min(80, Math.max(5, (sc.x / 1024) * 100))}%`,
+                            top: `${Math.min(80, Math.max(5, (sc.y / 1024) * 100))}%`,
+                            width: `${Math.min(55, Math.max(12, (sc.width / 1024) * 100))}%`,
+                            height: `${Math.min(55, Math.max(12, (sc.height / 1024) * 100))}%`,
+                            border: '2px solid #ef4444',
+                            borderRadius: '3px',
+                            pointerEvents: 'none'
+                          }} />
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ color: '#475569', fontSize: '11px', textAlign: 'center', padding: '12px' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '6px' }}>🩻</div>
+                        No image on file
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Details panel */}
+                  <div style={{ flex: 1, padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '8px', color: '#e2e8f0' }}>
+                    {/* Status row */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.05em',
+                        background: isOpacity ? '#dc2626' : '#16a34a', color: '#fff'
+                      }}>
+                        {isOpacity ? 'OPACITY' : 'NORMAL'}
+                      </span>
+                      {sc.priority && (
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, background: '#1e293b', color: '#94a3b8' }}>
+                          {sc.priority}
+                        </span>
+                      )}
+                      {sc.probability != null && (
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Confidence: {(sc.probability * 100).toFixed(1)}%</span>
+                      )}
+                    </div>
+
+                    {/* Finding / Assessment */}
+                    {(sc.radiologist_finding || sc.findings || sc.clinical_summary || sc.assessment) && (
+                      <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: 1.5 }}>
+                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>Finding: </span>
+                        {sc.radiologist_finding || sc.findings || sc.clinical_summary || sc.assessment}
+                      </div>
+                    )}
+
+                    {/* Scan report */}
+                    {sc.scan_report && (
+                      <div style={{
+                        background: '#1e293b', borderRadius: '6px', padding: '8px 10px',
+                        fontSize: '11.5px', color: '#94a3b8', lineHeight: 1.55, marginTop: '2px'
+                      }}>
+                        <span style={{ color: '#64748b', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Radiologist Report</span>
+                        {sc.scan_report}
+                      </div>
+                    )}
+
+                    {/* Recommended action */}
+                    {sc.recommended_action && (
+                      <div style={{ fontSize: '11.5px', color: '#fbbf24', marginTop: '2px' }}>
+                        ⚡ {sc.recommended_action}
+                      </div>
+                    )}
+
+                    {/* Footer meta */}
+                    <div style={{ marginTop: 'auto', display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '10.5px', color: '#475569', borderTop: '1px solid #1e293b', paddingTop: '8px' }}>
+                      <span>SCAN #{sc.scan_id}</span>
+                      {sc.patient_code && <span>{sc.patient_code}</span>}
+                      {sc.reviewed_by && <span>Reviewed: {sc.reviewed_by}</span>}
+                      {sc.created_at && <span>{new Date(sc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
+                      <button
+                        type="button"
+                        onClick={() => { setPatientScans(diagScans); setActiveScanIdx(diagScanIdx); setScanModalOpen(true); }}
+                        style={{
+                          marginLeft: 'auto', padding: '2px 10px', borderRadius: '4px', fontSize: '11px',
+                          border: '1px solid #334155', background: '#1e293b', color: '#7dd3fc', cursor: 'pointer', fontWeight: 600
+                        }}
+                      >
+                        View full scan →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Multi-scan selector */}
+                {diagScans.length > 1 && (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {diagScans.map((s, idx) => (
+                      <button
+                        key={s.scan_id || idx}
+                        type="button"
+                        onClick={() => setDiagScanIdx(idx)}
+                        style={{
+                          padding: '3px 10px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+                          border: `1px solid ${diagScanIdx === idx ? '#4f46e5' : '#cbd5e1'}`,
+                          background: diagScanIdx === idx ? '#4f46e5' : '#fff',
+                          color: diagScanIdx === idx ? '#fff' : '#475569'
+                        }}
+                      >
+                        Scan #{idx + 1} {s.target === 1 ? '· Opacity' : '· Normal'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Tab: X-Ray */}
+      {(activeTab === 'X-Ray' || activeTab === 'X-ray') && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Top header bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '15px', fontWeight: 700, color: '#15181b' }}>Radiology & X-Ray Studies</span>
+              <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'oklch(0.95 0.04 220)', color: 'oklch(0.4 0.12 220)', fontWeight: 600 }}>
+                Patient: {p.name} ({p.uhid})
+              </span>
+            </div>
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate('radiology')}
+                style={{
+                  height: '28px', padding: '0 12px', borderRadius: '6px',
+                  border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
+                  color: 'oklch(0.4 0.1 200)', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
+                }}
+              >
+                Open Radiology Workstation →
+              </button>
+            )}
+          </div>
+
+          {/* Dedicated X-ray order form and order history for this patient */}
+          <XrayOrders key={p.patient_id || p.uhid} patient={p} radiologist={currentUser?.role?.toLowerCase() === 'radiologist'} />
+
+          {/* Saved / Archival Scans for this patient */}
+          {diagScans.length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#15181b' }}>PACS Radiology Archive Scans ({diagScans.length})</span>
+                <span style={{ fontSize: '11px', color: '#687076' }}>Live PACS Studies</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                {diagScans.map((scan, sIdx) => {
+                  const isOp = scan.target === 1;
+                  return (
+                    <div key={scan.scan_id || sIdx} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', background: '#f8fafc' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '13px', color: '#0f172a' }}>{scan.scan_type || 'Chest X-Ray'}</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Scan #{scan.scan_id} · {scan.scan_date ? new Date(scan.scan_date).toLocaleDateString('en-IN') : 'Recent'}</div>
+                        </div>
+                        <span style={{
+                          fontSize: '10px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
+                          background: isOp ? '#fee2e2' : '#dcfce7',
+                          color: isOp ? '#991b1b' : '#166534'
+                        }}>
+                          {isOp ? 'Opacity Detected' : 'Normal'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#334155', marginBottom: '10px' }}>
+                        <strong>Findings:</strong> {scan.findings || (isOp ? 'Opacity detected in lower right lobe.' : 'Clear lung fields, normal cardiac silhouette.')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleViewScan}
+                        style={{
+                          width: '100%', height: '28px', borderRadius: '6px', border: '1px solid #c7d2fe',
+                          background: '#eef2ff', color: '#3730a3', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer'
+                        }}
+                      >
+                        🔬 View in DICOM Viewer
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

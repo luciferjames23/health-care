@@ -20,6 +20,7 @@ import RadiologyView from './components/RadiologyView';
 import { FinancialRevenueView } from './components/FinancialRevenueView';
 import DetailDrawer from './components/DetailDrawer';
 import MasterModal from './components/MasterModal';
+import XrayOrdersView from './components/XrayOrdersView';
 
 // Databricks Gold Layer Views
 import BedDemandView from './components/BedDemandView';
@@ -83,9 +84,29 @@ export default function App() {
     // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
     apiService.preloadAllGoldData();
   }, []);
-  const [auth, setAuth] = useState(null);
-  const [role, setRoleState] = useState(null);
-  const [activePage, setActivePage] = useState('command');
+  // ── Session persistence: hydrate from sessionStorage on first load ──────────
+  const [auth, setAuth] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('hx_auth') || 'null'); } catch { return null; }
+  });
+  const [role, setRoleState] = useState(() => {
+    try { return sessionStorage.getItem('hx_role') || null; } catch { return null; }
+  });
+  const [activePage, setActivePage] = useState(() => {
+    try { return sessionStorage.getItem('hx_page') || 'command'; } catch { return 'command'; }
+  });
+
+  // Keep sessionStorage in sync whenever auth / role / activePage change
+  useEffect(() => {
+    try { sessionStorage.setItem('hx_auth', JSON.stringify(auth)); } catch {}
+  }, [auth]);
+  useEffect(() => {
+    try { if (role) sessionStorage.setItem('hx_role', role); else sessionStorage.removeItem('hx_role'); } catch {}
+  }, [role]);
+  useEffect(() => {
+    try { sessionStorage.setItem('hx_page', activePage); } catch {}
+  }, [activePage]);
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -141,6 +162,12 @@ export default function App() {
     setRoleState(null);
     setAuthScreenUsername(null);
     setAuthScreenInfo('');
+    // Clear persisted session so the next visit shows login
+    try {
+      sessionStorage.removeItem('hx_auth');
+      sessionStorage.removeItem('hx_role');
+      sessionStorage.removeItem('hx_page');
+    } catch {}
   };
 
   const handleSwitchUserPromptPassword = async (targetUser) => {
@@ -459,6 +486,13 @@ export default function App() {
               onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
             />
           )}
+          {activePage === 'xray-orders' && (
+            <XrayOrdersView
+              userRole={role}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              onSelectPatient={handleSelectPatient}
+            />
+          )}
 
           {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
           {activePage === 'appointments' && (
@@ -530,7 +564,7 @@ export default function App() {
             'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
             'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
             'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
-            'criticalvalues', 'diagnostics', 'radiology',
+            'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
             'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
             'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'otschedule',
             'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',

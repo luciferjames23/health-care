@@ -30,6 +30,25 @@ _SELECT = """SELECT rs.*,o.accession_number,concat_ws(' ',p.first_name,p.last_na
 FROM radiology_scan rs JOIN radiology_orders o ON o.order_id=rs.order_id
 JOIN patients p ON p.id=o.patient_id WHERE o.status='Uploaded'"""
 
+_TABLES_OK = None  # cached: True once radiology_orders is confirmed to exist
+
+
+def _tables_exist(conn) -> bool:
+    """Return True only if radiology_orders table exists in the connected DB."""
+    global _TABLES_OK
+    if _TABLES_OK is True:
+        return True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='public' AND table_name='radiology_orders' LIMIT 1"
+            )
+            _TABLES_OK = cur.fetchone() is not None
+        return _TABLES_OK
+    except Exception:
+        return False
+
 
 def save_study(record):
     from routers.imaging_orders import patient_for_ordered_study
@@ -66,19 +85,28 @@ def save_study(record):
 
 
 def get_study(study_id):
-    with get_connection() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(_SELECT + """ AND (rs.study_id=%s OR rs.order_id::text=%s OR o.accession_number=%s
-                OR o.orthanc_study_id=%s OR o.study_instance_uid=%s)""", (str(study_id),)*5)
-            return _record(cur.fetchone())
+    try:
+        with get_connection() as conn:
+            if not _tables_exist(conn):
+                return None
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(_SELECT + """ AND (rs.study_id=%s OR rs.order_id::text=%s OR o.accession_number=%s
+                    OR o.orthanc_study_id=%s OR o.study_instance_uid=%s)""", (str(study_id),)*5)
+                return _record(cur.fetchone())
+    except Exception:
+        return None
 
 
 def list_studies():
-    with get_connection() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(_SELECT + ' ORDER BY rs.scan_id')
-            return [record for row in cur.fetchall() if (record := _record(row))]
-
+    try:
+        with get_connection() as conn:
+            if not _tables_exist(conn):
+                return []
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(_SELECT + ' ORDER BY rs.scan_id')
+                return [record for row in cur.fetchall() if (record := _record(row))]
+    except Exception:
+        return []
 
 def mark_study_viewed(study_id, viewed_at):
     record = get_study(study_id)
