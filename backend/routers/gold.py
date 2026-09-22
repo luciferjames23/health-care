@@ -513,7 +513,7 @@ def get_dim_generated_discharge_summaries(
             if not row.get("primary_consultant") and row.get("doctor_name"):
                 row["primary_consultant"] = row.get("doctor_name")
 
-        # Enrich with actual hospital bed number and ward from admissions & beds tables
+        # Enrich with actual hospital bed number, ward, and patient name from admissions, beds, & patients
         adm_ids = [r["admission_id"] for r in res.get("data", []) if r.get("admission_id")]
         if adm_ids:
             try:
@@ -521,13 +521,20 @@ def get_dim_generated_discharge_summaries(
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 cur.execute("""
-                    SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name
+                    SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name,
+                           p.first_name, p.last_name
                     FROM admissions a
                     LEFT JOIN beds b ON a.bed_id = b.bed_id
                     LEFT JOIN wards w ON b.ward_id = w.ward_id
+                    LEFT JOIN patients p ON a.patient_id = p.id
                     WHERE a.admission_id = ANY(%s)
                 """, (adm_ids,))
-                bed_info = {row[0]: {"bed_id": row[1], "bed_number": row[2], "bed_type": row[3], "ward_name": row[4]} for row in cur.fetchall()}
+                bed_info = {
+                    row[0]: {
+                        "bed_id": row[1], "bed_number": row[2], "bed_type": row[3], "ward_name": row[4],
+                        "first_name": row[5], "last_name": row[6]
+                    } for row in cur.fetchall()
+                }
                 cur.close()
                 conn.close()
                 for row in res.get("data", []):
@@ -537,8 +544,33 @@ def get_dim_generated_discharge_summaries(
                         row["bed_number"] = bed_info[aid]["bed_number"]
                         row["bed_type"] = bed_info[aid]["bed_type"]
                         row["ward_name"] = bed_info[aid]["ward_name"]
+                        fn = bed_info[aid].get("first_name") or ""
+                        ln = bed_info[aid].get("last_name") or ""
+                        full_name = f"{fn} {ln}".strip()
+                        if full_name:
+                            row["first_name"] = fn
+                            row["last_name"] = ln
+                            row["patient_name"] = full_name
             except Exception as be:
-                print(f"[WARN] Failed to enrich discharge summaries with bed info: {be}")
+                print(f"[WARN] Failed to enrich discharge summaries with bed/patient info: {be}")
+
+        # Also enrich patient_name for any row still missing it via patient_id
+        missing_pids = [r["patient_id"] for r in res.get("data", []) if r.get("patient_id") and not r.get("patient_name")]
+        if missing_pids:
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT id, first_name, last_name FROM patients WHERE id = ANY(%s);", (missing_pids,))
+                pat_info = {r[0]: f"{r[1] or ''} {r[2] or ''}".strip() for r in cur.fetchall()}
+                cur.close()
+                conn.close()
+                for row in res.get("data", []):
+                    pid = row.get("patient_id")
+                    if pid in pat_info and pat_info[pid]:
+                        row["patient_name"] = pat_info[pid]
+            except Exception as pe:
+                print(f"[WARN] Failed to enrich discharge summaries with patient names: {pe}")
 
         return res
     except Exception as e:
@@ -716,15 +748,14 @@ def update_dim_generated_discharge_summary(
         }
         ins_dict = {k: v for k, v in new_record.items() if v is not None}
         try:
-            cols = list(ins_dict.keys())
-            vals = [list(ins_dict.values())]
-            db_connector.insert_batch_fast("dim_generated_discharge_summaries", cols, vals)
+            inserted_row = db_connector.insert_record("dim_generated_discharge_summaries", ins_dict)
+            new_sid = (inserted_row or {}).get("summary_id") or (f"DS-{clean_pid}" if clean_pid else id_str)
             return {
                 "status": "success",
                 "message": f"Discharge summary '{id_str}' successfully created in gold.dim_generated_discharge_summaries.",
-                "summary_id": f"DS-{clean_pid}" if clean_pid else id_str,
+                "summary_id": new_sid,
                 "patient_id": clean_pid,
-                "data": ins_dict
+                "data": inserted_row or ins_dict
             }
         except Exception as insert_err:
             raise HTTPException(

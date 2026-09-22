@@ -1096,7 +1096,9 @@ export function synthesizeClinicalDetails(data) {
   if (!data) return {};
 
   const pid = data.patient_id || data.id || '';
-  const patientName = data.patient_name || data.patient || data.name || (data.first_name ? `${data.first_name} ${data.last_name || ''}`.trim() : `Patient #${pid}`);
+  const fnLn = (data.first_name ? `${data.first_name} ${data.last_name || ''}`.trim() : null);
+  const isDataNameGeneric = !data.patient_name || /^Patient\s+(PAT-|\d+|#)/i.test(data.patient_name) || /^Patient\s*$/i.test(data.patient_name);
+  const patientName = fnLn || (!isDataNameGeneric ? data.patient_name : null) || data.patient || data.name || data.patient_name || `Patient #${pid}`;
   const age = data.age || data.patientAge || data.age_at_admission || 45;
   const rawGender = data.gender || data.sex || 'Patient';
   const gender = rawGender.toLowerCase().startsWith('f') ? 'Female' : rawGender.toLowerCase().startsWith('m') ? 'Male' : rawGender;
@@ -1202,13 +1204,17 @@ export function parseDischargeSummaryRecord(record) {
 
   // Extract real patient name from record or case_history
   let extractedName = record.patient_name;
+  if (!extractedName && (record.first_name || record.last_name)) {
+    extractedName = `${record.first_name || ''} ${record.last_name || ''}`.trim();
+  }
   if (!extractedName && record.case_history) {
     const match = record.case_history.match(/The patient(?:,\s*|\s+)([A-Z][a-zA-Z\s]+?)(?:,|\s+a|\s+an|\s+was|\s+is|\s+aged|\s+\d)/i);
     if (match && match[1]) {
       extractedName = match[1].trim();
     }
   }
-  const resolvedPatientName = extractedName || record.patient || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
+  const isGenericExtracted = !extractedName || /^Patient\s+(PAT-|\d+)/i.test(extractedName) || /^Patient\s*$/i.test(extractedName);
+  const resolvedPatientName = (!isGenericExtracted ? extractedName : null) || record.patient || extractedName || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
   const resolvedDoctorName = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
   const resolvedDiagnoses = cleanDiagnosis(record.diagnoses || '') || 'Clinical Discharge Completed';
 

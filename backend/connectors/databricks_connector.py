@@ -431,6 +431,33 @@ class DatabricksConnector:
             "data": updated_data[0] if updated_data else None
         }
 
+    def insert_record(self, table_name: str, record: dict) -> dict:
+        """Inserts a single record into PostgreSQL using parameterized query with RETURNING *.
+        BIGSERIAL/SERIAL columns must NOT be included in the record dict — the DB generates them.
+        Returns the inserted row including the auto-generated primary key."""
+        if not record:
+            return {}
+
+        real_table = self.resolve_table_name(table_name)
+        cols = list(record.keys())
+        vals = [record[c] for c in cols]
+        cols_str = ", ".join(f'"{c}"' for c in cols)
+        placeholders = ", ".join(["%s"] * len(cols))
+        sql = f'INSERT INTO {real_table} ({cols_str}) VALUES ({placeholders}) RETURNING *;'
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, vals)
+            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            row = cursor.fetchone()
+            conn.commit()
+            cursor.close()
+
+        if row:
+            row_dict = dict(zip(col_names, [self._serialize_val(v) for v in row]))
+            return self._post_process_row(real_table, row_dict)
+        return {}
+
     def insert_batch_fast(self, table_name: str, col_names: list, rows: list, batch_chunk_size=500):
         """Inserts batch records into PostgreSQL."""
         if not rows:

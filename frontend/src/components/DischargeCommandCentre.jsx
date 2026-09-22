@@ -322,7 +322,9 @@ export default function DischargeCommandCentre({
 
       const doctorName = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
-      const patientName = parsed.patient_name || (adm.first_name ? `${adm.first_name} ${adm.last_name}` : `Patient ${pid}`);
+      const rawAdmName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || adm.patient_name || adm.name;
+      const isParsedGeneric = !parsed.patient_name || /^Patient\s+(PAT-|\d+)/i.test(parsed.patient_name) || /^Patient\s*$/i.test(parsed.patient_name);
+      const patientName = rawAdmName || (!isParsedGeneric ? parsed.patient_name : null) || parsed.patient_name || `Patient ${pid}`;
       const resolvedBedNum = c.bed_number || matchedBed?.bed_number || adm.bed_number || (adm.bed_id != null && bedById[String(adm.bed_id)]?.bed_number);
       const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
@@ -2228,8 +2230,10 @@ export default function DischargeCommandCentre({
             investigations: dc.investigations,
             patient_condition: dc.patient_condition,
             diagnoses: dc.diagnoses || (dc.rawRecord && dc.rawRecord.diagnoses),
-            primary_diagnosis: dc.diagnoses,
             patient_number: dc.patient_number || (dc.rawRecord && dc.rawRecord.patient_number) || `PAT-${dc.patient_id}`,
+            patient_name: dc.patient,
+            patient: dc.patient,
+            isCompleted: dc.isCompleted || false,
             age: dc.patientAge || (dc.rawRecord && dc.rawRecord.age) || 25
           }}
           onSummaryUpdated={() => {

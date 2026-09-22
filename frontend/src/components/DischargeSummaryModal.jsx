@@ -201,7 +201,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
     discharge_medications: '',
     followup_instructions: '',
     surgery_details: '',
-    approval_status: 'Approved',
+    approval_status: 'Pending Review',
     approved_by: ''
   });
 
@@ -243,7 +243,12 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
         const followup = stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || '');
         const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
-        const approvalStatus = summaryData.approval_status || 'Approved';
+        // Only treat as Approved if the DB explicitly says so, OR if the case is fully completed.
+        // Defaulting to 'Approved' was hiding the sign-off button for Ready patients.
+        const rawApprovalStatus = summaryData.approval_status;
+        const approvalStatus = rawApprovalStatus && rawApprovalStatus.trim()
+          ? rawApprovalStatus.trim()
+          : (summaryData.isCompleted ? 'Approved' : 'Pending Review');
         const approvedBy = summaryData.approved_by || attendingPhysician || '';
 
         const initialValues = {
@@ -303,7 +308,12 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
       }
     }
 
-    if (Object.keys(changedFields).length === 0) {
+    // Always send identity fields so backend upsert can create a new row if needed
+    if (form.patient_id) changedFields.patient_id = form.patient_id;
+    if (form.admission_id) changedFields.admission_id = form.admission_id;
+    if (form.attending_physician) changedFields.attending_physician = form.attending_physician;
+
+    if (Object.keys(changedFields).filter(k => !['patient_id','admission_id','attending_physician'].includes(k)).length === 0 && !overrideStatus) {
       setIsEditing(false);
       setSaving(false);
       return;

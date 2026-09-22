@@ -42,6 +42,8 @@ def init_tables():
         );
         CREATE INDEX IF NOT EXISTS idx_dgds_adm ON dim_generated_discharge_summaries (admission_id);
         CREATE INDEX IF NOT EXISTS idx_dgds_pat ON dim_generated_discharge_summaries (patient_id);
+        CREATE SEQUENCE IF NOT EXISTS dim_generated_discharge_summaries_summary_id_seq START WITH 90000 INCREMENT BY 1;
+        ALTER TABLE dim_generated_discharge_summaries ALTER COLUMN summary_id SET DEFAULT nextval('dim_generated_discharge_summaries_summary_id_seq');
     """)
 
     # 2. dim_revenue_predictions
