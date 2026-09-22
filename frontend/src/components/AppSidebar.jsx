@@ -198,15 +198,8 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  const allowedPages = ROLE_PAGE_ACCESS[userRole];
-
-  const visibleGroups = NAV_GROUPS.map(group => {
-    const visibleItems = group.items.filter(item => {
-      if (allowedPages === null || allowedPages === undefined) return true;
-      return allowedPages.includes(item.id);
-    });
-    return { ...group, items: visibleItems };
-  }).filter(group => group.items.length > 0);
+  // Keep module names, grouping and order identical for every account.
+  const visibleGroups = NAV_GROUPS;
 
   return (
     <nav style={{

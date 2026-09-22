@@ -54,8 +54,9 @@ DB_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", DEFAULT_PORT))
 DB_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", DEFAULT_NAME))
 DB_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", DEFAULT_USER))
 DB_PASSWORD = os.getenv("DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", DEFAULT_PASSWORD))
-default_ssl = "prefer" if DB_HOST in ("localhost", "127.0.0.1") else "require"
-DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", default_ssl))
+# Local development PostgreSQL may not provide TLS; remote connections still require it.
+_DEFAULT_SSLMODE = "prefer" if DB_HOST in {"localhost", "127.0.0.1", "::1"} else "require"
+DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMODE))
 
 # Connection Pooling
 _pool_lock = threading.Lock()

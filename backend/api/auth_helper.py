@@ -114,3 +114,25 @@ def require_doctor_or_admin(user: dict = Depends(get_current_user)) -> dict:
     if role not in ["ADMIN", "DOCTOR"]:
         raise HTTPException(status_code=403, detail="Admin or Doctor authorization required")
     return user
+
+
+def require_radiologist(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Validate the signed session and re-check the active database role."""
+    payload = decode_token(credentials.credentials) if credentials else None
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Sign in to access Radiology.", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        with db_config.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.username, r.name, u.is_active,
+                           COALESCE(d.display_name, u.staff_name, u.username)
+                    FROM users u JOIN roles r ON r.id=u.role_id
+                    LEFT JOIN doctors d ON d.user_id=u.id WHERE u.id=%s
+                """, (payload["user_id"],))
+                row = cur.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to verify access. Please retry.") from exc
+    if not row or not row[3] or str(row[2]).strip().lower() != "radiologist":
+        raise HTTPException(status_code=403, detail="No access. The Radiologist role is required.")
+    return {"user_id": row[0], "username": row[1], "role": row[2], "name": row[4]}

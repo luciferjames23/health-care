@@ -119,16 +119,9 @@ export default function TopHeader({
 
   // Available users for current selected role
   const usersForCurrentRole = React.useMemo(() => {
-    if (!role) return combinedUsers;
-    const targetRole = role.toLowerCase();
-    const filtered = combinedUsers.filter(r => {
-      const rRole = (r.role || '').toLowerCase();
-      if (rRole === targetRole) return true;
-      if (targetRole === 'hospital management' && (rRole === 'admin' || rRole === 'hospital management')) return true;
-      return false;
-    });
-    return filtered.length > 0 ? filtered : combinedUsers;
-  }, [combinedUsers, role]);
+    return combinedUsers.filter(user => dbUsers.some(dbUser => dbUser.username === user.username))
+      .sort((a, b) => Number(b.role === 'Radiologist') - Number(a.role === 'Radiologist'));
+  }, [combinedUsers, dbUsers]);
 
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -322,6 +315,8 @@ export default function TopHeader({
           <span>Role</span>
           <select
             value={role}
+            disabled
+            title="Role is assigned to your account by the hospital administrator"
             onChange={e => {
               const nextRole = e.target.value;
               setRole(nextRole);

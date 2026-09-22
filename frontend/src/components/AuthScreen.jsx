@@ -1,26 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { DEMO_PASSWORD } from '../services/meridianData';
+import { selectAccount } from '../services/accountSession';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-
-const FALLBACK_DB_USERS = [
-  { username: 'admin', role: 'Admin', name: 'System Admin', dept: 'Administration', title: 'Admin' },
-  { username: 'doctor_1', role: 'Doctor', name: 'Dr. Priya Patel', dept: 'Cardiology', title: 'Cardiologist' },
-  { username: 'doctor_2', role: 'Doctor', name: 'Dr. Ravi Reddy', dept: 'Orthopedics', title: 'Orthopedist' },
-  { username: 'doctor_3', role: 'Doctor', name: 'Dr. Anjali Iyer', dept: 'Pediatrics', title: 'Pediatrician' },
-  { username: 'doctor_4', role: 'Doctor', name: 'Dr. Vikram Singh', dept: 'Neurology', title: 'Neurologist' },
-  { username: 'doctor_5', role: 'Doctor', name: 'Dr. Neha Nair', dept: 'Gynecology', title: 'Gynecologist' },
-  { username: 'doctor_6', role: 'Doctor', name: 'Dr. Suresh Menon', dept: 'Surgery', title: 'Surgeon' },
-  { username: 'doctor_7', role: 'Doctor', name: 'Dr. Divya Verma', dept: 'Emergency', title: 'ER Physician' },
-  { username: 'doctor_8', role: 'Doctor', name: 'Dr. Rahul Kumar', dept: 'Intensive Care Unit', title: 'Intensivist' },
-  { username: 'doctor_9', role: 'Doctor', name: 'Dr. Sneha Das', dept: 'Laboratory', title: 'Pathologist' },
-  { username: 'doctor_10', role: 'Doctor', name: 'Dr. Karthik Bose', dept: 'Pharmacy', title: 'Pharmacologist' },
-  { username: 'doctor_11', role: 'Doctor', name: 'Dr. Pooja Pillai', dept: 'Oncology', title: 'Oncologist' },
-  { username: 'doctor_12', role: 'Doctor', name: 'Dr. Arjun Rao', dept: 'Administration', title: 'Administrator' },
-  { username: 'doctor_13', role: 'Doctor', name: 'Dr. Meenakshi Gupta', dept: 'General Medicine', title: 'General Physician' },
-  { username: 'doctor_14', role: 'Doctor', name: 'Dr. Sanjay Jain', dept: 'Cardiology', title: 'Cardiologist' },
-  { username: 'doctor_15', role: 'Doctor', name: 'Dr. Amit Sharma', dept: 'Orthopedics', title: 'Orthopedist' },
-];
 
 export default function AuthScreen({
   onLoginSuccess,
@@ -28,20 +9,11 @@ export default function AuthScreen({
   initialInfo = ''
 }) {
   const [username, setUsername] = useState(initialUsername || 'admin');
-  const [password, setPassword] = useState(initialUsername ? '' : DEMO_PASSWORD);
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(initialInfo || '');
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const passwordInputRef = React.useRef(null);
-
-  useEffect(() => {
-    if (initialUsername && passwordInputRef.current) {
-      setTimeout(() => passwordInputRef.current?.focus(), 100);
-    }
-  }, [initialUsername]);
-
+  const [signingIn, setSigningIn] = useState(false);
   useEffect(() => {
     let isMounted = true;
     async function loadUsers() {
@@ -69,48 +41,22 @@ export default function AuthScreen({
     return () => { isMounted = false; };
   }, [initialUsername]);
 
-  const activeUsers = usersList.length > 0 ? usersList : FALLBACK_DB_USERS;
+  const activeUsers = [...usersList].sort((a, b) => {
+    const rank = user => user.role?.toLowerCase() === 'radiologist' ? 0 : user.role?.toLowerCase() === 'admin' ? 1 : 2;
+    return rank(a) - rank(b);
+  });
 
-  const handleSelectRole = (r) => {
-    setUsername(r.username);
-    setPassword(DEMO_PASSWORD);
+  const handleSelectRole = async (user) => {
+    if (signingIn) return;
+    setUsername(user.username);
+    setSigningIn(true);
     setError('');
-    setInfo(`Selected ${r.role || 'Staff'} (${r.name}). Click Sign In to continue.`);
+    setInfo(`Signing in as ${user.name || user.username}…`);
+    try { onLoginSuccess(await selectAccount(user.username)); }
+    catch (error) { setError(error.message); setInfo(''); }
+    finally { setSigningIn(false); }
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setError('');
-    const u = username.trim().toLowerCase();
-    if (!u) {
-      setError('Please enter Employee ID or username.');
-      return;
-    }
-    if (password !== DEMO_PASSWORD && password !== 'admin' && password !== 'admin123' && password !== 'doctor123') {
-      setError('Invalid credentials. Standard password is ' + DEMO_PASSWORD);
-      return;
-    }
-
-    const matched = activeUsers.find(
-      r => r.username.toLowerCase() === u ||
-           (r.email && r.email.toLowerCase() === u) ||
-           (r.staff_code && r.staff_code.toLowerCase() === u)
-    );
-    const roleName = matched ? (matched.role === 'Admin' ? 'Hospital Management' : matched.role) : (u.includes('admin') ? 'Hospital Management' : 'Doctor');
-    const fullName = matched ? matched.name : (u.includes('admin') ? 'System Admin' : `Doctor ${u}`);
-    const deptName = matched ? (matched.dept || 'General Medicine') : 'General Medicine';
-    const specName = matched ? (matched.specialization || matched.title || deptName) : 'General Medicine';
-
-    // Successful login
-    onLoginSuccess({
-      username: u,
-      role: roleName,
-      name: fullName,
-      dept: deptName,
-      specialization: specName,
-      title: specName,
-    });
-  };
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', background: '#fbfbfc' }}>
@@ -158,7 +104,7 @@ export default function AuthScreen({
             <div>
               <div style={{ fontSize: '18px', fontWeight: 600 }}>Sign in</div>
               <div style={{ color: '#52585e', marginTop: '2px', lineHeight: 1.45, fontSize: '12px' }}>
-                Use your hospital Employee ID or username. Role, department and consultant scope come from your account.
+                Click your account to sign in automatically. No username or password entry is needed.
               </div>
             </div>
 
@@ -182,71 +128,7 @@ export default function AuthScreen({
               </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Employee ID or username</span>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="e.g. admin or doctor_1"
-                  style={{
-                    height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                    padding: '0 10px', fontSize: '13px', outline: 'none', background: '#fff'
-                  }}
-                />
-              </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Password</span>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <input
-                    ref={passwordInputRef}
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="Enter password (e.g. Hospital@2026)"
-                    style={{
-                      flex: 1, height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                      padding: '0 10px', fontSize: '13px', outline: 'none', minWidth: 0, background: '#fff'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      height: '36px', padding: '0 10px', border: '1px solid #e3e6e8',
-                      borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11px', color: '#52585e'
-                    }}
-                  >
-                    {showPassword ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
-                <button
-                  type="button"
-                  onClick={() => alert('Password for registered accounts is: ' + DEMO_PASSWORD)}
-                  style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'oklch(0.5 0.1 200)' }}
-                >
-                  Forgot password?
-                </button>
-                <span style={{ color: '#8a9096' }}>Branch · BR-01</span>
-              </div>
-
-              <button
-                type="submit"
-                style={{
-                  height: '38px', borderRadius: '6px', border: 0,
-                  background: 'oklch(0.5 0.1 200)', color: '#fff',
-                  fontWeight: 600, cursor: 'pointer', fontSize: '13px',
-                  marginTop: '4px'
-                }}
-              >
-                Sign in
-              </button>
-            </form>
           </div>
 
           {/* Dynamic Users from Database Table */}
@@ -262,10 +144,11 @@ export default function AuthScreen({
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
-              {activeUsers.slice(0, 30).map((r) => (
+              {activeUsers.map((r) => (
                 <button
                   key={r.username}
                   type="button"
+                  disabled={signingIn}
                   onClick={() => handleSelectRole(r)}
                   style={{
                     height: '28px', padding: '0 10px', borderRadius: '14px',
@@ -280,7 +163,7 @@ export default function AuthScreen({
             </div>
 
             <div style={{ fontSize: '11px', color: '#8a9096', lineHeight: 1.45, marginTop: '4px' }}>
-              Select an account to load its credentials (password <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#15181b', fontWeight: 600 }}>{DEMO_PASSWORD}</span>). Connected directly to PostgreSQL <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>users</span> and <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>doctors</span> tables.
+              Select a doctor to request an X-ray, or select Radiologist to view incoming orders.
             </div>
           </div>
 

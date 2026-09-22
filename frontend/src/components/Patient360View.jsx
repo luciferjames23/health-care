@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import XrayOrders from './XrayOrders';
 import { radiologyApi } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
 
 export default function Patient360View({
   patient,
+  currentUser,
   onOpenDischarge,
   onOpenSoap,
   onBack,
@@ -805,6 +807,7 @@ export default function Patient360View({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {currentUser?.role?.toLowerCase() === 'doctor' && <XrayOrders key={p.patient_id} patient={p} />}
       {/* Top Breadcrumb */}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}

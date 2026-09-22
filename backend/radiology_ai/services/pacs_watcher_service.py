@@ -115,7 +115,10 @@ def scan_once(analyze_study: Callable[[str, str], None]) -> None:
     """
     studies = get_studies()
 
+    from routers.imaging_orders import patient_for_ordered_study
     for study in studies:
+        if not patient_for_ordered_study(study.get('study_instance_uid')):
+            continue
         state = _ensure_state(study)
         study_id = study["study_id"]
 

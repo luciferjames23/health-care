@@ -8,14 +8,16 @@ import sys
 
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body
+from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body, Depends
 
+from api.auth_helper import require_radiologist
 from radiology_ai import config
 from radiology_ai import db as radiology_db
 from radiology_ai.services.densenet_service import load_densenet_model
 from radiology_ai.services.inference_service import InferenceError, run_full_analysis
 from radiology_ai.services.orthanc_service import (
     OrthancError,
+    ensure_localized_series,
     get_first_instance_for_study,
     get_instance_file,
     get_studies as orthanc_get_studies,
@@ -50,8 +52,8 @@ from radiology_ai.schemas.inference import (
 )
 
 logger = logging.getLogger("meridian.radiology.integration")
-router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"])
-pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"])
+router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"], dependencies=[Depends(require_radiologist)])
+pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"], dependencies=[Depends(require_radiologist)])
 
 _state = {"device": "cuda" if __import__("torch").cuda.is_available() else "cpu", "densenet_model": None, "yolo_model": None}
 _initialized = False
@@ -97,6 +99,13 @@ def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> d
     ref = get_first_instance_for_study(study_id)
     orthanc_study = orthanc_get_study(study_id)
     study_instance_uid = (orthanc_study.get("MainDicomTags") or {}).get("StudyInstanceUID")
+    from routers.imaging_orders import patient_for_ordered_study
+    order = patient_for_ordered_study(study_instance_uid)
+    if not order:
+        raise HTTPException(409, 'This PACS study is not linked to an uploaded X-ray order. Use X-ray Orders to upload the requested image.')
+    existing = get_study(str(order['order_id']))
+    if existing:
+        return existing
     file_bytes = get_instance_file(ref.instance_id)
     result = run_full_analysis(
         file_bytes,
@@ -112,36 +121,9 @@ def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> d
         "instance_id": ref.instance_id,
         "study_instance_uid": study_instance_uid,
     }
-    save_study({
-        **result,
-        "ingested_at": ingested_at,
-        "analyzed_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": f"orthanc:{ref.instance_id}",
-    })
-
-    # Persist analysis to PostgreSQL radiology_scan table
-    try:
-        patient_tags = orthanc_study.get("PatientMainDicomTags") or {}
-        orig_id = (
-            result.get("original_patient_id")
-            or result.get("metadata", {}).get("patient_id")
-            or patient_tags.get("PatientID")
-            or study_id
-        )
-        p_id = result.get("patient_id")
-        p_code = result.get("patient_code")
-        report = result.get("interpretation", {}).get("summary") or result.get("interpretation", {}).get("assessment")
-        finding = result.get("interpretation", {}).get("finding")
-        update_study_report_in_db(
-            original_patient_id=orig_id,
-            scan_report=report,
-            patient_id=p_id,
-            patient_code=p_code,
-            review_status="Pending Review",
-            radiologist_finding=finding,
-        )
-    except Exception as e:
-        logger.warning("Could not persist PACS study to PostgreSQL: %s", e)
+    result.update(ingested_at=ingested_at, analyzed_at=datetime.now(timezone.utc).isoformat(),
+                  source_filename=f"orthanc:{ref.instance_id}")
+    save_study(result)
 
     return result
 
@@ -172,29 +154,7 @@ def model_info():
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(file: UploadFile = File(...)):
-    _require_models()
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file was uploaded.")
-    if not file.filename.lower().endswith((".dcm", ".dicom")):
-        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload a chest X-ray in DICOM (.dcm) format.")
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
-    try:
-        result = run_full_analysis(
-            file_bytes,
-            densenet_model=_state["densenet_model"],
-            yolo_model=_state["yolo_model"],
-            device=_state["device"],
-        )
-    except InferenceError as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to process this X-ray. {exc}") from exc
-    save_study({
-        **result,
-        "analyzed_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": file.filename,
-    })
-    return result
+    raise HTTPException(409, 'Select the patient request in X-ray Orders and upload there. Analysis starts after the order upload completes.')
 
 
 @router.get("/worklist", response_model=WorklistResponse)
@@ -218,6 +178,17 @@ def study_detail(study_id: str):
     return record
 
 
+@router.post("/studies/{study_id}/ohif-localized")
+def localized_ohif(study_id: str):
+    record = get_study(study_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    try:
+        return ensure_localized_series(record)
+    except OrthancError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/studies/{study_id}/viewed", response_model=ViewedStatusResponse)
 def viewed(study_id: str):
     stamp = datetime.now(timezone.utc).isoformat()
@@ -228,7 +199,7 @@ def viewed(study_id: str):
 
 
 @router.post("/studies/{study_id}/review", response_model=StudyDetailResponse)
-def review_study(study_id: str, request: ReviewStatusRequest):
+def review_study(study_id: str, request: ReviewStatusRequest, reviewer: dict = Depends(require_radiologist)):
     """Record radiologist review workflow state and revised clinical report."""
     allowed = {
         "No acute finding",
@@ -257,28 +228,12 @@ def review_study(study_id: str, request: ReviewStatusRequest):
         study_id,
         request.review_status,
         reviewed_at,
-        reviewed_by=request.reviewed_by,
+        reviewed_by=reviewer["name"],
         report=report,
         finding=finding,
     )
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
-
-    orig_id = record.get("original_patient_id") or record.get("metadata", {}).get("patient_id")
-    p_id = record.get("patient_id")
-    p_code = record.get("patient_code")
-    try:
-        update_study_report_in_db(
-            original_patient_id=orig_id,
-            scan_report=report,
-            patient_id=p_id,
-            patient_code=p_code,
-            review_status=request.review_status,
-            reviewed_by=request.reviewed_by or record.get("reviewed_by"),
-            radiologist_finding=finding,
-        )
-    except Exception as e:
-        logger.warning("Could not persist report to PostgreSQL: %s", e)
 
     record = enrich_study_detail(record)
     return record

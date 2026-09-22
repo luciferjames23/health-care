@@ -270,3 +270,6 @@ def get_gold_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to compute gold summary: {str(e)}")
+
+from routers.imaging_orders import router as imaging_orders_router
+app.include_router(imaging_orders_router)

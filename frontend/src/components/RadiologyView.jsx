@@ -1,3 +1,4 @@
+import XrayOrders from './XrayOrders';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime } from './RadiologyShared';
@@ -19,7 +20,7 @@ function studyLabel(detail) {
 function pct(v) { return `${Math.round(Number(v || 0) * 100)}%`; }
 
 export default function RadiologyView({ requestedStudyId, onRequestedStudyHandled, currentUser, onSelectPatient }) {
-  const [tab, setTab] = useState('worklist');
+  const [tab, setTab] = useState('orders');
   const [data, setData] = useState(null);
   const [pacs, setPacs] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -155,7 +156,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     return rows;
   }, [data, filter, query, sort]);
 
-  const tabs = [['worklist', 'AI Worklist'], ['analyze', 'Analyze Study'], ['pacs', 'Demo PACS Studies']];
+  const tabs = [['orders', 'X-ray Orders'], ['worklist', 'AI Worklist'], ['analyze', 'Analyze Study'], ['pacs', 'Demo PACS Studies']];
 
   return <div>
     <PageHeading
@@ -177,6 +178,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     {error && <div style={{ marginBottom: 10 }}><ErrorBox error={error} /></div>}
 
+    {tab === 'orders' && <XrayOrders radiologist />}
     {tab === 'worklist' && (!data ? <Loading /> : <>
       <SummaryCards counts={data.counts} />
       <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />
@@ -184,19 +186,14 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     </>)}
 
     {tab === 'analyze' && <Card>
-      <div style={{ fontSize: 15, fontWeight: 650 }}>Analyze Study</div>
-      <p style={{ fontSize: 11.5, color: '#697077', lineHeight: 1.5, margin: '7px 0 14px' }}>
-        Upload a chest X-ray DICOM. The system performs automated radiographic screening and opacity localization, stores the result, and adds the study to the shared worklist.
-      </p>
-      <label style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', cursor: busy ? 'wait' : 'pointer' }}>
-        {busy ? 'Analyzing…' : 'Select DICOM (.dcm)'}
-        <input disabled={busy} type="file" accept=".dcm,.dicom,application/dicom" onChange={analyzeFile} style={{ display: 'none' }} />
-      </label>
+      <div style={{ fontSize: 15, fontWeight: 650 }}>Analyze an ordered X-ray</div>
+      <p>Select the doctor's request in X-ray Orders, verify the patient, and upload the DICOM. Analysis starts automatically after the upload and appears in AI Worklist under that order's accession.</p>
+      <button style={primaryBtn} onClick={() => setTab('orders')}>Open X-ray Orders</button>
     </Card>}
 
     {tab === 'pacs' && (!pacs ? <Loading text="Loading Demo PACS studies…" /> : <PacsTable pacs={pacs} onRefresh={refreshPacs} />)}
 
-    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={uid => setOhif(uid)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
+    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={(uid, series) => setOhif(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}${series ? `&initialSeriesInstanceUID=${encodeURIComponent(series)}` : ""}`)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
 
     {ohif && <div onClick={() => setOhif(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '97vw', height: '94vh', background: '#fff', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -206,11 +203,11 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
             <span style={{ fontSize: 11, color: '#697077' }}>Target: <code>{OHIF_BASE_URL}</code> (Requires Docker: <code>docker compose up -d</code> in <code>radiology_ohif_demo/</code>)</span>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <a href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(ohif)}`} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', fontSize: 11 }}>Open Direct ↗</a>
+            <a href={ohif} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', fontSize: 11 }}>Open Direct ↗</a>
             <button type="button" style={btn} onClick={() => setOhif(null)}>Close</button>
           </div>
         </div>
-        <iframe title="OHIF Viewer" src={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(ohif)}`} style={{ border: 0, flex: 1, width: '100%' }} />
+        <iframe title="OHIF Viewer" src={ohif} style={{ border: 0, flex: 1, width: '100%' }} />
       </div>
     </div>}
   </div>;
@@ -228,6 +225,20 @@ function PacsTable({ pacs, onRefresh }) {
 }
 
 function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSelectPatient }) {
+  const [preparingOhif, setPreparingOhif] = useState(false);
+  const [ohifError, setOhifError] = useState('');
+  const openLocalizedOhif = async () => {
+    setPreparingOhif(true);
+    setOhifError('');
+    try {
+      const result = await radiologyApi.prepareLocalizedOhif(detail.study_id);
+      onOhif(result.study_instance_uid, result.series_instance_uid);
+    } catch (error) {
+      setOhifError(error.message);
+    } finally {
+      setPreparingOhif(false);
+    }
+  };
   const uid = detail.source?.study_instance_uid || detail.metadata?.study_instance_uid;
   const status = detail.combined_assessment?.status || 'ROUTINE';
   const regions = detail.localization?.regions || [];
@@ -289,9 +300,12 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
   return <div>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
       <button type="button" style={btn} onClick={onBack}>← Back to Worklist</button>
-      <div style={{ display: 'flex', gap: 6 }}>{uid && <button type="button" style={primaryBtn} onClick={() => onOhif(uid)}>Open in OHIF · Demo PACS</button>}</div>
+      <div style={{ display: 'flex', gap: 6 }}>{uid && <button type="button" style={primaryBtn} onClick={() => onOhif(uid)}>Original image in OHIF</button>}
+        {uid && detail.images?.annotated && <button type="button" style={primaryBtn} disabled={preparingOhif} onClick={openLocalizedOhif}>{preparingOhif ? 'Preparing AI image…' : 'AI localized image in OHIF'}</button>}
+      </div>
     </div>
 
+    {ohifError && <div role="alert" style={{ color: "#b42318", marginBottom: 10 }}>{ohifError}</div>}
     <Card style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b style={{ fontSize: 15 }}>

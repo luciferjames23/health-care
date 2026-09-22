@@ -2,7 +2,10 @@ const RADIOLOGY_API_BASE_URL = import.meta.env?.VITE_RADIOLOGY_API_URL || import
 export const OHIF_BASE_URL = import.meta.env?.VITE_OHIF_URL || 'http://localhost:3000';
 
 async function request(path, options = {}) {
-  const res = await fetch(`${RADIOLOGY_API_BASE_URL}${path}`, options);
+  const token = sessionStorage.getItem('hc_auth_token');
+  const res = await fetch(`${RADIOLOGY_API_BASE_URL}${path}`, {
+    ...options, headers: { ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `Radiology service error (${res.status})`);
   return body;
@@ -11,6 +14,7 @@ async function request(path, options = {}) {
 export const radiologyApi = {
   getWorklist: () => request('/api/radiology/worklist'),
   getStudy: (id) => request(`/api/radiology/studies/${encodeURIComponent(id)}`),
+  prepareLocalizedOhif: (id) => request(`/api/radiology/studies/${encodeURIComponent(id)}/ohif-localized`, { method: 'POST' }),
   markViewed: (id) => request(`/api/radiology/studies/${encodeURIComponent(id)}/viewed`, { method: 'POST' }),
   finaliseReview: (id, review_status, report = null, finding = null, reviewed_by = null) => request(`/api/radiology/studies/${encodeURIComponent(id)}/review`, {
     method: 'POST',

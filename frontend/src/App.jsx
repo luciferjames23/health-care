@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
+import { selectAccount } from './services/accountSession';
 import { ROLE_PAGE_ACCESS } from './services/meridianData';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
@@ -135,17 +136,27 @@ export default function App() {
   const [authScreenInfo, setAuthScreenInfo] = useState('');
 
   const handleSignOut = () => {
+    sessionStorage.removeItem('hc_auth_token');
     setAuth(null);
     setRoleState(null);
     setAuthScreenUsername(null);
     setAuthScreenInfo('');
   };
 
-  const handleSwitchUserPromptPassword = (targetUser) => {
-    setAuthScreenUsername(targetUser?.username || null);
-    setAuthScreenInfo(`Please enter password to verify and sign in as ${targetUser?.name || targetUser?.username}.`);
+  const handleSwitchUserPromptPassword = async (targetUser) => {
     setSelectedPatient(null);
+    setDrawer(null);
+    setModal(null);
     setAuth(null);
+    sessionStorage.removeItem('hc_auth_token');
+    setAuthScreenInfo(`Signing in as ${targetUser?.name || targetUser?.username}…`);
+    try {
+      const user = await selectAccount(targetUser.username);
+      setAuth(user);
+      setRole(user.role);
+      setActivePage(user.canAccessRadiology ? 'radiology' : user.role?.toLowerCase() === 'doctor' ? 'clinical' : 'command');
+      setAuthScreenInfo('');
+    } catch (error) { setAuthScreenInfo(error.message); }
   };
 
   const [navHistory, setNavHistory] = useState([]);
@@ -210,6 +221,7 @@ export default function App() {
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
+          setActivePage(userObj.canAccessRadiology ? "radiology" : userObj.role?.toLowerCase() === "doctor" ? "clinical" : "command");
           setAuthScreenUsername(null);
           setAuthScreenInfo('');
         }}
@@ -305,6 +317,9 @@ export default function App() {
             </div>
           )}
 
+          {['lab', 'criticalvalues', 'diagnostics', 'radiology'].includes(activePage) && !auth.canAccessRadiology ? (
+            <section role="alert"><h2>No access</h2><p>This workspace requires an active Radiologist account. Sign in with an authorized account.</p></section>
+          ) : <>
           {activePage === 'command' && (
             <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
           )}
@@ -343,6 +358,7 @@ export default function App() {
           {activePage === 'patient360' && (
             <Patient360View
               patient={selectedPatient}
+              currentUser={auth}
               onOpenDischarge={() => {
                 setSelectedPatient(null);
                 handleNavigate('discharge');
@@ -572,6 +588,7 @@ export default function App() {
               </div>
             </div>
           )}
+          </>}
         </main>
       </div>
 

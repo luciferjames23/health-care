@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import torch
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
@@ -31,6 +31,7 @@ from services.orthanc_service import (
     get_first_instance_for_study,
     get_instance_file,
     OrthancError,
+    ensure_localized_series,
 )
 from schemas.inference import (
     HealthResponse,
@@ -113,7 +114,7 @@ async def lifespan(app: FastAPI):
         _state["yolo_model"] = None
 
     if _state["densenet_model"] is not None and _state["yolo_model"] is not None:
-        start_watcher(_process_pacs_study_core, interval_seconds=config.PACS_POLL_INTERVAL_SECONDS)
+        logger.info("Order-linked analysis is managed by the hospital API.")
     else:
         logger.warning("Demo PACS auto-analysis watcher not started because AI models are unavailable.")
 
@@ -252,7 +253,7 @@ def mark_viewed(study_id: str):
 
 
 @app.post("/api/radiology/studies/{study_id}/review", response_model=StudyDetailResponse)
-def review_study(study_id: str, request: ReviewStatusRequest):
+def review_study(study_id: str, request: ReviewStatusRequest, http_request: Request):
     """Record radiologist review workflow state and revised clinical report."""
     allowed = {
         "No acute finding",
@@ -281,7 +282,7 @@ def review_study(study_id: str, request: ReviewStatusRequest):
         study_id,
         request.review_status,
         reviewed_at,
-        reviewed_by=request.reviewed_by,
+        reviewed_by=http_request.state.radiology_user["name"],
         report=report,
         finding=finding,
     )
@@ -298,7 +299,7 @@ def review_study(study_id: str, request: ReviewStatusRequest):
             patient_id=p_id,
             patient_code=p_code,
             review_status=request.review_status,
-            reviewed_by=request.reviewed_by or record.get("reviewed_by"),
+            reviewed_by=http_request.state.radiology_user["name"],
             radiologist_finding=finding,
         )
     except Exception as e:
@@ -370,3 +371,53 @@ def pacs_analyze(study_id: str):
             status_code=500,
             detail="Unable to analyze the selected PACS study.",
         )
+
+
+@app.post("/api/radiology/studies/{study_id}/ohif-localized")
+def localized_ohif(study_id: str):
+    record = get_study(study_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    try:
+        return ensure_localized_series(record)
+    except OrthancError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.middleware("http")
+async def verify_radiology_access(request, call_next):
+    """The optional standalone service delegates access to the hospital API."""
+    if request.method != "OPTIONS" and request.url.path.startswith(("/api/radiology", "/api/pacs")):
+        import os
+        import requests
+        from starlette.concurrency import run_in_threadpool
+        from starlette.responses import JSONResponse
+        authorization = request.headers.get("authorization", "")
+        if not authorization:
+            return JSONResponse({"detail": "Sign in to access Radiology."}, status_code=401)
+        try:
+            response = await run_in_threadpool(
+                requests.get,
+                os.getenv("HOSPITAL_AUTH_API_URL", "http://127.0.0.1:8000").rstrip("/") + "/api/auth/radiology-access",
+                headers={"Authorization": authorization}, timeout=10,
+            )
+        except requests.RequestException:
+            return JSONResponse({"detail": "Unable to verify access."}, status_code=503)
+        if response.status_code != 200:
+            status = response.status_code if response.status_code in (401, 403) else 503
+            return JSONResponse({"detail": "No access. A verified Radiologist session is required."}, status_code=status)
+        # Keep the optional port-8001 entry point on the same order-linked store.
+        from starlette.responses import Response
+        try:
+            upstream = await run_in_threadpool(
+                requests.request, request.method,
+                os.getenv("HOSPITAL_AUTH_API_URL", "http://127.0.0.1:8000").rstrip("/") + request.url.path,
+                params=list(request.query_params.multi_items()), data=await request.body(),
+                headers={"Authorization": authorization, "Content-Type": request.headers.get("content-type", "application/json")},
+                timeout=180,
+            )
+        except requests.RequestException:
+            return JSONResponse({"detail": "Hospital radiology service is unavailable."}, status_code=503)
+        return Response(upstream.content, status_code=upstream.status_code,
+                        media_type=upstream.headers.get("content-type", "application/json"))
+    return await call_next(request)
