@@ -3,6 +3,7 @@ import XrayOrders from './XrayOrders';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
+import { imagingOrdersApi } from '../services/imagingOrdersApi';
 
 export default function Patient360View({
   patient,
@@ -29,6 +30,37 @@ export default function Patient360View({
   const [diagScans, setDiagScans] = useState([]);
   const [diagScanIdx, setDiagScanIdx] = useState(0);
   const [ohifViewerModal, setOhifViewerModal] = useState(null);
+  const [patientXrayOrders, setPatientXrayOrders] = useState([]);
+
+  // Live polling for patient X-ray / imaging orders
+  useEffect(() => {
+    let alive = true;
+    const cleanNum = (val) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      const m = str.match(/\d+/);
+      return m ? m[0].replace(/^0+/, '') || '0' : str;
+    };
+    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || patient?.raw?.patient_id);
+    if (!pid) return;
+
+    const loadOrders = () => {
+      imagingOrdersApi.list(pid)
+        .then(res => {
+          if (alive && res?.orders) {
+            setPatientXrayOrders(res.orders);
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadOrders();
+    const timer = setInterval(loadOrders, 8000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [patient?.patient_id, patient?.id, patient?.uhid, patient?.mrn]);
 
   // Silently pre-fetch radiology scans for inline Diagnoses X-ray card
   useEffect(() => {
@@ -1318,7 +1350,7 @@ export default function Patient360View({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Sub-filter tabs */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => setDiagFilter('all')}
@@ -1329,7 +1361,7 @@ export default function Patient360View({
                   color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
                 }}
               >
-                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveBill?.lab_items?.length || p.lab_results_list?.length) || 2)} Tests)
+                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveBill?.lab_items?.length || p.lab_results_list?.length) || 2) + patientXrayOrders.length} Diagnostic Orders)
               </button>
               <button
                 type="button"
@@ -1353,7 +1385,7 @@ export default function Patient360View({
                   color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
                 }}
               >
-                Lab & Diagnostic Orders ({((liveBill?.lab_items?.length || p.lab_results_list?.length) || 2)})
+                Lab &amp; Diagnostic Orders ({((liveBill?.lab_items?.length || p.lab_results_list?.length) || 2) + patientXrayOrders.length})
               </button>
             </div>
             <button
@@ -1362,7 +1394,7 @@ export default function Patient360View({
               style={{
                 height: '28px', padding: '0 10px', borderRadius: '6px',
                 border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
-                color: 'oklch(0.4 0.1 200)', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
+                color: 'oklch(0.4 0.12 200)', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
               }}
             >
               Open Doctor SOAP Note →
@@ -1400,54 +1432,281 @@ export default function Patient360View({
           )}
 
           {/* Section 2: Supporting Diagnostic Investigations & Lab Tests */}
-          {(diagFilter === 'all' || diagFilter === 'labs') && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: diagFilter === 'all' ? '10px' : '0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#15181b' }}>Diagnostic Investigations & Lab Orders</span>
-                  <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '4px', background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>
-                    Supporting Workup
+          {(diagFilter === 'all' || diagFilter === 'labs') && (() => {
+            const labRows = (liveBill?.lab_items && liveBill.lab_items.length > 0)
+              ? liveBill.lab_items.map((li, idx) => [
+                  `ORD-${li.lab_order_id || idx + 101}`,
+                  li.item_name || 'Laboratory Test',
+                  li.test_category || 'LIS',
+                  li.ordered_date ? new Date(li.ordered_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (p.admittedDate || 'Admission Day'),
+                  li.test_parameter ? `${li.test_parameter}: ${li.result_value || 'Normal'} ${li.unit || ''}`.trim() : (li.result_value || 'Verified'),
+                  li.order_status || 'Verified'
+                ])
+              : (p.lab_results_list && p.lab_results_list.length > 0)
+                ? p.lab_results_list.map((lr, idx) => [
+                    `ORD-${idx + 101}`,
+                    lr.test_parameter || 'Clinical Diagnostic Test',
+                    'LIS / Biochemistry',
+                    lr.result_date ? new Date(lr.result_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (p.admittedDate || 'Admission Day'),
+                    `${lr.test_parameter}: ${lr.result_value} ${lr.unit || ''} (Ref: ${lr.reference_range || 'Normal'})`,
+                    lr.verification_status || 'Verified'
+                  ])
+                : [
+                    [`ORD-${p.admission_id || '87248'}`, 'CBC (Complete Blood Count)', 'Hematology', p.admittedDate || '17 May 2025', 'Param: 10.5 g/dL', 'Verified'],
+                    [`ORD-${(p.admission_id || 87248) + 1}`, 'Electrolytes Panel', 'Biochemistry', p.admittedDate || '17 May 2025', 'K: 4.1, Na: 138 mEq/L', 'Verified'],
+                    [`ORD-${(p.admission_id || 87248) + 2}`, 'HbA1c Glycated Hemoglobin', 'LIS', p.admittedDate || '17 May 2025', '6.8% · Good control', 'Verified']
+                  ];
+
+            const xrayRows = patientXrayOrders.map((xo) => {
+              const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
+              const isUploaded = xo.status === 'Uploaded' || xo.status === 'Completed';
+              const matchingScan = diagScans.find(s => s.order_id === xo.order_id || s.study_instance_uid === xo.study_instance_uid);
+              const studyUid = xo.study_instance_uid || matchingScan?.study_instance_uid;
+              const scanResult = matchingScan
+                ? (matchingScan.target === 1 ? '⚠ Opacity Detected' : '✓ Normal')
+                : (xo.indication ? `Indication: ${xo.indication}` : 'PACS Study Available');
+
+              return [
+                xo.accession_number || `XR-${xo.order_id.slice(0, 8)}`,
+                <span key={xo.order_id + '-test'} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🩻</span>
+                  <strong>{xo.examination || 'Chest X-ray PA'}</strong>
+                </span>,
+                <span key={xo.order_id + '-kind'} style={{ color: '#0284c7', fontWeight: 600 }}>
+                  Radiology · X-Ray
+                </span>,
+                xo.created_at ? new Date(xo.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (p.admittedDate || 'Today'),
+                <div key={xo.order_id + '-res'} style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, overflow: 'hidden' }}>
+                  <span style={{
+                    padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700,
+                    background: isUrgent ? '#fee2e2' : '#f1f5f9',
+                    color: isUrgent ? '#b91c1c' : '#475569',
+                    border: `1px solid ${isUrgent ? '#fca5a5' : '#e2e8f0'}`,
+                    flexShrink: 0
+                  }}>
+                    {isUrgent && '⚡ '}{xo.priority || 'Routine'}
+                  </span>
+                  <span style={{
+                    color: matchingScan?.target === 1 ? '#dc2626' : (matchingScan ? '#15803d' : '#475569'),
+                    fontWeight: matchingScan ? 600 : 400,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {scanResult}
+                  </span>
+                </div>,
+                <div key={xo.order_id + '-st'} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
+                  <span style={{
+                    padding: '2px 7px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                    background: isUploaded ? '#dcfce7' : '#fef3c7',
+                    color: isUploaded ? '#15803d' : '#b45309',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {xo.status || 'Requested'}
+                  </span>
+                  {studyUid && (
+                    <button
+                      type="button"
+                      title="Open DICOM image in OHIF Viewer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOhifViewerModal(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(studyUid)}`);
+                      }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid oklch(0.5 0.1 200)',
+                        background: 'oklch(0.96 0.04 200)',
+                        color: 'oklch(0.4 0.12 200)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <span>🖼️</span> Open OHIF →
+                    </button>
+                  )}
+                </div>
+              ];
+            });
+
+            const rowsToDisplay = [...labRows, ...xrayRows];
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: diagFilter === 'all' ? '10px' : '0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: '#15181b' }}>Diagnostic Investigations &amp; Lab Orders</span>
+                    <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '4px', background: '#f1f5f9', color: '#475569', fontWeight: 600 }}>
+                      Supporting Workup ({rowsToDisplay.length})
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11.5px', color: '#687076' }}>
+                    Ordered for inpatient diagnostic monitoring
                   </span>
                 </div>
-                <span style={{ fontSize: '11.5px', color: '#687076' }}>
-                  Ordered for inpatient diagnostic monitoring
-                </span>
+
+                <TableContainer
+                  cols={['Order', 'Test', 'Kind', 'Ordered', 'Result', 'Status']}
+                  grid="130px minmax(180px, 1fr) 120px 100px minmax(190px, 1.2fr) 185px"
+                  rows={rowsToDisplay}
+                />
+
+                {/* Detailed X-Ray Order Cards */}
+                {patientXrayOrders.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#15181b' }}>
+                          🩻 Radiology &amp; X-Ray Order Details
+                        </span>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
+                          {patientXrayOrders.length} {patientXrayOrders.length === 1 ? 'Order' : 'Orders'} on Record
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('X-Ray')}
+                        style={{
+                          background: 'none', border: 0, color: 'oklch(0.5 0.1 200)',
+                          fontSize: '11.5px', fontWeight: 600, cursor: 'pointer', padding: 0
+                        }}
+                      >
+                        Manage in X-Ray Tab →
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '10px' }}>
+                      {patientXrayOrders.map((xo) => {
+                        const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
+                        const isUploaded = xo.status === 'Uploaded' || xo.status === 'Completed';
+                        const matchingScan = diagScans.find(s => s.order_id === xo.order_id || s.study_instance_uid === xo.study_instance_uid);
+                        const studyUid = xo.study_instance_uid || matchingScan?.study_instance_uid;
+
+                        return (
+                          <div
+                            key={xo.order_id}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              padding: '12px 14px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '8px',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                                  {xo.accession_number}
+                                </span>
+                                <span style={{
+                                  padding: '1px 7px', borderRadius: '4px', fontSize: '10px', fontWeight: 700,
+                                  background: isUrgent ? '#fee2e2' : '#f1f5f9',
+                                  color: isUrgent ? '#b91c1c' : '#475569',
+                                  border: `1px solid ${isUrgent ? '#fca5a5' : '#e2e8f0'}`
+                                }}>
+                                  {isUrgent && '⚡ '}{xo.priority}
+                                </span>
+                              </div>
+
+                              <span style={{
+                                padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                background: isUploaded ? '#dcfce7' : '#fef3c7',
+                                color: isUploaded ? '#166534' : '#92400e'
+                              }}>
+                                {isUploaded ? '✓ Uploaded to PACS' : xo.status}
+                              </span>
+                            </div>
+
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                                {xo.examination || 'Chest X-ray PA'}
+                              </div>
+                              {xo.indication && (
+                                <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
+                                  <span style={{ fontWeight: 600 }}>Indication: </span>{xo.indication}
+                                </div>
+                              )}
+                            </div>
+
+                            <div style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                              <span>Requested by {xo.requested_by_name || 'Attending Doctor'}</span>
+                              <span>{xo.created_at ? new Date(xo.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                            </div>
+
+                            {studyUid && (
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setOhifViewerModal(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(studyUid)}`)}
+                                  style={{
+                                    flex: 1,
+                                    height: '28px',
+                                    borderRadius: '5px',
+                                    border: '1px solid oklch(0.5 0.1 200)',
+                                    background: 'oklch(0.96 0.04 200)',
+                                    color: 'oklch(0.4 0.12 200)',
+                                    fontSize: '11.5px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '5px'
+                                  }}
+                                >
+                                  <span>🖼️</span> Open in OHIF Viewer →
+                                </button>
+
+                                {matchingScan && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPatientScans([matchingScan]);
+                                      setActiveScanIdx(0);
+                                      setScanModalOpen(true);
+                                    }}
+                                    style={{
+                                      height: '28px',
+                                      padding: '0 10px',
+                                      borderRadius: '5px',
+                                      border: '1px solid #cbd5e1',
+                                      background: '#fff',
+                                      color: matchingScan.target === 1 ? '#dc2626' : '#16a34a',
+                                      fontSize: '11.5px',
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    <span>🔬</span> {matchingScan.target === 1 ? 'Opacity' : 'Normal'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+            );
+          })()}
 
-              <TableContainer
-                cols={['Order', 'Test', 'Kind', 'Ordered', 'Result', 'Status']}
-                grid="120px minmax(200px, 1fr) 110px 130px minmax(200px, 1.2fr) 100px"
-                rows={
-                  (liveBill?.lab_items && liveBill.lab_items.length > 0)
-                    ? liveBill.lab_items.map((li, idx) => [
-                        `ORD-${li.lab_order_id || idx + 101}`,
-                        li.item_name || 'Laboratory Test',
-                        li.test_category || 'LIS',
-                        li.ordered_date ? new Date(li.ordered_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (p.admittedDate || 'Admission Day'),
-                        li.test_parameter ? `${li.test_parameter}: ${li.result_value || 'Normal'} ${li.unit || ''}`.trim() : (li.result_value || 'Verified'),
-                        li.order_status || 'Verified'
-                      ])
-                    : (p.lab_results_list && p.lab_results_list.length > 0)
-                      ? p.lab_results_list.map((lr, idx) => [
-                          `ORD-${idx + 101}`,
-                          lr.test_parameter || 'Clinical Diagnostic Test',
-                          'LIS / Biochemistry',
-                          lr.result_date ? new Date(lr.result_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : (p.admittedDate || 'Admission Day'),
-                          `${lr.test_parameter}: ${lr.result_value} ${lr.unit || ''} (Ref: ${lr.reference_range || 'Normal'})`,
-                          lr.verification_status || 'Verified'
-                        ])
-                      : [
-                          [`ORD-${p.admission_id || '87248'}`, 'CBC (Complete Blood Count)', 'Hematology', p.admittedDate || '17 May 2025', 'Param: 10.5 g/dL', 'Verified'],
-                          [`ORD-${(p.admission_id || 87248) + 1}`, 'Electrolytes Panel', 'Biochemistry', p.admittedDate || '17 May 2025', 'K: 4.1, Na: 138 mEq/L', 'Verified'],
-                          [`ORD-${(p.admission_id || 87248) + 2}`, 'HbA1c Glycated Hemoglobin', 'LIS', p.admittedDate || '17 May 2025', '6.8% · Good control', 'Verified']
-                        ]
-                }
-              />
-            </div>
-          )}
-
-          {/* Section 3: Radiology Scans (only if patient has scan records) */}
-          {(diagFilter === 'all' || diagFilter === 'diagnoses') && diagScans.length > 0 && (() => {
+          {/* Section 3: Radiology Scans (only if patient has scan records in All Records view) */}
+          {diagFilter === 'all' && diagScans.length > 0 && (() => {
             const sc = diagScans[diagScanIdx] || diagScans[0];
             const isOpacity = sc.target === 1;
             return (

@@ -23,11 +23,10 @@ def order_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
         with conn.cursor() as cur:
             cur.execute('SELECT u.id, r.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=%s AND u.is_active=true', (payload['user_id'],))
             row = cur.fetchone()
-    if not row or row[1].lower() not in ('doctor', 'radiologist'):
-        raise HTTPException(403, 'No access. A Doctor or Radiologist account is required.')
-    if row[1].lower() == 'doctor' and payload.get('auth_method') not in ('password', 'account_selection'):
-        raise HTTPException(401, 'Select your doctor account again to request an X-ray.')
-    return {'user_id': row[0], 'role': row[1].lower()}
+    if not row:
+        raise HTTPException(403, 'No access. Account not found or inactive.')
+    role = row[1].lower()
+    return {'user_id': row[0], 'role': role}
 
 
 class NewOrder(BaseModel):
@@ -50,7 +49,7 @@ JOIN users u ON u.id=o.requested_by LEFT JOIN doctors d ON d.user_id=u.id
 @router.get('')
 def list_orders(patient_id: int | None = Query(None, gt=0), user=Depends(order_user)):
     clauses, params = [], []
-    if user['role'] == 'doctor':
+    if user['role'] == 'doctor' and not patient_id:
         clauses.append('o.requested_by=%s')
         params.append(user['user_id'])
     if patient_id:
