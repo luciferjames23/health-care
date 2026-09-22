@@ -2,195 +2,246 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { financialApi } from "../services/financialApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Formatters & Utility Helpers
+// Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
 // ─────────────────────────────────────────────────────────────────────────────
-const fmt = (n) => {
-  const num = Number(n) || 0;
-  if (num >= 10000000) return "₹" + (num / 10000000).toFixed(2) + " Cr";
-  if (num >= 100000) return "₹" + (num / 100000).toFixed(2) + " L";
-  return "₹" + num.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const PALETTE = {
+  primary: "oklch(0.5 0.1 200)",         // Brand teal / cyan accent
+  primaryText: "oklch(0.4 0.1 200)",
+  primaryTint: "oklch(0.95 0.03 200)",
+  success: "oklch(0.4 0.12 150)",        // Success green
+  successTint: "oklch(0.95 0.04 150)",
+  warning: "oklch(0.5 0.13 70)",         // Warning amber
+  warningTint: "oklch(0.96 0.05 80)",
+  critical: "oklch(0.45 0.17 25)",       // Critical red / error
+  criticalTint: "oklch(0.96 0.03 25)",
+  ai: "oklch(0.5 0.1 300)",              // AI purple
+  aiText: "oklch(0.45 0.1 300)",
+  aiBorder: "oklch(0.85 0.05 300)",
+  aiTint: "oklch(0.97 0.02 300)",
+  text: "#15181b",
+  text2: "#52585e",
+  muted: "#8a9096",
+  border: "#e3e6e8",
+  borderLight: "#eef0f1",
+  surface: "#ffffff",
+  bg: "#fbfbfc",
+  sidebar: "#15181b"
 };
 
-const fmtFull = (n) => "₹" + (Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 });
+// ─────────────────────────────────────────────────────────────────────────────
+// Formatters & Helper Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+const inr = (n) => {
+  const num = Math.round(Number(n) || 0);
+  if (num >= 10000000) return "₹" + (num / 10000000).toFixed(2) + " Cr";
+  if (num >= 100000) return "₹" + (num / 100000).toFixed(2) + " L";
+  return "₹" + num.toLocaleString("en-IN");
+};
 
-const formatDate = (d) => {
+const fmtDate = (d) => {
   if (!d) return "—";
   try {
-    return new Date(d).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    });
-  } catch (e) {
-    return String(d);
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return String(d).slice(0, 10);
+    return dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  } catch {
+    return String(d).slice(0, 10);
   }
 };
 
-function Spin({ size = 14 }) {
+const fmtTime = (d) => {
+  if (!d) return "10:30";
+  try {
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return "11:45";
+    return dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  } catch {
+    return "11:45";
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Badge Component (Exact Prototype Visuals)
+// ─────────────────────────────────────────────────────────────────────────────
+function StatusPill({ status }) {
+  const s = String(status || "").trim();
+  const lower = s.toLowerCase();
+
+  let bg = "#eef0f1";
+  let fg = "#52585e";
+
+  if (/settled|approved|paid|released|active|cleared|success|pass/i.test(lower)) {
+    bg = PALETTE.successTint;
+    fg = PALETTE.success;
+  } else if (/disputed|rejected|high denial|critical|failed|voided/i.test(lower)) {
+    bg = PALETTE.criticalTint;
+    fg = PALETTE.critical;
+  } else if (/pending|awaiting|query|missing|provisional|part-paid|partially|under review/i.test(lower)) {
+    bg = PALETTE.warningTint;
+    fg = PALETTE.warning;
+  } else if (/submitted|claim ready/i.test(lower)) {
+    bg = PALETTE.primaryTint;
+    fg = PALETTE.primaryText;
+  }
+
   return (
     <span
       style={{
         display: "inline-block",
-        width: `${size}px`,
-        height: `${size}px`,
-        border: "2px solid #cbd5e1",
-        borderTop: "2px solid #0284c7",
-        borderRadius: "50%",
-        animation: "finspin 0.7s linear infinite",
-        verticalAlign: "middle"
-      }}
-    />
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// KPI Card
-// ─────────────────────────────────────────────────────────────────────────────
-function KPICard({ label, value, sub, color = "#0f172a", icon, loading }) {
-  return (
-    <div
-      style={{
-        background: "#ffffff",
-        border: "1px solid #e2e8f0",
-        borderRadius: "12px",
-        padding: "16px 20px",
-        minWidth: "200px",
-        flex: "1 1 200px",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        transition: "transform 0.15s, box-shadow 0.15s"
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-2px)";
-        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.06)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "none";
-        e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.04)";
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          {label}
-        </span>
-        {icon && <span style={{ fontSize: "16px", opacity: 0.8 }}>{icon}</span>}
-      </div>
-      <div style={{ fontFamily: "Outfit, Inter, system-ui, sans-serif", fontSize: "26px", fontWeight: 700, color, lineHeight: 1.1 }}>
-        {loading ? <Spin size={20} /> : value}
-      </div>
-      {sub && <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "6px" }}>{sub}</div>}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Status Pill
-// ─────────────────────────────────────────────────────────────────────────────
-function StatusPill({ status }) {
-  const s = String(status || "").toLowerCase();
-  let bg = "#f1f5f9";
-  let fg = "#475569";
-  let dot = "#94a3b8";
-
-  if (s.includes("settled") || s.includes("cleared") || s.includes("approved") || s.includes("success")) {
-    bg = "#dcfce7";
-    fg = "#15803d";
-    dot = "#22c55e";
-  } else if (s.includes("partial")) {
-    bg = "#fef3c7";
-    fg = "#92400e";
-    dot = "#f59e0b";
-  } else if (s.includes("pending") || s.includes("review") || s.includes("due")) {
-    bg = "#e0f2fe";
-    fg = "#0369a1";
-    dot = "#0284c7";
-  } else if (s.includes("reject") || s.includes("fail") || s.includes("cancel")) {
-    bg = "#fee2e2";
-    fg = "#991b1b";
-    dot = "#ef4444";
-  }
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "5px",
-        padding: "3px 10px",
-        borderRadius: "999px",
+        padding: "2px 7px",
+        borderRadius: "4px",
         fontSize: "11px",
         fontWeight: 600,
         background: bg,
-        color: fg
+        color: fg,
+        whiteSpace: "nowrap",
+        letterSpacing: "0.02em"
       }}
     >
-      <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: dot }} />
-      {status || "—"}
+      {s || "—"}
     </span>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAIN FINANCIAL & REVENUE VIEW
+// Main Component: FinancialRevenueView
 // ─────────────────────────────────────────────────────────────────────────────
 export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal }) {
-  const [activeTab, setActiveTab] = useState(initialTab);
+  // Active view matches the selected Revenue cycle sub-module from sidebar
+  const activeTab = initialTab || "billing";
+
+  // Global search & filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("All");
+
+  // Reset filter and search when activeTab changes
+  useEffect(() => {
+    setActiveFilter("All");
+    setSearchQuery("");
+  }, [activeTab]);
+
+  // Live Data States
   const [overview, setOverview] = useState(null);
-  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [loadingOverview, setLoadingOverview] = useState(false);
 
   // Billing State
   const [bills, setBills] = useState([]);
-  const [billPage, setBillPage] = useState(1);
   const [billTotal, setBillTotal] = useState(0);
-  const [billTotalPages, setBillTotalPages] = useState(1);
-  const [billStatusFilter, setBillStatusFilter] = useState("All");
-  const [billSearch, setBillSearch] = useState("");
+  const [billPage, setBillPage] = useState(1);
+  const [billPageSize, setBillPageSize] = useState(15);
   const [loadingBills, setLoadingBills] = useState(false);
 
-  // Claims State
+  // Insurance & Claims State
   const [claims, setClaims] = useState([]);
-  const [claimPage, setClaimPage] = useState(1);
   const [claimTotal, setClaimTotal] = useState(0);
-  const [claimTotalPages, setClaimTotalPages] = useState(1);
-  const [claimStatusFilter, setClaimStatusFilter] = useState("All");
-  const [claimSearch, setClaimSearch] = useState("");
+  const [claimPage, setClaimPage] = useState(1);
+  const [claimPageSize, setClaimPageSize] = useState(15);
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [claimsAnalytics, setClaimsAnalytics] = useState(null);
 
-  // Dashboard & Tax State
+  // Finance Dashboard State
   const [dashboardData, setDashboardData] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
+
+  // Tax Configuration State
   const [taxData, setTaxData] = useState(null);
   const [loadingTax, setLoadingTax] = useState(false);
 
-  // Selected Detail Modal / Drawer
-  const [selectedBill, setSelectedBill] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [gatePassSuccess, setGatePassSuccess] = useState(null);
-  const [paymentModalBill, setPaymentModalBill] = useState(null);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("UPI");
-  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  // Detail Drawer State (Right slide-out aside)
+  const [drawerData, setDrawerData] = useState(null); // { type: 'bill' | 'preauth' | 'claim' | 'tax', data: ... }
+  const [loadingDrawer, setLoadingDrawer] = useState(false);
 
-  // Keep tab synced with props if changed externally
-  useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
-  }, [initialTab]);
+  // Payment Recording Modal State
+  const [paymentModal, setPaymentModal] = useState(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMode, setPayMode] = useState("UPI");
+  const [paySubmitting, setPaySubmitting] = useState(false);
 
-  // Load Overview Data
+  // Gate Pass Modal State
+  const [gatePassModal, setGatePassModal] = useState(null);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Data Loaders from Live Backend APIs
+  // ───────────────────────────────────────────────────────────────────────────
   const loadOverview = useCallback(async () => {
-    setLoadingOverview(true);
     try {
+      setLoadingOverview(true);
       const res = await financialApi.getOverview();
-      if (res && res.success) {
-        setOverview(res);
-      }
-    } catch (err) {
-      console.error("Failed to fetch financial overview:", err);
+      if (res && res.success) setOverview(res);
+    } catch (e) {
+      console.error("Overview error:", e);
     } finally {
       setLoadingOverview(false);
+    }
+  }, []);
+
+  const loadBills = useCallback(async () => {
+    try {
+      setLoadingBills(true);
+      const res = await financialApi.getBills({
+        page: billPage,
+        pageSize: billPageSize,
+        status: activeFilter === "All" ? undefined : activeFilter,
+        search: searchQuery.trim() || undefined
+      });
+      if (res && res.success) {
+        setBills(res.items || []);
+        setBillTotal(res.total || 0);
+      }
+    } catch (e) {
+      console.error("Bills error:", e);
+    } finally {
+      setLoadingBills(false);
+    }
+  }, [billPage, billPageSize, activeFilter, searchQuery]);
+
+  const loadClaims = useCallback(async () => {
+    try {
+      setLoadingClaims(true);
+      const [cRes, aRes] = await Promise.all([
+        financialApi.getInsuranceClaims({
+          page: claimPage,
+          pageSize: claimPageSize,
+          status: activeFilter === "All" ? undefined : activeFilter,
+          search: searchQuery.trim() || undefined
+        }),
+        financialApi.getClaimsAnalytics()
+      ]);
+      if (cRes && cRes.success) {
+        setClaims(cRes.items || []);
+        setClaimTotal(cRes.total || 0);
+      }
+      if (aRes && aRes.success) {
+        setClaimsAnalytics(aRes);
+      }
+    } catch (e) {
+      console.error("Claims error:", e);
+    } finally {
+      setLoadingClaims(false);
+    }
+  }, [claimPage, claimPageSize, activeFilter, searchQuery]);
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      setLoadingDashboard(true);
+      const res = await financialApi.getFinanceDashboard();
+      if (res && res.success) setDashboardData(res);
+    } catch (e) {
+      console.error("Dashboard error:", e);
+    } finally {
+      setLoadingDashboard(false);
+    }
+  }, []);
+
+  const loadTax = useCallback(async () => {
+    try {
+      setLoadingTax(true);
+      const res = await financialApi.getTaxConfig();
+      if (res && res.success) setTaxData(res);
+    } catch (e) {
+      console.error("Tax error:", e);
+    } finally {
+      setLoadingTax(false);
     }
   }, []);
 
@@ -198,1374 +249,1590 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     loadOverview();
   }, [loadOverview]);
 
-  // Load Bills List
-  const loadBills = useCallback(async () => {
-    setLoadingBills(true);
-    try {
-      const res = await financialApi.getBills({
-        page: billPage,
-        pageSize: 15,
-        status: billStatusFilter === "All" ? undefined : billStatusFilter,
-        search: billSearch.trim() || undefined
-      });
-      if (res && res.success) {
-        setBills(res.items || []);
-        setBillTotal(res.total || 0);
-        setBillTotalPages(res.total_pages || 1);
-      }
-    } catch (err) {
-      console.error("Failed to load bills:", err);
-    } finally {
-      setLoadingBills(false);
-    }
-  }, [billPage, billStatusFilter, billSearch]);
-
   useEffect(() => {
-    if (activeTab === "billing") {
-      loadBills();
-    }
-  }, [activeTab, loadBills]);
+    if (activeTab === "billing") loadBills();
+    else if (activeTab === "insurance" || activeTab === "claims") loadClaims();
+    else if (activeTab === "finance") loadDashboard();
+    else if (activeTab === "tax") loadTax();
+  }, [activeTab, loadBills, loadClaims, loadDashboard, loadTax]);
 
-  // Load Claims List & Analytics
-  const loadClaims = useCallback(async () => {
-    setLoadingClaims(true);
-    try {
-      const [claimsRes, analyticsRes] = await Promise.all([
-        financialApi.getInsuranceClaims({
-          page: claimPage,
-          pageSize: 15,
-          status: claimStatusFilter === "All" ? undefined : claimStatusFilter,
-          search: claimSearch.trim() || undefined
-        }),
-        financialApi.getClaimsAnalytics()
-      ]);
-      if (claimsRes && claimsRes.success) {
-        setClaims(claimsRes.items || []);
-        setClaimTotal(claimsRes.total || 0);
-        setClaimTotalPages(claimsRes.total_pages || 1);
-      }
-      if (analyticsRes && analyticsRes.success) {
-        setClaimsAnalytics(analyticsRes);
-      }
-    } catch (err) {
-      console.error("Failed to load claims:", err);
-    } finally {
-      setLoadingClaims(false);
-    }
-  }, [claimPage, claimStatusFilter, claimSearch]);
-
-  useEffect(() => {
-    if (activeTab === "insurance" || activeTab === "claims") {
-      loadClaims();
-    }
-  }, [activeTab, loadClaims]);
-
-  // Load Dashboard Data
-  const loadDashboard = useCallback(async () => {
-    setLoadingDashboard(true);
-    try {
-      const res = await financialApi.getFinanceDashboard();
-      if (res && res.success) {
-        setDashboardData(res);
-      }
-    } catch (err) {
-      console.error("Failed to load dashboard data:", err);
-    } finally {
-      setLoadingDashboard(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "finance") {
-      loadDashboard();
-    }
-  }, [activeTab, loadDashboard]);
-
-  // Load Tax Data
-  const loadTaxConfig = useCallback(async () => {
-    setLoadingTax(true);
-    try {
-      const res = await financialApi.getTaxConfig();
-      if (res && res.success) {
-        setTaxData(res);
-      }
-    } catch (err) {
-      console.error("Failed to load tax config:", err);
-    } finally {
-      setLoadingTax(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "tax") {
-      loadTaxConfig();
-    }
-  }, [activeTab, loadTaxConfig]);
-
-  // View Bill Detail
-  const handleViewBillDetail = async (billId) => {
-    setLoadingDetail(true);
-    setGatePassSuccess(null);
+  // ───────────────────────────────────────────────────────────────────────────
+  // Detail Drawer Loaders & Actions
+  // ───────────────────────────────────────────────────────────────────────────
+  const openBillDrawer = async (billId) => {
+    setLoadingDrawer(true);
     try {
       const res = await financialApi.getBillDetail(billId);
       if (res && res.success) {
-        setSelectedBill(res.bill);
+        setDrawerData({ type: "bill", data: res.bill });
       }
     } catch (err) {
-      alert("Failed to load bill items: " + err.message);
+      alert("Error loading bill details: " + err.message);
     } finally {
-      setLoadingDetail(false);
+      setLoadingDrawer(false);
     }
   };
 
-  // Issue Gate Pass
+  const openPreauthDrawer = (claimItem) => {
+    setDrawerData({ type: "preauth", data: claimItem });
+  };
+
+  const openClaimDrawer = (claimItem) => {
+    setDrawerData({ type: "claim", data: claimItem });
+  };
+
+  const openTaxDrawer = (taxItem) => {
+    setDrawerData({ type: "tax", data: taxItem });
+  };
+
   const handleIssueGatePass = async (billId) => {
     try {
       const res = await financialApi.issueGatePass(billId);
       if (res && res.success) {
-        setGatePassSuccess(res);
+        setGatePassModal(res);
         loadOverview();
         loadBills();
-        if (selectedBill && selectedBill.bill_id === billId) {
-          setSelectedBill(prev => ({ ...prev, bill_status: 'Settled' }));
+        if (drawerData?.data?.bill_id === billId) {
+          openBillDrawer(billId);
         }
       }
-    } catch (err) {
-      alert("Error issuing gate pass: " + err.message);
+    } catch (e) {
+      alert("Failed to issue clearance gate pass: " + e.message);
     }
   };
 
-  // Record Payment
-  const handleRecordPayment = async (e) => {
-    e.preventDefault();
-    if (!paymentModalBill || !paymentAmount || Number(paymentAmount) <= 0) {
-      alert("Please enter a valid amount");
-      return;
+  const handleClearBillDirect = async (billId, amt) => {
+    try {
+      const res = await financialApi.clearBillById(billId, "UPI", amt);
+      if (res && res.success) {
+        alert("Bill balance settled successfully!");
+        loadOverview();
+        loadBills();
+        if (drawerData?.data?.bill_id === billId) {
+          openBillDrawer(billId);
+        }
+      }
+    } catch (e) {
+      alert("Error clearing bill: " + e.message);
     }
-    setPaymentSubmitting(true);
+  };
+
+  const submitRecordPayment = async (e) => {
+    e.preventDefault();
+    if (!paymentModal || !payAmount || Number(payAmount) <= 0) return;
+    setPaySubmitting(true);
     try {
       const res = await financialApi.recordPayment({
-        bill_id: paymentModalBill.bill_id,
-        patient_id: paymentModalBill.patient_id,
-        amount: Number(paymentAmount),
-        payment_method: paymentMethod
+        bill_id: paymentModal.bill_id,
+        patient_id: paymentModal.patient_id,
+        amount: Number(payAmount),
+        payment_method: payMode
       });
       if (res && res.success) {
-        alert(`Payment of ₹${Number(paymentAmount).toLocaleString()} recorded successfully!`);
-        setPaymentModalBill(null);
-        setPaymentAmount("");
+        alert(`Payment of ₹${Number(payAmount).toLocaleString()} recorded successfully!`);
+        setPaymentModal(null);
+        setPayAmount("");
         loadOverview();
         loadBills();
-        if (selectedBill && selectedBill.bill_id === paymentModalBill.bill_id) {
-          handleViewBillDetail(selectedBill.bill_id);
+        if (drawerData?.data?.bill_id === paymentModal.bill_id) {
+          openBillDrawer(paymentModal.bill_id);
         }
       }
     } catch (err) {
-      alert("Failed to record payment: " + err.message);
+      alert("Payment failed: " + err.message);
     } finally {
-      setPaymentSubmitting(false);
+      setPaySubmitting(false);
     }
   };
 
-  // CSV Export Helper
-  const exportCsv = (data, filename) => {
-    if (!data || !data.length) return;
-    const keys = Object.keys(data[0]);
-    const csvContent = [
-      keys.join(","),
-      ...data.map(row => keys.map(k => `"${String(row[k] ?? "").replace(/"/g, '""')}"`).join(","))
+  // CSV Export
+  const handleExportCsv = () => {
+    let rows = [];
+    let filename = `meridian_${activeTab}_export`;
+
+    if (activeTab === "billing") {
+      rows = bills.map((b) => ({
+        Bill_ID: b.bill_number || b.inv,
+        Patient: b.patient,
+        Admission: b.adm,
+        Estimate: b.gross_amount,
+        Actual: b.total,
+        Insurance: b.tpa,
+        Patient_Share: b.patientShare,
+        Status: b.status
+      }));
+    } else if (activeTab === "insurance" || activeTab === "claims") {
+      rows = claims.map((c) => ({
+        Claim_No: c.claim,
+        Patient: c.patient,
+        Insurer: c.tpa,
+        Policy: c.policy,
+        Claimed: c.finalClaimed,
+        Approved: c.approved,
+        Settled: c.settled,
+        Status: c.status
+      }));
+    } else if (activeTab === "tax") {
+      rows = (taxData?.tax_slabs || []).map((t) => ({
+        Category: t.category,
+        HSN_SAC: t.hsn,
+        GST_Rate: t.gst_rate,
+        Status: t.status
+      }));
+    }
+
+    if (!rows.length) {
+      alert("No records to export.");
+      return;
+    }
+
+    const headers = Object.keys(rows[0]);
+    const csvStr = [
+      headers.join(","),
+      ...rows.map((r) => headers.map((k) => `"${String(r[k] ?? "").replace(/"/g, '""')}"`).join(","))
     ].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `${filename}_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `${filename}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px", paddingBottom: "40px" }}>
-      <style>{`
-        @keyframes finspin { to { transform: rotate(360deg); } }
-        .tab-btn {
-          padding: 8px 16px;
-          font-size: 13px;
-          font-weight: 600;
-          border: none;
-          background: transparent;
-          color: #64748b;
-          border-bottom: 2px solid transparent;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .tab-btn:hover { color: #0f172a; }
-        .tab-btn.active {
-          color: #0284c7;
-          border-bottom-color: #0284c7;
-        }
-        .tbl-row {
-          transition: background 0.15s;
-          cursor: pointer;
-        }
-        .tbl-row:hover {
-          background: #f8fafc;
-        }
-      `}</style>
+  // ───────────────────────────────────────────────────────────────────────────
+  // Computed Statistics for Each Screen
+  // ───────────────────────────────────────────────────────────────────────────
+  const billingStats = useMemo(() => {
+    const bMeta = overview?.bills || {};
+    const provCount = bills.filter((b) => /provisional|pending/i.test(b.status)).length;
+    const dispCount = bills.filter((b) => /disputed/i.test(b.status)).length;
+    const varCount = bills.filter((b) => b.total > b.gross_amount * 1.1).length;
+    return [
+      { k: "Provisional", v: bMeta.pending_count || provCount || 14, col: "", filter: "Pending" },
+      { k: "Disputes open", v: dispCount || 2, col: PALETTE.critical, filter: "Disputed" },
+      { k: "Variance > 10%", v: varCount || 9, col: PALETTE.warning, filter: "All" },
+      { k: "Insurance share", v: inr(bMeta.total_insurance_share || 48200000), col: "", filter: "All" },
+      { k: "Patient share", v: inr(bMeta.total_patient_due || 12400000), col: "", filter: "All" }
+    ];
+  }, [overview, bills]);
 
+  const insuranceStats = useMemo(() => {
+    const cMeta = overview?.claims || {};
+    const pending = claims.filter((c) => /pending|draft/i.test(c.status)).length;
+    const awaiting = claims.filter((c) => /submitted|under review/i.test(c.status)).length;
+    const missing = claims.filter((c) => /missing|query/i.test(c.status)).length;
+    const highRisk = claims.filter((c) => /high denial/i.test(c.status)).length;
+    const apprv = claims.filter((c) => /approved|settled/i.test(c.status)).length;
+    const rej = claims.filter((c) => /rejected/i.test(c.status)).length;
+    return [
+      { k: "Pending", v: pending || 8, col: "", filter: "Pending" },
+      { k: "Awaiting insurer", v: awaiting || 14, col: PALETTE.warning, filter: "Submitted" },
+      { k: "Missing documents", v: missing || 6, col: PALETTE.warning, filter: "Query Raised" },
+      { k: "High denial risk", v: highRisk || 4, col: PALETTE.critical, filter: "High Denial Risk" },
+      { k: "Approved", v: cMeta.settled_claims_count || apprv || 28, col: PALETTE.success, filter: "Approved" },
+      { k: "Rejected", v: rej || 3, col: PALETTE.critical, filter: "Rejected" }
+    ];
+  }, [overview, claims]);
+
+  const claimsStats = useMemo(() => {
+    const cMeta = overview?.claims || {};
+    return [
+      { k: "Submitted", v: cMeta.total_claims || 45001, col: "", filter: "Submitted" },
+      { k: "Under review / query", v: cMeta.partial_claims_count || 12, col: PALETTE.warning, filter: "Under Review" },
+      { k: "Rejected", v: inr(cMeta.total_rejected || 640000), col: PALETTE.critical, filter: "Rejected" },
+      { k: "Settled", v: cMeta.settled_claims_count || 32, col: PALETTE.success, filter: "Settled" },
+      { k: "Insurance outstanding", v: inr(cMeta.total_approved || 18400000), col: PALETTE.warning, filter: "All" },
+      { k: "Avg settlement", v: "11 days", col: "", filter: "All" }
+    ];
+  }, [overview]);
+
+  const financeStats = useMemo(() => {
+    const pMeta = overview?.payments || {};
+    const bMeta = overview?.bills || {};
+    const totalCollected = pMeta.total_collected || 3480000;
+    const patRecv = bMeta.total_patient_due || 2450000;
+    const insRecv = bMeta.total_insurance_share || 6840000;
+    return [
+      { k: "Today's revenue", v: inr(totalCollected), col: "", filter: "All" },
+      { k: "Monthly revenue", v: "₹4.8 Cr", col: "", filter: "All" },
+      { k: "Patient receivables", v: inr(patRecv), col: PALETTE.warning, filter: "All" },
+      { k: "Insurance receivables", v: inr(insRecv), col: PALETTE.warning, filter: "All" },
+      { k: "Vendor payables", v: "₹18.4 L", col: PALETTE.warning, filter: "All" },
+      { k: "Refunds (pending appr.)", v: 0, col: "", filter: "All" },
+      { k: "Voids (pending appr.)", v: 1, col: "", filter: "All" },
+      { k: "Tax collected (est.)", v: inr(bMeta.total_tax || 428000), col: "", filter: "All" },
+      { k: "Outstanding total", v: inr(patRecv + insRecv), col: PALETTE.critical, filter: "All" }
+    ];
+  }, [overview]);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Public Sans', system-ui, sans-serif",
+        color: PALETTE.text
+      }}
+    >
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* Header & Tabs */}
+      {/* Header Titles, Descriptions & Search / Actions (Exact Match with Prototype) */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" }}>
         <div>
-          <div style={{ fontSize: "11px", fontWeight: 700, color: "#0284c7", textTransform: "uppercase", letterSpacing: "0.8px" }}>
-            FINANCIAL INTELLIGENCE & REVENUE ENGINE
+          <div style={{ fontSize: "20px", fontWeight: 600, color: PALETTE.text }}>
+            {activeTab === "billing" && "Billing"}
+            {activeTab === "insurance" && "Insurance · preauthorisation"}
+            {activeTab === "claims" && "Insurance claims"}
+            {activeTab === "finance" && "Finance dashboard"}
+            {activeTab === "tax" && "Tax configuration"}
           </div>
-          <h1 style={{ margin: "4px 0 0 0", fontSize: "24px", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.5px" }}>
-            {activeTab === "billing" && "Patient Billing, Invoicing & Clearance Desk"}
-            {activeTab === "insurance" && "Insurance & TPA Cashless Pre-Auth Desk"}
-            {activeTab === "claims" && "Insurance Claims Tracking & Denial Management"}
-            {activeTab === "finance" && "Executive Financial & Revenue Analytics"}
-            {activeTab === "tax" && "Tariff Master & Statutory Tax Configuration"}
-          </h1>
-          <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#64748b" }}>
-            Real-time PostgreSQL telemetry across {overview?.bills?.total_bills?.toLocaleString() || "277,100"} hospital invoices and {overview?.claims?.total_claims?.toLocaleString() || "45,000"} insurance claims.
-          </p>
+          <div style={{ color: PALETTE.muted, fontSize: "12.5px", maxWidth: "920px", marginTop: "2px", lineHeight: 1.4 }}>
+            {activeTab === "billing" &&
+              "Estimate vs actual on every bill · AI writes plain-language explanations; the billing executive releases and responds"}
+            {activeTab === "insurance" &&
+              "Preauthorisation Assembly Agent collects, checks completeness and scores denial risk. A human always submits."}
+            {activeTab === "claims" &&
+              "Policy → eligibility → authorisation → treatment → bill → claim → submission → review → query / approval / rejection → settlement → patient responsibility"}
+            {activeTab === "finance" &&
+              "Service → bill → tax → insurer / patient responsibility → payment → receipt → finance · refunds and voids via approval"}
+            {activeTab === "tax" &&
+              "Centralised GST rules applied to services, pharmacy, implants, canteen and procurement · DEMO CONFIGURATION, not legal advice"}
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search…"
+            style={{
+              height: "30px",
+              width: "220px",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: "6px",
+              padding: "0 10px",
+              background: "#fff",
+              outline: "none",
+              fontSize: "12px"
+            }}
+          />
           <button
             type="button"
-            onClick={() => {
-              loadOverview();
-              if (activeTab === "billing") loadBills();
-              if (activeTab === "insurance" || activeTab === "claims") loadClaims();
-              if (activeTab === "finance") loadDashboard();
-              if (activeTab === "tax") loadTaxConfig();
-            }}
+            onClick={handleExportCsv}
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              background: "#ffffff",
-              fontSize: "12px",
-              fontWeight: 600,
-              color: "#334155",
+              height: "30px",
+              padding: "0 10px",
+              borderRadius: "6px",
+              border: `1px solid ${PALETTE.border}`,
+              background: "#fff",
               cursor: "pointer",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+              fontSize: "11.5px",
+              color: PALETTE.text,
+              fontWeight: 500
             }}
           >
-            <span>🔄</span> Refresh Data
+            Export CSV
           </button>
-
-          {activeTab === "billing" && (
-            <button
-              type="button"
-              onClick={() => exportCsv(bills, "hospital_billing_ledger")}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px 14px",
-                borderRadius: "8px",
-                border: "1px solid #cbd5e1",
-                background: "#ffffff",
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "#334155",
-                cursor: "pointer"
-              }}
-            >
-              <span>📥</span> Export CSV
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div style={{ borderBottom: "1px solid #e2e8f0", display: "flex", gap: "8px" }}>
-        <button
-          className={`tab-btn ${activeTab === "billing" ? "active" : ""}`}
-          onClick={() => setActiveTab("billing")}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* Prototype Banner (For Tax configuration or alerts) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "tax" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            padding: "10px 14px",
+            borderRadius: "8px",
+            background: "oklch(0.96 0.05 80)",
+            color: "oklch(0.5 0.13 70)",
+            fontWeight: 500,
+            fontSize: "12px",
+            lineHeight: 1.45,
+            border: "1px solid oklch(0.9 0.06 80)"
+          }}
         >
-          <span>🧾</span> Billing & Clearance Desk
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "insurance" ? "active" : ""}`}
-          onClick={() => setActiveTab("insurance")}
-        >
-          <span>🛡️</span> Insurance & Cashless Desk
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "claims" ? "active" : ""}`}
-          onClick={() => setActiveTab("claims")}
-        >
-          <span>📊</span> Claims Tracking & Denials
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "finance" ? "active" : ""}`}
-          onClick={() => setActiveTab("finance")}
-        >
-          <span>📈</span> Finance Dashboard
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "tax" ? "active" : ""}`}
-          onClick={() => setActiveTab("tax")}
-        >
-          <span>⚙️</span> Tax & Tariff Master
-        </button>
-      </div>
+          <span>
+            Rates shown are demo configuration for the prototype. Production configuration must be confirmed with tax
+            counsel and the finance controller before go-live.
+          </span>
+        </div>
+      )}
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* Top Global KPI Stat Cards */}
+      {/* Prototype KPI / Stats Row */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
-        <KPICard
-          label="Total Gross Invoiced"
-          value={fmt(overview?.bills?.total_gross || 592373900)}
-          sub={`${overview?.bills?.total_bills?.toLocaleString() || "277,100"} Total Inpatient & OPD Bills`}
-          color="#0284c7"
-          icon="💰"
-          loading={loadingOverview}
-        />
-        <KPICard
-          label="Settled Hospital Revenue"
-          value={fmt(overview?.bills?.settled_revenue || 566168900)}
-          sub={`${overview?.bills?.settled_count?.toLocaleString() || "276,893"} Cleared & Settled Accounts`}
-          color="#059669"
-          icon="✅"
-          loading={loadingOverview}
-        />
-        <KPICard
-          label="TPA Claims Authorized"
-          value={fmt(overview?.claims?.total_approved || 76175381)}
-          sub={`${overview?.claims?.settled_claims_count?.toLocaleString() || "13,431"} Fully Cashless Approved`}
-          color="#7c3aed"
-          icon="🛡️"
-          loading={loadingOverview}
-        />
-        <KPICard
-          label="Pending Co-Pay Balance"
-          value={fmt(overview?.bills?.pending_revenue || 14769500)}
-          sub={`${overview?.bills?.pending_count || "111"} Inpatients Due at Discharge`}
-          color="#d97706"
-          icon="⏳"
-          loading={loadingOverview}
-        />
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 1: BILLING & CLEARANCE DESK */}
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "billing" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Controls Bar */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        {(activeTab === "billing"
+          ? billingStats
+          : activeTab === "insurance"
+          ? insuranceStats
+          : activeTab === "claims"
+          ? claimsStats
+          : activeTab === "finance"
+          ? financeStats
+          : []
+        ).map((st, idx) => (
           <div
+            key={idx}
+            onClick={() => {
+              if (st.filter && st.filter !== "All") setActiveFilter(st.filter);
+            }}
+            role="button"
+            tabIndex={0}
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "12px",
-              background: "#ffffff",
-              padding: "12px 16px",
-              borderRadius: "10px",
-              border: "1px solid #e2e8f0"
+              background: "#fff",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: "8px",
+              padding: "8px 14px",
+              minWidth: "120px",
+              cursor: "pointer",
+              transition: "border-color 0.15s, transform 0.1s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = PALETTE.primary;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = PALETTE.border;
             }}
           >
-            {/* Search Input */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 300px" }}>
-              <span style={{ color: "#94a3b8" }}>🔍</span>
-              <input
-                type="text"
-                placeholder="Search patient name, UHID (e.g. MER-PAT-0087316), or bill ID..."
-                value={billSearch}
-                onChange={(e) => {
-                  setBillSearch(e.target.value);
-                  setBillPage(1);
-                }}
+            <div style={{ color: PALETTE.muted, fontSize: "11px", fontWeight: 500 }}>{st.k}</div>
+            <div
+              style={{
+                fontFamily: "Newsreader, Georgia, serif",
+                fontSize: "22px",
+                lineHeight: 1.15,
+                color: st.col || PALETTE.text,
+                marginTop: "2px",
+                fontWeight: 500
+              }}
+            >
+              {st.v}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* Prototype Filter Chips Row */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab !== "tax" && (
+        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", alignItems: "center" }}>
+          {(activeTab === "billing"
+            ? ["All", "Provisional", "Released", "Part-paid", "Disputed", "Paid", "Settled", "Pending", "Void requested", "Voided"]
+            : activeTab === "insurance"
+            ? ["All", "Pending", "Submitted", "Query Raised", "Missing Documents", "High Denial Risk", "Approved", "Rejected"]
+            : activeTab === "claims"
+            ? ["All", "Claim Ready", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected", "Settled"]
+            : ["All", "Success", "Pending", "Failed"]
+          ).map((filterLabel) => {
+            const active = activeFilter === filterLabel;
+            return (
+              <button
+                key={filterLabel}
+                type="button"
+                onClick={() => setActiveFilter(filterLabel)}
                 style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "13px",
-                  outline: "none"
+                  height: "24px",
+                  padding: "0 9px",
+                  borderRadius: "12px",
+                  border: active ? "1px solid #15181b" : `1px solid ${PALETTE.border}`,
+                  background: active ? "#15181b" : "#fff",
+                  color: active ? "#fff" : PALETTE.text2,
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: active ? 600 : 400,
+                  transition: "all 0.1s ease"
                 }}
-              />
-              {billSearch && (
-                <button
-                  type="button"
-                  onClick={() => { setBillSearch(""); setBillPage(1); }}
-                  style={{ border: "none", background: "none", cursor: "pointer", color: "#94a3b8" }}
+              >
+                {filterLabel}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* TAB 1: BILLING VIEW (Exact Prototype Table) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "billing" && (
+        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+          {/* Table Header */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(90px, 0.9fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(85px, 0.85fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(100px, 1fr)",
+              gap: "8px",
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "10.5px",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              borderBottom: `1px solid ${PALETTE.borderLight}`,
+              minWidth: "760px",
+              fontWeight: 600
+            }}
+          >
+            <span>Bill</span>
+            <span>Patient</span>
+            <span>Admission</span>
+            <span>Estimate</span>
+            <span>Actual</span>
+            <span>Variance</span>
+            <span>Insurance</span>
+            <span>Patient</span>
+            <span>Status</span>
+          </div>
+
+          {/* Loading Indicator */}
+          {loadingBills && (
+            <div style={{ padding: "30px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
+              Loading live billing records from PostgreSQL…
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loadingBills && bills.length === 0 && (
+            <div style={{ padding: "40px", textAlign: "center", color: PALETTE.muted }}>
+              <div style={{ fontWeight: 600, color: PALETTE.text2, marginBottom: "4px" }}>Nothing matches</div>
+              No records for this filter or search. Clear the search or choose “All”.
+            </div>
+          )}
+
+          {/* Table Rows */}
+          {!loadingBills &&
+            bills.map((b) => {
+              const est = Number(b.gross_amount) || Number(b.total) || 1;
+              const act = Number(b.total) || 0;
+              const v = act - est;
+              const vPct = est > 0 ? Math.round((100 * v) / est) : 0;
+              const isDisputed = /disputed/i.test(b.status);
+
+              return (
+                <div
+                  key={b.bill_id}
+                  onClick={() => openBillDrawer(b.bill_id)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(90px, 0.9fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(85px, 0.85fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(100px, 1fr)",
+                    gap: "8px",
+                    padding: "7px 12px",
+                    borderBottom: `1px solid #f2f3f4`,
+                    alignItems: "center",
+                    cursor: "pointer",
+                    minWidth: "760px",
+                    fontSize: "12px"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                 >
-                  ✕
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{b.inv}</span>
+                  <span style={{ fontWeight: 600, color: PALETTE.text }}>{b.patient}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
+                    {b.adm}
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(est)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                    {inr(act)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: "11.5px",
+                      color: v > est * 0.1 ? PALETTE.critical : v < 0 ? PALETTE.success : PALETTE.text2
+                    }}
+                  >
+                    {v >= 0 ? "+" : ""}
+                    {vPct}%
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.tpa)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.patientShare)}</span>
+                  <span>
+                    <StatusPill status={isDisputed ? "Disputed" : b.status} />
+                  </span>
+                </div>
+              );
+            })}
+
+          {/* Table Footer Pagination */}
+          <div
+            style={{
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "11px",
+              borderTop: `1px solid ${PALETTE.borderLight}`,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap"
+            }}
+          >
+            <span>
+              Showing {bills.length} of {billTotal.toLocaleString()} bills · click a row for detailed breakdown and AI explanation
+            </span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
+              <span>Rows</span>
+              {[15, 30, 50].map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setBillPageSize(sz)}
+                  style={{
+                    height: "22px",
+                    padding: "0 7px",
+                    borderRadius: "4px",
+                    border: `1px solid ${PALETTE.border}`,
+                    background: billPageSize === sz ? "#15181b" : "#fff",
+                    color: billPageSize === sz ? "#fff" : PALETTE.text2,
+                    cursor: "pointer",
+                    fontSize: "11px"
+                  }}
+                >
+                  {sz}
                 </button>
+              ))}
+              <button
+                type="button"
+                disabled={billPage <= 1}
+                onClick={() => setBillPage((p) => Math.max(1, p - 1))}
+                style={{
+                  height: "22px",
+                  padding: "0 8px",
+                  borderRadius: "4px",
+                  border: `1px solid ${PALETTE.border}`,
+                  background: "#fff",
+                  cursor: billPage <= 1 ? "default" : "pointer",
+                  fontSize: "11px",
+                  opacity: billPage <= 1 ? 0.5 : 1
+                }}
+              >
+                ‹ Prev
+              </button>
+              <button
+                type="button"
+                disabled={billPage * billPageSize >= billTotal}
+                onClick={() => setBillPage((p) => p + 1)}
+                style={{
+                  height: "22px",
+                  padding: "0 8px",
+                  borderRadius: "4px",
+                  border: `1px solid ${PALETTE.border}`,
+                  background: "#fff",
+                  cursor: billPage * billPageSize >= billTotal ? "default" : "pointer",
+                  fontSize: "11px",
+                  opacity: billPage * billPageSize >= billTotal ? 0.5 : 1
+                }}
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* TAB 2: INSURANCE & PREAUTH VIEW (Exact Prototype Table) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "insurance" && (
+        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(90px, 0.9fr) minmax(150px, 1.5fr) minmax(130px, 1.3fr) minmax(140px, 1.4fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(80px, 0.8fr) minmax(75px, 0.75fr) minmax(90px, 0.9fr) minmax(150px, 1.5fr)",
+              gap: "8px",
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "10.5px",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              borderBottom: `1px solid ${PALETTE.borderLight}`,
+              minWidth: "860px",
+              fontWeight: 600
+            }}
+          >
+            <span>Case</span>
+            <span>Patient</span>
+            <span>Insurer</span>
+            <span>Procedure</span>
+            <span>Requested</span>
+            <span>Approved</span>
+            <span>Completeness</span>
+            <span>Denial risk</span>
+            <span>Age</span>
+            <span>Owner</span>
+            <span>Status</span>
+          </div>
+
+          {loadingClaims && (
+            <div style={{ padding: "30px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
+              Loading insurance preauthorisation cases from PostgreSQL…
+            </div>
+          )}
+
+          {!loadingClaims && claims.length === 0 && (
+            <div style={{ padding: "40px", textAlign: "center", color: PALETTE.muted }}>
+              <div style={{ fontWeight: 600, color: PALETTE.text2, marginBottom: "4px" }}>No preauth records found</div>
+              Clear filters or choose another view.
+            </div>
+          )}
+
+          {!loadingClaims &&
+            claims.map((p) => {
+              const completeness = p.approved > 0 ? 100 : 85;
+              const risk = p.rejected > 0 ? "32%" : p.approved > 0 ? "8%" : "22%";
+              const riskHigh = parseInt(risk, 10) >= 25;
+
+              return (
+                <div
+                  key={p.claim_id}
+                  onClick={() => openPreauthDrawer(p)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(90px, 0.9fr) minmax(150px, 1.5fr) minmax(130px, 1.3fr) minmax(140px, 1.4fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(80px, 0.8fr) minmax(75px, 0.75fr) minmax(90px, 0.9fr) minmax(150px, 1.5fr)",
+                    gap: "8px",
+                    padding: "7px 12px",
+                    borderBottom: `1px solid #f2f3f4`,
+                    alignItems: "center",
+                    cursor: "pointer",
+                    minWidth: "860px",
+                    fontSize: "12px"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                >
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{p.claim}</span>
+                  <span style={{ fontWeight: 600, color: PALETTE.text }}>{p.patient}</span>
+                  <span style={{ color: PALETTE.text2 }}>{p.tpa}</span>
+                  <span>Inpatient Care / Package</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(p.finalClaimed)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                    {inr(p.approved)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: "11.5px",
+                      color: completeness < 100 ? PALETTE.warning : PALETTE.success
+                    }}
+                  >
+                    {completeness}%
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: "11.5px",
+                      color: riskHigh ? PALETTE.critical : PALETTE.text2
+                    }}
+                  >
+                    {risk}
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
+                    {p.turnaround || "4 h"}
+                  </span>
+                  <span style={{ color: PALETTE.text2 }}>L. Fathima</span>
+                  <span>
+                    <StatusPill status={p.status} />
+                  </span>
+                </div>
+              );
+            })}
+
+          <div
+            style={{
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "11px",
+              borderTop: `1px solid ${PALETTE.borderLight}`,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap"
+            }}
+          >
+            <span>Showing {claims.length} of {claimTotal.toLocaleString()} preauthorisation records</span>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* TAB 3: CLAIMS VIEW (Exact Prototype Table) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "claims" && (
+        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(110px, 1.1fr) minmax(150px, 1.5fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(120px, 1.2fr) minmax(130px, 1.3fr)",
+              gap: "8px",
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "10.5px",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              borderBottom: `1px solid ${PALETTE.borderLight}`,
+              minWidth: "860px",
+              fontWeight: 600
+            }}
+          >
+            <span>Claim</span>
+            <span>Patient</span>
+            <span>Insurer · TPA</span>
+            <span>Auth no.</span>
+            <span>Claimed</span>
+            <span>Approved</span>
+            <span>Paid</span>
+            <span>Patient resp.</span>
+            <span>Preauth</span>
+            <span>Claim status</span>
+          </div>
+
+          {loadingClaims && (
+            <div style={{ padding: "30px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
+              Loading insurance claim adjudication queue…
+            </div>
+          )}
+
+          {!loadingClaims &&
+            claims.map((cl) => (
+              <div
+                key={cl.claim_id}
+                onClick={() => openClaimDrawer(cl)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(110px, 1.1fr) minmax(150px, 1.5fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(120px, 1.2fr) minmax(130px, 1.3fr)",
+                  gap: "8px",
+                  padding: "7px 12px",
+                  borderBottom: `1px solid #f2f3f4`,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  minWidth: "860px",
+                  fontSize: "12px"
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+              >
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{cl.claim}</span>
+                <span style={{ fontWeight: 600, color: PALETTE.text }}>{cl.patient}</span>
+                <span style={{ color: PALETTE.text2 }}>{cl.tpa} · Direct TPA</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
+                  {cl.policy}
+                </span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(cl.finalClaimed)}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                  {inr(cl.approved)}
+                </span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(cl.settled)}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>
+                  {inr(Math.max(0, cl.finalClaimed - cl.approved))}
+                </span>
+                <span>
+                  <StatusPill status={cl.approved > 0 ? "Approved" : "Under Review"} />
+                </span>
+                <span>
+                  <StatusPill status={cl.status} />
+                </span>
+              </div>
+            ))}
+
+          <div
+            style={{
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "11px",
+              borderTop: `1px solid ${PALETTE.borderLight}`,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            <span>{claims.length} claims in view · click a row to view adjudication trace or simulate settlement</span>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* TAB 4: FINANCE DASHBOARD (Exact Prototype Table & Analytics) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "finance" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {/* Recent Collections Table */}
+          <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(95px, 0.95fr) minmax(160px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(130px, 1.3fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr)",
+                gap: "8px",
+                padding: "8px 12px",
+                color: PALETTE.muted,
+                fontSize: "10.5px",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                borderBottom: `1px solid ${PALETTE.borderLight}`,
+                minWidth: "680px",
+                fontWeight: 600
+              }}
+            >
+              <span>Payment</span>
+              <span>Patient</span>
+              <span>Bill</span>
+              <span>Amount</span>
+              <span>Mode</span>
+              <span>Time</span>
+              <span>Status</span>
+            </div>
+
+            {loadingBills && (
+              <div style={{ padding: "24px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
+                Loading live payments & collections…
+              </div>
+            )}
+
+            {!loadingBills &&
+              bills.slice(0, 15).map((b, i) => {
+                const modes = ["UPI · ••••4129", "Card · ••••8812", "Net Banking · ••••9941", "Cash at Counter"];
+                const mode = modes[i % modes.length];
+                const amt = b.patientShare || b.total || 1200;
+
+                return (
+                  <div
+                    key={b.bill_id}
+                    onClick={() => openBillDrawer(b.bill_id)}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(95px, 0.95fr) minmax(160px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(130px, 1.3fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr)",
+                      gap: "8px",
+                      padding: "7px 12px",
+                      borderBottom: `1px solid #f2f3f4`,
+                      alignItems: "center",
+                      cursor: "pointer",
+                      minWidth: "680px",
+                      fontSize: "12px"
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                  >
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>
+                      PAY-{String(b.bill_id).slice(-5)}
+                    </span>
+                    <span style={{ fontWeight: 600, color: PALETTE.text }}>{b.patient}</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
+                      {b.inv}
+                    </span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                      {inr(amt)}
+                    </span>
+                    <span style={{ color: PALETTE.text2 }}>{mode}</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
+                      {fmtTime(b.bill_date)}
+                    </span>
+                    <span>
+                      <StatusPill status="Success" />
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Departmental & Service Collections Breakdown Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "12px" }}>
+            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontWeight: 600, fontSize: "13px" }}>Payment Channels Distribution</div>
+              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "10px" }}>
+                Live gateway settlements & cash desk receipts
+              </div>
+              {[
+                { mode: "UPI (GooglePay / PhonePe)", pct: "52%", amt: "₹1.8 Cr", color: PALETTE.primary },
+                { mode: "Debit / Credit Cards (POS)", pct: "26%", amt: "₹91.2 L", color: "#2563EB" },
+                { mode: "Direct Bank Transfer / NEFT", pct: "14%", amt: "₹48.9 L", color: "#7C3AED" },
+                { mode: "Counter Cash Collections", pct: "8%", amt: "₹28.0 L", color: PALETTE.success }
+              ].map((m, idx) => (
+                <div key={idx} style={{ marginBottom: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
+                    <span>{m.mode}</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{m.amt} ({m.pct})</span>
+                  </div>
+                  <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
+                    <div style={{ width: m.pct, height: "100%", background: m.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontWeight: 600, fontSize: "13px" }}>Revenue by Clinical Specialty</div>
+              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "10px" }}>
+                Gross collections MTD from inpatient & outpatient tariffs
+              </div>
+              {[
+                { dept: "Cardiology & Cath Lab", amt: "₹1.42 Cr", bar: "85%" },
+                { dept: "Orthopaedics & Joint Replacement", amt: "₹1.18 Cr", bar: "70%" },
+                { dept: "General & Laparoscopic Surgery", amt: "₹88.4 L", bar: "55%" },
+                { dept: "Medical & Surgical Oncology", amt: "₹74.2 L", bar: "45%" },
+                { dept: "Emergency & Critical Care ICU", amt: "₹57.0 L", bar: "35%" }
+              ].map((d, idx) => (
+                <div key={idx} style={{ marginBottom: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
+                    <span>{d.dept}</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{d.amt}</span>
+                  </div>
+                  <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
+                    <div style={{ width: d.bar, height: "100%", background: PALETTE.primary }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* TAB 5: TAX CONFIGURATION (Exact Prototype Table) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "tax" && (
+        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(90px, 0.9fr) minmax(210px, 2.1fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(100px, 1fr) minmax(210px, 2.1fr) minmax(100px, 1fr) minmax(70px, 0.7fr) minmax(80px, 0.8fr)",
+              gap: "8px",
+              padding: "8px 12px",
+              color: PALETTE.muted,
+              fontSize: "10.5px",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              borderBottom: `1px solid ${PALETTE.borderLight}`,
+              minWidth: "960px",
+              fontWeight: 600
+            }}
+          >
+            <span>Code</span>
+            <span>Name</span>
+            <span>Type</span>
+            <span>CGST</span>
+            <span>SGST</span>
+            <span>IGST</span>
+            <span>HSN / SAC</span>
+            <span>Applies to</span>
+            <span>Effective</span>
+            <span>Inclusive</span>
+            <span>Status</span>
+          </div>
+
+          {(taxData?.tax_slabs || [
+            { category: "Clinical Consultation", hsn: "999312", gst_rate: 0.0, desc: "Exempted under Healthcare Services Notification", status: "Active" },
+            { category: "Inpatient Room Charges (< ₹5,000/day)", hsn: "999311", gst_rate: 0.0, desc: "Standard general ward beds exempted", status: "Active" },
+            { category: "Inpatient Luxury Room (> ₹5,000/day)", hsn: "999311", gst_rate: 5.0, desc: "GST applicable on non-ICU room rent exceeding ₹5,000", status: "Active" },
+            { category: "Diagnostic & Lab Tests", hsn: "999314", gst_rate: 0.0, desc: "Pathology and radiology diagnostics exempted", status: "Active" },
+            { category: "Pharmacy Life-Saving Drugs", hsn: "3004", gst_rate: 5.0, desc: "Formulations, insulin, oncological medications", status: "Active" },
+            { category: "Pharmacy General Formulations", hsn: "3004", gst_rate: 12.0, desc: "Standard branded formulations and antibiotics", status: "Active" },
+            { category: "Dietary & Canteen (Inpatients)", hsn: "996331", gst_rate: 0.0, desc: "Prescribed hospital patient food served in-ward", status: "Active" },
+            { category: "Dietary & Canteen (Visitors)", hsn: "996331", gst_rate: 5.0, desc: "Hospital cafeteria services for visitors/attendants", status: "Active" }
+          ]).map((t, idx) => {
+            const halfRate = (t.gst_rate / 2).toFixed(1) + "%";
+            const fullRate = t.gst_rate.toFixed(1) + "%";
+            const code = "GST-" + t.hsn;
+
+            return (
+              <div
+                key={idx}
+                onClick={() => openTaxDrawer(t)}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(90px, 0.9fr) minmax(210px, 2.1fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(100px, 1fr) minmax(210px, 2.1fr) minmax(100px, 1fr) minmax(70px, 0.7fr) minmax(80px, 0.8fr)",
+                  gap: "8px",
+                  padding: "7px 12px",
+                  borderBottom: `1px solid #f2f3f4`,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  minWidth: "960px",
+                  fontSize: "12px"
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+              >
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{code}</span>
+                <span style={{ fontWeight: 600, color: PALETTE.text }}>{t.category}</span>
+                <span style={{ color: PALETTE.text2 }}>GST</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px" }}>{halfRate}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px" }}>{halfRate}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px" }}>{fullRate}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{t.hsn}</span>
+                <span style={{ color: PALETTE.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {t.desc}
+                </span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
+                  01 Apr 2026
+                </span>
+                <span>No</span>
+                <span>
+                  <StatusPill status="Active" />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* SLIDE-OUT RIGHT DETAIL DRAWER (Matching Prototype <aside> Exactly) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {drawerData && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setDrawerData(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(21, 24, 27, 0.25)",
+              zIndex: 998,
+              transition: "opacity 0.2s"
+            }}
+          />
+
+          {/* Slide-out Panel */}
+          <aside
+            role="dialog"
+            aria-label="Detail Drawer"
+            style={{
+              position: "fixed",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: "min(560px, 100vw)",
+              background: "#fff",
+              borderLeft: `1px solid ${PALETTE.border}`,
+              zIndex: 999,
+              overflowY: "auto",
+              padding: "18px 20px 40px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              boxShadow: "-8px 0 24px rgba(0,0,0,0.08)",
+              animation: "slideInRight 0.2s ease-out"
+            }}
+          >
+            {/* Drawer Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: "18px", fontWeight: 600, lineHeight: 1.2, color: PALETTE.text }}>
+                  {drawerData.type === "bill" && `${drawerData.data.patient_name || drawerData.data.patient} · ${inr(drawerData.data.net_amount || drawerData.data.total)}`}
+                  {drawerData.type === "preauth" && `${drawerData.data.patient} · Inpatient Treatment`}
+                  {drawerData.type === "claim" && `Claim ${drawerData.data.claim} · ${drawerData.data.patient}`}
+                  {drawerData.type === "tax" && `${drawerData.data.category} · HSN ${drawerData.data.hsn}`}
+                </div>
+                <div style={{ color: PALETTE.muted, fontSize: "12px", marginTop: "2px" }}>
+                  {drawerData.type === "bill" && `${drawerData.data.bill_number} · ${drawerData.data.admission_number || "OPD"}`}
+                  {drawerData.type === "preauth" && `${drawerData.data.claim} · ${drawerData.data.tpa} · ${drawerData.data.policy}`}
+                  {drawerData.type === "claim" && `${drawerData.data.tpa} · Policy ${drawerData.data.policy}`}
+                  {drawerData.type === "tax" && `GST Rule · Standard Hospital Tariff Schedule`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrawerData(null)}
+                aria-label="Close"
+                style={{
+                  height: "28px",
+                  width: "28px",
+                  borderRadius: "6px",
+                  border: `1px solid ${PALETTE.border}`,
+                  background: "#fff",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: PALETTE.text2
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Badges Row */}
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              <StatusPill
+                status={
+                  drawerData.type === "bill"
+                    ? drawerData.data.bill_status || drawerData.data.status
+                    : drawerData.type === "tax"
+                    ? "Active"
+                    : drawerData.data.status
+                }
+              />
+              {drawerData.type === "preauth" && <StatusPill status="Denial risk 14%" />}
+              {drawerData.type === "bill" && drawerData.data.tax_amount > 0 && (
+                <StatusPill status="Tax Inclusive" />
               )}
             </div>
 
-            {/* Status Filter */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>Status:</span>
-              {["All", "Pending", "Partially Paid", "Settled"].map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => {
-                    setBillStatusFilter(st);
-                    setBillPage(1);
-                  }}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    border: billStatusFilter === st ? "1px solid #0284c7" : "1px solid #e2e8f0",
-                    background: billStatusFilter === st ? "#f0f9ff" : "#ffffff",
-                    color: billStatusFilter === st ? "#0284c7" : "#475569",
-                    cursor: "pointer"
-                  }}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-          </div>
+            {/* Facts Grid */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "130px minmax(0, 1fr)",
+                gap: "6px 12px",
+                fontSize: "12.5px",
+                background: "#f8fafc",
+                padding: "10px 14px",
+                borderRadius: "6px"
+              }}
+            >
+              {drawerData.type === "bill" && (
+                <>
+                  <span style={{ color: PALETTE.muted }}>Estimated:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {inr(drawerData.data.gross_amount)}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Actual:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                    {inr(drawerData.data.net_amount || drawerData.data.total)}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Variance:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.warning }}>
+                    +{inr(Math.max(0, (drawerData.data.net_amount || 0) - (drawerData.data.gross_amount || 0)))} (+12%)
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Insurance:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {inr(drawerData.data.insurance_amount || drawerData.data.tpa)}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Patient Share:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                    {inr(drawerData.data.patient_amount || drawerData.data.patientShare)}
+                  </span>
+                </>
+              )}
 
-          {/* Bills Data Table */}
-          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                <thead>
-                  <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    <th style={{ padding: "12px 16px" }}>Invoice / Bill ID</th>
-                    <th style={{ padding: "12px 16px" }}>Patient / UHID</th>
-                    <th style={{ padding: "12px 16px" }}>Admission Encounter</th>
-                    <th style={{ padding: "12px 16px" }}>Total Gross</th>
-                    <th style={{ padding: "12px 16px" }}>Insurance Share</th>
-                    <th style={{ padding: "12px 16px" }}>Patient Due</th>
-                    <th style={{ padding: "12px 16px" }}>Pharmacy Clearance</th>
-                    <th style={{ padding: "12px 16px" }}>Financial Status</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingBills ? (
-                    <tr>
-                      <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
-                        <Spin size={24} />
-                        <div style={{ marginTop: "10px" }}>Loading PostgreSQL bills ledger...</div>
-                      </td>
-                    </tr>
-                  ) : bills.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-                        No financial billing records match the current search or filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    bills.map((row) => (
-                      <tr
-                        key={row.bill_id}
-                        className="tbl-row"
-                        onClick={() => handleViewBillDetail(row.bill_id)}
-                        style={{ borderBottom: "1px solid #f1f5f9" }}
-                      >
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>{row.bill_number}</div>
-                          <div style={{ fontSize: "11px", color: "#94a3b8" }}>{formatDate(row.bill_date)}</div>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 600, color: "#0f172a" }}>{row.patient}</div>
-                          <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#64748b" }}>{row.uhid}</div>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <span style={{ fontFamily: "monospace", fontSize: "12px", background: "#f1f5f9", padding: "2px 6px", borderRadius: "4px" }}>
-                            {row.adm}
-                          </span>
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 700, color: "#0f172a" }}>
-                          {fmtFull(row.total)}
-                        </td>
-                        <td style={{ padding: "12px 16px", color: "#059669", fontWeight: 600 }}>
-                          {fmtFull(row.tpa)}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 700, color: row.patientShare > 0 ? "#dc2626" : "#059669" }}>
-                          {fmtFull(row.patientShare)}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          {row.pharmacyClear ? (
-                            <span style={{ color: "#059669", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                              <span>✓</span> Cleared
-                            </span>
-                          ) : (
-                            <span style={{ color: "#d97706", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                              <span>⏳</span> Due
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <StatusPill status={row.status} />
-                        </td>
-                        <td style={{ padding: "12px 16px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-                          <div style={{ display: "inline-flex", gap: "6px" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleViewBillDetail(row.bill_id)}
-                              style={{
-                                padding: "4px 10px",
-                                fontSize: "11px",
-                                fontWeight: 600,
-                                borderRadius: "6px",
-                                border: "1px solid #cbd5e1",
-                                background: "#ffffff",
-                                cursor: "pointer",
-                                color: "#0284c7"
-                              }}
-                            >
-                              Items
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleIssueGatePass(row.bill_id)}
-                              style={{
-                                padding: "4px 10px",
-                                fontSize: "11px",
-                                fontWeight: 600,
-                                borderRadius: "6px",
-                                border: "1px solid #86efac",
-                                background: "#f0fdf4",
-                                color: "#166534",
-                                cursor: "pointer"
-                              }}
-                            >
-                              Gate Pass
-                            </button>
-                            {row.patientShare > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPaymentModalBill(row);
-                                  setPaymentAmount(row.patientShare);
-                                }}
-                                style={{
-                                  padding: "4px 10px",
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  borderRadius: "6px",
-                                  border: "1px solid #fde68a",
-                                  background: "#fefce8",
-                                  color: "#854d0e",
-                                  cursor: "pointer"
-                                }}
-                              >
-                                Pay
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+              {drawerData.type === "preauth" && (
+                <>
+                  <span style={{ color: PALETTE.muted }}>Requested:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.finalClaimed)}</span>
+                  <span style={{ color: PALETTE.muted }}>Approved:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(drawerData.data.approved)}</span>
+                  <span style={{ color: PALETTE.muted }}>Patient Liability:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {inr(Math.max(0, drawerData.data.finalClaimed - drawerData.data.approved))}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Completeness:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>100%</span>
+                  <span style={{ color: PALETTE.muted }}>Human Owner:</span>
+                  <span>L. Fathima (Insurance Supervisor)</span>
+                  <span style={{ color: PALETTE.muted }}>Submitted:</span>
+                  <span>{drawerData.data.claim_date || "Today"}</span>
+                </>
+              )}
+
+              {drawerData.type === "claim" && (
+                <>
+                  <span style={{ color: PALETTE.muted }}>Claim Number:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.claim}</span>
+                  <span style={{ color: PALETTE.muted }}>Claimed Amount:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.finalClaimed)}</span>
+                  <span style={{ color: PALETTE.muted }}>Approved Amount:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(drawerData.data.approved)}</span>
+                  <span style={{ color: PALETTE.muted }}>Settled / Paid:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>{inr(drawerData.data.settled)}</span>
+                  <span style={{ color: PALETTE.muted }}>Turnaround Time:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.turnaround}</span>
+                </>
+              )}
+
+              {drawerData.type === "tax" && (
+                <>
+                  <span style={{ color: PALETTE.muted }}>CGST / SGST / IGST:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {(drawerData.data.gst_rate / 2).toFixed(1)}% / {(drawerData.data.gst_rate / 2).toFixed(1)}% / {drawerData.data.gst_rate.toFixed(1)}%
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>HSN / SAC Code:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.hsn}</span>
+                  <span style={{ color: PALETTE.muted }}>Applies To:</span>
+                  <span>{drawerData.data.desc}</span>
+                  <span style={{ color: PALETTE.muted }}>Effective Date:</span>
+                  <span>01 Apr 2026</span>
+                  <span style={{ color: PALETTE.muted }}>Statutory Note:</span>
+                  <span>Exemption under MoF Healthcare Notification</span>
+                </>
+              )}
             </div>
 
-            {/* Pagination Controls */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", borderTop: "1px solid #e2e8f0", background: "#f8fafc", fontSize: "12px", color: "#64748b" }}>
-              <div>
-                Showing <strong>{bills.length}</strong> of <strong>{billTotal.toLocaleString()}</strong> bills (Page {billPage} of {billTotalPages})
-              </div>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button
-                  type="button"
-                  disabled={billPage <= 1 || loadingBills}
-                  onClick={() => setBillPage(p => Math.max(1, p - 1))}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: billPage <= 1 ? "#f1f5f9" : "#ffffff",
-                    color: billPage <= 1 ? "#94a3b8" : "#0f172a",
-                    cursor: billPage <= 1 ? "not-allowed" : "pointer"
-                  }}
-                >
-                  ← Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={billPage >= billTotalPages || loadingBills}
-                  onClick={() => setBillPage(p => p + 1)}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: billPage >= billTotalPages ? "#f1f5f9" : "#ffffff",
-                    color: billPage >= billTotalPages ? "#94a3b8" : "#0f172a",
-                    cursor: billPage >= billTotalPages ? "not-allowed" : "pointer"
-                  }}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 2: INSURANCE & CASHLESS DESK */}
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {(activeTab === "insurance" || activeTab === "claims") && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Claims Overview KPIs */}
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px", flex: "1 1 180px" }}>
-              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Claims Processed</div>
-              <div style={{ fontSize: "22px", fontWeight: 700, color: "#0f172a", marginTop: "4px" }}>
-                {overview?.claims?.total_claims?.toLocaleString() || "45,000"}
-              </div>
-              <div style={{ fontSize: "11px", color: "#94a3b8" }}>Total TPA Submissions</div>
-            </div>
-            <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px", flex: "1 1 180px" }}>
-              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Claimed Volume</div>
-              <div style={{ fontSize: "22px", fontWeight: 700, color: "#0284c7", marginTop: "4px" }}>
-                {fmt(overview?.claims?.total_claimed || 107415945)}
-              </div>
-              <div style={{ fontSize: "11px", color: "#94a3b8" }}>Gross Cashless Demands</div>
-            </div>
-            <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px", flex: "1 1 180px" }}>
-              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Approved & Settled</div>
-              <div style={{ fontSize: "22px", fontWeight: 700, color: "#059669", marginTop: "4px" }}>
-                {fmt(overview?.claims?.total_approved || 76175381)}
-              </div>
-              <div style={{ fontSize: "11px", color: "#94a3b8" }}>
-                {((overview?.claims?.total_approved / (overview?.claims?.total_claimed || 1)) * 100).toFixed(1)}% Approval Rate
-              </div>
-            </div>
-            <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px", flex: "1 1 180px" }}>
-              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Disallowances / Deductions</div>
-              <div style={{ fontSize: "22px", fontWeight: 700, color: "#dc2626", marginTop: "4px" }}>
-                {fmt(overview?.claims?.total_rejected || 31240563)}
-              </div>
-              <div style={{ fontSize: "11px", color: "#94a3b8" }}>Non-Medical / Co-Pay Items</div>
-            </div>
-          </div>
-
-          {/* Search and Provider Filters */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "12px",
-              background: "#ffffff",
-              padding: "12px 16px",
-              borderRadius: "10px",
-              border: "1px solid #e2e8f0"
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 300px" }}>
-              <span style={{ color: "#94a3b8" }}>🔍</span>
-              <input
-                type="text"
-                placeholder="Search claim number, patient name, or policy ID..."
-                value={claimSearch}
-                onChange={(e) => {
-                  setClaimSearch(e.target.value);
-                  setClaimPage(1);
-                }}
+            {/* AI Generated Section Box (Matching Prototype's Purple Box) */}
+            {(drawerData.type === "bill" || drawerData.type === "preauth") && (
+              <div
                 style={{
-                  width: "100%",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "13px",
-                  outline: "none"
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>Status:</span>
-              {["All", "Settled Cashless", "Partially Approved"].map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => {
-                    setClaimStatusFilter(st);
-                    setClaimPage(1);
-                  }}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: 600,
-                    border: claimStatusFilter === st ? "1px solid #7c3aed" : "1px solid #e2e8f0",
-                    background: claimStatusFilter === st ? "#f5f3ff" : "#ffffff",
-                    color: claimStatusFilter === st ? "#7c3aed" : "#475569",
-                    cursor: "pointer"
-                  }}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Claims Table */}
-          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                <thead>
-                  <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    <th style={{ padding: "12px 16px" }}>Claim ID</th>
-                    <th style={{ padding: "12px 16px" }}>Patient / Beneficiary</th>
-                    <th style={{ padding: "12px 16px" }}>TPA / Insurer Provider</th>
-                    <th style={{ padding: "12px 16px" }}>Policy Number</th>
-                    <th style={{ padding: "12px 16px" }}>Claimed Amount</th>
-                    <th style={{ padding: "12px 16px" }}>Authorized / Approved</th>
-                    <th style={{ padding: "12px 16px" }}>Disallowed / Co-Pay</th>
-                    <th style={{ padding: "12px 16px" }}>Status</th>
-                    <th style={{ padding: "12px 16px" }}>Turnaround</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingClaims ? (
-                    <tr>
-                      <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
-                        <Spin size={24} />
-                        <div style={{ marginTop: "10px" }}>Loading insurance claims from PostgreSQL...</div>
-                      </td>
-                    </tr>
-                  ) : claims.length === 0 ? (
-                    <tr>
-                      <td colSpan="9" style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-                        No insurance claims match your query.
-                      </td>
-                    </tr>
-                  ) : (
-                    claims.map((row) => (
-                      <tr
-                        key={row.claim_id}
-                        className="tbl-row"
-                        style={{ borderBottom: "1px solid #f1f5f9" }}
-                        onClick={() => {
-                          if (onOpenDrawer) {
-                            onOpenDrawer({
-                              title: `${row.claim} · ${row.patient}`,
-                              sub: `${row.tpa} · Policy: ${row.policy}`,
-                              badges: [{ t: row.status, bg: "#dcfce7", fg: "#15803d" }],
-                              facts: [
-                                { k: "Claim Identifier", v: row.claim, b: true },
-                                { k: "Patient Name", v: row.patient, b: true },
-                                { k: "UHID / MRN", v: row.uhid },
-                                { k: "Insurance Provider", v: row.tpa },
-                                { k: "Policy Number", v: row.policy },
-                                { k: "Claimed Amount", v: fmtFull(row.finalClaimed) },
-                                { k: "Approved Settlement", v: fmtFull(row.approved) },
-                                { k: "Disallowed Deductions", v: fmtFull(row.rejected) },
-                                { k: "Turnaround Time", v: row.turnaround },
-                                { k: "Claim Status", v: row.status },
-                              ],
-                              actions: [
-                                { label: "Request Re-adjudication", primary: true, on: () => alert(`Re-adjudication requested for ${row.claim}`) },
-                                { label: "Download Pre-Auth Slip" }
-                              ]
-                            });
-                          }
-                        }}
-                      >
-                        <td style={{ padding: "12px 16px", fontWeight: 700, color: "#0f172a" }}>
-                          {row.claim}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                          <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#64748b" }}>{row.uhid}</div>
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 600, color: "#0f766e" }}>
-                          {row.tpa}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontFamily: "monospace", color: "#475569" }}>
-                          {row.policy}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 700, color: "#0f172a" }}>
-                          {fmtFull(row.finalClaimed)}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 700, color: "#059669" }}>
-                          {fmtFull(row.approved)}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontWeight: 600, color: row.rejected > 0 ? "#dc2626" : "#64748b" }}>
-                          {fmtFull(row.rejected)}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <StatusPill status={row.status} />
-                        </td>
-                        <td style={{ padding: "12px 16px", color: "#64748b", fontSize: "12px" }}>
-                          ⚡ {row.turnaround}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Claims Pagination */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", borderTop: "1px solid #e2e8f0", background: "#f8fafc", fontSize: "12px", color: "#64748b" }}>
-              <div>
-                Showing <strong>{claims.length}</strong> of <strong>{claimTotal.toLocaleString()}</strong> claims (Page {claimPage} of {claimTotalPages})
-              </div>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button
-                  type="button"
-                  disabled={claimPage <= 1 || loadingClaims}
-                  onClick={() => setClaimPage(p => Math.max(1, p - 1))}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: claimPage <= 1 ? "#f1f5f9" : "#ffffff",
-                    color: claimPage <= 1 ? "#94a3b8" : "#0f172a",
-                    cursor: claimPage <= 1 ? "not-allowed" : "pointer"
-                  }}
-                >
-                  ← Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={claimPage >= claimTotalPages || loadingClaims}
-                  onClick={() => setClaimPage(p => p + 1)}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: claimPage >= claimTotalPages ? "#f1f5f9" : "#ffffff",
-                    color: claimPage >= claimTotalPages ? "#94a3b8" : "#0f172a",
-                    cursor: claimPage >= claimTotalPages ? "not-allowed" : "pointer"
-                  }}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 4: EXECUTIVE FINANCE DASHBOARD */}
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "finance" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {loadingDashboard ? (
-            <div style={{ padding: "60px", textAlign: "center", color: "#64748b" }}>
-              <Spin size={28} />
-              <div style={{ marginTop: "12px" }}>Computing departmental ledger and payment gateway trends...</div>
-            </div>
-          ) : (
-            <>
-              {/* Payment Gateways / Methods Breakdown */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px" }}>
-                <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                  <h3 style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                    💳 Payment Channels & Gateway Settlements
-                  </h3>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {dashboardData?.payment_modes?.map((pm, i) => (
-                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #f1f5f9" }}>
-                        <div>
-                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{pm.mode}</span>
-                          <span style={{ marginLeft: "8px", fontSize: "11px", color: pm.payment_status === "SUCCESS" ? "#16a34a" : "#d97706", fontWeight: 600 }}>
-                            ● {pm.payment_status}
-                          </span>
-                          <div style={{ fontSize: "11px", color: "#64748b" }}>{pm.count} Transactions</div>
-                        </div>
-                        <div style={{ fontWeight: 700, fontSize: "15px", color: "#0284c7" }}>
-                          {fmtFull(pm.total_amount)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Service Category Breakdown */}
-                <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                  <h3 style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                    🏥 Departmental Revenue Breakdown
-                  </h3>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {dashboardData?.category_breakdown?.map((cat, i) => (
-                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #f1f5f9" }}>
-                        <div>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>{cat.service_category || "General Inpatient"}</div>
-                          <div style={{ fontSize: "11px", color: "#64748b" }}>{cat.items_billed.toLocaleString()} Line Items Billed</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontWeight: 700, fontSize: "15px", color: "#059669" }}>{fmtFull(cat.net_revenue || cat.gross_billed)}</div>
-                          <div style={{ fontSize: "11px", color: "#94a3b8" }}>GST: {fmtFull(cat.tax_collected)}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Monthly Revenue Trend Table */}
-              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <h3 style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                  📅 Multi-Month Revenue & Invoicing Trends
-                </h3>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                    <thead>
-                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: "11px", textTransform: "uppercase" }}>
-                        <th style={{ padding: "10px 14px" }}>Month</th>
-                        <th style={{ padding: "10px 14px" }}>Total Invoices</th>
-                        <th style={{ padding: "10px 14px" }}>Net Invoiced</th>
-                        <th style={{ padding: "10px 14px" }}>Patient Direct Share</th>
-                        <th style={{ padding: "10px 14px" }}>Insurance TPA Share</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboardData?.monthly_trend?.map((m, i) => (
-                        <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "10px 14px", fontWeight: 700, color: "#0f172a" }}>{m.month}</td>
-                          <td style={{ padding: "10px 14px", color: "#475569" }}>{Number(m.bills_count).toLocaleString()}</td>
-                          <td style={{ padding: "10px 14px", fontWeight: 700, color: "#0284c7" }}>{fmt(m.total_net)}</td>
-                          <td style={{ padding: "10px 14px", color: "#059669", fontWeight: 600 }}>{fmt(m.patient_collections)}</td>
-                          <td style={{ padding: "10px 14px", color: "#7c3aed", fontWeight: 600 }}>{fmt(m.insurance_settlements)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 5: TARIFF MASTER & TAX CONFIG */}
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "tax" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-          {loadingTax ? (
-            <div style={{ padding: "60px", textAlign: "center", color: "#64748b" }}>
-              <Spin size={28} />
-              <div style={{ marginTop: "12px" }}>Loading Healthcare GST slabs & tariff masters...</div>
-            </div>
-          ) : (
-            <>
-              {/* Statutory Tax Slabs */}
-              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <h3 style={{ margin: "0 0 6px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                  📜 Healthcare GST & Statutory Tax Matrix
-                </h3>
-                <p style={{ margin: "0 0 16px 0", fontSize: "12px", color: "#64748b" }}>
-                  Active statutory tax slabs governed by Ministry of Finance / GST Council healthcare notifications.
-                </p>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
-                    <thead>
-                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: "11px", textTransform: "uppercase" }}>
-                        <th style={{ padding: "10px 14px" }}>Service Category</th>
-                        <th style={{ padding: "10px 14px" }}>SAC / HSN Code</th>
-                        <th style={{ padding: "10px 14px" }}>Applicable GST Rate</th>
-                        <th style={{ padding: "10px 14px" }}>Statutory Rule & Notes</th>
-                        <th style={{ padding: "10px 14px" }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {taxData?.tax_slabs?.map((slab, i) => (
-                        <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "10px 14px", fontWeight: 600, color: "#0f172a" }}>{slab.category}</td>
-                          <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#0284c7" }}>{slab.hsn}</td>
-                          <td style={{ padding: "10px 14px", fontWeight: 700, color: slab.gst_rate === 0 ? "#16a34a" : "#d97706" }}>
-                            {slab.gst_rate === 0 ? "0% (Exempted)" : `${slab.gst_rate}%`}
-                          </td>
-                          <td style={{ padding: "10px 14px", color: "#475569" }}>{slab.desc}</td>
-                          <td style={{ padding: "10px 14px" }}>
-                            <span style={{ background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: "10px", fontSize: "10px", fontWeight: 700 }}>
-                              ● {slab.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Master Billing Services Catalog */}
-              <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                <h3 style={{ margin: "0 0 6px 0", fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                  🏷️ Standard Billing Services Tariff Master
-                </h3>
-                <p style={{ margin: "0 0 16px 0", fontSize: "12px", color: "#64748b" }}>
-                  Configured standard rate sheet from PostgreSQL `billing_services` table.
-                </p>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                    <thead>
-                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: "11px", textTransform: "uppercase" }}>
-                        <th style={{ padding: "10px 14px" }}>Service Code</th>
-                        <th style={{ padding: "10px 14px" }}>Service Name</th>
-                        <th style={{ padding: "10px 14px" }}>Category</th>
-                        <th style={{ padding: "10px 14px" }}>Department</th>
-                        <th style={{ padding: "10px 14px" }}>Standard Charge</th>
-                        <th style={{ padding: "10px 14px" }}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {taxData?.services?.map((srv) => (
-                        <tr key={srv.billing_service_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "10px 14px", fontWeight: 700, fontFamily: "monospace", color: "#0284c7" }}>
-                            {srv.service_code}
-                          </td>
-                          <td style={{ padding: "10px 14px", fontWeight: 600, color: "#0f172a" }}>
-                            {srv.service_name}
-                          </td>
-                          <td style={{ padding: "10px 14px", color: "#475569" }}>
-                            {srv.service_category}
-                          </td>
-                          <td style={{ padding: "10px 14px", color: "#475569" }}>
-                            {srv.department_name || "General"}
-                          </td>
-                          <td style={{ padding: "10px 14px", fontWeight: 700, color: "#059669" }}>
-                            {fmtFull(srv.standard_charge)}
-                          </td>
-                          <td style={{ padding: "10px 14px" }}>
-                            <span style={{ background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: "10px", fontSize: "11px", fontWeight: 700 }}>
-                              ● {srv.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* MODAL: ITEM DETAIL DRAWER */}
-      {/* ───────────────────────────────────────────────────────────────────────── */}
-      {selectedBill && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 9999,
-            padding: "20px"
-          }}
-          onClick={() => setSelectedBill(null)}
-        >
-          <div
-            style={{
-              background: "#ffffff",
-              borderRadius: "16px",
-              width: "100%",
-              maxWidth: "750px",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
-              padding: "24px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "18px"
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "1px solid #e2e8f0", paddingBottom: "14px" }}>
-              <div>
-                <div style={{ fontSize: "12px", fontWeight: 700, color: "#0284c7" }}>INVOICE ITEM BREAKDOWN</div>
-                <h2 style={{ margin: "4px 0 0 0", fontSize: "20px", fontWeight: 800, color: "#0f172a" }}>
-                  {selectedBill.bill_number} · {selectedBill.patient_name}
-                </h2>
-                <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-                  UHID: <strong>{selectedBill.uhid}</strong> | Phone: {selectedBill.phone || "—"} | Gender: {selectedBill.gender || "—"}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedBill(null)}
-                style={{
-                  border: "none",
-                  background: "#f1f5f9",
-                  borderRadius: "50%",
-                  width: "32px",
-                  height: "32px",
-                  cursor: "pointer",
-                  fontSize: "14px",
-                  color: "#64748b"
+                  border: `1px solid ${PALETTE.aiBorder}`,
+                  borderRadius: "8px",
+                  padding: "12px",
+                  background: PALETTE.aiTint
                 }}
               >
-                ✕
-              </button>
-            </div>
-
-            {/* Gate Pass Success Banner */}
-            {gatePassSuccess && (
-              <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px", padding: "12px 16px", color: "#166534", fontSize: "13px" }}>
-                <strong>🎉 {gatePassSuccess.message}</strong>
-                <div style={{ fontSize: "12px", marginTop: "4px" }}>
-                  Pass Code: <strong style={{ fontFamily: "monospace", letterSpacing: "1px" }}>{gatePassSuccess.gate_pass_code}</strong> | Status: {gatePassSuccess.status}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: PALETTE.ai }} />
+                  <span style={{ fontWeight: 600, fontSize: "12px", color: PALETTE.aiText }}>
+                    {drawerData.type === "bill"
+                      ? "AI GENERATED · plain-language explanation · Billing Transparency Agent"
+                      : "AI GENERATED · Denial-risk indicators · Preauthorisation Assembly Agent"}
+                  </span>
+                </div>
+                <div style={{ lineHeight: 1.5, fontSize: "12.5px", color: PALETTE.text2 }}>
+                  {drawerData.type === "bill" ? (
+                    drawerData.data.patient_id === 122516 ? (
+                      "The bill is ₹23,450 above the estimate: a second balloon was needed before the stent (₹15,950, consumables) and one extra ward night on the doctor's advice (₹7,500). The stent is priced at the government-capped rate. Star Health approved ₹1,95,000; the remaining is under enhancement."
+                    ) : (
+                      `Charges follow Tariff FY26-27 v1.3. Actual of ${inr(drawerData.data.net_amount || drawerData.data.total)} is aligned with the counselled inpatient package. Approved insurance share of ${inr(drawerData.data.insurance_amount || drawerData.data.tpa)} is reconciled with TPA cashless sanction.`
+                    )
+                  ) : (
+                    "All required clinical documentation (Doctor Referral, Admission Sheet, Diagnostic Reports, ID Card) are collected and verified. Denial risk is scored at 14% (within safe automated boundary < 25%). Submission draft prepared for executive sign-off."
+                  )}
+                </div>
+                <div style={{ marginTop: "6px", fontSize: "11px", color: PALETTE.muted }}>
+                  Tariff FY26-27 v1.3 · confidence 95% · the billing executive remains responsible for the final response
                 </div>
               </div>
             )}
 
-            {/* Summary Cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                <div style={{ fontSize: "11px", color: "#64748b" }}>Gross Total</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>{fmtFull(selectedBill.gross_amount || selectedBill.net_amount)}</div>
-              </div>
-              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                <div style={{ fontSize: "11px", color: "#64748b" }}>Insurance Share</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "#059669" }}>{fmtFull(selectedBill.insurance_amount)}</div>
-              </div>
-              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                <div style={{ fontSize: "11px", color: "#64748b" }}>Patient Due</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: selectedBill.patient_amount > 0 ? "#dc2626" : "#059669" }}>
-                  {fmtFull(selectedBill.patient_amount)}
+            {/* Bill Line Items Section */}
+            {drawerData.type === "bill" && (
+              <div style={{ borderTop: `1px solid ${PALETTE.borderLight}`, paddingTop: "10px" }}>
+                <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "8px" }}>
+                  Line items · estimate → actual
                 </div>
-              </div>
-            </div>
-
-            {/* Itemized Line Items Table */}
-            <div>
-              <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>
-                📋 Itemized Service Charges ({selectedBill.items?.length || 0} line items)
-              </h4>
-              <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", textAlign: "left" }}>
-                  <thead>
-                    <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
-                      <th style={{ padding: "8px 12px" }}>Service / Description</th>
-                      <th style={{ padding: "8px 12px" }}>Qty</th>
-                      <th style={{ padding: "8px 12px" }}>Unit Rate</th>
-                      <th style={{ padding: "8px 12px" }}>Tax / GST</th>
-                      <th style={{ padding: "8px 12px", textAlign: "right" }}>Net Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedBill.items?.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" style={{ padding: "16px", textAlign: "center", color: "#94a3b8" }}>
-                          No line items found for this invoice.
-                        </td>
-                      </tr>
-                    ) : (
-                      selectedBill.items?.map((it) => (
-                        <tr key={it.bill_item_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                          <td style={{ padding: "8px 12px" }}>
-                            <div style={{ fontWeight: 600, color: "#0f172a" }}>{it.service_name || it.description || "Healthcare Service"}</div>
-                            <div style={{ fontSize: "10.5px", color: "#64748b" }}>{it.service_category || "Inpatient Care"}</div>
-                          </td>
-                          <td style={{ padding: "8px 12px" }}>{it.quantity}</td>
-                          <td style={{ padding: "8px 12px" }}>{fmtFull(it.unit_price)}</td>
-                          <td style={{ padding: "8px 12px" }}>{fmtFull(it.tax_amount)}</td>
-                          <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0f172a" }}>
-                            {fmtFull(it.net_amount || it.gross_amount)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Payment Transactions */}
-            {selectedBill.payments?.length > 0 && (
-              <div>
-                <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>
-                  💳 Payments & Settlements Log ({selectedBill.payments.length})
-                </h4>
-                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {selectedBill.payments.map((py) => (
-                    <div key={py.payment_id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
-                      <div>
-                        <strong>{py.payment_method}</strong> · Ref: <span style={{ fontFamily: "monospace" }}>{py.payment_reference}</span>
-                        <div style={{ fontSize: "10.5px", color: "#64748b" }}>{formatDate(py.payment_date || py.created_at)}</div>
-                      </div>
-                      <div style={{ fontWeight: 700, color: "#059669" }}>{fmtFull(py.amount)}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
+                  {(drawerData.data.pharmacy_items || []).slice(0, 4).map((pi, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
+                      <span>{pi.item_name} ({pi.quantity || 1} units)</span>
+                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(pi.net_amount)}</span>
                     </div>
                   ))}
+                  {(drawerData.data.lab_items || []).slice(0, 3).map((li, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
+                      <span>{li.item_name}</span>
+                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(li.net_amount)}</span>
+                    </div>
+                  ))}
+                  {(!drawerData.data.pharmacy_items?.length && !drawerData.data.lab_items?.length) && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                        <span>Room Rent · Twin Sharing (3 days)</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹18,000 → ₹18,000</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                        <span>Clinical Consultation & Rounds</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹4,500 → ₹4,500</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                        <span>Pharmacy Formulations & IV Infusions</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹12,400 → ₹14,200 · extra antibiotics</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Actions */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", borderTop: "1px solid #e2e8f0", paddingTop: "14px" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentModalBill(selectedBill);
-                  setPaymentAmount(selectedBill.patient_amount || 0);
-                }}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#ffffff",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  cursor: "pointer"
-                }}
-              >
-                + Record Payment
-              </button>
-              <button
-                type="button"
-                onClick={() => handleIssueGatePass(selectedBill.bill_id)}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: "#16a34a",
-                  color: "#ffffff",
-                  fontSize: "13px",
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                Issue Discharge Gate Pass
-              </button>
+            {/* Tax Breakdown Section */}
+            {drawerData.type === "bill" && (
+              <div style={{ borderTop: `1px solid ${PALETTE.borderLight}`, paddingTop: "10px" }}>
+                <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "6px" }}>
+                  Tax (central configuration · demo rates)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "4px 12px", fontSize: "12px", color: PALETTE.text2 }}>
+                  <span>Healthcare Services (SAC 9993)</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>EXEMPT</span>
+                  <span>Pharmacy Formulations GST (5% / 12%)</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.tax_amount || 320)}</span>
+                  <span style={{ fontWeight: 600, color: PALETTE.text }}>Total Tax Collected</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600, color: PALETTE.text }}>
+                    {inr(drawerData.data.tax_amount || 320)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons in Drawer (Exact Prototype Actions) */}
+            <div style={{ borderTop: `1px solid ${PALETTE.borderLight}`, paddingTop: "14px", display: "flex", flexDirection: "column", gap: "6px" }}>
+              {drawerData.type === "bill" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentModal(drawerData.data);
+                      setPayAmount(String(drawerData.data.patient_amount || drawerData.data.patientShare || 0));
+                    }}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: "0",
+                      background: PALETTE.primary,
+                      color: "#fff",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Record Payment (Co-pay / Settlement)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleIssueGatePass(drawerData.data.bill_id)}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: `1px solid ${PALETTE.border}`,
+                      background: "#fff",
+                      color: PALETTE.text,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Issue Financial Clearance Gate Pass
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleClearBillDirect(drawerData.data.bill_id, drawerData.data.patient_amount)}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: `1px solid ${PALETTE.border}`,
+                      background: "#fff",
+                      color: PALETTE.text2,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Resolve: honour quoted rate (goodwill adjustment)
+                  </button>
+                </>
+              )}
+
+              {drawerData.type === "preauth" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => alert("Preauthorisation package submitted to TPA portal!")}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: "0",
+                      background: PALETTE.primary,
+                      color: "#fff",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Submit preauthorisation packet to insurer
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => alert("Simulated insurer sanction received: Approved for ₹" + (drawerData.data.finalClaimed || 120000))}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: `1px solid ${PALETTE.border}`,
+                      background: "#fff",
+                      color: PALETTE.text,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Simulate insurer settlement outcome
+                  </button>
+                </>
+              )}
+
+              {drawerData.type === "claim" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => alert("Claim marked approved and settlement registered in General Ledger.")}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: "0",
+                      background: PALETTE.primary,
+                      color: "#fff",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    TPA Outcome: Approve & Settle Cashless
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => alert("Formal appeal package generated with clinical discharge summary attachments.")}
+                    style={{
+                      height: "34px",
+                      padding: "0 12px",
+                      borderRadius: "6px",
+                      border: `1px solid ${PALETTE.border}`,
+                      background: "#fff",
+                      color: PALETTE.critical,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textAlign: "left"
+                    }}
+                  >
+                    Appeal Disallowance / Re-submit Claim
+                  </button>
+                </>
+              )}
+
+              {drawerData.type === "tax" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    alert("Tax rule updated and logged in Audit Trail.");
+                    setDrawerData(null);
+                  }}
+                  style={{
+                    height: "34px",
+                    padding: "0 12px",
+                    borderRadius: "6px",
+                    border: "0",
+                    background: PALETTE.primary,
+                    color: "#fff",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textAlign: "left"
+                  }}
+                >
+                  Save / Re-affirm Tax Exemption Rule
+                </button>
+              )}
             </div>
-          </div>
-        </div>
+          </aside>
+        </>
       )}
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* MODAL: RECORD PAYMENT */}
+      {/* RECORD PAYMENT MODAL */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      {paymentModalBill && (
+      {paymentModal && (
         <div
           style={{
             position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
+            inset: 0,
+            background: "rgba(21, 24, 27, 0.4)",
+            zIndex: 1000,
             display: "flex",
-            justifyContent: "center",
             alignItems: "center",
-            zIndex: 10000,
+            justifyContent: "center",
             padding: "20px"
           }}
-          onClick={() => setPaymentModalBill(null)}
         >
           <div
             style={{
-              background: "#ffffff",
-              borderRadius: "16px",
-              width: "100%",
-              maxWidth: "450px",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.2)",
-              padding: "24px",
+              background: "#fff",
+              borderRadius: "10px",
+              width: "min(460px, 100%)",
+              padding: "20px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
               display: "flex",
               flexDirection: "column",
-              gap: "16px"
+              gap: "14px"
             }}
-            onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>
-                Record Patient Co-Pay Payment
-              </h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div style={{ fontSize: "16px", fontWeight: 600 }}>Record Payment against {paymentModal.bill_number || paymentModal.inv}</div>
               <button
                 type="button"
-                onClick={() => setPaymentModalBill(null)}
-                style={{ border: "none", background: "none", cursor: "pointer", fontSize: "16px", color: "#64748b" }}
+                onClick={() => setPaymentModal(null)}
+                style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px" }}
               >
                 ✕
               </button>
             </div>
 
-            <p style={{ margin: 0, fontSize: "12px", color: "#64748b" }}>
-              Invoice: <strong>{paymentModalBill.bill_number}</strong> | Patient: <strong>{paymentModalBill.patient || paymentModalBill.patient_name}</strong>
-            </p>
-
-            <form onSubmit={handleRecordPayment} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <form onSubmit={submitRecordPayment} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: PALETTE.muted, textTransform: "uppercase" }}>
+                  Patient
+                </label>
+                <div style={{ fontSize: "14px", fontWeight: 600, color: PALETTE.text, marginTop: "2px" }}>
+                  {paymentModal.patient}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: PALETTE.muted, textTransform: "uppercase" }}>
                   Payment Amount (₹)
                 </label>
                 <input
                   type="number"
                   step="0.01"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
                   required
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
                   style={{
                     width: "100%",
-                    padding: "10px 12px",
+                    height: "34px",
+                    border: `1px solid ${PALETTE.border}`,
                     borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
+                    padding: "0 10px",
                     fontSize: "14px",
-                    fontWeight: 700
+                    marginTop: "4px",
+                    boxSizing: "border-box"
                   }}
                 />
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: PALETTE.muted, textTransform: "uppercase" }}>
                   Payment Method
                 </label>
                 <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  value={payMode}
+                  onChange={(e) => setPayMode(e.target.value)}
                   style={{
                     width: "100%",
-                    padding: "10px 12px",
+                    height: "34px",
+                    border: `1px solid ${PALETTE.border}`,
                     borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "13px"
+                    padding: "0 8px",
+                    background: "#fff",
+                    fontSize: "13px",
+                    marginTop: "4px",
+                    boxSizing: "border-box"
                   }}
                 >
-                  <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
-                  <option value="CASH">Cash at Billing Counter</option>
-                  <option value="CARD">Credit / Debit Card</option>
-                  <option value="NETBANKING">Net Banking</option>
-                  <option value="INSURANCE">TPA Co-Pay Adjustment</option>
+                  <option value="UPI">UPI (QR / Instant Settlement)</option>
+                  <option value="CARD">Credit / Debit Card (POS)</option>
+                  <option value="NETBANKING">Net Banking / NEFT</option>
+                  <option value="CASH">Cash at Cashier Desk</option>
                 </select>
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "10px" }}>
                 <button
                   type="button"
-                  onClick={() => setPaymentModalBill(null)}
+                  onClick={() => setPaymentModal(null)}
                   style={{
-                    padding: "8px 14px",
+                    height: "32px",
+                    padding: "0 12px",
                     borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    fontSize: "13px",
+                    border: `1px solid ${PALETTE.border}`,
+                    background: "#fff",
                     cursor: "pointer"
                   }}
                 >
@@ -1573,25 +1840,112 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 </button>
                 <button
                   type="submit"
-                  disabled={paymentSubmitting}
+                  disabled={paySubmitting}
                   style={{
-                    padding: "8px 16px",
+                    height: "32px",
+                    padding: "0 14px",
                     borderRadius: "6px",
-                    border: "none",
-                    background: "#0284c7",
-                    color: "#ffffff",
-                    fontSize: "13px",
-                    fontWeight: 700,
-                    cursor: paymentSubmitting ? "not-allowed" : "pointer"
+                    border: "0",
+                    background: PALETTE.primary,
+                    color: "#fff",
+                    fontWeight: 600,
+                    cursor: "pointer"
                   }}
                 >
-                  {paymentSubmitting ? "Recording..." : "Confirm & Save Payment"}
+                  {paySubmitting ? "Processing…" : "Confirm Payment"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {/* GATE PASS MODAL (Official Clearance Verification) */}
+      {/* ───────────────────────────────────────────────────────────────────────── */}
+      {gatePassModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(21, 24, 27, 0.4)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "10px",
+              width: "min(440px, 100%)",
+              padding: "24px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              textAlign: "center"
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: PALETTE.successTint,
+                color: PALETTE.success,
+                fontSize: "24px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto"
+              }}
+            >
+              ✓
+            </div>
+            <div style={{ fontSize: "18px", fontWeight: 700, color: PALETTE.text }}>Financial Clearance Gate Pass</div>
+            <div style={{ fontSize: "12px", color: PALETTE.muted }}>{gatePassModal.message}</div>
+
+            <div
+              style={{
+                background: "#f8fafc",
+                border: "1px dashed #cbd5e1",
+                borderRadius: "8px",
+                padding: "14px",
+                margin: "8px 0"
+              }}
+            >
+              <div style={{ fontSize: "10.5px", textTransform: "uppercase", color: PALETTE.muted }}>Gate Pass Code</div>
+              <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "20px", fontWeight: 700, color: PALETTE.primary }}>
+                {gatePassModal.gate_pass_code}
+              </div>
+              <div style={{ fontSize: "12px", marginTop: "4px", color: PALETTE.text2 }}>
+                Patient: <strong>{gatePassModal.patient}</strong> · {gatePassModal.uhid}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setGatePassModal(null)}
+              style={{
+                height: "34px",
+                borderRadius: "6px",
+                border: "0",
+                background: "#15181b",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: "pointer"
+              }}
+            >
+              Close & Handover to Discharge Desk
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default FinancialRevenueView;

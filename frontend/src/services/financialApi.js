@@ -70,5 +70,18 @@ export const financialApi = {
   recordPayment: (payload) => request('/api/finance/payments', {
     method: 'POST',
     body: JSON.stringify(payload)
-  })
+  }),
+  
+  clearBill: (payload) => request('/api/finance/clear-bill', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
+  clearBillById: (billId, paymentMethod = 'UPI', amount = null) => {
+    const q = new URLSearchParams({ payment_method: paymentMethod });
+    if (amount) q.append('amount', amount);
+    return request(`/api/finance/bills/${billId}/clear?${q.toString()}`, {
+      method: 'POST'
+    });
+  }
 };

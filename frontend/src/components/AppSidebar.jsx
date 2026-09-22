@@ -55,11 +55,11 @@ export const NAV_GROUPS = [
     ]
   },
   {
-    title: 'FINANCIAL & REVENUE',
+    title: 'REVENUE CYCLE',
     items: [
-      { id: 'billing', label: 'Billing & Clearance' },
-      { id: 'insurance', label: 'Insurance & Claims' },
-      { id: 'claims', label: 'Claims Tracking' },
+      { id: 'billing', label: 'Billing' },
+      { id: 'insurance', label: 'Insurance · Preauth' },
+      { id: 'claims', label: 'Insurance Claims' },
       { id: 'finance', label: 'Finance Dashboard' },
       { id: 'tax', label: 'Tax Configuration' },
     ]
