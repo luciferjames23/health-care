@@ -170,20 +170,20 @@ export default function App() {
     } catch {}
   };
 
-  const handleSwitchUserPromptPassword = async (targetUser) => {
+  const handleSwitchUserPromptPassword = (targetUser) => {
+    sessionStorage.removeItem('hc_auth_token');
+    try {
+      sessionStorage.removeItem('hx_auth');
+      sessionStorage.removeItem('hx_role');
+      sessionStorage.removeItem('hx_page');
+    } catch {}
+    setAuth(null);
+    setRoleState(null);
     setSelectedPatient(null);
     setDrawer(null);
     setModal(null);
-    setAuth(null);
-    sessionStorage.removeItem('hc_auth_token');
-    setAuthScreenInfo(`Signing in as ${targetUser?.name || targetUser?.username}…`);
-    try {
-      const user = await selectAccount(targetUser.username);
-      setAuth(user);
-      setRole(user.role);
-      setActivePage(user.canAccessRadiology ? 'radiology' : user.role?.toLowerCase() === 'doctor' ? 'clinical' : 'command');
-      setAuthScreenInfo('');
-    } catch (error) { setAuthScreenInfo(error.message); }
+    setAuthScreenUsername(targetUser?.username || null);
+    setAuthScreenInfo(targetUser?.name ? `Signed out. Please sign in as ${targetUser.name}.` : 'Signed out. Please sign in to continue.');
   };
 
   const [navHistory, setNavHistory] = useState([]);

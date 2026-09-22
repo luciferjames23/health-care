@@ -41,13 +41,29 @@ export default function AuthScreen({
     return () => { isMounted = false; };
   }, [initialUsername]);
 
+  useEffect(() => {
+    if (initialUsername) {
+      setUsername(initialUsername);
+    }
+  }, [initialUsername]);
+
+  useEffect(() => {
+    if (initialInfo) {
+      setInfo(initialInfo);
+    }
+  }, [initialInfo]);
+
   const activeUsers = [...usersList].sort((a, b) => {
     const rank = user => user.role?.toLowerCase() === 'radiologist' ? 0 : user.role?.toLowerCase() === 'admin' ? 1 : 2;
     return rank(a) - rank(b);
   });
 
+  const selectedUser = usersList.find(u => u.username === username) ||
+                       (initialUsername ? usersList.find(u => u.username === initialUsername) : null) ||
+                       activeUsers[0];
+
   const handleSelectRole = async (user) => {
-    if (signingIn) return;
+    if (signingIn || !user) return;
     setUsername(user.username);
     setSigningIn(true);
     setError('');
@@ -104,7 +120,7 @@ export default function AuthScreen({
             <div>
               <div style={{ fontSize: '18px', fontWeight: 600 }}>Sign in</div>
               <div style={{ color: '#52585e', marginTop: '2px', lineHeight: 1.45, fontSize: '12px' }}>
-                Click your account to sign in automatically. No username or password entry is needed.
+                Select an account and sign in to access clinical or hospital workspace.
               </div>
             </div>
 
@@ -128,6 +144,61 @@ export default function AuthScreen({
               </div>
             )}
 
+            {selectedUser && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                padding: '14px 16px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '38px', height: '38px', borderRadius: '50%',
+                    background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: '13px', flexShrink: 0
+                  }}>
+                    {selectedUser.name ? selectedUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'DR'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '14px', color: '#15181b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedUser.name}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                      <span style={{ fontWeight: 600, color: '#0284c7' }}>{selectedUser.role}</span>
+                      {(selectedUser.specialization || selectedUser.dept) && ` · ${selectedUser.specialization || selectedUser.dept}`}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  id="sign-in-submit-btn"
+                  disabled={signingIn}
+                  onClick={() => handleSelectRole(selectedUser)}
+                  style={{
+                    height: '38px',
+                    borderRadius: '6px',
+                    border: 0,
+                    background: 'oklch(0.5 0.1 200)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    transition: 'opacity 0.15s'
+                  }}
+                >
+                  {signingIn ? 'Signing in…' : `Sign in as ${selectedUser.name} →`}
+                </button>
+              </div>
+            )}
 
           </div>
 
@@ -144,22 +215,30 @@ export default function AuthScreen({
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
-              {activeUsers.map((r) => (
-                <button
-                  key={r.username}
-                  type="button"
-                  disabled={signingIn}
-                  onClick={() => handleSelectRole(r)}
-                  style={{
-                    height: '28px', padding: '0 10px', borderRadius: '14px',
-                    border: '1px solid #e3e6e8', background: username === r.username ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
-                    cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s'
-                  }}
-                >
-                  <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
-                  <span style={{ color: '#52585e' }}> · {r.name}</span>
-                </button>
-              ))}
+              {activeUsers.map((r) => {
+                const isSelected = (username === r.username || selectedUser?.username === r.username);
+                return (
+                  <button
+                    key={r.username}
+                    type="button"
+                    disabled={signingIn}
+                    onClick={() => {
+                      setUsername(r.username);
+                      handleSelectRole(r);
+                    }}
+                    style={{
+                      height: '28px', padding: '0 10px', borderRadius: '14px',
+                      border: isSelected ? '1.5px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                      background: isSelected ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
+                      cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s',
+                      fontWeight: isSelected ? 600 : 400
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
+                    <span style={{ color: '#52585e' }}> · {r.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div style={{ fontSize: '11px', color: '#8a9096', lineHeight: 1.45, marginTop: '4px' }}>

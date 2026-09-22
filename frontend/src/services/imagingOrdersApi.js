@@ -5,7 +5,15 @@ async function request(path, options = {}) {
   });
   const body = await res.json();
   if (!res.ok) {
-    const error = new Error(typeof body.detail === 'string' ? body.detail : body.detail?.message || 'Unable to process this order.');
+    let msg = 'Unable to process this order.';
+    if (typeof body.detail === 'string') {
+      msg = body.detail;
+    } else if (Array.isArray(body.detail)) {
+      msg = body.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+    } else if (body.detail?.message) {
+      msg = body.detail.message;
+    }
+    const error = new Error(msg);
     error.detail = body.detail;
     throw error;
   }

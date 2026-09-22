@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import { OHIF_BASE_URL } from '../services/radiologyApi';
 import { Card, btn, primaryBtn } from './RadiologyShared';
 
 export default function XrayOrders({ patient, radiologist = false }) {
   const [orders, setOrders] = useState([]);
+  const [priorityFilter, setPriorityFilter] = useState('All');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,21 @@ export default function XrayOrders({ patient, radiologist = false }) {
     }
     finally { setBusy(false); }
   };
+  const filteredOrders = useMemo(() => {
+    if (priorityFilter === 'All') return orders;
+    return orders.filter(o => (o.priority || '').toLowerCase() === priorityFilter.toLowerCase());
+  }, [orders, priorityFilter]);
+
+  const priorityCounts = useMemo(() => {
+    const counts = { All: orders.length, Urgent: 0, Routine: 0 };
+    orders.forEach(o => {
+      const p = (o.priority || '').toLowerCase();
+      if (p === 'urgent') counts.Urgent += 1;
+      else if (p === 'routine') counts.Routine += 1;
+    });
+    return counts;
+  }, [orders]);
+
   const input = { padding: 8, border: '1px solid #d9dddf', borderRadius: 6, font: 'inherit' };
   return <Card>
     <h3 style={{ marginTop: 0 }}>{radiologist ? 'Requested X-rays' : 'Request an X-ray'}</h3>
@@ -65,15 +81,117 @@ export default function XrayOrders({ patient, radiologist = false }) {
       <label>Clinical indication<textarea style={{ ...input, display: 'block', width: '100%', boxSizing: 'border-box' }} required minLength={3} maxLength={2000} value={indication} disabled={busy} onChange={e => { setIndication(e.target.value); requestId.current = null; }} /></label>
       <button style={{ ...primaryBtn, justifySelf: 'start' }} disabled={busy || indication.trim().length < 3}>{busy ? 'Sending…' : 'Send X-ray request'}</button>
     </form>}
-    {loading ? <p>Loading requests…</p> : !orders.length ? <p>No X-ray requests yet.</p> : <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-      <thead><tr>{['Accession / requested', 'Patient', 'Examination / indication', 'Requested by', 'Priority', 'Status', 'Action'].map(label => <th key={label} style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid #ddd' }}>{label}</th>)}</tr></thead>
-      <tbody>{orders.map(order => <tr key={order.order_id}>
-        <td style={{ padding: 8 }}>{order.accession_number}<br />{new Date(order.created_at).toLocaleString()}</td>
-        <td>{order.patient_name}<br />{order.patient_code}</td><td>{order.examination}<br />{order.indication}</td><td>{order.requested_by_name}</td><td>{order.priority}</td><td>{order.status}</td>
-        <td>{radiologist && order.status !== 'Uploaded' && <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setFile(null); setError(''); }}>Upload X-ray</button>}
-          {radiologist && order.status === 'Uploaded' && order.study_instance_uid && <a href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(order.study_instance_uid)}`} target="_blank" rel="noreferrer">Open in OHIF</a>}</td>
-      </tr>)}</tbody>
-    </table></div>}
+
+    {/* Priority Filter Bar */}
+    {orders.length > 0 && (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, margin: '12px 0', padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Priority:</span>
+          {['All', 'Urgent', 'Routine'].map(p => {
+            const count = priorityCounts[p] || 0;
+            const active = priorityFilter.toLowerCase() === p.toLowerCase();
+            const isUrgent = p === 'Urgent';
+            const isRoutine = p === 'Routine';
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPriorityFilter(p)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: active ? 700 : 500,
+                  border: '1px solid',
+                  borderColor: active
+                    ? (isUrgent ? '#ef4444' : isRoutine ? '#10b981' : '#4f46e5')
+                    : '#cbd5e1',
+                  background: active
+                    ? (isUrgent ? '#fee2e2' : isRoutine ? '#dcfce7' : '#e0e7ff')
+                    : '#fff',
+                  color: active
+                    ? (isUrgent ? '#991b1b' : isRoutine ? '#166534' : '#3730a3')
+                    : '#475569',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {isUrgent && <span style={{ fontSize: 11 }}>⚡</span>}
+                {isRoutine && <span style={{ fontSize: 11 }}>✓</span>}
+                {p} <span style={{ opacity: 0.8, fontSize: '11px', fontWeight: 600 }}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11.5, color: '#64748b' }}>
+          Showing <strong>{filteredOrders.length}</strong> of <strong>{orders.length}</strong> requests
+        </div>
+      </div>
+    )}
+
+    {loading ? (
+      <p>Loading requests…</p>
+    ) : !orders.length ? (
+      <p>No X-ray requests yet.</p>
+    ) : !filteredOrders.length ? (
+      <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+        No <strong>{priorityFilter}</strong> priority requests found.
+        <button type="button" onClick={() => setPriorityFilter('All')} style={{ ...btn, marginLeft: 10, padding: '3px 10px', fontSize: 11 }}>
+          Show All
+        </button>
+      </div>
+    ) : (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>{['Accession / requested', 'Patient', 'Examination / indication', 'Requested by', 'Priority', 'Status', 'Action'].map(label => (
+              <th key={label} style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid #ddd' }}>{label}</th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {filteredOrders.map(order => (
+              <tr key={order.order_id}>
+                <td style={{ padding: 8 }}>{order.accession_number}<br />{new Date(order.created_at).toLocaleString()}</td>
+                <td>{order.patient_name}<br />{order.patient_code}</td>
+                <td>{order.examination}<br />{order.indication}</td>
+                <td>{order.requested_by_name}</td>
+                <td>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: order.priority?.toLowerCase() === 'urgent' ? '#fee2e2' : '#f1f5f9',
+                    color: order.priority?.toLowerCase() === 'urgent' ? '#b91c1c' : '#475569',
+                    border: `1px solid ${order.priority?.toLowerCase() === 'urgent' ? '#fca5a5' : '#e2e8f0'}`,
+                    display: 'inline-block'
+                  }}>
+                    {order.priority?.toLowerCase() === 'urgent' && '⚡ '}
+                    {order.priority}
+                  </span>
+                </td>
+                <td>{order.status}</td>
+                <td>
+                  {radiologist && order.status !== 'Uploaded' && (
+                    <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setFile(null); setError(''); }}>
+                      Upload X-ray
+                    </button>
+                  )}
+                  {radiologist && order.status === 'Uploaded' && order.study_instance_uid && (
+                    <a href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(order.study_instance_uid)}`} target="_blank" rel="noreferrer">
+                      Open in OHIF
+                    </a>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
     {radiologist && selected && <form onSubmit={upload} style={{ padding: 16, marginTop: 16, border: '1px solid #b2dfdf', borderRadius: 8 }}>
       <b>Upload for {selected.patient_name} · {selected.patient_code}</b>
       <p>{selected.accession_number} · {selected.examination}</p>

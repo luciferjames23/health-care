@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
-import { radiologyApi } from '../services/radiologyApi';
+import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
 
@@ -28,6 +28,7 @@ export default function Patient360View({
   // Auto-fetched scans for inline Diagnoses X-ray card (no auth required)
   const [diagScans, setDiagScans] = useState([]);
   const [diagScanIdx, setDiagScanIdx] = useState(0);
+  const [ohifViewerModal, setOhifViewerModal] = useState(null);
 
   // Silently pre-fetch radiology scans for inline Diagnoses X-ray card
   useEffect(() => {
@@ -721,9 +722,21 @@ export default function Patient360View({
   };
 
   // Handler for viewing patient's radiology scans
-  const handleViewScan = async () => {
+  const handleViewScan = async (targetScanOrId = null) => {
     setScanLoading(true);
     setScanAlert(null);
+
+    const targetScanId = typeof targetScanOrId === 'object' ? targetScanOrId?.scan_id : targetScanOrId;
+
+    // Fast-path: If diagScans is already available for this patient, open the exact scan immediately
+    if (diagScans && diagScans.length > 0) {
+      setPatientScans(diagScans);
+      const foundIdx = targetScanId ? diagScans.findIndex(s => s.scan_id === targetScanId) : 0;
+      setActiveScanIdx(foundIdx >= 0 ? foundIdx : 0);
+      setScanModalOpen(true);
+      setScanLoading(false);
+      return;
+    }
 
     try {
       // 1. Resolve numeric ID
@@ -795,7 +808,8 @@ export default function Patient360View({
       // Outcome processing
       if (scans && scans.length > 0) {
         setPatientScans(scans);
-        setActiveScanIdx(0);
+        const foundIdx = targetScanId ? scans.findIndex(s => s.scan_id === targetScanId) : 0;
+        setActiveScanIdx(foundIdx >= 0 ? foundIdx : 0);
         setScanModalOpen(true);
         setScanAlert(null);
       } else {
@@ -823,13 +837,6 @@ export default function Patient360View({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {(currentUser?.role?.toLowerCase() === 'doctor' || currentUser?.role?.toLowerCase() === 'radiologist') && (
-        <XrayOrders
-          key={p.patient_id}
-          patient={p}
-          radiologist={currentUser?.role?.toLowerCase() === 'radiologist'}
-        />
-      )}
       {/* Top Breadcrumb */}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
@@ -1655,7 +1662,7 @@ export default function Patient360View({
                       </div>
                       <button
                         type="button"
-                        onClick={handleViewScan}
+                        onClick={() => handleViewScan(scan)}
                         style={{
                           width: '100%', height: '28px', borderRadius: '6px', border: '1px solid #c7d2fe',
                           background: '#eef2ff', color: '#3730a3', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer'
@@ -2177,7 +2184,7 @@ export default function Patient360View({
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Scan #{idx + 1} ({s.target === 1 ? 'Target 1 · Opacity' : 'Normal'})
+                    Scan #{s.scan_id || (idx + 1)} · {s.target === 1 ? 'Opacity Detected' : 'Normal'}
                   </button>
                 ))}
               </div>
@@ -2423,14 +2430,17 @@ export default function Patient360View({
 
                 <button
                   type="button"
+                  title="Open original patient X-ray in OHIF DICOM Viewer"
                   onClick={() => {
+                    const uid = currentScan?.study_instance_uid ||
+                                (currentScan?.original_patient_id && currentScan.original_patient_id.includes('.') ? currentScan.original_patient_id : null) ||
+                                (currentScan?.study_id && currentScan.study_id.includes('.') ? currentScan.study_id : null);
+                    const ohifUrl = uid
+                      ? `${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}`
+                      : `${OHIF_BASE_URL}/viewer`;
+                    // Close the triage popup and open OHIF exclusively in the same tab
                     setScanModalOpen(false);
-                    const studyIdentifier = currentScan.original_patient_id || currentScan.study_id || currentScan.scan_id || currentScan.patient_code || p.uhid;
-                    if (onOpenRadiologyStudy) {
-                      onOpenRadiologyStudy(studyIdentifier);
-                    } else if (onNavigate) {
-                      onNavigate('radiology');
-                    }
+                    setOhifViewerModal(ohifUrl);
                   }}
                   style={{
                     padding: '7px 16px',
@@ -2446,11 +2456,122 @@ export default function Patient360View({
                     gap: '6px',
                   }}
                 >
-                  <span>🔬</span>
-                  Open in Radiology Workstation →
+                  <span>🖼️</span>
+                  Open in OHIF Viewer →
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Embedded OHIF DICOM Viewer Modal (Same Tab) */}
+      {ohifViewerModal && (
+        <div
+          onClick={() => setOhifViewerModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 2000,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '12px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '98vw',
+              height: '96vh',
+              background: '#090d16',
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6)',
+              border: '1px solid #1e293b',
+            }}
+          >
+            {/* Dark medical themed header */}
+            <div
+              style={{
+                height: 48,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '0 16px',
+                borderBottom: '1px solid #1e293b',
+                background: '#0f172a',
+                color: '#f8fafc',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '18px' }}>🖼️</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    OHIF DICOM Viewer
+                    <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 4, background: '#1e3a8a', color: '#93c5fd' }}>
+                      ORIGINAL X-RAY
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    Patient: <strong style={{ color: '#e2e8f0' }}>{p.name}</strong> · UHID: {p.uhid}
+                    {currentScan?.display_study_id && ` · Accession: ${currentScan.display_study_id}`}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: '1px solid #334155',
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                  onClick={() => {
+                    setOhifViewerModal(null);
+                    setScanModalOpen(true);
+                  }}
+                >
+                  ← Back to Triage Scan
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: '1px solid #ef4444',
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    color: '#fca5a5',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                  onClick={() => setOhifViewerModal(null)}
+                >
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+
+            {/* OHIF Iframe */}
+            <iframe
+              title="OHIF DICOM Viewer"
+              src={ohifViewerModal}
+              style={{ border: 0, flex: 1, width: '100%', height: '100%', background: '#000' }}
+            />
           </div>
         </div>
       )}

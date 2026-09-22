@@ -38,7 +38,6 @@ export default function TopHeader({
 }) {
   const [askInput, setAskInput] = React.useState('');
   const [showNewMenu, setShowNewMenu] = React.useState(false);
-  const [switchingDoctor, setSwitchingDoctor] = React.useState(null);
 
   // Dynamic real-time clock and calendar date
   const [now, setNow] = React.useState(new Date());
@@ -119,8 +118,8 @@ export default function TopHeader({
 
   // Available users for current selected role
   const usersForCurrentRole = React.useMemo(() => {
-    return combinedUsers.filter(user => dbUsers.some(dbUser => dbUser.username === user.username))
-      .sort((a, b) => Number(b.role === 'Radiologist') - Number(a.role === 'Radiologist'));
+    const list = combinedUsers.length > 0 ? combinedUsers : (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
+    return [...list].sort((a, b) => Number(b.role === 'Radiologist') - Number(a.role === 'Radiologist'));
   }, [combinedUsers, dbUsers]);
 
   const initials = user?.name
@@ -315,8 +314,7 @@ export default function TopHeader({
           <span>Role</span>
           <select
             value={role}
-            disabled
-            title="Role is assigned to your account by the hospital administrator"
+            title="Select role to switch user"
             onChange={e => {
               const nextRole = e.target.value;
               setRole(nextRole);
@@ -325,18 +323,14 @@ export default function TopHeader({
                 (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
               );
               if (matched && matched.username !== user?.username) {
-                setSwitchingDoctor(matched);
-                setTimeout(() => {
-                  if (onSwitchUserPromptPassword) {
-                    onSwitchUserPromptPassword(matched);
-                  } else if (setUser) {
-                    setUser(matched);
-                  }
-                  setSwitchingDoctor(null);
-                }, 700);
+                if (onSwitchUserPromptPassword) {
+                  onSwitchUserPromptPassword(matched);
+                } else if (onSignOut) {
+                  onSignOut();
+                }
               }
             }}
-            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
+            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
           >
             {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
           </select>
@@ -351,19 +345,14 @@ export default function TopHeader({
               const selectedUsername = e.target.value;
               const u = combinedUsers.find(r => r.username === selectedUsername);
               if (u && u.username !== user?.username) {
-                // Trigger loading and redirect to enter password for this doctor
-                setSwitchingDoctor(u);
-                setTimeout(() => {
-                  if (onSwitchUserPromptPassword) {
-                    onSwitchUserPromptPassword(u);
-                  } else if (setUser) {
-                    setUser(u);
-                  }
-                  setSwitchingDoctor(null);
-                }, 700);
+                if (onSwitchUserPromptPassword) {
+                  onSwitchUserPromptPassword(u);
+                } else if (onSignOut) {
+                  onSignOut();
+                }
               }
             }}
-            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
+            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
           >
             {usersForCurrentRole.map(r => (
               <option key={r.username} value={r.username}>
@@ -397,41 +386,6 @@ export default function TopHeader({
           </button>
         </div>
       </div>
-
-      {/* Doctor Switch Loading Overlay */}
-      {switchingDoctor && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(21, 24, 27, 0.72)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 99999,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '14px',
-          color: '#fff',
-          animation: 'fadeIn 0.2s ease-out'
-        }}>
-          <div style={{
-            width: '44px',
-            height: '44px',
-            border: '3.5px solid rgba(255,255,255,0.2)',
-            borderTop: '3.5px solid #38bdf8',
-            borderRadius: '50%',
-            animation: 'kpi-spin 0.7s linear infinite'
-          }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-0.01em', marginBottom: '4px' }}>
-              Switching Account · {switchingDoctor.name}
-            </div>
-            <div style={{ fontSize: '12px', color: '#cbd5e1' }}>
-              Redirecting to verification... Please enter password for {switchingDoctor.name}.
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 }
