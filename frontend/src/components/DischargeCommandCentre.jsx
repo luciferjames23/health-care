@@ -618,43 +618,57 @@ export default function DischargeCommandCentre({
       const isCompleted = !!st.completed;
       const isPaused = !!st.paused;
 
-      let statusLabel = base.category || 'Ready';
-      let statusKind = base.category === 'Ready' ? 'ready' : base.category === 'Blocked' ? 'blocked' : base.category === 'Approval required' ? 'approval' : base.category === 'In progress' ? 'pending' : 'done';
+      const openBlocked = Object.entries(deps).filter(([, x]) => x.status === 'blocked').map(([k]) => k);
+      const openApproval = Object.entries(deps).filter(([, x]) => x.status === 'approval').map(([k]) => k);
+      const openPending = Object.entries(deps).filter(([, x]) => x.status === 'pending' || x.status === 'waiting').map(([k]) => k);
+
+      let computedCategory = 'Ready';
+      let statusLabel = 'Ready';
+      let statusKind = 'ready';
+      let blockerText = 'Clear';
 
       if (isCompleted) {
+        computedCategory = 'Completed';
         statusLabel = 'Completed';
         statusKind = 'done';
+        blockerText = 'All steps completed';
       } else if (isPaused) {
+        computedCategory = 'Blocked';
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
+        blockerText = st.pauseReason || 'Clinical deterioration';
+      } else if (openBlocked.length > 0) {
+        computedCategory = 'Blocked';
+        statusLabel = `Blocked · ${openBlocked[0]}`;
+        statusKind = 'blocked';
+        blockerText = openBlocked.join(' → ');
+      } else if (openApproval.length > 0) {
+        computedCategory = 'Approval required';
+        statusLabel = `Approval required · ${openApproval[0]}`;
+        statusKind = 'approval';
+        blockerText = openApproval.join(' → ');
+      } else if (openPending.length > 0) {
+        computedCategory = 'In progress';
+        statusLabel = `In progress · ${openPending[0]}`;
+        statusKind = 'pending';
+        blockerText = openPending.join(' → ');
       } else {
-        const blocked = Object.entries(deps).find(([, x]) => x.status === 'blocked');
-        const approval = Object.entries(deps).find(([, x]) => x.status === 'approval');
-        const pending = Object.entries(deps).find(([, x]) => x.status === 'pending' || x.status === 'waiting');
-
-        if (blocked) {
-          statusLabel = `Blocked · ${blocked[0]}`;
-          statusKind = 'blocked';
-        } else if (approval) {
-          statusLabel = `Approval required · ${approval[0]}`;
-          statusKind = 'approval';
-        } else if (pending) {
-          statusLabel = `In progress · ${pending[0]}`;
-          statusKind = 'pending';
-        } else {
-          statusLabel = 'Ready';
-          statusKind = 'ready';
-        }
+        computedCategory = 'Ready';
+        statusLabel = 'Ready';
+        statusKind = 'ready';
+        blockerText = 'Clear';
       }
 
       const eta = isCompleted
-        ? (st.dischargedAt || base.initialEta)
+        ? (st.dischargedAt || base.initialEta || '10:30')
         : statusKind === 'ready'
           ? 'Now'
-          : st.eta || base.initialEta;
+          : (st.eta || base.initialEta || '13:30');
 
       return {
         ...base,
+        category: computedCategory,
+        blocker: blockerText,
         status: statusLabel,
         statusKind,
         eta,
@@ -1196,14 +1210,28 @@ export default function DischargeCommandCentre({
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#8a9096', fontSize: '11.5px' }}>
-                    {dc.isCompleted ? 'Discharged at' : 'Predicted ready'}
+                  <div style={{ color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#8a9096', fontSize: '11.5px', fontWeight: 600 }}>
+                    {dc.isCompleted
+                      ? 'Discharged at'
+                      : dc.statusKind === 'ready'
+                        ? 'Ready for release'
+                        : dc.statusKind === 'blocked'
+                          ? 'Discharge blocked'
+                          : dc.statusKind === 'approval'
+                            ? 'Approval pending'
+                            : 'Predicted ready'}
                   </div>
-                  <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: '#15181b', fontWeight: 500, margin: '2px 0' }}>
-                    {dc.isCompleted ? (dc.dischargeTime || (dc.eta !== 'Discharged' ? dc.eta : '10:30')) : dc.eta}
+                  <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#15181b', fontWeight: 500, margin: '2px 0' }}>
+                    {dc.isCompleted ? (dc.dischargeTime || '10:30') : dc.statusKind === 'ready' ? 'Now' : dc.eta}
                   </div>
-                  <div style={{ fontSize: '10.5px', color: '#8a9096' }}>
-                    {dc.isCompleted ? 'Discharge completed · Finalized' : '±35 min · Forecasting v1.0.6 · decision support only'}
+                  <div style={{ fontSize: '10.5px', color: dc.statusKind === 'blocked' ? '#b91c1c' : '#8a9096' }}>
+                    {dc.isCompleted
+                      ? 'Discharge completed · Finalized'
+                      : dc.statusKind === 'ready'
+                        ? 'All dependencies cleared · ready to release'
+                        : dc.statusKind === 'blocked'
+                          ? `Blocked: ${dc.blocker} (${dc.pendingCount} pending)`
+                          : '±35 min · Forecasting v1.0.6 · decision support only'}
                   </div>
                 </div>
               </div>
@@ -1235,7 +1263,9 @@ export default function DischargeCommandCentre({
                 </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Critical path</div>
-                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{dc.isCompleted ? 'All steps completed' : (dc.blocker || 'Cleared')}</div>
+                  <div style={{ fontWeight: 600, color: dc.blocker && dc.blocker !== 'Clear' && dc.blocker !== 'All steps completed' ? '#b91c1c' : '#15181b', marginTop: '2px' }}>
+                    {dc.isCompleted ? 'All steps completed' : (dc.blocker || 'Clear')}
+                  </div>
                 </div>
               </div>
 

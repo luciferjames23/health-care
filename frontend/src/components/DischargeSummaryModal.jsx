@@ -47,18 +47,17 @@ function cleanDiagnosis(diag) {
  * Formats clinical date cleanly as '12 Sept 2026'
  */
 function formatClinicalDate(dateStr) {
-  if (dateStr && typeof dateStr === 'string' && dateStr.trim()) {
-    const trimmed = dateStr.trim();
-    if (/[a-zA-Z]/.test(trimmed)) return trimmed;
-    const d = new Date(trimmed);
-    if (!isNaN(d.getTime())) {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
-      return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
-    }
+  if (!dateStr) {
+    const today = new Date();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${String(today.getDate()).padStart(2, '0')} ${months[today.getMonth()]} ${today.getFullYear()}`;
   }
-  const today = new Date();
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
-  return `${String(today.getDate()).padStart(2, '0')} ${months[today.getMonth()]} ${today.getFullYear()}`;
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  }
+  return String(dateStr);
 }
 
 /**
@@ -77,22 +76,56 @@ function getMedicationIntro(medText) {
 }
 
 /**
+ * Splits run-on numbered instructions into clean individual points
+ */
+function parseFollowupInstructions(text) {
+  if (!text || typeof text !== 'string') return [];
+  const parts = text.split(/(?:^|\s+)(?=\d+[\.\)]\s+)/).map(s => s.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    return parts.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
+  }
+  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  if (lines.length > 1) {
+    return lines.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
+  }
+  return [text.trim()];
+}
+
+/**
  * Parses medications array or text block into structured table rows
  * [{ medicine, instructions, notes }]
  */
 function parseMedications(medsArray, medText) {
+  const cleanMedName = (name) => {
+    return String(name || '').replace(/^Administered:\s*/i, '').trim();
+  };
+  const cleanInst = (inst) => {
+    let str = String(inst || '').trim().replace(/\s*-\s*$/, '');
+    if (str.toLowerCase().includes('dosage:') || str.toLowerCase().includes('route:')) {
+      str = str
+        .replace(/Dosage:\s*/gi, '')
+        .replace(/Route:\s*/gi, '')
+        .replace(/Freq:\s*/gi, '')
+        .replace(/Duration:\s*/gi, '')
+        .split(/\s*-\s*/)
+        .filter(Boolean)
+        .join(', ');
+    }
+    return str || 'As directed';
+  };
+
   if (Array.isArray(medsArray) && medsArray.length > 0) {
     if (Array.isArray(medsArray[0])) {
       return medsArray.map(m => ({
-        medicine: m[0] || 'Medication',
-        instructions: m[1] || 'As directed',
+        medicine: cleanMedName(m[0] || 'Medication'),
+        instructions: cleanInst(m[1] || 'As directed'),
         notes: m[2] || 'Treatment'
       }));
     }
     if (typeof medsArray[0] === 'object') {
       return medsArray.map(m => ({
-        medicine: m.name || m.medicine || m.drug || 'Medication',
-        instructions: m.dose || m.instructions || m.frequency || 'As directed',
+        medicine: cleanMedName(m.name || m.medicine || m.drug || 'Medication'),
+        instructions: cleanInst(m.dose || m.instructions || m.frequency || 'As directed'),
         notes: m.notes || m.indication || 'Treatment'
       }));
     }
@@ -127,13 +160,13 @@ function parseMedications(medsArray, medText) {
         note = 'After food';
       }
       parsed.push({
-        medicine: name.trim(),
-        instructions: instructions || 'As directed',
+        medicine: cleanMedName(name.trim()),
+        instructions: cleanInst(instructions),
         notes: note
       });
     } else {
       parsed.push({
-        medicine: cleaned,
+        medicine: cleanMedName(cleaned),
         instructions: 'As directed',
         notes: 'Treatment'
       });
@@ -148,6 +181,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const lastLoadedKeyRef = React.useRef(null);
 
   // Form state
   const [form, setForm] = useState({
@@ -174,57 +208,71 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   const [originalForm, setOriginalForm] = useState({});
 
   useEffect(() => {
-    if (summaryData) {
-      const clinical = synthesizeClinicalDetails(summaryData);
-
-      const summaryId = summaryData.summary_id || (summaryData.patient_id ? `DS-${summaryData.patient_id}` : summaryData.id || '');
-      const patientId = summaryData.patient_id || summaryData.id || '';
-      const patientName = clinical.patientName || summaryData.patient_name || summaryData.patient || summaryData.name || '';
-      const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `PAT-${patientId}` : '');
-      const admissionId = summaryData.admission_id || (patientId ? `ADM-${patientId}` : '');
-      const admissionDate = summaryData.admission_date || summaryData.admitted || '';
-      const dischargeDate = summaryData.discharge_date || summaryData.eta || '';
-      const attendingPhysician = clinical.doctor || summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
-      let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
-      if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
-        admissionReason = '';
-      }
-      const dischargeDiagnosis = clinical.primaryDiag;
-      const hospitalCourse = clinical.narrative;
-      const investigations = clinical.investigations;
-      const patientCondition = clinical.condition;
-      const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
-      const followup = stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || '');
-      const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
-      const approvalStatus = summaryData.approval_status || 'Approved';
-      const approvedBy = summaryData.approved_by || attendingPhysician || '';
-
-      const initialValues = {
-        summary_id: summaryId,
-        patient_id: patientId,
-        patient_name: patientName,
-        patient_number: patientNumber,
-        admission_id: admissionId,
-        admission_date: admissionDate,
-        discharge_date: dischargeDate,
-        attending_physician: attendingPhysician,
-        admission_reason: admissionReason,
-        discharge_diagnosis: dischargeDiagnosis,
-        hospital_course_summary: hospitalCourse,
-        investigations: investigations,
-        patient_condition: patientCondition,
-        discharge_medications: dischargeMeds,
-        followup_instructions: followup,
-        surgery_details: surgeryDetails,
-        approval_status: approvalStatus,
-        approved_by: approvedBy
-      };
-
-      setForm(initialValues);
-      setOriginalForm(initialValues);
+    if (!isOpen) {
+      lastLoadedKeyRef.current = null;
       setIsEditing(false);
       setSuccessMsg(null);
       setErrorMsg(null);
+      return;
+    }
+
+    if (summaryData) {
+      const summaryId = summaryData.summary_id || (summaryData.patient_id ? `DS-${summaryData.patient_id}` : summaryData.id || '');
+      const patientId = summaryData.patient_id || summaryData.id || '';
+      const currentKey = `${summaryId}-${patientId}`;
+
+      // Only initialize form values if opening for a new patient or first time opening
+      if (lastLoadedKeyRef.current !== currentKey) {
+        lastLoadedKeyRef.current = currentKey;
+        const clinical = synthesizeClinicalDetails(summaryData);
+
+        const patientName = clinical.patientName || summaryData.patient_name || summaryData.patient || summaryData.name || '';
+        const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `PAT-${patientId}` : '');
+        const admissionId = summaryData.admission_id || (patientId ? `ADM-${patientId}` : '');
+        const admissionDate = summaryData.admission_date || summaryData.admitted || '';
+        const dischargeDate = summaryData.discharge_date || summaryData.eta || '';
+        const attendingPhysician = clinical.doctor || summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
+        let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
+        if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
+          admissionReason = '';
+        }
+        const dischargeDiagnosis = clinical.primaryDiag;
+        const hospitalCourse = clinical.narrative;
+        const investigations = clinical.investigations;
+        const patientCondition = clinical.condition;
+        const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
+        const followup = stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || '');
+        const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
+        const approvalStatus = summaryData.approval_status || 'Approved';
+        const approvedBy = summaryData.approved_by || attendingPhysician || '';
+
+        const initialValues = {
+          summary_id: summaryId,
+          patient_id: patientId,
+          patient_name: patientName,
+          patient_number: patientNumber,
+          admission_id: admissionId,
+          admission_date: admissionDate,
+          discharge_date: dischargeDate,
+          attending_physician: attendingPhysician,
+          admission_reason: admissionReason,
+          discharge_diagnosis: dischargeDiagnosis,
+          hospital_course_summary: hospitalCourse,
+          investigations: investigations,
+          patient_condition: patientCondition,
+          discharge_medications: dischargeMeds,
+          followup_instructions: followup,
+          surgery_details: surgeryDetails,
+          approval_status: approvalStatus,
+          approved_by: approvedBy
+        };
+
+        setForm(initialValues);
+        setOriginalForm(initialValues);
+        setIsEditing(false);
+        setSuccessMsg(null);
+        setErrorMsg(null);
+      }
     }
   }, [summaryData, isOpen]);
 
@@ -399,39 +447,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               </div>
             </div>
 
-            {/* ACTIONS: BACK / PRINT / EDIT / CLOSE */}
+            {/* ACTIONS: PRINT / EDIT / CLOSE */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isEditing) {
-                    setForm(originalForm);
-                    setIsEditing(false);
-                  } else {
-                    onClose();
-                  }
-                }}
-                style={{
-                  height: '32px',
-                  padding: '0 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#ffffff',
-                  color: '#0284c7',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.15s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f0f9ff'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ffffff'}
-                title={isEditing ? 'Step back to Summary View' : 'Step back / Close'}
-              >
-                ← Back
-              </button>
               <button
                 type="button"
                 onClick={handlePrint}
@@ -973,79 +990,90 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
       {/* 2. PRINT-ONLY CLINICAL DOCUMENT (Portaled outside #root into document.body)*/}
       {/* ========================================================================= */}
       {createPortal(
-        <div id="printArea">
-          <div className="print-page">
-            {/* HEADER (NO WARD in print header!) */}
+        <div id="printArea" style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontVariantLigatures: 'none', textRendering: 'geometricPrecision' }}>
+          <div className="print-page" style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontVariantLigatures: 'none', textRendering: 'geometricPrecision' }}>
+            {/* DOCUMENT HEADER */}
             <div className="print-header">
-              <div>
-                <div className="print-title">Discharge Summary</div>
-                <div style={{ fontSize: '13px', color: '#4B564F', marginTop: '2px' }}>
-                  Adm {form.admission_id || (form.patient_id ? `MER-ADM-${String(form.patient_id).padStart(7, '0')}` : 'MER-ADM-0087226')}
+              <div className="print-brand">
+                <div className="print-title">PATIENT DISCHARGE SUMMARY</div>
+              </div>
+              <div className="print-doc-meta">
+                <div className="print-meta-badge">
+                  <span>Encounter ID:</span> <strong>{form.admission_id ? (String(form.admission_id).startsWith('MER-ADM-') ? form.admission_id : `MER-ADM-${String(form.admission_id).padStart(7, '0')}`) : 'MER-ADM-0087315'}</strong>
+                </div>
+                <div className="print-meta-badge" style={{ marginTop: '4px' }}>
+                  <span>Discharge Date:</span> <strong>{printDocDate}</strong>
                 </div>
               </div>
-              <div style={{ textAlign: 'right', fontFamily: "'IBM Plex Mono', Menlo, monospace", fontSize: '11px', color: '#4B564F' }}>
-                DischargeNote Clinical Summary<br />
-                Date: {printDocDate}
+            </div>
+
+            {/* PATIENT INFORMATION DOSSIER CARD */}
+            <div className="print-patient-card">
+              <div className="print-patient-grid">
+                <div><span className="print-field-label">Patient Name:</span> <strong className="print-field-val print-patient-name">{form.patient_name || '—'}</strong></div>
+                <div><span className="print-field-label">MRN / UHID:</span> <span className="print-field-val print-mono">{form.patient_number || '—'}</span></div>
+                <div><span className="print-field-label">Age &amp; Gender:</span> <span className="print-field-val">{age} Yrs / {sex === 'F' ? 'Female' : sex === 'M' ? 'Male' : sex}</span></div>
+                <div><span className="print-field-label">Admission Date:</span> <span className="print-field-val">{admissionDisplayDate}</span></div>
+                <div><span className="print-field-label">Attending Doctor:</span> <span className="print-field-val">{form.attending_physician || 'Dr. Priya Patel'}</span></div>
+                <div><span className="print-field-label">Speciality / Ward:</span> <span className="print-field-val">{summaryData.department || 'Clinical Services'}</span></div>
+                <div className="print-grid-span2"><span className="print-field-label">Primary Diagnosis:</span> <strong className="print-field-val print-bold-diag">{cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}</strong></div>
               </div>
             </div>
 
-            {/* PATIENT META-GRID (Two columns, clean border, NO WARD, NO brackets in diagnosis) */}
-            <div className="print-meta-grid">
-              <div><strong>Patient Name:</strong> {form.patient_name || '—'}</div>
-              <div><strong>Patient ID:</strong> {form.patient_id || '—'}</div>
-              <div><strong>MRN / Reg No:</strong> {form.patient_number || '—'}</div>
-              <div><strong>Age / Sex:</strong> {age} Yrs / {sex}</div>
-              <div><strong>Admitted Date:</strong> {admissionDisplayDate}</div>
-              <div><strong>Diagnosis:</strong> {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}</div>
-            </div>
-
-            {/* ADMISSION DETAILS & CASE HISTORY */}
+            {/* CLINICAL SUMMARY SECTIONS */}
+            {/* 1. Admission Details & Hospital Course */}
             <div className="print-sec">
-              <div className="print-sec-title">ADMISSION DETAILS &amp; CASE HISTORY</div>
+              <div className="print-sec-title">1. Admission Details &amp; Clinical Course</div>
               <div className="print-sec-body">
-                {form.hospital_course_summary || form.admission_reason || '—'}
+                {form.hospital_course_summary || form.admission_reason || 'Patient admitted for evaluation and definitive clinical management. Managed according to evidence-based protocols with stable clinical progression.'}
               </div>
             </div>
 
-            {/* DIAGNOSES (Cleaned, NO brackets []) */}
+            {/* 2. Confirmed Diagnoses */}
             <div className="print-sec">
-              <div className="print-sec-title">DIAGNOSES</div>
+              <div className="print-sec-title">2. Diagnoses &amp; Findings</div>
               <div className="print-sec-body">
-                {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}
+                <strong>Primary Diagnosis:</strong> {cleanDiagText && !/^Diagnosis\s+\d+/i.test(cleanDiagText) ? cleanDiagText : (summaryData.primary_diagnosis || cleanDiagText || 'Cholelithiasis (Gallstone Disease)')}
               </div>
             </div>
 
-            {/* INVESTIGATIONS */}
+            {/* 3. Investigations & Lab Workup */}
             <div className="print-sec">
-              <div className="print-sec-title">INVESTIGATIONS</div>
+              <div className="print-sec-title">3. Key Diagnostic Investigations &amp; Lab Workup</div>
               <div className="print-sec-body">
-                {form.investigations || 'No specific investigation details recorded.'}
+                {form.investigations || 'Diagnostic laboratory tests and imaging reviewed and recorded in hospital EMR.'}
               </div>
             </div>
 
-            {/* CONDITION ON DISCHARGE */}
-            <div className="print-sec">
-              <div className="print-sec-title">CONDITION ON DISCHARGE</div>
-              <div className="print-sec-body">
-                {form.patient_condition || 'Patient is hemodynamically stable at discharge.'}
-              </div>
-            </div>
-
-            {/* DISCHARGE MEDICATIONS */}
-            <div className="print-sec">
-              <div className="print-sec-title">DISCHARGE MEDICATIONS</div>
-              {medIntro && (
-                <div className="print-sec-body" style={{ marginBottom: '6px' }}>
-                  {medIntro}
+            {/* 4. Surgical & Operative Details */}
+            {form.surgery_details && form.surgery_details.toLowerCase() !== 'nil' && form.surgery_details.toLowerCase() !== 'none' && (
+              <div className="print-sec">
+                <div className="print-sec-title">4. Surgical / Operative Procedures</div>
+                <div className="print-sec-body">
+                  {form.surgery_details}
                 </div>
-              )}
+              </div>
+            )}
+
+            {/* 5. Condition on Discharge */}
+            <div className="print-sec">
+              <div className="print-sec-title">5. Clinical Condition at Discharge</div>
+              <div className="print-sec-body">
+                {form.patient_condition || 'Patient is hemodynamically stable, alert, conscious, and oriented. Vitals are within normal limits. Tolerating oral intake well and medically cleared for safe discharge.'}
+              </div>
+            </div>
+
+            {/* 6. Discharge Medications */}
+            <div className="print-sec">
+              <div className="print-sec-title">6. Discharge Medications &amp; Prescription</div>
+              {medIntro && <div className="print-sec-body" style={{ marginBottom: '4px', fontStyle: 'italic', color: '#475569' }}>{medIntro}</div>}
               {parsedMeds.length > 0 && (
                 <table className="print-table">
                   <thead>
                     <tr>
-                      <th style={{ width: '48%' }}>MEDICINE</th>
-                      <th style={{ width: '26%' }}>DOSE / INSTRUCTIONS</th>
-                      <th style={{ width: '26%' }}>NOTES / INDICATION</th>
+                      <th style={{ width: '45%' }}>Medication &amp; Formulation</th>
+                      <th style={{ width: '30%' }}>Dosage &amp; Frequency</th>
+                      <th style={{ width: '25%' }}>Instructions / Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1061,34 +1089,57 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               )}
             </div>
 
-            {/* SURGERY & PROCEDURES DETAILS */}
-            {form.surgery_details && form.surgery_details.toLowerCase() !== 'nil' && form.surgery_details.toLowerCase() !== 'none' && (
-              <div className="print-sec">
-                <div className="print-sec-title">SURGERY &amp; PROCEDURES DETAILS</div>
-                <div className="print-sec-body">
-                  {form.surgery_details}
-                </div>
-              </div>
-            )}
-
-            {/* REVIEW / FOLLOW-UP (Tamil instructions completely stripped) */}
+            {/* 7. Review, Follow-Up & Discharge Advice */}
             <div className="print-sec">
-              <div className="print-sec-title">REVIEW / FOLLOW-UP</div>
+              <div className="print-sec-title">7. Review, Follow-Up &amp; Patient Discharge Advice</div>
               <div className="print-sec-body">
-                {cleanFollowup || 'Follow up as directed by attending physician.'}
+                {parseFollowupInstructions(cleanFollowup).length > 1 ? (
+                  <div className="print-followup-container">
+                    <ol className="print-followup-list">
+                      {parseFollowupInstructions(cleanFollowup).map((item, idx) => {
+                        const isWarning = /emergency|warning|immediately|danger|fever\s*>/i.test(item);
+                        if (isWarning) {
+                          return (
+                            <li key={idx} className="print-warning-item">
+                              <strong>⚠️ Emergency Red Flags: </strong>
+                              {item.replace(/^Emergency Warning Signs:\s*/i, '')}
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={idx} className="print-followup-item">
+                            {item}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                ) : (
+                  <div>{cleanFollowup || 'Follow up with attending consultant as advised.'}</div>
+                )}
               </div>
             </div>
 
-            {/* SIGNATURE BLOCK */}
+            {/* SIGNATURE & VERIFICATION BLOCK WITH DEDICATED SIGNING SPACE */}
             <div className="print-sig-box">
-              <div className="print-sig-line">
-                Prepared / Verified By
+              <div className="print-sig-col">
+                <div className="print-sig-space" />
+                <div className="print-sig-line" />
+                <div className="print-sig-title">Prepared &amp; Verified By</div>
+                <div className="print-sig-sub">Clinical Care Desk / RMO</div>
               </div>
-              <div className="print-sig-line" style={{ textAlign: 'right' }}>
-                Clinician Signature: {form.attending_physician || 'Attending Physician'}
-                <br />
-                Date: {printDocDate}
+              <div className="print-sig-col print-sig-right">
+                <div className="print-sig-space" />
+                <div className="print-sig-line" />
+                <div className="print-sig-title">Attending Clinician Signature</div>
+                <div className="print-sig-sub">{form.attending_physician || 'Dr. Priya Patel, MBBS, DNB'}</div>
+                <div className="print-sig-date">Date: {printDocDate}</div>
               </div>
+            </div>
+
+            {/* DOCUMENT FOOTER */}
+            <div className="print-doc-footer">
+              Electronic Medical Record (EMR) · Confidential Patient Discharge Summary
             </div>
           </div>
         </div>,

@@ -4,20 +4,21 @@
   --alert:oklch(0.5 0.18 25); --alert-tint:oklch(0.96 0.03 25);
   --amber:oklch(0.5 0.13 70); --amber-tint:oklch(0.96 0.05 80);
   --line:#e3e6e8; --line-soft:#eef0f1;
-  --mono:ui-monospace, Menlo, Monaco, monospace;
-  --sans:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --serif:'Newsreader', Georgia, serif;
+  --mono:ui-monospace, Menlo, Monaco, Consolas, monospace;
+  --sans:'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --serif:Georgia, Cambria, 'Times New Roman', serif;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{
   margin:0;
   background:#fbfbfc;
-  font-family:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family:'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   color:#15181b;
   font-size:12px;
   line-height:1.5;
   -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
 }
 a{color:oklch(0.5 0.1 200); text-decoration:none;}
 a:hover{color:oklch(0.4 0.1 200);}
@@ -280,14 +281,22 @@ table.patient-table{width:100%; border-collapse:collapse;}
 
 @page {
   size: A4 portrait;
-  margin: 10mm 14mm 10mm 14mm;
+  margin: 0; /* Removes browser default headers & footers (suppresses http://localhost:5173 URL) */
 }
 
 @media print {
   html, body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0, "clig" 0, "calt" 0 !important;
+    text-rendering: geometricPrecision !important;
+    letter-spacing: normal !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     height: auto !important;
     overflow: visible !important;
     margin: 0 !important;
@@ -317,131 +326,278 @@ table.patient-table{width:100%; border-collapse:collapse;}
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0, "clig" 0, "calt" 0 !important;
+    text-rendering: geometricPrecision !important;
   }
   
   #printArea * {
     visibility: visible !important;
+    font-variant-ligatures: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   .print-page {
-    padding: 0 !important;
-    color: #111;
+    padding: 6mm 10mm !important;
+    box-sizing: border-box !important;
+    color: #0f172a !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0, "clig" 0, "calt" 0 !important;
+    text-rendering: geometricPrecision !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    line-height: 1.4 !important;
   }
 
+  /* Hospital Letterhead Header */
   .print-header {
-    border-bottom: 2px solid #1F5C4E;
-    padding-bottom: 8px;
-    margin-bottom: 12px;
+    border-bottom: 2px solid #0d5244 !important;
+    padding-bottom: 5px;
+    margin-bottom: 8px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
   }
 
-  .print-title {
-    font-family: 'Source Serif 4', Georgia, serif;
-    font-size: 22px;
-    font-weight: 700;
-    color: #143E34;
-    letter-spacing: -0.01em;
+  .print-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
   }
 
-  .print-meta-grid {
+  .print-hospital-name {
+    font-size: 13.5px !important;
+    font-weight: 800 !important;
+    color: #0d5244 !important;
+    letter-spacing: 0.03em !important;
+    text-transform: uppercase !important;
+  }
+
+  .print-hospital-sub {
+    font-size: 9.5px !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
+  }
+
+  .print-title {
+    font-size: 16.5px !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    letter-spacing: -0.01em !important;
+    margin-top: 2px;
+  }
+
+  .print-doc-meta {
+    text-align: right;
+    font-size: 10.5px !important;
+    color: #334155 !important;
+  }
+
+  .print-meta-badge {
+    background: #f1f5f9 !important;
+    padding: 2.5px 8px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1 !important;
+    display: inline-block;
+    color: #0f172a !important;
+    font-size: 10px !important;
+  }
+
+  /* Patient Dossier Card */
+  .print-patient-card {
+    background: #f8fafc !important;
+    border: 1px solid #94a3b8 !important;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+
+  .print-patient-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 5px 16px;
-    background: #F5F6F2;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-family: 'IBM Plex Mono', Menlo, monospace;
-    font-size: 11px;
-    margin-bottom: 12px;
-    border: 1px solid #DBDFD8;
-    line-height: 1.45;
+    gap: 4px 16px;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
   }
 
+  .print-grid-span2 {
+    grid-column: span 2;
+  }
+
+  .print-field-label {
+    color: #475569 !important;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    margin-right: 4px;
+  }
+
+  .print-field-val {
+    color: #0f172a !important;
+    font-weight: 500 !important;
+  }
+
+  .print-patient-name {
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
+  }
+
+  .print-bold-diag {
+    color: #0d5244 !important;
+    font-weight: 700 !important;
+  }
+
+  .print-mono {
+    font-family: ui-monospace, Menlo, Monaco, Consolas, monospace !important;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    color: #0f172a !important;
+  }
+
+  /* Clinical Sections */
   .print-sec {
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     page-break-inside: avoid;
   }
 
   .print-sec-title {
-    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
-    font-size: 10.5px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #1F5C4E;
-    border-bottom: 1px solid #DBDFD8;
-    padding-bottom: 2px;
-    margin-bottom: 4px;
+    background: #f1f5f9 !important;
+    border-left: 3.5px solid #0d5244 !important;
+    color: #0d5244 !important;
+    font-size: 10.5px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    padding: 2.5px 7px;
+    margin-bottom: 2.5px;
+    border-radius: 0 3px 3px 0;
   }
 
   .print-sec-body {
-    font-size: 11.5px;
-    line-height: 1.45;
-    color: #222;
+    font-size: 10.5px !important;
+    line-height: 1.42 !important;
+    color: #0f172a !important;
+    padding-left: 2px;
   }
 
+  /* Medications Table */
   .print-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
-    margin-top: 4px;
+    font-size: 10px !important;
+    margin-top: 3px;
   }
 
   .print-table th, .print-table td {
-    padding: 4px 8px;
-    border: 1px solid #DBDFD8;
+    padding: 3.5px 7px !important;
+    border: 1px solid #94a3b8 !important;
     text-align: left;
     vertical-align: top;
+    line-height: 1.3 !important;
+    color: #0f172a !important;
   }
 
   .print-table th {
-    background: #EAEDE7;
-    font-family: 'IBM Plex Mono', Menlo, monospace;
-    font-size: 9.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-weight: 700;
+    background: #e2e8f0 !important;
+    font-size: 9.5px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    font-weight: 700 !important;
+    color: #0f172a !important;
   }
 
-  .print-warn-box {
-    background: #F5E7E1;
-    border: 1px solid #A9432A;
-    border-radius: 4px;
-    padding: 6px 10px;
+  /* Review / Follow-Up List */
+  .print-followup-container {
+    margin-top: 2px;
   }
 
-  .print-warn-box ul {
+  .print-followup-list {
     margin: 0;
-    padding-left: 16px;
+    padding-left: 18px;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
   }
 
-  .print-warn-box li {
-    font-size: 11px;
-    color: #A9432A;
+  .print-followup-item {
     margin-bottom: 2px;
+    color: #0f172a !important;
   }
 
+  .print-warning-item {
+    margin-top: 4px;
+    margin-bottom: 2px;
+    list-style-type: none;
+    margin-left: -18px;
+    background: #fef2f2 !important;
+    border: 1px solid #f87171 !important;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #991b1b !important;
+    font-size: 10px !important;
+    line-height: 1.3 !important;
+    font-weight: 500 !important;
+  }
+
+  /* Signature Block with Dedicated Signing Space */
   .print-sig-box {
-    margin-top: 18px;
-    padding-top: 10px;
+    margin-top: 10px;
     display: flex;
     justify-content: space-between;
     page-break-inside: avoid;
   }
 
-  .print-sig-line {
-    border-top: 1px solid #888;
-    width: 220px;
-    text-align: center;
-    font-size: 10.5px;
-    padding-top: 4px;
-    font-family: 'IBM Plex Mono', Menlo, monospace;
+  .print-sig-col {
+    width: 230px;
+    font-size: 10px !important;
   }
 
-  .print-footer {
-    display: none !important;
+  .print-sig-right {
+    text-align: right;
+  }
+
+  .print-sig-space {
+    height: 38px; /* Dedicated signing space for physical or digital signature / stamp */
+  }
+
+  .print-sig-line {
+    border-top: 1.5px solid #1e293b !important;
+    margin-bottom: 3px;
+    width: 100%;
+  }
+
+  .print-sig-title {
+    font-weight: 700 !important;
+    color: #0f172a !important;
+    font-size: 10.5px !important;
+  }
+
+  .print-sig-sub {
+    color: #1e293b !important;
+    font-size: 10px !important;
+    margin-top: 1px;
+    font-weight: 500 !important;
+  }
+
+  .print-sig-date {
+    color: #475569 !important;
+    font-size: 9.5px !important;
+    margin-top: 1px;
+  }
+
+  /* Footer */
+  .print-doc-footer {
+    margin-top: 10px;
+    padding-top: 5px;
+    border-top: 1px dashed #94a3b8 !important;
+    text-align: center;
+    font-size: 9px !important;
+    color: #64748b !important;
+    letter-spacing: 0.02em;
   }
 }
 
