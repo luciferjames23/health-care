@@ -281,7 +281,7 @@ table.patient-table{width:100%; border-collapse:collapse;}
 
 @page {
   size: A4 portrait;
-  margin: 10mm 12mm !important;
+  margin: 0 !important;
 }
 
 @media print {
@@ -336,7 +336,7 @@ table.patient-table{width:100%; border-collapse:collapse;}
   }
 
   .print-page {
-    padding: 0 !important;
+    padding: 12mm 15mm !important;
     box-sizing: border-box !important;
     color: #0f172a !important;
     font-family: Tahoma, "Segoe UI", Arial, Helvetica, sans-serif !important;
