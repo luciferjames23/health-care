@@ -796,6 +796,270 @@ export const apiService = {
       total_count: filtered.length,
       discharged_count: discharges.length
     };
+  },
+
+  // -------------------------------------------------------------------------
+  // Clinical Operations & Front Office Endpoints
+  // -------------------------------------------------------------------------
+  async getEmergencyCases(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createEmergencyCase(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating ER case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, data);
+    return data;
+  },
+
+  async updateEmergencyCase(caseId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emergency/${encodeURIComponent(caseId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating ER case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, data);
+    return data;
+  },
+
+  async getConsultantSchedules(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createConsultantSchedule(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating schedule ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, data);
+    return data;
+  },
+
+  async updateConsultantSchedule(id, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating schedule ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, data);
+    return data;
+  },
+
+  async getNursingTasks(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createNursingTask(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating nursing task ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, data);
+    return data;
+  },
+
+  async updateNursingTask(taskId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/nursing/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating task ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, data);
+    return data;
+  },
+
+  async getEmarRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createEmarRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error scheduling eMAR dose ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emar`, data);
+    return data;
+  },
+
+  async signOffEmarRecord(recordId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emar/${recordId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error signing off eMAR dose ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emar`, data);
+    return data;
+  },
+
+  async getSurgeryCases(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createSurgeryCase(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error scheduling surgery ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, data);
+    return data;
+  },
+
+  async updateSurgeryCase(caseId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/surgery/${caseId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating surgery case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, data);
+    return data;
+  },
+
+  async getBloodInventory(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async updateBloodInventory(bloodGroup, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/${encodeURIComponent(bloodGroup)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating blood inventory ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank`, data);
+    return data;
+  },
+
+  async getMlcRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createMlcRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating MLC record ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, data);
+    return data;
+  },
+
+  async getDeathRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createDeathRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error registering death record ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, data);
+    return data;
+  },
+
+  async getSbarHandovers(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createSbarHandover(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating SBAR handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async acknowledgeSbarHandover(handoverId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar/${handoverId}/acknowledge`, {
+      method: 'PATCH'
+    });
+    if (!res.ok) throw new Error(`Error acknowledging handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async getOtSchedules(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async bookOtSlot(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error booking OT slot ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, data);
+    return data;
   }
 };
 

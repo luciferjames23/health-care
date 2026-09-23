@@ -68,6 +68,12 @@ try:
 except Exception as e:
     print(f"Failed to load finance router: {e}")
 
+try:
+    from routers.clinical_operations import router as clinical_ops_router
+    routers_to_mount.append(clinical_ops_router)
+except Exception as e:
+    print(f"Failed to load clinical operations router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",
@@ -151,6 +157,13 @@ def on_startup():
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
+
+    try:
+        from db.init_clinical_tables import init_clinical_tables
+        init_clinical_tables()
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("Clinical tables auto-init on startup: %s", e)
 
 @app.get("/health")
 def health_alias():
