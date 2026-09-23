@@ -377,6 +377,13 @@ def get_patients(
     Returns a paginated list of patients.
     Supports search by patient_id, name, phone, or patient_code, and filter by status.
     """
+    # Unwrap FastAPI Query objects if invoked directly in tests/python code
+    if hasattr(search, 'default') or 'Query' in type(search).__name__: search = None
+    if hasattr(status, 'default') or 'Query' in type(status).__name__: status = None
+    if hasattr(patient_id, 'default') or 'Query' in type(patient_id).__name__: patient_id = None
+    if hasattr(page, 'default') or 'Query' in type(page).__name__: page = 1
+    if hasattr(per_page, 'default') or 'Query' in type(per_page).__name__: per_page = 20
+
     conn = None
     try:
         conn = get_conn()

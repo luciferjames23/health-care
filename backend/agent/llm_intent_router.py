@@ -948,9 +948,9 @@ def _rule_based_fallback(
                 break
 
         # Only map UNKNOWN to BOOK_APPOINTMENT if the message itself contained medical content (not pure greeting/ack)
-        has_new_medical_info = bool(rule_result.get("symptoms") or rule_result.get("doctor_preference") or (dept and any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"])))
+        has_new_medical_info = bool(dept or rule_result.get("symptoms") or rule_result.get("doctor_preference") or any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"]))
         if canonical_intent == "UNKNOWN" and has_new_medical_info:
-            if current_state.get("intent") == "DOCTOR_AVAILABILITY":
+            if dept or current_state.get("intent") == "DOCTOR_AVAILABILITY":
                 canonical_intent = "DOCTOR_AVAILABILITY"
             else:
                 canonical_intent = "BOOK_APPOINTMENT"

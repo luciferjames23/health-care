@@ -67,7 +67,7 @@ def is_duplicate_message(msg_id: str) -> bool:
     try:
         cur.execute("""
             SELECT id FROM messages 
-            WHERE metadata ->> 'whatsapp_message_id' = %s;
+            WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
         """, (msg_id,))
         return cur.fetchone() is not None
     except Exception as e:
@@ -466,11 +466,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
                 cur.execute("""
                     UPDATE messages
                     SET metadata = jsonb_set(
-                        COALESCE(metadata, '{}'::jsonb),
+                        COALESCE(metadata::jsonb, '{}'::jsonb),
                         '{whatsapp_status}',
                         to_jsonb(%s::text)
                     )
-                    WHERE metadata ->> 'whatsapp_message_id' = %s;
+                    WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
                 """, (status_upper, wamid))
                 conn.commit()
                 if status_upper == "SENT":

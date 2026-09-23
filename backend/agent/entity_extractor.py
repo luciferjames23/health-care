@@ -523,7 +523,7 @@ def is_valid_person_name(name_str: Optional[str]) -> bool:
     ]
     
     for kw in invalid_keywords:
-        if kw in cleaned_lower:
+        if re.search(rf"\b{re.escape(kw)}\b", cleaned_lower):
             return False
             
     # Name should consist of letters, spaces, dots, or hyphens only

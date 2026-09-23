@@ -1,0 +1,841 @@
+[
+  {
+    "Test ID": "TC-REG-001",
+    "Module": "Registration",
+    "Test Name": "New unknown WhatsApp number sends Hello",
+    "Priority": "High",
+    "Preconditions": "New phone number",
+    "Steps": [
+      "Send 'Hello'"
+    ],
+    "Expected": "Options for First-time Visitor / Existing Patient",
+    "Actual": "Welcome to Meridian Hospital.\n\nAre you an existing patient or a first-time visitor?",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-002",
+    "Module": "Registration",
+    "Test Name": "Select First-time Visitor",
+    "Priority": "High",
+    "Preconditions": "Greeting displayed",
+    "Steps": [
+      "Select 'First-time Visitor'"
+    ],
+    "Expected": "Ask for name",
+    "Actual": "Please provide your name.",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-003",
+    "Module": "Registration",
+    "Test Name": "Enter valid name",
+    "Priority": "High",
+    "Preconditions": "Name requested",
+    "Steps": [
+      "Enter 'Rajesh Kumar'"
+    ],
+    "Expected": "Ask for DOB",
+    "Actual": "Please provide your date of birth.",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-004",
+    "Module": "Registration",
+    "Test Name": "Enter valid DOB",
+    "Priority": "High",
+    "Preconditions": "DOB requested",
+    "Steps": [
+      "Enter '15/08/1995'"
+    ],
+    "Expected": "Ask for Gender",
+    "Actual": "Please select your gender.",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-005",
+    "Module": "Registration",
+    "Test Name": "Select Gender & Create Patient",
+    "Priority": "Critical",
+    "Preconditions": "Gender selected",
+    "Steps": [
+      "Select 'Male'"
+    ],
+    "Expected": "Patient record created in DB",
+    "Actual": "ID=1004221, Code=P1000016, Name=Rajesh",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-006",
+    "Module": "Registration",
+    "Test Name": "Verify WhatsApp phone automatically retrieved",
+    "Priority": "High",
+    "Preconditions": "Patient registered",
+    "Steps": [
+      "Check DB phone"
+    ],
+    "Expected": "Phone matched WhatsApp sender number",
+    "Actual": "919999900001",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-007",
+    "Module": "Registration",
+    "Test Name": "Verify Patient ID created",
+    "Priority": "High",
+    "Preconditions": "Patient registered",
+    "Steps": [
+      "Check DB patient_id"
+    ],
+    "Expected": "Valid non-null patient id generated",
+    "Actual": "DB_ID=1004221, Code=P1000016",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-008",
+    "Module": "Registration",
+    "Test Name": "Verify Registration completes",
+    "Priority": "High",
+    "Preconditions": "Registration finished",
+    "Steps": [
+      "Check state patient_id"
+    ],
+    "Expected": "State populated with patient_id",
+    "Actual": "1004221",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-009",
+    "Module": "Registration",
+    "Test Name": "Verify Main Menu appears",
+    "Priority": "High",
+    "Preconditions": "Patient authenticated",
+    "Steps": [
+      "Send 'Hi'"
+    ],
+    "Expected": "Main menu options displayed",
+    "Actual": "Welcome back, Rajesh Kumar! \ud83d\udc4b\n\nHow can I help you today?",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-010",
+    "Module": "Registration",
+    "Test Name": "Verify registration does not restart",
+    "Priority": "High",
+    "Preconditions": "Registered user",
+    "Steps": [
+      "Send follow-up message"
+    ],
+    "Expected": "User kept as authenticated, no registration prompt",
+    "Actual": "Welcome back, Rajesh Kumar! \ud83d\udc4b\n\nHow can I help you today?",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-011",
+    "Module": "Registration",
+    "Test Name": "Provide name, DOB and gender in single message",
+    "Priority": "High",
+    "Preconditions": "Registration started",
+    "Steps": [
+      "Send single combined message"
+    ],
+    "Expected": "Extract all details and complete/ask remaining",
+    "Actual": "Thank you, John Doe. Your registration with Meridian Hospital is complete. Patient ID: P1000017\n\nHow",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-012",
+    "Module": "Registration",
+    "Test Name": "Invalid DOB validation",
+    "Priority": "Medium",
+    "Preconditions": "Prompted for DOB",
+    "Steps": [
+      "Enter '99/99/9999'"
+    ],
+    "Expected": "Reject invalid date and request retry",
+    "Actual": "Please provide your date of birth.",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-013",
+    "Module": "Registration",
+    "Test Name": "Invalid name check",
+    "Priority": "Low",
+    "Preconditions": "Prompted for name",
+    "Steps": [
+      "Enter '12345!@#'"
+    ],
+    "Expected": "Handle gracefully or request valid name",
+    "Actual": "Please provide your date of birth.",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-014",
+    "Module": "Registration",
+    "Test Name": "Duplicate patient prevention",
+    "Priority": "High",
+    "Preconditions": "Existing phone registered",
+    "Steps": [
+      "Attempt duplicate registration"
+    ],
+    "Expected": "Prevent duplicate record creation in DB",
+    "Actual": "Count=1",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REG-015",
+    "Module": "Registration",
+    "Test Name": "Final database verification",
+    "Priority": "High",
+    "Preconditions": "Registration completed",
+    "Steps": [
+      "SELECT from patients table"
+    ],
+    "Expected": "Clean patient record verified",
+    "Actual": "ID=1004221, Code=P1000016, Name=Rajesh, DOB=1995-08-15, Gender=Male",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-001",
+    "Module": "Patient Profile",
+    "Test Name": "View My Profile",
+    "Priority": "High",
+    "Preconditions": "Existing patient",
+    "Steps": [
+      "Select 'My Profile'"
+    ],
+    "Expected": "Display patient details",
+    "Actual": "\ud83d\udc64 *Patient Profile Details*\n\n\u2022 *Name:* Profile Tester\n\u2022 *Patient ID:* `P9999`\n\u2022 *Phone:* 91999990001",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-002",
+    "Module": "Patient Profile",
+    "Test Name": "Change Profile Menu Options",
+    "Priority": "High",
+    "Preconditions": "In Profile view",
+    "Steps": [
+      "Select 'Change Profile'"
+    ],
+    "Expected": "Multi-select option list displayed",
+    "Actual": "What would you like to update?",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-003",
+    "Module": "Patient Profile",
+    "Test Name": "Change Gender & PostgreSQL COMMIT Check",
+    "Priority": "Critical",
+    "Preconditions": "Profile options",
+    "Steps": [
+      "Select Change Gender",
+      "Select Female"
+    ],
+    "Expected": "Gender updated to Female in PostgreSQL DB",
+    "Actual": "Female",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-004",
+    "Module": "Patient Profile",
+    "Test Name": "Change Name & DB Check",
+    "Priority": "High",
+    "Preconditions": "Profile options",
+    "Steps": [
+      "Change Name",
+      "Enter 'Updated Name'"
+    ],
+    "Expected": "Name updated in DB",
+    "Actual": "Updated",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-005",
+    "Module": "Patient Profile",
+    "Test Name": "Change DOB & DB Check",
+    "Priority": "High",
+    "Preconditions": "Profile options",
+    "Steps": [
+      "Change DOB",
+      "Enter '08/09/2004'"
+    ],
+    "Expected": "DOB persisted as 2004-09-08 in DB",
+    "Actual": "2004-09-08",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PRO-006",
+    "Module": "Patient Profile",
+    "Test Name": "Unselected fields integrity check",
+    "Priority": "High",
+    "Preconditions": "Profile updated",
+    "Steps": [
+      "Check DB"
+    ],
+    "Expected": "All updated fields match and unselected untouched",
+    "Actual": "('Updated', datetime.date(2004, 9, 8), 'Female')",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-FAM-001",
+    "Module": "Family Accounts",
+    "Test Name": "Multi-patient lookup prompt",
+    "Priority": "High",
+    "Preconditions": "Multiple patients with same phone",
+    "Steps": [
+      "Send 'My Profile'"
+    ],
+    "Expected": "Display list of associated patients",
+    "Actual": "\ud83d\udc64 *Patient Profiles*\n\nI found multiple patient profiles linked to this WhatsApp number.\n\nWhich patie",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-FAM-002",
+    "Module": "Family Accounts",
+    "Test Name": "Select Patient & state update",
+    "Priority": "Critical",
+    "Preconditions": "Patient list displayed",
+    "Steps": [
+      "Select Edwin (9001)"
+    ],
+    "Expected": "selected_patient_id set to 9001 in state",
+    "Actual": "9001",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-FAM-003",
+    "Module": "Family Accounts",
+    "Test Name": "Switch Patient & Context Update",
+    "Priority": "High",
+    "Preconditions": "Edwin selected",
+    "Steps": [
+      "Switch Patient",
+      "Select Anitha (9002)"
+    ],
+    "Expected": "selected_patient_id updated to 9002",
+    "Actual": "9002",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-DOC-001",
+    "Module": "Doctors & Departments",
+    "Test Name": "Find Doctor - Orthopedics",
+    "Priority": "High",
+    "Preconditions": "Patient authenticated",
+    "Steps": [
+      "Send 'Orthopedics'"
+    ],
+    "Expected": "Active Orthopedics doctors displayed",
+    "Actual": "Got it (Orthopedics)! \ud83d\udcc5 Which date would you like to check availability for?\n\nYou can say *today*, *",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-DOC-002",
+    "Module": "Doctors & Departments",
+    "Test Name": "No Dummy Departments Exposed",
+    "Priority": "Medium",
+    "Preconditions": "Active departments queried",
+    "Steps": [
+      "SELECT active departments"
+    ],
+    "Expected": "No DummyDept_* returned",
+    "Actual": "Count=8",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-DOC-003",
+    "Module": "Doctors & Departments",
+    "Test Name": "Department Selection Stage Retention",
+    "Priority": "High",
+    "Preconditions": "In Doctor Availability flow",
+    "Steps": [
+      "Select Doctor Availability"
+    ],
+    "Expected": "State maintained without dropping to welcome back",
+    "Actual": "Please select a department to find doctors:",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-APP-001",
+    "Module": "Appointment",
+    "Test Name": "Clinical Routing - Hair Fall to Dermatology",
+    "Priority": "High",
+    "Preconditions": "Booking started",
+    "Steps": [
+      "Enter symptom 'hair fall'"
+    ],
+    "Expected": "Semantically route to Dermatology",
+    "Actual": "For *Hair fall*, you should consult our *\"Dermatology\"* department.\n\nHere are the available Dermatol",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-APP-002",
+    "Module": "Appointment",
+    "Test Name": "Full Booking Flow & DB Verification",
+    "Priority": "Critical",
+    "Preconditions": "Symptom routed",
+    "Steps": [
+      "Select Doctor",
+      "Select Date",
+      "Select Slot",
+      "Confirm",
+      "Pay"
+    ],
+    "Expected": "Appointment confirmed in DB",
+    "Actual": "ID=1000674, BookingID=APT19623, Status=CONFIRMED",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-CAN-001",
+    "Module": "Cancellation",
+    "Test Name": "Cancel Appointment Flow & DB Check",
+    "Priority": "Critical",
+    "Preconditions": "Confirmed appointment exists",
+    "Steps": [
+      "My Appointments",
+      "Cancel 88001",
+      "Confirm"
+    ],
+    "Expected": "Status updated to CANCELLED in DB",
+    "Actual": "CANCELLED",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-RES-001",
+    "Module": "Rescheduling",
+    "Test Name": "Reschedule Appointment Flow",
+    "Priority": "High",
+    "Preconditions": "Confirmed appointment exists",
+    "Steps": [
+      "My Appointments",
+      "Reschedule 88002"
+    ],
+    "Expected": "Prompt for new date/slot selection",
+    "Actual": "Please provide your preferred new date to reschedule appointment APT88001 (e.g. next Monday, 2026-09",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-PAY-001",
+    "Module": "Payment",
+    "Test Name": "Payment Method Selection - GPay",
+    "Priority": "High",
+    "Preconditions": "Awaiting payment method",
+    "Steps": [
+      "Select GPay"
+    ],
+    "Expected": "Proceed to payment execution",
+    "Actual": "\ud83d\udcb3 *Mock Payment*\n\nDoctor: Doctor\nDepartment: General Medicine\nDate: None\nTime: \n\nAmount: \u20b9800\nPaymen",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-INF-001",
+    "Module": "Hospital Information",
+    "Test Name": "Hospital Info Knowledge Query",
+    "Priority": "High",
+    "Preconditions": "Patient authenticated",
+    "Steps": [
+      "Send 'Hospital Information'"
+    ],
+    "Expected": "Return approved hospital details",
+    "Actual": "\ud83c\udfe5 *Meridian Hospital Information*\n\nMeridian Hospital is a 300-bed multi-super-specialty hospital in ",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-REC-001",
+    "Module": "Health Records",
+    "Test Name": "My Reports Retrieval",
+    "Priority": "High",
+    "Preconditions": "Patient authenticated",
+    "Steps": [
+      "Send 'My Reports'"
+    ],
+    "Expected": "Display patient reports",
+    "Actual": "No medical reports were found for your account.\n\nIf you recently had lab tests done, please allow 24",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-BIL-001",
+    "Module": "Billing & Insurance",
+    "Test Name": "View Billing Info",
+    "Priority": "High",
+    "Preconditions": "Patient authenticated",
+    "Steps": [
+      "Send 'Billing'"
+    ],
+    "Expected": "Display billing summary for selected patient",
+    "Actual": "\ud83d\udc64 *Patient Profile Details*\n\n\u2022 *Name:* Billing Tester\n\u2022 *Patient ID:* `P9700`\n\u2022 *Phone:* 91999990007",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-AI-001",
+    "Module": "AI & Conversation",
+    "Test Name": "Greeting Intent Detection",
+    "Priority": "Medium",
+    "Preconditions": "Authenticated user",
+    "Steps": [
+      "Send 'Good morning'"
+    ],
+    "Expected": "Friendly greeting response",
+    "Actual": "Welcome back, AI Tester! \ud83d\udc4b\n\nHow can I help you today?",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-AI-002",
+    "Module": "AI & Conversation",
+    "Test Name": "Symptom Guidance - Fever",
+    "Priority": "High",
+    "Preconditions": "Authenticated user",
+    "Steps": [
+      "Send 'I have high fever'"
+    ],
+    "Expected": "Recommend General Medicine",
+    "Actual": "For *Symptoms: fever*, you should consult our *\"General Medicine\"* department.\n\nHere are the availab",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-STATE-001",
+    "Module": "Conversation State",
+    "Test Name": "Topic Switch - Booking to Hospital Info",
+    "Priority": "High",
+    "Preconditions": "In booking flow",
+    "Steps": [
+      "Ask hospital visiting hours"
+    ],
+    "Expected": "Switch context and answer question",
+    "Actual": "\ud83c\udfe5 *Meridian Hospital Information*\n\nMeridian Hospital is a 300-bed multi-super-specialty hospital in ",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-MUL-001",
+    "Module": "Multilingual",
+    "Test Name": "Tamil Language Response",
+    "Priority": "High",
+    "Preconditions": "Authenticated user",
+    "Steps": [
+      "Send Tamil greeting"
+    ],
+    "Expected": "Respond in Tamil / English hybrid cleanly",
+    "Actual": "\u0b9a\u0bc6\u0ba9\u0bcd\u0bb1\u0bc1 \u0bb5\u0bbe\u0bb0\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd, Mul! \ud83d\udc4b\n\u0baa\u0ba4\u0bcd\u0ba4\u0bbf\u0bb0\u0bae\u0bbe\u0b95 \u0b87\u0bb0\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bc1\u0b95\u0bcd\u0b95\u0bc1 \u0b89\u0ba4\u0bb5\u0bbf \u0ba4\u0bc7\u0bb5\u0bc8\u0baa\u0bcd\u0baa\u0b9f\u0bc1\u0bae\u0bcd \u0baa\u0bcb\u0ba4\u0bc6\u0bb2\u0bcd\u0bb2\u0bbe\u0bae\u0bcd \u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bbf\u0bb1",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-WA-001",
+    "Module": "WhatsApp Integration",
+    "Test Name": "Webhook GET Verification Challenge",
+    "Priority": "Critical",
+    "Preconditions": "FastAPI app running",
+    "Steps": [
+      "GET /api/v1/whatsapp/webhook"
+    ],
+    "Expected": "Return challenge text with HTTP 200",
+    "Actual": "CHALLENGE_1234",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-VOC-001",
+    "Module": "Voice Processing",
+    "Test Name": "WhatsApp Audio Processing",
+    "Priority": "Medium",
+    "Preconditions": "Audio message received",
+    "Steps": [
+      "Process audio media ID"
+    ],
+    "Expected": "STT transcription pipeline",
+    "Actual": "STT service active",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-HUM-001",
+    "Module": "Human Handoff",
+    "Test Name": "Staff Handoff Trigger & Escalation Creation",
+    "Priority": "High",
+    "Preconditions": "Authenticated user",
+    "Steps": [
+      "Send 'talk to staff'"
+    ],
+    "Expected": "Escalation created in DB with status OPEN",
+    "Actual": "Escalation=(20, 'OPEN')",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-EMG-001",
+    "Module": "Emergency Flow",
+    "Test Name": "Emergency Keyword Immediate Guidance",
+    "Priority": "Critical",
+    "Preconditions": "Any state",
+    "Steps": [
+      "Send 'Emergency! Patient collapsed!'"
+    ],
+    "Expected": "Provide immediate emergency instructions & hotline",
+    "Actual": "\ud83d\udea8 *MERIDIAN HOSPITAL EMERGENCY*\n\nMeridian Hospital provides 24/7 Emergency & Trauma Care.\n\n\ud83d\udcde *Emerge",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-ADM-001",
+    "Module": "Admin Portal",
+    "Test Name": "Get Patients API",
+    "Priority": "High",
+    "Preconditions": "Admin portal endpoint",
+    "Steps": [
+      "GET /api/v1/dashboard/patients"
+    ],
+    "Expected": "Return 200 with patient list",
+    "Actual": "Count=20",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-DR-001",
+    "Module": "Doctor Portal",
+    "Test Name": "Get Appointments Dashboard API",
+    "Priority": "High",
+    "Preconditions": "Doctor portal endpoint",
+    "Steps": [
+      "GET /api/v1/dashboard/appointments"
+    ],
+    "Expected": "Return 200 with appointment list",
+    "Actual": "Count=20",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  },
+  {
+    "Test ID": "TC-SEC-001",
+    "Module": "Security",
+    "Test Name": "Patient Privacy Isolation",
+    "Priority": "Critical",
+    "Preconditions": "Two distinct patients",
+    "Steps": [
+      "Request appointments for patient 9001"
+    ],
+    "Expected": "Do not expose patient 9002 data",
+    "Actual": "Isolation maintained",
+    "Status": "PASS",
+    "Failure Reason": "",
+    "Root Cause": "",
+    "Fix Applied": "",
+    "Retest Result": "",
+    "Regression Result": ""
+  }
+]

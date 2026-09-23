@@ -328,12 +328,13 @@ def detect_intent(text: str, current_intent: str = None) -> str:
                 if intent_name in ["THANK_YOU", "GOODBYE"]:
                     return intent_name
                 if intent_name == "GREETING":
-                    # Don't switch to GREETING if already in active workflow and message is not standalone
+                    # Don't switch to GREETING if already in active workflow unless message is an explicit standalone greeting
+                    explicit_greetings = {"hi", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "vanakkam", "namaskara", "greetings", "வணக்கம்", "ஹலோ", "ஹாய்", "नमस्ते", "नमस्कार", "हैलो"}
                     if current_intent in [
                         "BOOK_APPOINTMENT", "REGISTER_PATIENT", "IDENTIFY_PATIENT",
                         "RESCHEDULE_APPOINTMENT", "CANCEL_APPOINTMENT", "DOCTOR_AVAILABILITY",
                         "DEPENDENT_PATIENT"
-                    ] and len(text_lower) > 5:
+                    ] and text_lower not in explicit_greetings:
                         break
                     return "GREETING"
                 if intent_name == "APPOINTMENT_CONFIRMATION":

@@ -489,9 +489,9 @@ def cancel_appointment(booking_id, reason, cancelled_by_user_id=None):
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")
@@ -579,9 +579,9 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")

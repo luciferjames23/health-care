@@ -155,7 +155,7 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
         # Query latest message containing state metadata
         cur.execute("""
             SELECT metadata FROM messages
-            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata ->> 'language' IS NOT NULL
+            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata::jsonb ->> 'language' IS NOT NULL
             ORDER BY id DESC LIMIT 1;
         """, (conv_db_id,))
         msg_row = cur.fetchone()
@@ -250,7 +250,7 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
             'IDENTIFY_PATIENT': 'GREETING',
             'POST_BOOKING': 'BOOK_APPOINTMENT',
             'LANGUAGE_CHANGE': 'GREETING',
-            'REGISTER_PATIENT': 'GREETING',
+            'REGISTER_PATIENT': 'REGISTER_PATIENT',
             'UNKNOWN': 'GREETING',
         }
         valid_intents = [
