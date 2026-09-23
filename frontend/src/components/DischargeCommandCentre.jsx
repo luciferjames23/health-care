@@ -50,6 +50,29 @@ const ICON_CONFIG = {
   waiting: { icon: '◔', bg: '#ffffff', color: '#52585e', border: '2px solid #c9cdd1' }
 };
 
+// Helper to format any time string or Date into 12-hour AM/PM format (preventing 24-hr railway time)
+export function formatTime12(timeVal) {
+  if (!timeVal) return '';
+  if (typeof timeVal !== 'string') {
+    if (timeVal instanceof Date) {
+      return timeVal.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+    return String(timeVal);
+  }
+  const trimmed = timeVal.trim();
+  if (trimmed === 'Now' || trimmed === '—' || trimmed === '-' || !trimmed) return trimmed;
+  if (/am|pm/i.test(trimmed)) return trimmed;
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return trimmed;
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  if (isNaN(hours) || hours < 0 || hours > 23) return trimmed;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  const hoursStr = String(hours).padStart(2, '0');
+  return `${hoursStr}:${minutes} ${ampm}`;
+}
+
 // Helper to generate dynamic case interactive state
 function createCaseInitialState(base) {
   if (!base) return {};
@@ -77,37 +100,37 @@ function createCaseInitialState(base) {
       clinical: {
         status: 'done',
         note: `Clinical clearance by ${base.doctor || 'Attending Physician'}`,
-        time: base.intentAt || '09:00'
+        time: formatTime12(base.intentAt || '09:00 AM')
       },
       investigations: {
         status: blocker.includes('investigations') ? 'blocked' : 'done',
         note: blocker.includes('investigations') ? 'Lab investigations pending verification in LIS' : 'All ordered investigations reported & verified',
-        time: base.intentAt || '09:00'
+        time: formatTime12(base.intentAt || '09:00 AM')
       },
       pharmacy: {
         status: blocker.includes('pharmacy') ? 'blocked' : 'done',
         note: blocker.includes('pharmacy') ? 'Discharge medications dispensing in progress at Central Pharmacy' : 'Pharmacy reconciliation cleared',
-        time: '09:05'
+        time: '09:05 AM'
       },
       billing: {
         status: isBillCleared ? 'done' : isInsApproved ? 'approval' : (isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending'),
         note: isBillCleared ? 'Final bill released by Billing Desk' : isInsApproved ? 'Final bill ready · awaiting Billing release' : (isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`),
-        time: '09:05'
+        time: '09:05 AM'
       },
       insurance: {
         status: isInsApproved ? 'done' : isInsRejected ? 'blocked' : (isReady || isCompleted ? 'done' : blocker.includes('insurance') ? 'blocked' : 'waiting'),
         note: isInsApproved ? `Approved by ${insurer}` : isInsRejected ? 'Enhancement rejected · patient liability counselling needed' : (isReady || isCompleted ? `Approved by ${insurer}` : `Enhancement submitted · awaiting response from ${insurer}`),
-        time: '09:15'
+        time: '09:15 AM'
       },
       housekeeping: {
         status: isReady || isCompleted ? 'done' : 'waiting',
         note: isReady || isCompleted ? 'Ward housekeeping pre-alert acknowledged' : 'Awaiting patient discharge release',
-        time: '09:07'
+        time: '09:07 AM'
       },
       transport: {
         status: isReady || isCompleted ? 'done' : blocker.includes('transport') ? 'waiting' : 'waiting',
         note: isReady || isCompleted ? 'Porter dispatched · wheelchair arranged at ward' : 'Transport slot held on standby',
-        time: '09:08'
+        time: '09:08 AM'
       },
       summary: {
         status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('summary') ? 'approval' : 'done'),
@@ -116,7 +139,7 @@ function createCaseInitialState(base) {
           : isReady
             ? 'AI draft generated · pending doctor sign-off on discharge'
             : 'AI draft generated · doctor sign-off required',
-        time: '09:01'
+        time: '09:01 AM'
       },
       prescription: {
         status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('prescription') ? 'approval' : 'done'),
@@ -125,7 +148,7 @@ function createCaseInitialState(base) {
           : isReady
             ? 'Discharge e-Rx drafted · pending doctor signature on discharge'
             : 'Discharge e-Rx drafted · pending doctor signature',
-        time: '09:01'
+        time: '09:01 AM'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -177,20 +200,20 @@ function createCaseInitialState(base) {
       ] : [])
     ],
     steps: [
-      { t: '09:02', what: 'Orchestrator · Identity ✓ Consent ✓ Intent discharge.coordinate → Discharge Agent', col: '#0284c7', res: 'Allowed' },
-      { t: '09:03', what: 'Discharge Agent · Investigations checked in LIS', col: '#52585e', res: blocker.includes('investigations') ? 'Pending' : '0 pending' },
-      { t: '09:04', what: 'Discharge Agent · Pharmacy clearance checked', col: '#52585e', res: blocker.includes('pharmacy') ? 'Dispensing' : 'Cleared' },
-      { t: '09:05', what: 'Discharge Agent · Bill assembly triggered', col: '#52585e', res: `₹${actualAmt.toLocaleString('en-IN')}` },
-      { t: '09:06', what: `Discharge Agent · Final preauth requested from ${insurer}`, col: '#52585e', res: 'Awaiting insurer' }
+      { t: '09:02 AM', what: 'Orchestrator · Identity ✓ Consent ✓ Intent discharge.coordinate → Discharge Agent', col: '#0284c7', res: 'Allowed' },
+      { t: '09:03 AM', what: 'Discharge Agent · Investigations checked in LIS', col: '#52585e', res: blocker.includes('investigations') ? 'Pending' : '0 pending' },
+      { t: '09:04 AM', what: 'Discharge Agent · Pharmacy clearance checked', col: '#52585e', res: blocker.includes('pharmacy') ? 'Dispensing' : 'Cleared' },
+      { t: '09:05 AM', what: 'Discharge Agent · Bill assembly triggered', col: '#52585e', res: `₹${actualAmt.toLocaleString('en-IN')}` },
+      { t: '09:06 AM', what: `Discharge Agent · Final preauth requested from ${insurer}`, col: '#52585e', res: 'Awaiting insurer' }
     ],
     log: [
-      { t: base.intentAt || '09:00', who: base.doctor || 'Doctor', what: 'Marked likely discharge in EMR', col: '#d97706' }
+      { t: formatTime12(base.intentAt || '09:00 AM'), who: base.doctor || 'Doctor', what: 'Marked likely discharge in EMR', col: '#d97706' }
     ],
     paused: false,
     pauseReason: '',
     completed: isCompleted,
-    dischargedAt: isCompleted ? (base.initialEta || '09:30') : null,
-    eta: isCompleted ? (base.initialEta || '09:30') : isReady ? 'Now' : (base.initialEta || '12:30')
+    dischargedAt: isCompleted ? formatTime12(base.initialEta || '09:30 AM') : null,
+    eta: isCompleted ? formatTime12(base.initialEta || '09:30 AM') : isReady ? 'Now' : formatTime12(base.initialEta || '01:30 PM')
   };
 }
 
@@ -375,9 +398,9 @@ export default function DischargeCommandCentre({
         diagnoses: cleanDiagnosis(parsed.diagnoses && !parsed.diagnoses.match(/^Diagnosis\s+\d+/i) ? parsed.diagnoses : (adm.primary_diagnosis || parsed.diagnoses || 'Cholelithiasis (Gallstone Disease)')),
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
-        dischargeTime: '10:30',
-        intentAt: '09:00',
-        initialEta: isDischarged ? '10:30' : 'Now',
+        dischargeTime: '10:30 AM',
+        intentAt: '09:00 AM',
+        initialEta: isDischarged ? '10:30 AM' : 'Now',
         owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : 'Ready for release',
         category,
         blocker,
@@ -524,9 +547,9 @@ export default function DischargeCommandCentre({
         diagnoses: clinical.primaryDiag,
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
-        dischargeTime: '10:30',
-        intentAt: '09:15',
-        initialEta: isDischarged ? '10:30' : category === 'Ready' ? 'Now' : '13:30',
+        dischargeTime: '10:30 AM',
+        intentAt: '09:15 AM',
+        initialEta: isDischarged ? '10:30 AM' : category === 'Ready' ? 'Now' : '01:30 PM',
         owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : 'Discharge Orchestration Agent',
         category,
         blocker,
@@ -568,7 +591,7 @@ export default function DischargeCommandCentre({
           liability: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal),
           completeness: '100%',
           owner: 'K. Meena (Insurance)',
-          submitted: '09:20',
+          submitted: '09:20 AM',
           age: adm.age_at_admission ? `${adm.age_at_admission} Yrs` : '-',
           lifecycle: isClaimApproved ? 'Enhancement approved by insurer' : (isClaimRejected ? 'Enhancement rejected · appeal required' : 'Preauth review with insurer'),
           claim: isClaimApproved ? 'Approved by insurer' : (isClaimRejected ? 'Claim appeal assembly' : 'Drafted in portal'),
@@ -675,10 +698,10 @@ export default function DischargeCommandCentre({
       }
 
       const eta = isCompleted
-        ? (st.dischargedAt || base.initialEta || '10:30')
+        ? formatTime12(st.dischargedAt || base.initialEta || '10:30 AM')
         : statusKind === 'ready'
           ? 'Now'
-          : (st.eta || base.initialEta || '13:30');
+          : formatTime12(st.eta || base.initialEta || '01:30 PM');
 
       return {
         ...base,
@@ -811,16 +834,16 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        summary: { status: 'done', note: `Signed by ${targetCase.doctor || 'Doctor'}`, time: '11:15' },
-        prescription: { status: 'done', note: 'Signed with summary', time: '11:15' }
+        summary: { status: 'done', note: `Signed by ${targetCase.doctor || 'Doctor'}`, time: '11:15 AM' },
+        prescription: { status: 'done', note: 'Signed with summary', time: '11:15 AM' }
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Discharge summary sign-off' && a.type !== 'Discharge summary');
       const nextSteps = [
-        { t: '11:15', what: `${targetCase.doctor || 'Doctor'} · Discharge summary + prescription signed`, col: '#d97706', res: 'Approved' },
+        { t: '11:15 AM', what: `${targetCase.doctor || 'Doctor'} · Discharge summary + prescription signed`, col: '#d97706', res: 'Approved' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:15', who: targetCase.doctor || 'Dr. Arjun Menon', what: 'Signed discharge summary and prescription', col: '#d97706' },
+        { t: '11:15 AM', who: targetCase.doctor || 'Dr. Arjun Menon', what: 'Signed discharge summary and prescription', col: '#d97706' },
         ...(cur.log || [])
       ];
 
@@ -839,15 +862,15 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        insurance: { status: 'waiting', note: `Enhancement submitted 11:04 · awaiting ${targetCase.insurer || 'Insurer'}`, time: '11:04' }
+        insurance: { status: 'waiting', note: `Enhancement submitted 11:04 AM · awaiting ${targetCase.insurer || 'Insurer'}`, time: '11:04 AM' }
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Preauth submission');
       const nextSteps = [
-        { t: '11:04', what: `Insurance Preauth Agent · Human submitted enhancement to ${targetCase.insurer || 'Insurer'} · watching response`, col: '#52585e', res: 'Submitted' },
+        { t: '11:04 AM', what: `Insurance Preauth Agent · Human submitted enhancement to ${targetCase.insurer || 'Insurer'} · watching response`, col: '#52585e', res: 'Submitted' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:04', who: 'Insurance Coordinator', what: `Enhancement packet submitted to ${targetCase.insurer || 'Insurer'}`, col: '#d97706' },
+        { t: '11:04 AM', who: 'Insurance Coordinator', what: `Enhancement packet submitted to ${targetCase.insurer || 'Insurer'}`, col: '#d97706' },
         ...(cur.log || [])
       ];
 
@@ -867,15 +890,15 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        billing: { status: 'done', note: 'Final bill released by Billing Desk', time: '11:16' }
+        billing: { status: 'done', note: 'Final bill released by Billing Desk', time: '11:16 AM' }
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Billing release');
       const nextSteps = [
-        { t: '11:16', what: 'Billing Executive · Final bill released · provisional gate pass generated', col: '#d97706', res: 'Released' },
+        { t: '11:16 AM', what: 'Billing Executive · Final bill released · provisional gate pass generated', col: '#d97706', res: 'Released' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:16', who: 'Billing Executive', what: 'Final bill released', col: '#d97706' },
+        { t: '11:16 AM', who: 'Billing Executive', what: 'Final bill released', col: '#d97706' },
         ...(cur.log || [])
       ];
 
@@ -919,18 +942,18 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        insurance: { status: 'done', note: `Approved by ${targetCase.insurer || 'Star Health'} 11:12`, time: '11:12' },
+        insurance: { status: 'done', note: `Approved by ${targetCase.insurer || 'Star Health'} 11:12 AM`, time: '11:12 AM' },
         billing: cur.deps.billing?.status !== 'done'
-          ? { status: 'approval', note: 'Final bill ready · awaiting Billing release', time: '11:12' }
+          ? { status: 'approval', note: 'Final bill ready · awaiting Billing release', time: '11:12 AM' }
           : cur.deps.billing
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Preauth submission');
       const nextSteps = [
-        { t: '11:12', what: `Insurance Preauth Agent · Insurer response: approved ₹${requestedAmt.toLocaleString('en-IN')} · dependency cleared`, col: '#10b981', res: 'Approved' },
+        { t: '11:12 AM', what: `Insurance Preauth Agent · Insurer response: approved ₹${requestedAmt.toLocaleString('en-IN')} · dependency cleared`, col: '#10b981', res: 'Approved' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:12', who: targetCase.insurer || 'Star Health', what: `Final approval received for ₹${requestedAmt.toLocaleString('en-IN')}`, col: '#10b981' },
+        { t: '11:12 AM', who: targetCase.insurer || 'Star Health', what: `Final approval received for ₹${requestedAmt.toLocaleString('en-IN')}`, col: '#10b981' },
         ...(cur.log || [])
       ];
 
@@ -975,7 +998,7 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        insurance: { status: 'blocked', note: 'Enhancement rejected · patient liability counselling needed', time: '11:12' }
+        insurance: { status: 'blocked', note: 'Enhancement rejected · patient liability counselling needed', time: '11:12 AM' }
       };
       const nextApprovals = [
         ...(cur.approvals || []).filter(a => a.type !== 'Preauth submission'),
@@ -989,17 +1012,17 @@ export default function DischargeCommandCentre({
         }
       ];
       const nextSteps = [
-        { t: '11:12', what: `Insurance Preauth Agent · Insurer response: enhancement rejected · claim appeal assembled`, col: '#ef4444', res: 'Rejected' },
+        { t: '11:12 AM', what: `Insurance Preauth Agent · Insurer response: enhancement rejected · claim appeal assembled`, col: '#ef4444', res: 'Rejected' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:12', who: targetCase.insurer || 'Star Health', what: 'Enhancement rejected', col: '#ef4444' },
+        { t: '11:12 AM', who: targetCase.insurer || 'Star Health', what: 'Enhancement rejected', col: '#ef4444' },
         ...(cur.log || [])
       ];
 
       notify('Insurer rejected', `${targetCase.patient || 'Patient'} · enhancement rejected · updated in DB`, 'High', 'Claim Denial Agent');
 
-      const updated = { ...cur, deps: nextDeps, paStatus: 'Rejected', paApproved: 0, paLiability: requestedAmt, billInsurance: 0, billPatient: requestedAmt, eta: '14:30', approvals: nextApprovals, steps: nextSteps, log: nextLog };
+      const updated = { ...cur, deps: nextDeps, paStatus: 'Rejected', paApproved: 0, paLiability: requestedAmt, billInsurance: 0, billPatient: requestedAmt, eta: '02:30 PM', approvals: nextApprovals, steps: nextSteps, log: nextLog };
       return { ...prev, [caseId]: updated };
     });
 
@@ -1265,7 +1288,7 @@ export default function DischargeCommandCentre({
                             : 'Predicted ready'}
                   </div>
                   <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#15181b', fontWeight: 500, margin: '2px 0' }}>
-                    {dc.isCompleted ? (dc.dischargeTime || '10:30') : dc.statusKind === 'ready' ? 'Now' : dc.eta}
+                    {dc.isCompleted ? formatTime12(dc.dischargeTime || '10:30 AM') : dc.statusKind === 'ready' ? 'Now' : formatTime12(dc.eta)}
                   </div>
                   <div style={{ fontSize: '10.5px', color: dc.statusKind === 'blocked' ? '#b91c1c' : '#8a9096' }}>
                     {dc.isCompleted
@@ -1294,7 +1317,7 @@ export default function DischargeCommandCentre({
               >
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Doctor intent</div>
-                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{dc.intentAt}</div>
+                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{formatTime12(dc.intentAt)}</div>
                 </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Age</div>
@@ -1359,7 +1382,7 @@ export default function DischargeCommandCentre({
                         <span style={{ color: '#52585e' }}> · {item.note}</span>
                       </span>
                       <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#8a9096' }}>
-                        {item.status} · {item.time}
+                        {item.status} · {formatTime12(item.time)}
                       </span>
                     </div>
                   );
@@ -1568,7 +1591,7 @@ export default function DischargeCommandCentre({
                     }}
                   >
                     <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: st.col || '#52585e' }}>
-                      {st.t}
+                      {formatTime12(st.t)}
                     </span>
                     <span style={{ color: '#15181b' }}>{st.what}</span>
                     <span style={{ color: '#52585e', textAlign: 'right', fontSize: '11.5px' }}>{st.res}</span>
@@ -1594,7 +1617,7 @@ export default function DischargeCommandCentre({
                         }}
                       >
                         <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: l.col || '#52585e' }}>
-                          {l.t}
+                          {formatTime12(l.t)}
                         </span>
                         <span style={{ color: '#15181b' }}>
                           <strong>{l.who}</strong> · {l.what}
@@ -1633,7 +1656,7 @@ export default function DischargeCommandCentre({
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
                       <span style={{ fontWeight: 600, color: '#15181b' }}>{a.type}</span>
-                      <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#8a9096' }}>{a.time}</span>
+                      <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#8a9096' }}>{formatTime12(a.time)}</span>
                     </div>
                     <div style={{ color: '#52585e', fontSize: '11.5px', marginTop: '2px' }}>
                       {a.action} · owner <strong>{a.owner}</strong>
@@ -2099,7 +2122,7 @@ export default function DischargeCommandCentre({
                     <span style={{ color: '#15181b', lineHeight: 1.45 }}>{dc.insuranceDetails.owner}</span>
 
                     <span style={{ color: '#8a9096' }}>Submitted</span>
-                    <span style={{ color: '#15181b', lineHeight: 1.45 }}>{dc.insuranceDetails.submitted}</span>
+                    <span style={{ color: '#15181b', lineHeight: 1.45 }}>{formatTime12(dc.insuranceDetails.submitted)}</span>
 
                     <span style={{ color: '#8a9096' }}>Age</span>
                     <span style={{ color: '#15181b', lineHeight: 1.45 }}>{dc.insuranceDetails.age}</span>
@@ -2164,24 +2187,24 @@ export default function DischargeCommandCentre({
                       Workflow
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11.5px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '50px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
-                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>09:02</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '64px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
+                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>{formatTime12('09:02 AM')}</span>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)', marginTop: '4px' }} />
                         <span style={{ lineHeight: 1.45 }}>
                           <strong style={{ color: '#15181b' }}>Preauthorisation Assembly Agent</strong> · Admission detected · clinical + financial information collected
                         </span>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '50px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
-                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>09:04</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '64px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
+                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>{formatTime12('09:04 AM')}</span>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.13 70)', marginTop: '4px' }} />
                         <span style={{ lineHeight: 1.45 }}>
                           <strong style={{ color: '#15181b' }}>Preauthorisation Assembly Agent</strong> · Verification draft assembled · risk {dc.insuranceDetails.denialRisk}
                         </span>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '50px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
-                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>09:15</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '64px 10px minmax(0, 1fr)', gap: '8px', alignItems: 'start' }}>
+                        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>{formatTime12('09:15 AM')}</span>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', marginTop: '4px' }} />
                         <span style={{ lineHeight: 1.45 }}>
                           <strong style={{ color: '#15181b' }}>Human Approval</strong> · Human review by {dc.insuranceDetails.owner} → executive submits
@@ -2699,10 +2722,10 @@ export default function DischargeCommandCentre({
                     <td style={{ padding: '10px 12px', color: '#15181b' }}>{c.doctor}</td>
                     <td style={{ padding: '10px 12px', color: '#52585e' }}>{c.insurer}</td>
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px' }}>
-                      {c.intentAt}
+                      {formatTime12(c.intentAt)}
                     </td>
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: c.statusKind === 'ready' ? '#047857' : '#15181b' }}>
-                      {c.eta}
+                      {formatTime12(c.eta)}
                     </td>
                     <td style={{ padding: '10px 12px', color: '#52585e', fontSize: '11.5px' }}>
                       {c.blocker}

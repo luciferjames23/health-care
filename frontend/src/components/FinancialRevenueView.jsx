@@ -54,9 +54,9 @@ const fmtTime = (d) => {
   try {
     const dt = new Date(d);
     if (isNaN(dt.getTime())) return "11:45";
-    return dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
   } catch {
-    return "11:45";
+    return "11:45 AM";
   }
 };
 
