@@ -1323,6 +1323,53 @@ export function formatClinicalInvestigations(val) {
 }
 
 /**
+ * Extracts structured medication fields from any dictionary / JSON / malformed string
+ */
+export function extractMedInfo(str) {
+  const s = String(str || '').trim();
+  if (!s.includes('{') || !s.includes('}')) return null;
+  const match = s.match(/\{[^{}]+\}/);
+  if (match) {
+    const raw = match[0];
+    for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
+      try {
+        const d = JSON.parse(cand);
+        if (d && (d.name || d.medicine || d.drug)) {
+          return {
+            name: d.name || d.medicine || d.drug,
+            dose: d.dose || d.dosage || '',
+            route: d.route || '',
+            freq: d.frequency || d.freq || '',
+            dur: d.duration || d.dur || '',
+            ind: d.indication || d.notes || ''
+          };
+        }
+      } catch (e) {}
+    }
+    const getField = (keys) => {
+      for (const k of keys) {
+        const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
+        const m = s.match(re);
+        if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+      return '';
+    };
+    const name = getField(['name', 'medicine', 'drug']);
+    if (name) {
+      return {
+        name,
+        dose: getField(['dose', 'dosage']),
+        route: getField(['route']),
+        freq: getField(['frequency', 'freq']),
+        dur: getField(['duration', 'dur']),
+        ind: getField(['indication', 'notes'])
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Parses and formats treatment given from JSON / array / dict to standard string
  */
 export function formatClinicalTreatment(val) {
@@ -1339,50 +1386,6 @@ export function formatClinicalTreatment(val) {
       } catch (e2) {}
     }
   }
-
-  const extractMedInfo = (str) => {
-    const s = String(str || '').trim();
-    if (!s.includes('{') || !s.includes('}')) return null;
-    const match = s.match(/\{[^{}]+\}/);
-    if (match) {
-      const raw = match[0];
-      for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
-        try {
-          const d = JSON.parse(cand);
-          if (d && (d.name || d.medicine || d.drug)) {
-            return {
-              name: d.name || d.medicine || d.drug,
-              dose: d.dose || d.dosage || '',
-              route: d.route || '',
-              freq: d.frequency || d.freq || '',
-              dur: d.duration || d.dur || '',
-              ind: d.indication || d.notes || ''
-            };
-          }
-        } catch (e) {}
-      }
-      const getField = (keys) => {
-        for (const k of keys) {
-          const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
-          const m = s.match(re);
-          if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
-        }
-        return '';
-      };
-      const name = getField(['name', 'medicine', 'drug']);
-      if (name) {
-        return {
-          name,
-          dose: getField(['dose', 'dosage']),
-          route: getField(['route']),
-          freq: getField(['frequency', 'freq']),
-          dur: getField(['duration', 'dur']),
-          ind: getField(['indication', 'notes'])
-        };
-      }
-    }
-    return null;
-  };
 
   const parseSingleMedDict = (d) => {
     if (!d || typeof d !== 'object') return String(d || '');
