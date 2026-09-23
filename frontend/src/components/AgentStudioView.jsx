@@ -654,9 +654,9 @@ export const AGENTS_DATA = ALL_21_AGENTS.map((a, idx) => ({
   runs: a.runs !== undefined ? a.runs : (42 + (idx * 7) % 180)
 }));
 
-export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentId = 'AG-19', onSelectPatient, onOpenDischargeSummary }) {
-  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId || 'AG-19');
-  const [activeTab, setActiveTab] = useState('Memory');
+export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentId = null, onSelectPatient, onOpenDischargeSummary }) {
+  const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
+  const [activeTab, setActiveTab] = useState('Tools');
   const [filterStatus, setFilterStatus] = useState('All');
   const [searchQ, setSearchQ] = useState('');
 
@@ -1053,12 +1053,14 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
         {activeTab === 'Model' && (
           <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', maxWidth: '720px' }}>
             {[
-              ['Model', 'anthropic.claude-3-5-sonnet / google.gemini-1.5-pro'],
+              ['Primary Model', 'openai/gpt-oss-120b (Groq LPU Inference)'],
+              ['LLM Provider', 'Groq Inference API & Google Gemini Engine'],
+              ['Fallback Model', 'gemini-3.5-flash-lite (Google Gemini)'],
               ['Temperature', '0.10 (Deterministic clinical synthesis)'],
-              ['Token limit', '4,096 tokens'],
-              ['Fallback model', 'google.gemini-1.5-flash-002'],
-              ['Latency target', '< 2,500 ms'],
-              ['Cost estimate', '₹0.38 / invocation'],
+              ['Token Limit', '4,096 tokens (Max context: 128k)'],
+              ['Latency Target', '< 1,800 ms (Groq accelerated)'],
+              ['Execution Protocol', 'Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)'],
+              ['Governance Gate', 'Mandatory Physician Review & Digital Sign-off'],
             ].map(([k, v], idx, arr) => (
               <div key={k} style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: '8px', padding: '8px 0', borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4', fontSize: '12px' }}>
                 <span style={{ color: '#8a9096' }}>{k}</span>

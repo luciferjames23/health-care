@@ -58,80 +58,75 @@ export default function PatientsView({
         const rawDischarges = dr?.data || [];
         const rawAdmissions = ar?.data || [];
 
-        const dischargedInAdmissions = rawAdmissions.filter(r => {
-          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
-          return st === 'discharged';
-        });
+        const dischargedTracker = extractDischargedPatientIds(rawDischarges);
 
-        const actualAdmitted = rawAdmissions
-          .filter(r => {
-            const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
-            return st !== 'discharged';
-          })
-          .map(r => {
-            const parsed = parseAdmissionLlmRecord(r);
-            const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+        const seenDischargedPids = new Set();
+        const parsedDischargedList = [];
+        const actualAdmitted = [];
+
+        rawAdmissions.forEach(r => {
+          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+          const pid = String(r.patient_id || r.id || '').trim();
+
+          const isDischarged = st === 'discharged' || dischargedTracker.has(r);
+
+          const parsed = parseAdmissionLlmRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+
+          if (isDischarged) {
+            if (pid) seenDischargedPids.add(pid);
+            parsedDischargedList.push({
+              ...parsed,
+              name: pName,
+              patient_name: pName,
+              patient: pName,
+              age: r.age_at_admission || parsed.age || 45,
+              sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
+              gender: r.gender || parsed.gender || 'Unknown',
+              doctor: r.attending_doctor || parsed.doctor || 'Attending Physician',
+              diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
+              _type: "Discharged",
+              _status: "Discharged"
+            });
+          } else {
             const isReady = String(r.discharge_status || '').trim().toLowerCase() === 'ready';
-            return {
+            actualAdmitted.push({
               ...parsed,
               name: pName,
               patient_name: pName,
               diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "IP",
               _status: isReady ? "Fit for discharge" : (parsed.status || "Admitted")
-            };
-          });
-
-        const seenDischargedPids = new Set();
-        const parsedDischargedList = [];
-
-        // 1. Actually discharged patients from admissions
-        dischargedInAdmissions.forEach(r => {
-          const parsed = parseAdmissionLlmRecord(r);
-          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
-          const pid = String(r.patient_id || r.id || '');
-          if (pid) seenDischargedPids.add(pid);
-          parsedDischargedList.push({
-            ...parsed,
-            name: pName,
-            patient_name: pName,
-            patient: pName,
-            age: r.age_at_admission || parsed.age || 45,
-            sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
-            gender: r.gender || parsed.gender || 'Unknown',
-            doctor: r.attending_doctor || parsed.doctor || 'Attending Physician',
-            diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
-            _type: "Discharged",
-            _status: "Discharged"
-          });
+            });
+          }
         });
 
-        // 2. Only finalized/approved discharge summary records
+        // 2. Add any additional finalized discharge records if not already in admissions
         rawDischarges.forEach(r => {
           const isApproved = String(r.approval_status || '').trim().toLowerCase() === 'approved';
           const isExplicitDischarge = String(r.status || '').trim().toLowerCase() === 'discharged';
           if (!isApproved && !isExplicitDischarge && !r.is_discharged) return;
 
+          const pid = String(r.patient_id || r.id || '').trim();
+          if (pid && seenDischargedPids.has(pid)) return;
+
           const d = parseDischargeSummaryRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
-          const pid = String(r.patient_id || d.patient_id || d.id || '');
 
-          if (!pid || !seenDischargedPids.has(pid)) {
-            if (pid) seenDischargedPids.add(pid);
-            parsedDischargedList.push({
-              ...d,
-              name: pName,
-              patient_name: pName,
-              patient: pName,
-              age: d.age || r.age_at_admission || r.age || 45,
-              sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
-              gender: d.gender || r.gender || 'Unknown',
-              doctor: d.doctor || r.primary_consultant || r.doctor_name || 'Attending Physician',
-              diagnosis: cleanDiagnosis(d.diagnosis || d.diagnoses || r.diagnoses || ''),
-              _type: "Discharged",
-              _status: "Discharged"
-            });
-          }
+          if (pid) seenDischargedPids.add(pid);
+          parsedDischargedList.push({
+            ...d,
+            name: pName,
+            patient_name: pName,
+            patient: pName,
+            age: d.age || r.age_at_admission || r.age || 45,
+            sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
+            gender: d.gender || r.gender || 'Unknown',
+            doctor: d.doctor || r.primary_consultant || r.doctor_name || 'Attending Physician',
+            diagnosis: cleanDiagnosis(d.diagnosis || d.diagnoses || r.diagnoses || ''),
+            _type: "Discharged",
+            _status: "Discharged"
+          });
         });
 
         setAdmitted(actualAdmitted);
