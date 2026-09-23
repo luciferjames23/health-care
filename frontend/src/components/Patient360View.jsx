@@ -472,6 +472,10 @@ export default function Patient360View({
       patient_id: rawPid,
       admission_id: rawAdmId,
       uhid,
+      patient_code: uhid,
+      mrn: uhid,
+      patientNumber: uhid,
+      patient_number: uhid,
       name,
       age,
       sex,
@@ -710,6 +714,284 @@ export default function Patient360View({
 
   const [clearingBill, setClearingBill] = useState(false);
 
+  // Handler to print / generate official Itemized Bill PDF report
+  const handlePrintItemizedBill = () => {
+    const isCleared = p.isCleared;
+    const outstanding = p.outstandingBalance;
+    const net = p.billNetAmount;
+    const covered = isCleared ? net : Math.max(0, net - outstanding);
+    const pCode = p.patient_code || p.uhid || p.mrn || p.patientNumber || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7, '0')}` : 'MER-PAT-0000001');
+    const invoiceNo = p.billNumber || (p.admission_id ? `MER-BIL-${String(p.admission_id).padStart(7, '0')}` : `INV-${pCode}-2026`);
+    const todayStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    const pharmItems = (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
+      ? liveBill.pharmacy_items.map(item => `
+          <tr>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px;">Pharmacy: ${item.item_name || 'Medication Dispensed'}</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center;">${item.quantity || 1}</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right;">₹${Number(item.unit_price || item.net_amount || 0).toLocaleString('en-IN')}</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600;">₹${Number(item.net_amount || (item.quantity * item.unit_price) || 0).toLocaleString('en-IN')}</td>
+          </tr>
+        `).join('')
+      : `<tr>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px;">Inpatient Pharmacy & Consumables</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center;">1 pkg</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right;">₹${pharmacySum.toLocaleString('en-IN')}</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600;">₹${pharmacySum.toLocaleString('en-IN')}</td>
+        </tr>`;
+
+    const labItems = (liveBill?.lab_items && liveBill.lab_items.length > 0)
+      ? liveBill.lab_items.map(item => `
+          <tr>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px;">Diagnostics: ${item.test_name || 'Laboratory Workup'}</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center;">1</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right;">₹${Number(item.unit_price || item.net_amount || 0).toLocaleString('en-IN')}</td>
+            <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600;">₹${Number(item.unit_price || item.net_amount || 0).toLocaleString('en-IN')}</td>
+          </tr>
+        `).join('')
+      : `<tr>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px;">Laboratory, Pathology & Imaging Workup</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center;">1 set</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right;">₹${labSum.toLocaleString('en-IN')}</td>
+          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600;">₹${labSum.toLocaleString('en-IN')}</td>
+        </tr>`;
+
+    const hospDays = Math.max(1, p.current_stay_days || 3);
+    const hospItems = `
+      <tr>
+        <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px;">Inpatient Room, Nursing & Telemetry Care (${p.bed || 'Ward'})</td>
+        <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center;">${hospDays} days</td>
+        <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right;">₹${Math.round(hospitalSum / hospDays).toLocaleString('en-IN')}</td>
+        <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600;">₹${hospitalSum.toLocaleString('en-IN')}</td>
+      </tr>
+    `;
+
+    const printHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Itemized Bill - ${p.name} (${invoiceNo})</title>
+        <meta charset="utf-8" />
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 12mm 15mm 15mm 15mm;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            background: #ffffff;
+            margin: 0;
+            padding: 24px;
+            font-size: 13px;
+            line-height: 1.5;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #0284c7;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+          }
+          .hospital-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0369a1;
+            letter-spacing: -0.02em;
+          }
+          .hospital-sub {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 2px;
+          }
+          .invoice-badge {
+            text-align: right;
+          }
+          .invoice-badge h2 {
+            margin: 0;
+            font-size: 16px;
+            color: #0f172a;
+            font-weight: 700;
+          }
+          .status-pill {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-top: 4px;
+            background: ${isCleared ? '#dcfce7' : '#fef3c7'};
+            color: ${isCleared ? '#15803d' : '#92400e'};
+          }
+          .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 20px;
+          }
+          .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            padding: 2px 0;
+          }
+          .info-label {
+            color: #64748b;
+            font-weight: 600;
+          }
+          .info-val {
+            font-weight: 600;
+            color: #0f172a;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+          }
+          th {
+            background: #f1f5f9;
+            color: #334155;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 10px 12px;
+            border-bottom: 2px solid #cbd5e1;
+            text-align: left;
+          }
+          .summary-box {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 24px;
+          }
+          .summary-table {
+            width: 320px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+          }
+          .summary-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12.5px;
+            padding: 4px 0;
+          }
+          .summary-total {
+            border-top: 1px solid #cbd5e1;
+            margin-top: 6px;
+            padding-top: 6px;
+            font-weight: 800;
+            font-size: 14px;
+            color: #0369a1;
+          }
+          .footer {
+            border-top: 1px dashed #cbd5e1;
+            padding-top: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 30px;
+          }
+          @media print {
+            body { padding: 0; }
+            .no-print { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="hospital-title">INPATIENT BILLING &amp; FINANCIAL CLEARANCE DESK</div>
+            <div class="hospital-sub">Department of Financial Services &amp; Hospital Inpatient Accounts</div>
+            <div class="hospital-sub">NABH Accredited Health System · GSTIN: 33AAAAA0000A1Z5 · 24x7 Billing Desk</div>
+          </div>
+          <div class="invoice-badge">
+            <h2>ITEMIZED TAX INVOICE</h2>
+            <div style="font-size: 11.5px; color: #64748b; font-family: monospace;">Bill No: ${invoiceNo}</div>
+            <div class="status-pill">${isCleared ? '✓ Cleared · Paid in Full' : '⏳ Pending Settlement'}</div>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div>
+            <div class="info-row"><span class="info-label">Patient Name:</span><span class="info-val">${p.name}</span></div>
+            <div class="info-row"><span class="info-label">Patient Code / MRN:</span><span class="info-val" style="font-family: monospace; font-weight: 700; color: #0284c7;">${pCode}</span></div>
+            <div class="info-row"><span class="info-label">Age / Gender:</span><span class="info-val">${p.age} Yrs / ${p.gender}</span></div>
+            <div class="info-row"><span class="info-label">Admission Date:</span><span class="info-val">${p.admittedDate || '10 Sep 2026'}</span></div>
+            <div class="info-row"><span class="info-label">Discharge Date:</span><span class="info-val">${p.dischargeDate || todayStr}</span></div>
+          </div>
+          <div>
+            <div class="info-row"><span class="info-label">Admission ID:</span><span class="info-val">${p.encounter || 'ADM-87224'}</span></div>
+            <div class="info-row"><span class="info-label">Ward / Bed:</span><span class="info-val">${p.bed}</span></div>
+            <div class="info-row"><span class="info-label">Attending Doctor:</span><span class="info-val">${p.doctor || p.attendingPhysician || 'Dr. Sneha Das'}</span></div>
+            <div class="info-row"><span class="info-label">Primary Diagnosis:</span><span class="info-val">${p.primaryDiagnosis || 'Clinical Inpatient Care'}</span></div>
+            <div class="info-row"><span class="info-label">TPA / Insurer:</span><span class="info-val">${p.insurer}</span></div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 55%;">Description of Service / Consumable</th>
+              <th style="width: 15%; text-align: center;">Qty / Days</th>
+              <th style="width: 15%; text-align: right;">Unit Rate</th>
+              <th style="width: 15%; text-align: right;">Net Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${hospItems}
+            ${pharmItems}
+            ${labItems}
+          </tbody>
+        </table>
+
+        <div class="summary-box">
+          <div class="summary-table">
+            <div class="summary-row"><span style="color: #64748b;">Gross Incurred Amount:</span><span style="font-weight: 600;">₹${net.toLocaleString('en-IN')}</span></div>
+            <div class="summary-row"><span style="color: #64748b;">TPA / Insurance Approved:</span><span style="font-weight: 600; color: #15803d;">- ₹${covered.toLocaleString('en-IN')}</span></div>
+            <div class="summary-row"><span style="color: #64748b;">Hospital Discount:</span><span style="font-weight: 600;">₹0</span></div>
+            <div class="summary-row summary-total"><span>Patient Net Payable:</span><span>₹${outstanding.toLocaleString('en-IN')}</span></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <div>
+            <div>Computer generated tax invoice &amp; bill of supply · Official Hospital Record.</div>
+            <div style="margin-top: 2px;">Generated on ${todayStr} · Verified by Finance &amp; Inpatient Billing Desk</div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-weight: 700; color: #0f172a;">Hospital Inpatient Billing Desk</div>
+            <div style="margin-top: 20px; font-size: 10px; color: #94a3b8;">Authorized Signatory / Cashier</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 350);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWin = window.open('', '_blank', 'width=880,height=960');
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(printHtml);
+      printWin.document.close();
+    }
+  };
+
   // Handler to clear patient bill via API: POST /api/v1/discharge-agent/patient/{patient_id}/clear-bill
   const handleClearBill = async () => {
     const cleanNum = (val) => {
@@ -762,7 +1044,7 @@ export default function Patient360View({
         outstanding_balance: 0.0
       });
 
-      // Update open drawer immediately to reflect cleared status & NOC action
+      // Update open drawer immediately to reflect cleared status & print action
       if (onOpenDrawer) {
         onOpenDrawer({
           title: `${p.billNumber} · ${p.name}`,
@@ -781,8 +1063,7 @@ export default function Patient360View({
             { k: 'Financial Clearance', v: 'Cleared · Paid' }
           ],
           actions: [
-            { label: 'Print Financial NOC / Clearance', primary: true, on: () => alert(`Financial Clearance NOC verified for ${p.name}`) },
-            { label: 'Print Itemized Bill' }
+            { label: 'Print Itemized Bill', primary: true, on: handlePrintItemizedBill }
           ]
         });
       }
@@ -828,10 +1109,10 @@ export default function Patient360View({
           { k: 'Financial Clearance', v: p.billingStatusDisplay }
         ],
         actions: [
-          isCleared
-            ? { label: 'Print Financial NOC / Clearance', primary: true, on: () => alert(`Financial Clearance NOC verified for ${p.name}`) }
-            : { label: clearingBill ? 'Settling Bill...' : 'Settle Cashless Co-Pay', primary: true, disabled: clearingBill, on: handleClearBill },
-          { label: 'Print Itemized Bill' }
+          ...(!isCleared
+            ? [{ label: clearingBill ? 'Settling Bill...' : 'Settle Cashless Co-Pay', primary: true, disabled: clearingBill, on: handleClearBill }]
+            : []),
+          { label: 'Print Itemized Bill', primary: isCleared, on: handlePrintItemizedBill }
         ]
       });
     }
