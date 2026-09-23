@@ -1,6 +1,6 @@
 import { financialApi } from './financialApi';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 const FETCH_TIMEOUT_MS = 45000;
 
@@ -22,7 +22,7 @@ try {
       if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
     });
   }
-} catch (e) {}
+} catch (e) { }
 
 export function subscribeToDataUpdates(callback) {
   updateListeners.add(callback);
@@ -52,7 +52,7 @@ function clearAllStorageCache() {
         if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
       });
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function fetchWithTimeout(url, options = {}) {
@@ -133,7 +133,7 @@ async function fetchCachedJson(url, options = {}) {
   if (!forceRefresh && cached && cached.data) {
     if (now - cached.timestamp > revalidateMs) {
       // Trigger background revalidation seamlessly without blocking the UI
-      triggerFetch().catch(() => {});
+      triggerFetch().catch(() => { });
     }
     return cached.data;
   }
@@ -177,7 +177,7 @@ export const apiService = {
       this.getWards({ limit: 100 });
       this.getBeds({ limit: 500 });
       this.getPostgresTables();
-    } catch (e) {}
+    } catch (e) { }
   },
 
   // Databricks Healthcare Lakehouse Generic Table APIs
@@ -536,8 +536,8 @@ export const apiService = {
 
   // 1. Trigger Databricks Notebook Execution for Patient (/api/v1/notebook/run-patient)
   async runPatientNotebook(patientId, options = {}) {
-    const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id) 
-      ? (options.notebookId || options.notebook_id) 
+    const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id)
+      ? (options.notebookId || options.notebook_id)
       : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
@@ -563,8 +563,8 @@ export const apiService = {
 
   // 2. Trigger Registered Databricks Job Execution for Patient (/api/v1/job/run-patient)
   async runPatientJob(patientId, options = {}) {
-    const jobId = typeof options === 'object' && (options?.jobId || options?.job_id) 
-      ? (options.jobId || options.job_id) 
+    const jobId = typeof options === 'object' && (options?.jobId || options?.job_id)
+      ? (options.jobId || options.job_id)
       : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
@@ -1068,7 +1068,7 @@ export function resolveClinicalDiagnosis(rawDiag, reasonForAdmission) {
   if (Array.isArray(rawDiag) && rawDiag.length === 0 && !reasonForAdmission) {
     return '';
   }
-  
+
   const strDiag = Array.isArray(rawDiag) ? rawDiag.join(', ').trim() : String(rawDiag || '').trim();
   const strReason = String(reasonForAdmission || '').trim();
 

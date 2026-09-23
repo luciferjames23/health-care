@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Send, Mic, RotateCcw, AlertTriangle, Play, Square, Volume2, VolumeX, CheckCheck, Menu, X, ChevronRight
 } from 'lucide-react';
 
@@ -75,13 +75,13 @@ const PatientChat: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [currentSection, setCurrentSection] = useState('Overview');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  
+
   // Voice Recording & Playback State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
-  
+
   // Interactive Slot List Modal State
   const [slotModalOpen, setSlotModalOpen] = useState(false);
   const [slotModalButtons, setSlotModalButtons] = useState<{ id: string; title: string; description?: string }[]>([]);
@@ -97,7 +97,7 @@ const PatientChat: React.FC = () => {
   const recordingTimerRef = useRef<any>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  const BASE_URL = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:8000' : 'http://localhost:8000';
+  const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
   // Initialize unique session
   useEffect(() => {
@@ -200,14 +200,14 @@ const PatientChat: React.FC = () => {
 
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsgId = 'msg_' + Date.now();
-    
+
     const newUserMsg: ChatMessage = {
       id: userMsgId,
       sender: 'PATIENT',
       text: textToSend,
       timestamp
     };
-    
+
     setMessages(prev => [...prev, newUserMsg]);
     setInputText('');
     setIsTyping(true);
@@ -229,7 +229,7 @@ const PatientChat: React.FC = () => {
       }
 
       const data = await response.json();
-      
+
       const aiMsg: ChatMessage = {
         id: 'msg_ai_' + Date.now(),
         sender: 'AI_AGENT',
@@ -273,24 +273,24 @@ const PatientChat: React.FC = () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunksRef.current = [];
-        
+
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
-        
+
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             audioChunksRef.current.push(e.data);
           }
         };
-        
+
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
           const audioFile = new File([audioBlob], 'microphone_voice.wav', { type: 'audio/wav' });
           sendVoiceAudio(audioFile, '🎤 Voice message');
-          
+
           stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorder.start();
         setIsRecording(true);
         setRecordingStatus('Listening...');
@@ -335,7 +335,7 @@ const PatientChat: React.FC = () => {
       }
 
       const data = await response.json();
-      
+
       const aiMsgId = 'msg_ai_' + Date.now();
       const aiMsg: ChatMessage = {
         id: aiMsgId,
@@ -346,7 +346,7 @@ const PatientChat: React.FC = () => {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-      
+
       if (data.audio) {
         playAudio(data.audio, aiMsgId);
       }
@@ -371,21 +371,21 @@ const PatientChat: React.FC = () => {
     setIsRecording(true);
     setRecordingStatus('Listening...');
     setShowVoiceModal(false);
-    
+
     let seconds = 0;
     const interval = setInterval(() => {
       seconds++;
     }, 1000);
-    
+
     setTimeout(() => {
       clearInterval(interval);
       setIsRecording(false);
-      
+
       const wavHeader = new Uint8Array(44);
       const audioBlob = new Blob([wavHeader], { type: 'audio/wav' });
       const filename = `${selectedPrompt.lang.toLowerCase()}_${selectedPrompt.text.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.wav`;
       const audioFile = new File([audioBlob], filename, { type: 'audio/wav' });
-      
+
       sendVoiceAudio(audioFile, `🎤 "${selectedPrompt.text}"`);
     }, 3000);
   };
@@ -395,14 +395,14 @@ const PatientChat: React.FC = () => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
     }
-    
+
     const audio = new Audio(audioUrl);
     audioPlayerRef.current = audio;
     setPlayingAudioId(msgId);
-    
+
     audio.onended = () => setPlayingAudioId(null);
     audio.onerror = () => setPlayingAudioId(null);
-    
+
     audio.play().catch(err => {
       console.warn("Autoplay was blocked or failed:", err);
       setPlayingAudioId(null);
@@ -434,7 +434,7 @@ const PatientChat: React.FC = () => {
       position: 'relative'
     }}>
       {/* LEFT SIDEBAR - PATIENT SERVICES */}
-      <div 
+      <div
         className={`patient-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
         style={{
           width: '320px',
@@ -481,7 +481,7 @@ const PatientChat: React.FC = () => {
               </div>
             </div>
             {/* Close button for mobile */}
-            <button 
+            <button
               onClick={() => setMobileSidebarOpen(false)}
               className="mobile-close-btn"
               style={{
@@ -550,19 +550,19 @@ const PatientChat: React.FC = () => {
                   {item.icon}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ 
-                    fontWeight: isActive ? 700 : 600, 
-                    fontSize: '13.5px', 
+                  <div style={{
+                    fontWeight: isActive ? 700 : 600,
+                    fontSize: '13.5px',
                     color: isActive ? '#075E54' : '#111b21',
                     lineHeight: 1.2
                   }}>
                     {item.title}
                   </div>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: '#667781', 
-                    whiteSpace: 'nowrap', 
-                    overflow: 'hidden', 
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#667781',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     marginTop: '2px'
                   }}>
@@ -629,7 +629,7 @@ const PatientChat: React.FC = () => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* Mobile menu toggle button */}
-            <button 
+            <button
               onClick={() => setMobileSidebarOpen(true)}
               className="mobile-menu-btn"
               style={{
@@ -670,7 +670,7 @@ const PatientChat: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <button
             onClick={resetSession}
             style={{
@@ -728,8 +728,8 @@ const PatientChat: React.FC = () => {
 
             const isAgent = m.sender === 'AI_AGENT';
             return (
-              <div 
-                key={m.id} 
+              <div
+                key={m.id}
                 style={{
                   alignSelf: isAgent ? 'flex-start' : 'flex-end',
                   maxWidth: '82%',
@@ -930,7 +930,7 @@ const PatientChat: React.FC = () => {
               </div>
             );
           })}
-          
+
           {isTyping && (
             <div style={{
               alignSelf: 'flex-start',
@@ -968,7 +968,7 @@ const PatientChat: React.FC = () => {
               {recordingStatus}
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
 
@@ -998,7 +998,7 @@ const PatientChat: React.FC = () => {
           </button>
 
           {/* Text Input */}
-          <input 
+          <input
             type="text"
             placeholder="Message Meridian Hospital..."
             value={inputText}
@@ -1108,7 +1108,7 @@ const PatientChat: React.FC = () => {
                   <div style={{ fontSize: '11.5px', opacity: 0.85 }}>Tap an available slot to book</div>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setSlotModalOpen(false)}
                 style={{
                   background: 'none',
@@ -1212,7 +1212,7 @@ const PatientChat: React.FC = () => {
               justifyContent: 'space-between'
             }}>
               <span>🎙️ Multilingual Voice Agent Simulator</span>
-              <button 
+              <button
                 onClick={() => setShowVoiceModal(false)}
                 style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '18px' }}
               >
@@ -1230,8 +1230,8 @@ const PatientChat: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#666', marginBottom: '6px' }}>
                   SELECT RECORDING UTTERANCE
                 </label>
-                <select 
-                  value={VOICE_PROMPTS.indexOf(selectedPrompt)} 
+                <select
+                  value={VOICE_PROMPTS.indexOf(selectedPrompt)}
                   onChange={(e) => setSelectedPrompt(VOICE_PROMPTS[Number(e.target.value)])}
                   style={{
                     width: '100%',

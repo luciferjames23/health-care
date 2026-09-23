@@ -1,7 +1,7 @@
 import React from 'react';
 import { ALL_ROLES, DEMO_ROLES } from '../services/meridianData';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 const FALLBACK_DB_USERS = [
   { username: 'admin', role: 'Hospital Management', name: 'System Admin', dept: 'Administration', specialization: 'Administration', title: 'Admin' },
@@ -320,7 +320,7 @@ export default function TopHeader({
             onChange={e => {
               const nextRole = e.target.value;
               setRole(nextRole);
-              const matched = combinedUsers.find(r => 
+              const matched = combinedUsers.find(r =>
                 r.role?.toLowerCase() === nextRole.toLowerCase() ||
                 (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
               );

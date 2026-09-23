@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { selectAccount } from '../services/accountSession';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 const getPasswordForUser = (uname) => {
   if (!uname) return 'Hospital@2026';
@@ -71,8 +71,8 @@ export default function AuthScreen({
   });
 
   const selectedUser = usersList.find(u => u.username?.toLowerCase() === (username || '').trim().toLowerCase()) ||
-                       usersList.find(u => u.username === initialUsername) ||
-                       activeUsers[0];
+    usersList.find(u => u.username === initialUsername) ||
+    activeUsers[0];
 
   const handleSignIn = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -135,7 +135,7 @@ export default function AuthScreen({
       {/* Right sign-in container */}
       <main style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '28px 20px' }}>
         <div style={{ width: 'min(440px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          
+
           <div style={{
             background: '#fff', border: '1px solid #e3e6e8', borderRadius: '10px',
             padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px',

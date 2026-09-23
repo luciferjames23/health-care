@@ -1,4 +1,4 @@
-const RADIOLOGY_API_BASE_URL = import.meta.env?.VITE_RADIOLOGY_API_URL || import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const RADIOLOGY_API_BASE_URL = import.meta.env?.VITE_RADIOLOGY_API_URL ?? import.meta.env?.VITE_API_BASE_URL ?? '';
 export const OHIF_BASE_URL = import.meta.env?.VITE_OHIF_URL || 'http://localhost:3000';
 
 async function request(path, options = {}) {

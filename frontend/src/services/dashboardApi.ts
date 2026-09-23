@@ -302,7 +302,7 @@ export interface IntentBreakdownItem {
 
 // ─── HTTP Helpers ─────────────────────────────────────────────────────────────
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 function getAuthHeaders(): Record<string, string> {
   try {
@@ -596,7 +596,7 @@ export async function deleteSchedule(scheduleId: number): Promise<boolean> {
 
 export async function requestDoctorOTP(identifier: string): Promise<{ success: boolean; message?: string; debug_otp?: string; error?: string }> {
   try {
-    const response = await fetch('http://localhost:8000/api/auth/forgot-password/request-otp', {
+    const response = await fetch(`${BASE_URL}/api/auth/forgot-password/request-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier }),
@@ -611,7 +611,7 @@ export async function requestDoctorOTP(identifier: string): Promise<{ success: b
 
 export async function resetDoctorPasswordWithOTP(identifier: string, otp: string, new_password: string): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
-    const response = await fetch('http://localhost:8000/api/auth/forgot-password/reset-password', {
+    const response = await fetch(`${BASE_URL}/api/auth/forgot-password/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, otp, new_password }),

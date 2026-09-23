@@ -22,11 +22,11 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   login: async () => ({ success: false }),
-  logout: () => {},
+  logout: () => { },
   isAuthenticated: false,
 });
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
@@ -43,13 +43,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
         body: JSON.stringify({ username, password, role }),
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         return { success: false, error: data.detail || 'Authentication failed' };
       }
-      
+
       if (data.success && data.token) {
         const authUser: AuthUser = {
           ...data.user,
@@ -59,7 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sessionStorage.setItem('meridian_user', JSON.stringify(authUser));
         return { success: true };
       }
-      
+
       return { success: false, error: 'Invalid server response structure' };
     } catch (e) {
       console.error('Login error:', e);
