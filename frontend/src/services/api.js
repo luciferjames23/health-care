@@ -1106,10 +1106,86 @@ export function resolveClinicalDiagnosis(rawDiag, reasonForAdmission) {
 }
 
 /**
+ * Formats clinical diagnoses from JSON objects, Python dictionary strings, or raw text.
+ * Strips empty brackets, formats ICD-10 codes, and creates clean semicolon-separated diagnosis lists.
+ */
+export function formatClinicalDiagnoses(val) {
+  if (!val) return '';
+  if (Array.isArray(val)) {
+    return val.map(item => {
+      if (typeof item === 'object' && item !== null) {
+        const desc = item.description || item.name || item.diagnosis || item.primary || '';
+        const code = item.icd10 || item.code || item.icd || '';
+        return code && !desc.includes(code) ? `${desc} (ICD-10: ${code})` : desc;
+      }
+      return String(item || '').trim();
+    }).filter(Boolean).join('; ');
+  }
+
+  if (typeof val === 'object' && val !== null) {
+    const desc = val.description || val.name || val.diagnosis || val.primary || '';
+    const code = val.icd10 || val.code || val.icd || '';
+    let res = code && !desc.includes(code) ? `${desc} (ICD-10: ${code})` : desc;
+    if (Array.isArray(val.secondary) && val.secondary.length > 0) {
+      const sec = val.secondary.map(s => typeof s === 'object' ? (s.description || s.name || '') : String(s)).filter(Boolean).join('; ');
+      if (sec) res = `${res}; Secondary: ${sec}`;
+    }
+    return res || cleanDiagnosis(JSON.stringify(val));
+  }
+
+  let str = String(val).trim();
+  const numMatch = str.match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
+  if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
+    return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
+  }
+  if (CLINICAL_DIAGNOSIS_MAP[str.toLowerCase()]) {
+    return CLINICAL_DIAGNOSIS_MAP[str.toLowerCase()];
+  }
+
+  // If string contains JSON or Python dictionary representations
+  if (str.includes('{') || str.includes('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      return formatClinicalDiagnoses(parsed);
+    } catch (e) {
+      try {
+        const jsonCompatible = str.replace(/'/g, '"');
+        const parsed = JSON.parse(jsonCompatible);
+        return formatClinicalDiagnoses(parsed);
+      } catch (e2) {
+        const dictRegex = /\{([^}]+)\}/g;
+        const matches = [];
+        let match;
+        while ((match = dictRegex.exec(str)) !== null) {
+          const body = match[1];
+          const descMatch = body.match(/['"](?:description|name|diagnosis|primary)['"]\s*:\s*['"]([^'"]+)['"]/i);
+          const icdMatch = body.match(/['"](?:icd10|code|icd)['"]\s*:\s*['"]([^'"]+)['"]/i);
+          const desc = descMatch ? descMatch[1].trim() : '';
+          const icd = icdMatch ? icdMatch[1].trim() : '';
+          if (desc && icd && !desc.includes(icd)) {
+            matches.push(`${desc} (ICD-10: ${icd})`);
+          } else if (desc) {
+            matches.push(desc);
+          }
+        }
+        if (matches.length > 0) {
+          return matches.join('; ');
+        }
+      }
+    }
+  }
+
+  return cleanDiagnosis(str);
+}
+
+/**
  * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
  */
 export function cleanDiagnosis(diag) {
   if (!diag || typeof diag !== 'string') return '';
+  if (diag.includes('{') || diag.includes('[')) {
+    return formatClinicalDiagnoses(diag);
+  }
   const numMatch = diag.trim().match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
   if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
     return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
@@ -1125,6 +1201,244 @@ export function cleanDiagnosis(diag) {
     .replace(/\[\s*\]/g, '')
     // Remove any trailing or dangling punctuation
     .replace(/[:;,|]\s*$/g, '')
+    .trim();
+}
+
+/**
+ * Parses and formats investigations from nested JSON / Python dict into clinical narrative
+ */
+export function formatClinicalInvestigations(val) {
+  if (!val) return 'Routine hematology, biochemistry, and diagnostic workup satisfactory.';
+
+  let data = null;
+  if (typeof val === 'object' && val !== null) {
+    data = val;
+  } else if (typeof val === 'string' && (val.includes('{') || val.includes('['))) {
+    try {
+      data = JSON.parse(val);
+    } catch (e) {
+      try {
+        data = JSON.parse(val.replace(/'/g, '"'));
+      } catch (e2) {}
+    }
+  }
+
+  if (!data || typeof data !== 'object') {
+    return String(val)
+      .replace(/\\u00b5L/gi, 'µL')
+      .replace(/\\u00b0F/gi, '°F')
+      .replace(/\\u202f/gi, ' ')
+      .trim();
+  }
+
+  const sections = [];
+
+  // 1. Vitals
+  const vitals = data.vitals || data.vitals_on_admission || data.vital_signs;
+  if (vitals) {
+    if (typeof vitals === 'object') {
+      const admV = vitals.admission || vitals;
+      const vParts = [];
+      if (typeof admV === 'object') {
+        const temp = admV.temperature_F || admV.temperature_f || admV.temperature || admV.temp;
+        const hr = admV.heart_rate_bpm || admV.heart_rate || admV.hr;
+        const bp = admV.blood_pressure_mmHg || admV.blood_pressure || admV.bp;
+        const spo2 = admV.spO2_percent || admV.spo2 || admV.oxygen_saturation;
+        const rr = admV.respiratory_rate_bpm || admV.rr;
+
+        if (temp) vParts.push(`Temp ${temp}°F`);
+        if (hr) vParts.push(`HR ${hr} bpm`);
+        if (bp) vParts.push(`BP ${bp} mmHg`);
+        if (rr) vParts.push(`RR ${rr}/min`);
+        if (spo2) vParts.push(`SpO2 ${spo2}%`);
+      }
+      let vStr = vParts.length > 0 ? `Vitals on Admission: ${vParts.join(', ')}` : '';
+      const trend = vitals.trend || vitals.trend_summary || vitals.discharge_vitals;
+      if (trend) {
+        vStr = vStr ? `${vStr} · Inpatient Trend: ${trend}` : `Vitals Trend: ${trend}`;
+      }
+      if (vStr) sections.push(vStr);
+    } else if (typeof vitals === 'string') {
+      sections.push(`Vitals: ${vitals}`);
+    }
+  }
+
+  // 2. Laboratory
+  const lab = data.laboratory || data.laboratory_investigations || data.labs || data.blood_tests;
+  if (lab && typeof lab === 'object') {
+    const labParts = [];
+    for (const [k, v] of Object.entries(lab)) {
+      const kTitle = k.length <= 4 ? k.toUpperCase() : k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if (typeof v === 'object' && v !== null) {
+        const subItems = Object.entries(v).map(([subK, subV]) => `${subK}: ${subV}`);
+        labParts.push(`${kTitle} (${subItems.join(', ')})`);
+      } else if (Array.isArray(v)) {
+        labParts.push(`${kTitle}: ${v.join(', ')}`);
+      } else {
+        labParts.push(`${kTitle}: ${v}`);
+      }
+    }
+    if (labParts.length > 0) {
+      sections.push(`Laboratory Findings: ${labParts.join('; ')}`);
+    }
+  } else if (lab && typeof lab === 'string') {
+    sections.push(`Laboratory Findings: ${lab}`);
+  }
+
+  // 3. Imaging & Diagnostics
+  const img = data.imaging || data.imaging_findings || data.radiology || data.diagnostics;
+  if (img && typeof img === 'object') {
+    const imgParts = [];
+    for (const [k, v] of Object.entries(img)) {
+      const kTitle = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      imgParts.push(`${kTitle}: ${v}`);
+    }
+    if (imgParts.length > 0) {
+      sections.push(`Imaging & Diagnostics: ${imgParts.join('; ')}`);
+    }
+  } else if (img && typeof img === 'string') {
+    sections.push(`Imaging: ${img}`);
+  }
+
+  // 4. ECG
+  const ecg = data.ECG || data.ecg;
+  if (ecg) {
+    sections.push(`ECG: ${ecg}`);
+  }
+
+  if (sections.length === 0) {
+    for (const [k, v] of Object.entries(data)) {
+      if (!['vitals', 'laboratory', 'imaging', 'ECG'].includes(k)) {
+        const title = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        sections.push(`${title}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+      }
+    }
+  }
+
+  return sections.join('\n')
+    .replace(/\\u00b5L/gi, 'µL')
+    .replace(/\\u00b0F/gi, '°F')
+    .replace(/\\u202f/gi, ' ')
+    .trim();
+}
+
+/**
+ * Parses and formats treatment given from JSON / array / dict to standard string
+ */
+export function formatClinicalTreatment(val) {
+  if (!val) return 'Inpatient care and stabilization administered as per protocol.';
+  let data = null;
+  if (typeof val === 'object' && val !== null) {
+    data = val;
+  } else if (typeof val === 'string' && (val.includes('{') || val.includes('['))) {
+    try {
+      data = JSON.parse(val);
+    } catch (e) {
+      try {
+        data = JSON.parse(val.replace(/'/g, '"'));
+      } catch (e2) {}
+    }
+  }
+
+  if (!data || typeof data !== 'object') {
+    return String(val);
+  }
+
+  const meds = data.medications || data.inpatient_medications || data.treatments || data.prescriptions;
+  if (Array.isArray(meds) && meds.length > 0) {
+    const lines = ['Inpatient care and stabilization administered:'];
+    meds.forEach((m, idx) => {
+      if (typeof m === 'object' && m !== null) {
+        const name = m.name || m.medicine || m.drug || 'Medication';
+        const dose = m.dose || m.dosage || '';
+        const route = m.route || '';
+        const freq = m.frequency || m.freq || '';
+        const ind = m.indication || m.indication_notes || m.notes || '';
+        const parts = [dose ? `Dosage: ${dose}` : '', route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', ind ? `Indication: ${ind}` : ''].filter(Boolean);
+        lines.push(`${idx + 1}. Administered: ${name} - ${parts.join(' - ') || 'As directed'}`);
+      } else {
+        lines.push(`${idx + 1}. ${m}`);
+      }
+    });
+    return lines.join('\n');
+  }
+
+  return String(val);
+}
+
+/**
+ * Parses and formats clinical advice from JSON/dict to clean bullet points
+ */
+export function formatClinicalAdvice(val) {
+  if (!val) return 'Follow-up in OPD as advised by attending physician.';
+  let data = null;
+  if (typeof val === 'object' && val !== null) {
+    data = val;
+  } else if (typeof val === 'string' && (val.includes('{') || val.includes('['))) {
+    try {
+      data = JSON.parse(val);
+    } catch (e) {
+      try {
+        data = JSON.parse(val.replace(/'/g, '"'));
+      } catch (e2) {}
+    }
+  }
+
+  if (!data || typeof data !== 'object') {
+    return String(val)
+      .split('\n')
+      .filter(l => !l.toLowerCase().includes('தமிழ்') && !l.toLowerCase().includes('tamil instructions') && !/[\u0B80-\u0BFF]/.test(l))
+      .join('\n')
+      .trim();
+  }
+
+  const lines = [];
+  let idx = 1;
+  const keys = ['discharge_medications', 'medications', 'diet', 'activity', 'lifestyle', 'red_flags', 'emergency_warning', 'followup', 'follow_up', 'review'];
+  for (const k of keys) {
+    const v = data[k];
+    if (v) {
+      if (Array.isArray(v)) {
+        v.forEach(item => {
+          lines.push(`${idx}. ${item}`);
+          idx++;
+        });
+      } else {
+        lines.push(`${idx}. ${v}`);
+        idx++;
+      }
+    }
+  }
+
+  if (lines.length === 0) {
+    for (const [k, v] of Object.entries(data)) {
+      lines.push(`${idx}. ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+      idx++;
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Parses and formats patient condition on discharge
+ */
+export function formatClinicalCondition(val) {
+  if (!val) return 'Patient is hemodynamically stable, alert, conscious, and oriented at discharge.';
+  if (typeof val === 'object' && val !== null) {
+    const stab = val.stability || val.status || 'Hemodynamically stable';
+    const vitals = val.vital_signs || val.vitals || '';
+    const amb = val.ambulation || val.diet || '';
+    const notes = val.notes || '';
+    const parts = [stab];
+    if (vitals) parts.push(`Vital signs: ${vitals}`);
+    if (amb) parts.push(amb);
+    if (notes) parts.push(notes);
+    return parts.join('. ');
+  }
+  return String(val)
+    .replace(/\\u00b0F/gi, '°F')
+    .replace(/\\u202f/gi, ' ')
     .trim();
 }
 
@@ -1258,7 +1572,11 @@ export function parseDischargeSummaryRecord(record) {
   const isGenericExtracted = !extractedName || /^Patient\s+(PAT-|\d+)/i.test(extractedName) || /^Patient\s*$/i.test(extractedName);
   const resolvedPatientName = (!isGenericExtracted ? extractedName : null) || record.patient || extractedName || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
   const resolvedDoctorName = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
-  const resolvedDiagnoses = cleanDiagnosis(record.diagnoses || '') || 'Clinical Discharge Completed';
+  const resolvedDiagnoses = formatClinicalDiagnoses(record.diagnoses || '') || 'Clinical Discharge Completed';
+  const resolvedInvestigations = formatClinicalInvestigations(record.investigations || '');
+  const resolvedTreatment = formatClinicalTreatment(record.treatment || '');
+  const resolvedAdvice = formatClinicalAdvice(record.discharge_advice || '');
+  const resolvedCondition = formatClinicalCondition(record.patient_condition || 'Clinically stable at discharge');
 
   // Extract age and sex/gender from record or case_history
   let extractedAge = record.age || record.age_at_admission || null;
@@ -1317,11 +1635,11 @@ export function parseDischargeSummaryRecord(record) {
     eta: record.discharge_date ? new Date(record.discharge_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Completed',
     diagnoses: resolvedDiagnoses,
     case_history: record.case_history || '',
-    investigations: record.investigations || '',
-    treatment: record.treatment || '',
-    discharge_advice: record.discharge_advice || '',
+    investigations: resolvedInvestigations,
+    treatment: resolvedTreatment,
+    discharge_advice: resolvedAdvice,
     surgery_details: record.surgery_details || 'None',
-    patient_condition: record.patient_condition || 'Clinically stable at discharge',
+    patient_condition: resolvedCondition,
     approval_status: record.approval_status || 'Approved',
     status: record.approval_status === 'Approved' ? 'Discharged · Approved' : 'Pending Clearance',
     statusType: record.approval_status === 'Approved' ? 'green' : 'amber',
