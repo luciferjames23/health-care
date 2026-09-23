@@ -1,9 +1,12 @@
 @echo off
 cd /d %~dp0backend
-if not exist venv (
-    C:\Users\Bsoft137\AppData\Local\Programs\Python\Python311\python.exe -m venv venv
+if exist .venv (
+    call .venv\Scripts\activate.bat
+) else if exist venv (
+    call venv\Scripts\activate.bat
+) else (
+    python -m venv .venv
+    call .venv\Scripts\activate.bat
+    pip install -r requirements.txt
 )
-call venv\Scripts\activate.bat
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000

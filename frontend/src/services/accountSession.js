@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 export async function selectAccount(username) {
   sessionStorage.removeItem('hc_auth_token');
@@ -10,8 +10,10 @@ export async function selectAccount(username) {
   if (!response.ok || !result.token) throw new Error(result.detail || 'Unable to sign in.');
   sessionStorage.setItem('hc_auth_token', result.token);
   const user = result.user;
-  return { ...user, role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
-    dept: user.department, title: user.specialization || user.role };
+  return {
+    ...user, role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
+    dept: user.department, title: user.specialization || user.role
+  };
 }
 
 export async function loginWithPassword(username, password) {
@@ -24,6 +26,8 @@ export async function loginWithPassword(username, password) {
   if (!response.ok || !result.token) throw new Error(result.detail || 'Unable to sign in.');
   sessionStorage.setItem('hc_auth_token', result.token);
   const user = result.user;
-  return { ...user, role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
-    dept: user.department, title: user.specialization || user.role };
+  return {
+    ...user, role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
+    dept: user.department, title: user.specialization || user.role
+  };
 }

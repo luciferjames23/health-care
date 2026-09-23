@@ -1,5 +1,7 @@
 import time
 import random
+import os
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
@@ -286,8 +288,15 @@ class AccountSelectionRequest(BaseModel):
 
 @router.post("/select-account")
 def select_account(body: AccountSelectionRequest, request: Request):
-    """Password-free account selection for this local demonstration."""
-    if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+    """Password-free account selection for local or explicitly enabled test access."""
+    client_is_local = bool(request.client and request.client.host in {"127.0.0.1", "::1"})
+    origin = request.headers.get("origin", "") if "headers" in request.scope else ""
+    origin_host = (urlparse(origin).hostname or "").lower()
+    temporary_cloudflare_test = (
+        os.getenv("ALLOW_TEMPORARY_CLOUDFLARE_LOGIN", "false").lower() == "true"
+        and origin_host.endswith(".trycloudflare.com")
+    )
+    if not client_is_local and not temporary_cloudflare_test:
         raise HTTPException(status_code=403, detail="Account selection is available only on this computer.")
     with db_config.get_db_connection() as conn:
         with conn.cursor() as cur:

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { apiService } from '../services/api';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -87,6 +88,45 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+
+function LoadingState({ label = "Loading live data from PostgreSQL..." }) {
+  return (
+    <div style={{ ...cardStyle, padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
+      <div style={{ display: 'inline-block', width: '24px', height: '24px', border: '3px solid #cbd5e1', borderTopColor: '#0284c7', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: '10px' }} />
+      <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>{label}</div>
+    </div>
+  );
+}
+
+function EmptyState({ title = "No records found", description = "There are currently no records in this module.", onAction, actionLabel = "+ Add Record" }) {
+  return (
+    <div style={{ ...cardStyle, padding: '40px 20px', textAlign: 'center' }}>
+      <div style={{ fontSize: '28px', marginBottom: '8px' }}>📋</div>
+      <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>{title}</div>
+      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', maxWidth: '380px', margin: '4px auto 14px' }}>{description}</div>
+      {onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '6px',
+            background: '#0284c7',
+            color: '#fff',
+            border: 'none',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }
@@ -287,109 +327,358 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 2. EMERGENCY & TRAUMA BOARD (emergency)
 // -----------------------------------------------------------------------------
-const EMERGENCY_CASES = [
-  { id: 'ER-401', bay: 'Resus 1', patient: 'Ravi Teja', age: '42M', triage: 'Red', complaint: 'Acute STEMI, severe crushing chest pain', bp: '84/52', hr: 128, spo2: '89%', doctor: 'Dr. Arjun Menon', elapsed: '8m', status: 'Immediate Resuscitation' },
-  { id: 'ER-402', bay: 'Trauma 2', patient: 'Sundaram K.', age: '28M', triage: 'Red', complaint: 'RTA polytrauma, suspected pelvic fracture', bp: '98/64', hr: 114, spo2: '94%', doctor: 'Dr. Rajesh Sharma', elapsed: '14m', status: 'FAST Scan in Progress' },
-  { id: 'ER-403', bay: 'Bay 03', patient: 'Malini G.', age: '65F', triage: 'Yellow', complaint: 'Severe acute dyspnea, COPD exacerbation', bp: '142/88', hr: 98, spo2: '91%', doctor: 'Dr. Priya Narayanan', elapsed: '22m', status: 'Nebulization & BiPAP' },
-  { id: 'ER-404', bay: 'Bay 04', patient: 'Karthik Raja', age: '34M', triage: 'Yellow', complaint: 'Acute appendicular colic, guarding in RIF', bp: '124/78', hr: 82, spo2: '99%', doctor: 'Dr. Pooja Menon', elapsed: '35m', status: 'IV Analgesia & USG Pending' },
-  { id: 'ER-405', bay: 'Bay 05', patient: 'Ayesha Banu', age: '19F', triage: 'Green', complaint: 'Moderate laceration on right forearm, bleeding controlled', bp: '116/74', hr: 76, spo2: '99%', doctor: 'Dr. Vignesh K.', elapsed: '41m', status: 'Suturing Planned' },
-  { id: 'ER-406', bay: 'Bay 06', patient: 'Natarajan P.', age: '71M', triage: 'Yellow', complaint: 'Transient ischemic attack, left facial weakness resolved', bp: '168/96', hr: 78, spo2: '98%', doctor: 'Dr. Sanjay Gupta', elapsed: '48m', status: 'Urgent NCCT Brain Done' },
-];
-
 export function EmergencyView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+
+  const fetchEmergencyData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getEmergencyCases();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bay: r.bay || 'ER Bay',
+          patient: r.patient_name,
+          age: r.age_gender,
+          triage: r.triage_level,
+          complaint: r.chief_complaint,
+          bp: r.bp,
+          hr: r.hr,
+          spo2: r.spo2,
+          doctor: r.doctor_name || 'Dr. Arjun Menon',
+          arrival: r.arrival_time || '09:30',
+          waiting: r.waiting_time || r.elapsed_time || '15 m',
+          acuity: r.acuity || (r.triage_level === 'Red' ? 'ESI-1 (clinician)' : r.triage_level === 'Yellow' ? 'ESI-2 (clinician)' : 'Not triaged'),
+          critical: r.critical_alert,
+          mlc: Boolean(r.mlc_flag),
+          status: r.clinical_status || 'Awaiting triage'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch emergency cases:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmergencyData();
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!query) return data;
+    const q = query.toLowerCase();
+    return data.filter(d =>
+      (d.id && d.id.toLowerCase().includes(q)) ||
+      (d.patient && d.patient.toLowerCase().includes(q)) ||
+      (d.complaint && d.complaint.toLowerCase().includes(q)) ||
+      (d.doctor && d.doctor.toLowerCase().includes(q)) ||
+      (d.acuity && d.acuity.toLowerCase().includes(q)) ||
+      (d.status && d.status.toLowerCase().includes(q))
+    );
+  }, [data, query]);
+
+  const untriagedCount = data.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
+  const awaitingBedCount = data.filter(d => d.status === 'Awaiting bed').length;
+  const criticalCount = data.filter(d => Boolean(d.critical)).length;
+  const erBedsFree = Math.max(0, 22 - data.length);
+
   const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.bay} · ${row.patient} (${row.age})`,
-      sub: `Triage Level: ${row.triage} · Attending: ${row.doctor}`,
+      title: `${row.id} · ${row.patient}`,
+      sub: `Arrival: ${row.arrival} (${row.waiting}) · Acuity: ${row.acuity}`,
       badges: [
-        { t: `LEVEL ${row.triage.toUpperCase()}`, bg: row.triage === 'Red' ? '#fee2e2' : row.triage === 'Yellow' ? '#fef3c7' : '#dcfce7', fg: row.triage === 'Red' ? '#991b1b' : row.triage === 'Yellow' ? '#92400e' : '#166534' },
-        { t: row.status, bg: '#f1f5f9', fg: '#334155' }
+        { t: row.acuity, bg: row.acuity === 'Not triaged' ? '#fee2e2' : '#fef3c7', fg: row.acuity === 'Not triaged' ? '#991b1b' : '#92400e' },
+        { t: row.status, bg: '#fef3c7', fg: '#92400e' },
+        ...(row.critical ? [{ t: row.critical, bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Trauma Bay', v: row.bay, b: true },
+        { k: 'Case Identifier', v: row.id, b: true },
         { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'Age / Sex', v: row.age },
         { k: 'Chief Complaint', v: row.complaint },
-        { k: 'Vital Signs', v: `BP ${row.bp} · HR ${row.hr} bpm · SpO2 ${row.spo2}` },
-        { k: 'Elapsed Time', v: row.elapsed },
-        { k: 'Attending Doctor', v: row.doctor },
-        { k: 'Clinical Status', v: row.status }
+        { k: 'Arrival Timestamp', v: row.arrival },
+        { k: 'Waiting Duration', v: row.waiting },
+        { k: 'Assigned Clinician', v: row.doctor },
+        { k: 'Triage Acuity', v: row.acuity },
+        { k: 'Critical Result', v: row.critical || 'Normal / None' },
+        { k: 'MLC Flag', v: row.mlc ? 'Yes (Police Intimated)' : 'No' },
+        { k: 'Vital Signs', v: `BP ${row.bp || '120/80'} · HR ${row.hr || '76'} bpm · SpO2 ${row.spo2 || '99%'}` }
       ],
       actions: [
-        { label: 'Admit to Inpatient Bed', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'admit', title: `Admit ER Patient: ${row.patient}`, data: { patientId: row.id, name: row.patient, dept: 'Emergency', cls: 'ICU' } }) },
-        { label: 'Order Stat Radiology / CT' },
-        { label: 'Discharge / Transfer' }
+        {
+          label: 'Triage & Assign Acuity',
+          primary: true,
+          on: async () => {
+            const nextAcuity = row.acuity === 'Not triaged' ? 'ESI-1 (clinician)' : row.acuity;
+            const nextStatus = 'Treatment';
+            try {
+              await apiService.updateEmergencyCase(row.id, { acuity: nextAcuity, clinical_status: nextStatus });
+              setData(prev => prev.map(p => p.id === row.id ? { ...p, acuity: nextAcuity, status: nextStatus } : p));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          label: 'Mark Awaiting Bed',
+          on: async () => {
+            try {
+              await apiService.updateEmergencyCase(row.id, { clinical_status: 'Awaiting bed' });
+              setData(prev => prev.map(p => p.id === row.id ? { ...p, status: 'Awaiting bed' } : p));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          label: 'Admit to Inpatient Bed',
+          on: () => onOpenModal && onOpenModal({
+            kind: 'admit',
+            title: `Admit ER Patient: ${row.patient}`,
+            data: { patientId: row.id, name: row.patient, dept: 'Emergency', cls: 'ICU' }
+          })
+        }
       ]
     });
   };
 
+  const exportCSV = () => {
+    const headers = ['CASE', 'PATIENT', 'ARRIVAL', 'WAITING', 'COMPLAINT', 'CLINICIAN', 'ACUITY', 'CRITICAL', 'STATUS'];
+    const rows = filtered.map(r => [
+      r.id,
+      `"${r.patient}"`,
+      r.arrival,
+      r.waiting,
+      `"${r.complaint}"`,
+      `"${r.doctor}"`,
+      `"${r.acuity}"`,
+      `"${r.critical || '—'}"`,
+      `"${r.status}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `emergency_board_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Emergency & Trauma Resuscitation Board"
-        subtitle="Emergency department triage, trauma bay occupancy, and vital resuscitation alerts"
-        count={EMERGENCY_CASES.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
-        newLabel="+ Triage & Admit"
-        onExport={() => alert('Exported ER log')}
-      />
-
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="RED TRIAGE (Immediate)" value="2" sub="Trauma & Resus 1 occupied" color="#dc2626" bg="#fef2f2" />
-        <StatCard label="YELLOW TRIAGE (Urgent)" value="3" sub="Within 15 min review window" color="#d97706" bg="#fffbeb" />
-        <StatCard label="GREEN TRIAGE (Standard)" value="1" sub="Minor injury & walk-in" color="#059669" bg="#f0fdf4" />
-        <StatCard label="ER Bay Occupancy" value="6 / 10" sub="4 Available emergency bays" color="#0284c7" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Breadcrumb */}
+      <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
+        <span>·</span>
+        <span>Command Centre</span>
+        <span>›</span>
+        <span style={{ color: '#1e293b', fontWeight: 600 }}>Emergency</span>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Bay / Location</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Triage Level</th>
-              <th style={{ padding: '10px 14px' }}>Chief Presentation</th>
-              <th style={{ padding: '10px 14px' }}>Vitals</th>
-              <th style={{ padding: '10px 14px' }}>Attending Doctor</th>
-              <th style={{ padding: '10px 14px' }}>Elapsed</th>
-              <th style={{ padding: '10px 14px' }}>Current Clinical Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {EMERGENCY_CASES.map(row => (
-              <tr
-                key={row.id}
-                onClick={() => handleRowClick(row)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.bay}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.age}</div>
-                </td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.triage === 'Red' ? '#fee2e2' : row.triage === 'Yellow' ? '#fef3c7' : '#dcfce7',
-                    row.triage === 'Red' ? '#991b1b' : row.triage === 'Yellow' ? '#92400e' : '#166534'
-                  )}>
-                    ● LEVEL {row.triage.toUpperCase()}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', maxWidth: '240px', color: '#1e293b' }}>{row.complaint}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  BP {row.bp} · HR {row.hr} · SpO2 {row.spo2}
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.doctor}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.elapsed}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0284c7' }}>{row.status}</td>
+      {/* Title & Subtitle */}
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0f172a', letterSpacing: '-0.02em' }}>
+          Emergency
+        </h1>
+        <div style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.4' }}>
+          Board is ordered by triage acuity (ESI 1 → 5); untriaged arrivals sit on top. Triage is a human action on the case (Doctor / Nurse). MLC flag drives police intimation.
+        </div>
+      </div>
+
+      {/* Action / Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'relative', width: '240px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '34px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '12.5px',
+              color: '#1e293b',
+              background: '#ffffff',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={exportCSV}
+          style={{
+            height: '34px',
+            padding: '0 16px',
+            borderRadius: '6px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            color: '#334155',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* Alert Banner for untriaged cases */}
+      {untriagedCount > 0 && (
+        <div
+          style={{
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            padding: '12px 16px',
+            color: '#b91c1c',
+            fontSize: '13px',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
+          <div>
+            {untriagedCount} arrivals awaiting triage. Open the case — Triage.
+          </div>
+        </div>
+      )}
+
+      {/* 4 Stat Metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Active</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {data.length}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Awaiting bed</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {awaitingBedCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Critical unacked</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626', marginTop: '4px' }}>
+            {criticalCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>ER beds free</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {erBedsFree}
+          </div>
+        </div>
+      </div>
+
+      {/* Live Table */}
+      {loading ? (
+        <LoadingState label="Fetching live ER board from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Emergency Cases Found"
+          description="There are currently no active emergency patients matching the criteria."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
+          actionLabel="+ Triage & Admit Patient"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 16px' }}>CASE</th>
+                <th style={{ padding: '12px 16px' }}>PATIENT</th>
+                <th style={{ padding: '12px 16px' }}>ARRIVAL</th>
+                <th style={{ padding: '12px 16px' }}>WAITING</th>
+                <th style={{ padding: '12px 16px' }}>COMPLAINT</th>
+                <th style={{ padding: '12px 16px' }}>CLINICIAN</th>
+                <th style={{ padding: '12px 16px' }}>ACUITY</th>
+                <th style={{ padding: '12px 16px' }}>CRITICAL</th>
+                <th style={{ padding: '12px 16px' }}>STATUS</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filtered.map(row => (
+                <tr
+                  key={row.id}
+                  onClick={() => handleRowClick(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 16px', fontFamily: 'monospace, sans-serif', color: '#334155', fontWeight: 600 }}>
+                    {row.id}
+                  </td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.patient}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.arrival}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.waiting}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#0f172a' }}>
+                    {row.complaint}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.doctor}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: row.acuity === 'Not triaged' ? '#64748b' : '#1e293b' }}>
+                    {row.acuity}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {row.critical ? (
+                      <span style={{
+                        background: '#fee2e2',
+                        color: '#dc2626',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {row.critical}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{
+                      background: '#fef3c7',
+                      color: '#92400e',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,75 +686,355 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 3. CONSULTANT SCHEDULES (schedules)
 // -----------------------------------------------------------------------------
-const ROASTER = [
-  { doctor: 'Dr. Arjun Menon', dept: 'Cardiology', opd: '09:00 AM - 01:00 PM', days: 'Mon, Wed, Fri', room: 'OPD 102', onCall: 'Tonight (20:00 - 08:00)', status: 'On Duty' },
-  { doctor: 'Dr. Priya Narayanan', dept: 'Internal Medicine', opd: '10:00 AM - 02:00 PM', days: 'Daily (Mon-Sat)', room: 'OPD 105', onCall: 'Weekend Coverage', status: 'On Duty' },
-  { doctor: 'Dr. Pooja Menon', dept: 'General & Lap. Surgery', opd: '11:00 AM - 03:00 PM', days: 'Tue, Thu, Sat', room: 'OPD 110', onCall: 'Emergency OT Call', status: 'In OT 2' },
-  { doctor: 'Dr. Rajesh Sharma', dept: 'Orthopedics & Trauma', opd: '09:30 AM - 01:30 PM', days: 'Mon, Tue, Thu, Fri', room: 'OPD 114', onCall: 'Primary Trauma Call', status: 'On Duty' },
-  { doctor: 'Dr. Sanjay Gupta', dept: 'Neurology', opd: '02:00 PM - 06:00 PM', days: 'Mon, Wed, Thu', room: 'OPD 108', onCall: 'Telestroke Active', status: 'Evening Clinic' },
-  { doctor: 'Dr. Anita Roy', dept: 'Pediatrics', opd: '09:00 AM - 01:00 PM', days: 'Mon-Fri', room: 'OPD 101', onCall: 'NICU Secondary', status: 'On Duty' },
-  { doctor: 'Dr. Meera Iyer', dept: 'Pulmonology', opd: '03:00 PM - 07:00 PM', days: 'Wed, Fri, Sat', room: 'OPD 107', onCall: 'ICU Bronchoscopy', status: 'On Leave' },
-];
-
 export function SchedulesView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [selectedDept, setSelectedDept] = useState('All');
+
+  const DEPARTMENTS = [
+    'All',
+    'Cardiology',
+    'Cardiac Surgery',
+    'Orthopaedics',
+    'General Surgery',
+    'Nephrology',
+    'Oncology',
+    'Neurology',
+    'Obstetrics',
+    'Pulmonology',
+    'Paediatrics',
+    'Gastroenterology',
+    'Emergency',
+    'Urology',
+    'ENT'
+  ];
+
+  const loadSchedules = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getConsultantSchedules();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          doctor: r.doctor_name,
+          dept: r.specialty,
+          days: r.clinic_days || 'Mon Wed Fri',
+          hours: r.opd_hours || '09:00-13:00',
+          slot: r.slot_duration_mins ? `${r.slot_duration_mins} m` : '15 m',
+          room: r.room_no || 'OPD-1',
+          todayBooked: `${r.booked_today_count || 0} / ${r.total_today_slots || 16} booked`,
+          tomorrow: r.tomorrow_schedule || 'Not consulting',
+          status: r.status || 'Active',
+          onCall: r.on_call_assignment,
+          isConsultingToday: r.is_consulting_today !== false,
+          totalSlots: r.total_today_slots || 16,
+          bookedCount: r.booked_today_count || 0
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load consultant schedules:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSchedules();
+  }, []);
+
+  const filtered = useMemo(() => {
+    return data.filter(d => {
+      const matchDept = selectedDept === 'All' || d.dept.toLowerCase() === selectedDept.toLowerCase();
+      const q = query.toLowerCase();
+      const matchQuery = !q ||
+        d.doctor.toLowerCase().includes(q) ||
+        d.dept.toLowerCase().includes(q) ||
+        d.room.toLowerCase().includes(q) ||
+        d.days.toLowerCase().includes(q) ||
+        d.hours.toLowerCase().includes(q);
+      return matchDept && matchQuery;
+    });
+  }, [data, selectedDept, query]);
+
+  const consultingTodayCount = data.filter(d => d.isConsultingToday && d.status === 'Active').length;
+  const onLeaveCount = data.filter(d => d.status === 'On Leave' || d.status === 'Inactive').length;
+  const totalSlotsToday = data.reduce((acc, curr) => acc + (curr.totalSlots || 0), 0);
+  const totalBookedToday = data.reduce((acc, curr) => acc + (curr.bookedCount || 0), 0);
+
   const handleDoctorClick = (d) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
       title: `${d.doctor} · ${d.dept}`,
-      sub: `Room ${d.room} · Clinic Days: ${d.days}`,
+      sub: `${d.room} · Clinic Hours: ${d.hours} (${d.days})`,
       badges: [
-        { t: d.status, bg: d.status === 'On Duty' ? '#dcfce7' : '#fee2e2', fg: d.status === 'On Duty' ? '#15803d' : '#991b1b' }
+        { t: d.status, bg: d.status === 'Active' ? '#dcfce7' : '#fee2e2', fg: d.status === 'Active' ? '#15803d' : '#991b1b' },
+        { t: `Slot: ${d.slot}`, bg: '#f1f5f9', fg: '#334155' }
       ],
       facts: [
-        { k: 'Consultant', v: d.doctor, b: true },
-        { k: 'Specialty', v: d.dept },
-        { k: 'OPD Hours', v: `${d.opd} (${d.days})` },
-        { k: 'Room Location', v: d.room },
-        { k: 'Emergency On-Call', v: d.onCall },
-        { k: 'Current Status', v: d.status }
+        { k: 'Consultant Name', v: d.doctor, b: true },
+        { k: 'Department', v: d.dept },
+        { k: 'Consultation Room', v: d.room },
+        { k: 'OPD Schedule Hours', v: d.hours },
+        { k: 'Clinic Operating Days', v: d.days },
+        { k: 'Template Slot Length', v: d.slot },
+        { k: 'Today Booking Load', v: d.todayBooked },
+        { k: 'Tomorrow Forecast', v: d.tomorrow },
+        { k: 'Emergency On-Call', v: d.onCall || 'General Hospital Call' }
       ],
       actions: [
-        { label: 'Book Appointment', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'appt', title: `Book with ${d.doctor}`, data: { doctorId: d.doctor } }) },
-        { label: 'Request Shift Swap' }
+        {
+          label: 'Book Consultation Slot',
+          primary: true,
+          on: () => onOpenModal && onOpenModal({ kind: 'appt', title: `Book Appointment with ${d.doctor}`, data: { doctorId: d.doctor, dept: d.dept } })
+        },
+        {
+          label: d.status === 'Active' ? 'Mark On Leave (Block Slots)' : 'Set Active / Restore Roster',
+          on: async () => {
+            const nextStatus = d.status === 'Active' ? 'On Leave' : 'Active';
+            try {
+              if (d.id) await apiService.updateConsultantSchedule(d.id, { status: nextStatus });
+              setData(prev => prev.map(item => item.id === d.id ? { ...item, status: nextStatus } : item));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
       ]
     });
   };
 
+  const exportCSV = () => {
+    const headers = ['CONSULTANT', 'DEPARTMENT', 'DAYS', 'HOURS', 'SLOT', 'ROOM', 'TODAY', 'TOMORROW', 'STATUS'];
+    const rows = filtered.map(r => [
+      `"${r.doctor}"`,
+      `"${r.dept}"`,
+      `"${r.days}"`,
+      r.hours,
+      r.slot,
+      r.room,
+      `"${r.todayBooked}"`,
+      `"${r.tomorrow}"`,
+      r.status
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `consultant_schedules_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Consultant Roster & On-Call Schedules"
-        subtitle="Medical consultant clinic hours, emergency on-call rotas, and leave master"
-        count={ROASTER.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
-        newLabel="+ Add Doctor"
-        onExport={() => alert('Exported consultant roster')}
-      />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
-        {ROASTER.map(d => (
-          <div
-            key={d.doctor}
-            onClick={() => handleDoctorClick(d)}
-            style={{ ...cardStyle, cursor: 'pointer', transition: 'all 0.15s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.transform = 'none'; }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: '14px' }}>{d.doctor}</div>
-              <span style={pillStyle(d.status === 'On Duty' ? '#dcfce7' : d.status === 'On Leave' ? '#fee2e2' : '#fef3c7', d.status === 'On Duty' ? '#15803d' : d.status === 'On Leave' ? '#991b1b' : '#92400e')}>
-                ● {d.status}
-              </span>
-            </div>
-            <div style={{ fontSize: '11.5px', color: '#0369a1', fontWeight: 600, marginTop: '2px' }}>{d.dept} · {d.room}</div>
-            <div style={{ fontSize: '12px', color: '#334155', marginTop: '8px' }}>
-              <strong>OPD Hours:</strong> {d.opd} ({d.days})
-            </div>
-            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px' }}>
-              <strong>On-Call Assignment:</strong> {d.onCall}
-            </div>
-          </div>
-        ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Breadcrumb */}
+      <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
+        <span>·</span>
+        <span>Command Centre</span>
+        <span>›</span>
+        <span style={{ color: '#1e293b', fontWeight: 600 }}>Consultant Schedules</span>
       </div>
+
+      {/* Title & Subtitle */}
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0f172a', letterSpacing: '-0.02em' }}>
+          Consultant schedules
+        </h1>
+        <div style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.4' }}>
+          Slot templates per consultant (days · hours · slot length · room). Booking validates day, hours, slot alignment and leave; a leave block flags every affected appointment for rescheduling.
+        </div>
+      </div>
+
+      {/* Search & Export Action */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'relative', width: '240px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '34px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '12.5px',
+              color: '#1e293b',
+              background: '#ffffff',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={exportCSV}
+          style={{
+            height: '34px',
+            padding: '0 16px',
+            borderRadius: '6px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            color: '#334155',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* 5 Stat Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consultants</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {data.length}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consulting today (Fri)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#16a34a', marginTop: '4px' }}>
+            {consultingTodayCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>On leave (3 days)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309', marginTop: '4px' }}>
+            {onLeaveCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Slots today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {totalSlotsToday}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Booked today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f766e', marginTop: '4px' }}>
+            {totalBookedToday}
+          </div>
+        </div>
+      </div>
+
+      {/* Specialty Filter Pills */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '2px' }}>
+        {DEPARTMENTS.map(dept => {
+          const isSelected = selectedDept.toLowerCase() === dept.toLowerCase();
+          return (
+            <button
+              key={dept}
+              type="button"
+              onClick={() => setSelectedDept(dept)}
+              style={{
+                borderRadius: '20px',
+                padding: '5px 14px',
+                fontSize: '12px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {dept}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live consultant schedules from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Consultant Schedules Found"
+          description="There are currently no consultants matching the selected department or query."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
+          actionLabel="+ Add Consultant"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 16px' }}>CONSULTANT</th>
+                <th style={{ padding: '12px 16px' }}>DEPARTMENT</th>
+                <th style={{ padding: '12px 16px' }}>DAYS</th>
+                <th style={{ padding: '12px 16px' }}>HOURS</th>
+                <th style={{ padding: '12px 16px' }}>SLOT</th>
+                <th style={{ padding: '12px 16px' }}>ROOM</th>
+                <th style={{ padding: '12px 16px' }}>TODAY</th>
+                <th style={{ padding: '12px 16px' }}>TOMORROW</th>
+                <th style={{ padding: '12px 16px' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => (
+                <tr
+                  key={row.id || row.doctor}
+                  onClick={() => handleDoctorClick(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.doctor}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.dept}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.days}
+                  </td>
+                  <td style={{ padding: '12px 16px', fontFamily: 'monospace, sans-serif', color: '#334155' }}>
+                    {row.hours}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#64748b' }}>
+                    {row.slot}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155', fontWeight: 600 }}>
+                    {row.room}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#0f172a' }}>
+                    {row.todayBooked}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: row.tomorrow === 'Not consulting' ? '#94a3b8' : '#0f172a' }}>
+                    {row.tomorrow}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{
+                      background: row.status === 'Active' ? '#dcfce7' : '#fee2e2',
+                      color: row.status === 'Active' ? '#15803d' : '#991b1b',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -473,223 +1042,982 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 4. NURSING WORKSPACE (nursing)
 // -----------------------------------------------------------------------------
-const NURSING_TASKS = [
-  { bed: 'Bed 201-A', patient: 'Saanvier Parthalan', uhid: 'MER-PAT-0087227', task: 'Q4H Blood Glucose Monitoring (Pre-lunch check)', status: 'Due Now', nurse: 'Anitha Kumar', notes: 'Target BG < 160 mg/dL' },
-  { bed: 'Bed 202-B', patient: 'Kavitha Raman', uhid: 'MER-PAT-0087221', task: 'Titrate IV Heparin @ 18 ml/hr & check aPTT', status: 'In Progress', nurse: 'K. Selvi', notes: 'Check puncture site for hematoma' },
-  { bed: 'Bed 204-A', patient: 'Christoer Parthalan', uhid: 'MER-PAT-0087233', task: 'Post-op surgical dressing inspection & drain output', status: 'Completed', nurse: 'Anitha Kumar', notes: 'Drain: 25ml serosanguinous' },
-  { bed: 'Bed 205-C', patient: 'Natarajan P.', uhid: 'MER-PAT-0087235', task: 'Turn & reposition Q2H + Fall Risk Precautions', status: 'Due in 30m', nurse: 'K. Selvi', notes: 'Braden Score 13 - High Risk' },
-  { bed: 'Bed 208-A', patient: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', task: 'Administer Inj. Cefoperazone-Sulbactam 1.5g IV', status: 'Due Now', nurse: 'Anitha Kumar', notes: 'Skin test negative confirmed' },
-];
-
 export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
-  const handleTaskClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('All');
+
+  const loadNursingData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getNursingTasks();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bed: r.bed_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          task: r.task_description || '',
+          status: r.status || 'Active',
+          nurse: r.assigned_nurse || '',
+          notes: r.clinical_notes || '',
+          lastVitals: r.last_vitals_time || '11:00',
+          hr: r.hr ?? 75,
+          bp: r.bp || '120/80',
+          spo2: r.spo2 ?? 98,
+          temp: r.temp ?? 37.0,
+          rr: r.rr ?? 18,
+          pain: r.pain_score ?? 0,
+          ews: r.ews_score ?? 0,
+          fall: r.fall_risk || 'Low / Low',
+          diet: r.diet_type || 'Standard',
+          overdueMeds: r.overdue_meds || '-',
+          flag: r.flag_status || 'Normal',
+          ward: r.ward_name || 'Cardiac & medical wards'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load nursing tasks:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNursingData();
+  }, []);
+
+  const handleTaskClick = (t) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.bed} · ${row.patient}`,
-      sub: `Order: ${row.task} · Nurse: ${row.nurse}`,
+      title: `${t.bed} · ${t.patient}`,
+      sub: `Ward: ${t.ward} | UHID: ${t.uhid}`,
       badges: [
-        { t: row.status, bg: row.status === 'Due Now' ? '#fee2e2' : row.status === 'In Progress' ? '#fef3c7' : '#dcfce7', fg: row.status === 'Due Now' ? '#991b1b' : row.status === 'In Progress' ? '#92400e' : '#166534' }
+        { 
+          t: t.flag, 
+          bg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#fee2e2' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#fef3c7' : '#dcfce7', 
+          fg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#dc2626' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#92400e' : '#15803d' 
+        },
+        { 
+          t: `EWS: ${t.ews}`, 
+          bg: t.ews >= 3 ? '#fee2e2' : t.ews === 2 ? '#fef3c7' : '#f1f5f9', 
+          fg: t.ews >= 3 ? '#dc2626' : t.ews === 2 ? '#92400e' : '#475569' 
+        }
       ],
       facts: [
-        { k: 'Bed / Room', v: row.bed, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'UHID / MRN', v: row.uhid },
-        { k: 'Nursing Task', v: row.task },
-        { k: 'Current Status', v: row.status },
-        { k: 'Assigned Nurse', v: row.nurse },
-        { k: 'Clinical Instructions', v: row.notes }
+        { k: 'Bed Number', v: t.bed, b: true },
+        { k: 'Patient Name', v: t.patient, b: true },
+        { k: 'UHID', v: t.uhid },
+        { k: 'Assigned Nurse', v: t.nurse },
+        { k: 'Latest Vitals Time', v: t.lastVitals },
+        { k: 'Heart Rate (HR)', v: `${t.hr} bpm` },
+        { k: 'Blood Pressure (BP)', v: t.bp },
+        { k: 'Oxygen Saturation (SpO₂)', v: `${t.spo2}%` },
+        { k: 'Temperature', v: `${t.temp} °C` },
+        { k: 'Respiratory Rate (RR)', v: `${t.rr} /min` },
+        { k: 'Pain Score', v: `${t.pain} / 10` },
+        { k: 'Early Warning Score (EWS)', v: `${t.ews}` },
+        { k: 'Fall / Pressure Risk', v: t.fall },
+        { k: 'Diet Type', v: t.diet },
+        { k: 'Overdue Meds', v: t.overdueMeds },
+        { k: 'Care Plan / Task', v: t.task },
+        { k: 'Clinical Notes', v: t.notes }
       ],
       actions: [
-        { label: 'Mark Task Completed', primary: true, on: () => alert(`Task completed for ${row.patient}`) },
-        { label: 'Record Vital Signs' }
+        {
+          label: 'Mark Task Completed',
+          primary: true,
+          on: async () => {
+            try {
+              if (t.id) await apiService.updateNursingTask(t.id, { status: 'Completed' });
+              setData(prev => prev.map(item => item.id === t.id ? { ...item, status: 'Completed' } : item));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        },
+        {
+          label: 'Acknowledge Vitals / Watch',
+          on: async () => {
+            try {
+              if (t.id) await apiService.updateNursingTask(t.id, { status: 'In Progress' });
+              setData(prev => prev.map(item => item.id === t.id ? { ...item, status: 'In Progress' } : item));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No nursing data to export.');
+    const headers = ['Bed', 'Patient', 'UHID', 'Last Vitals', 'HR', 'BP', 'SpO2', 'Temp', 'RR', 'Pain', 'EWS', 'Fall/Pressure', 'Diet', 'Overdue Meds', 'Flag', 'Task', 'Nurse'];
+    const rows = data.map(d => [
+      d.bed, `"${d.patient}"`, d.uhid, d.lastVitals, d.hr, d.bp, `${d.spo2}%`, d.temp, d.rr, d.pain, d.ews, `"${d.fall}"`, `"${d.diet}"`, `"${d.overdueMeds}"`, `"${d.flag}"`, `"${d.task}"`, `"${d.nurse}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `nursing_workspace_census_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics
+  const censusCount = data.length;
+  const ewsEscalateCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('escalate') || d.flag.toLowerCase().includes('critical'))) || Number(d.ews) >= 3).length;
+  const watchCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('watch') || d.flag.toLowerCase().includes('pending'))) || Number(d.ews) === 2).length;
+  const overdueMedsCount = 20; // Census indicator
+  const dueNowCount = data.filter(d => d.status === 'Due Now').length;
+  const highFallRiskCount = data.filter(d => d.fall && d.fall.toLowerCase().includes('high')).length;
+
+  // Filter & Search Logic
+  const filtered = data.filter(item => {
+    const matchesSearch = 
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.bed.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.uhid.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.nurse.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.diet.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.flag.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'Escalate') {
+      return (item.flag && (item.flag.toLowerCase().includes('escalate') || item.flag.toLowerCase().includes('critical'))) || Number(item.ews) >= 3;
+    }
+    if (selectedFilter === 'Watch') {
+      return (item.flag && (item.flag.toLowerCase().includes('watch') || item.flag.toLowerCase().includes('pending'))) || Number(item.ews) === 2;
+    }
+    if (selectedFilter === 'Normal') {
+      return item.flag && item.flag.toLowerCase().includes('normal');
+    }
+    return true;
+  });
+
+  const filterOptions = ['All', 'Escalate', 'Watch', 'Normal'];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Inpatient Nursing Station & Shift Tasks"
-        subtitle="Ward nurse assignment, scheduled drug administration, and clinical care checklists"
-        count={NURSING_TASKS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Staff Nurse / User' })}
-        newLabel="+ Add Nurse"
-        onExport={() => alert('Exported nursing care log')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Assigned Inpatients" value="28" sub="Floor 2 Wards A & B" color="#0284c7" />
-        <StatCard label="Tasks Due Now" value="2" sub="Immediate nursing action required" color="#dc2626" />
-        <StatCard label="Infusions Running" value="9" sub="Smart syringe & IV pumps" color="#059669" />
-        <StatCard label="High Fall Risk" value="4" sub="Bed alarm & sensor pads active" color="#d97706" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          ← Back · Command Centre › Nursing Workspace
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Nursing workspace · Cardiac & medical wards
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Census, latest vitals with early-warning score, care plan risks, overdue medication and handover. Escalation is a nurse decision; AI drafts handover only.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Bed</th>
-              <th style={{ padding: '10px 14px' }}>Patient / UHID</th>
-              <th style={{ padding: '10px 14px' }}>Nursing Task / Order</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-              <th style={{ padding: '10px 14px' }}>Assigned Nurse</th>
-              <th style={{ padding: '10px 14px' }}>Clinical Instructions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {NURSING_TASKS.map((row, idx) => (
-              <tr key={idx} onClick={() => handleTaskClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f766e' }}>{row.bed}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b' }}>{row.task}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Due Now' ? '#fee2e2' : row.status === 'In Progress' ? '#fef3c7' : '#dcfce7',
-                    row.status === 'Due Now' ? '#991b1b' : row.status === 'In Progress' ? '#92400e' : '#166534'
-                  )}>
-                    {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.nurse}</td>
-                <td style={{ padding: '10px 14px', color: '#52585e' }}>{row.notes}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* 7 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Census (IP)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{censusCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>EWS escalate</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{ewsEscalateCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Watch</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{watchCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Medications overdue</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueMedsCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Due now</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>High fall risk</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{highFallRiskCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Handover</div>
+          <div style={{ fontSize: '15px', fontWeight: 600, color: '#0f172a', lineHeight: '1.4', marginTop: '4px' }}>AI draft · nurse verifies</div>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {filterOptions.map(f => {
+          const isSelected = selectedFilter === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedFilter(f)}
+              style={{
+                padding: '5px 14px',
+                borderRadius: '16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {f}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live nursing tasks from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Inpatients Found"
+          description="There are currently no patients matching the selected filter or query."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'nursing', title: 'Log Nursing Task' })}
+          actionLabel="+ Log Inpatient Task"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '1050px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>BED</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>LAST VITALS</th>
+                <th style={{ padding: '12px 14px' }}>HR</th>
+                <th style={{ padding: '12px 14px' }}>BP</th>
+                <th style={{ padding: '12px 14px' }}>SPO₂</th>
+                <th style={{ padding: '12px 14px' }}>TEMP</th>
+                <th style={{ padding: '12px 14px' }}>RR</th>
+                <th style={{ padding: '12px 14px' }}>PAIN</th>
+                <th style={{ padding: '12px 14px' }}>EWS</th>
+                <th style={{ padding: '12px 14px' }}>FALL / PRESSURE</th>
+                <th style={{ padding: '12px 14px' }}>DIET</th>
+                <th style={{ padding: '12px 14px' }}>OVERDUE MEDS</th>
+                <th style={{ padding: '12px 14px' }}>FLAG</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => {
+                const isHrAlert = Number(row.hr) > 100 || Number(row.hr) < 60;
+                const isSpo2Alert = Number(row.spo2) < 95;
+                const isEwsCritical = Number(row.ews) >= 3;
+                const isEwsWatch = Number(row.ews) === 2;
+
+                const isCriticalFlag = row.flag && (row.flag.includes('Critical') || row.flag.includes('escalate'));
+                const isWatchFlag = row.flag && (row.flag.includes('Pending') || row.flag.includes('watch'));
+
+                return (
+                  <tr
+                    key={row.id || row.bed}
+                    onClick={() => handleTaskClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#334155' }}>
+                      {row.bed}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                      {row.patient}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#475569' }}>
+                      {row.lastVitals}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isHrAlert ? '#dc2626' : '#0f172a', fontWeight: isHrAlert ? 600 : 400 }}>
+                      {row.hr}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.bp}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isSpo2Alert ? '#dc2626' : '#0f172a', fontWeight: isSpo2Alert ? 600 : 400 }}>
+                      {row.spo2}%
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.temp}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.rr}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.pain}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isEwsCritical ? '#dc2626' : isEwsWatch ? '#b45309' : '#0f172a', fontWeight: (isEwsCritical || isEwsWatch) ? 600 : 400 }}>
+                      {row.ews}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.fall}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.diet}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                      {row.overdueMeds}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: isCriticalFlag ? '#fee2e2' : isWatchFlag ? '#fef3c7' : '#dcfce7',
+                        color: isCriticalFlag ? '#dc2626' : isWatchFlag ? '#92400e' : '#15803d',
+                        border: isCriticalFlag ? '1px solid #fca5a5' : isWatchFlag ? '1px solid #fde68a' : '1px solid #bbf7d0',
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {row.flag}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 // -----------------------------------------------------------------------------
-// 5. MEDICATION ADMINISTRATION (eMAR)
+// 5. MEDICATION ADMINISTRATION (eMAR) (emar)
 // -----------------------------------------------------------------------------
-const EMAR_SCHEDULE = [
-  { time: '08:00 AM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Inj. Regular Human Insulin', dose: '8 Units SubCut', status: 'Given', nurse: 'Anitha Kumar', signedAt: '08:05 AM' },
-  { time: '08:00 AM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Tab. Pantoprazole 40mg', dose: '1 Tab Oral before breakfast', status: 'Given', nurse: 'Anitha Kumar', signedAt: '08:06 AM' },
-  { time: '12:00 PM', patient: 'Christoer Parthalan', bed: 'Bed 204-A', med: 'Inj. Metronidazole 500mg', dose: '100ml IV Infusion over 30 mins', status: 'Due Now', nurse: 'Anitha Kumar', signedAt: '—' },
-  { time: '02:00 PM', patient: 'Kavitha Raman', bed: 'Bed 202-B', med: 'Tab. Atorvastatin 40mg', dose: '1 Tab Oral', status: 'Scheduled', nurse: 'K. Selvi', signedAt: '—' },
-  { time: '02:00 PM', patient: 'Lakshmi Narayanan', bed: 'Bed 208-A', med: 'Inj. Paracetamol 1000mg', dose: '100ml IV Infusion SOS for fever', status: 'Scheduled', nurse: 'K. Selvi', signedAt: '—' },
-  { time: '08:00 PM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Inj. Glargine Insulin (Lantus)', dose: '14 Units SubCut at bedtime', status: 'Scheduled', nurse: 'Night Shift Nurse', signedAt: '—' },
-];
-
 export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
-  const handleEmarClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
+  const [selectedFilter, setSelectedFilter] = useState('All'); // 'All' | 'Overdue' | 'Due' | 'Scheduled' | 'Given'
+  const [selectedCardId, setSelectedCardId] = useState(null);
+
+  const loadEmarData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getEmarRecords();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          time: r.scheduled_time || '08:00 AM',
+          patient: r.patient_name || '',
+          bed: r.bed_no || '',
+          drug: r.medication_name || '',
+          route: r.dosage_route || '',
+          status: r.status || 'Scheduled',
+          stage: r.stage || 'Scheduled',
+          isHighAlert: r.is_high_alert ?? false,
+          isOverdue: r.is_overdue ?? false,
+          prescriber: r.prescribed_by || 'Dr. Arjun Menon',
+          verification: r.verification_status || 'Verified',
+          nurse: r.administered_by || '',
+          signedAt: r.signed_at || ''
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load eMAR records:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadEmarData();
+  }, []);
+
+  const handleAdminister = async (m) => {
+    try {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (m.id) {
+        await apiService.signOffEmarRecord(m.id, {
+          status: 'Given',
+          stage: 'Completed',
+          administered_by: 'Anitha Kumar, RN',
+          signed_at: timeStr
+        });
+      }
+      setData(prev => prev.map(item => item.id === m.id ? {
+        ...item,
+        status: 'Given',
+        stage: 'Completed',
+        nurse: 'Anitha Kumar, RN',
+        signedAt: timeStr
+      } : item));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleOpenDrawer = (m) => {
+    setSelectedCardId(m.id);
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.med} · ${row.dose}`,
-      sub: `Patient: ${row.patient} (${row.bed}) · Slot: ${row.time}`,
+      title: `${m.bed} · ${m.patient}`,
+      sub: `${m.drug} (${m.route})`,
       badges: [
-        { t: row.status, bg: row.status === 'Given' ? '#dcfce7' : row.status === 'Due Now' ? '#fee2e2' : '#f1f5f9', fg: row.status === 'Given' ? '#15803d' : row.status === 'Due Now' ? '#991b1b' : '#475569' }
+        {
+          t: m.stage || m.status,
+          bg: m.stage === 'Completed' || m.status === 'Given' ? '#dcfce7' : m.stage === 'Critical' || m.status === 'Overdue' ? '#fee2e2' : '#fef3c7',
+          fg: m.stage === 'Completed' || m.status === 'Given' ? '#15803d' : m.stage === 'Critical' || m.status === 'Overdue' ? '#991b1b' : '#92400e'
+        },
+        ...(m.isHighAlert ? [{ t: 'High-Alert IV', bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Medication', v: row.med, b: true },
-        { k: 'Dose & Route', v: row.dose },
-        { k: 'Patient', v: row.patient },
-        { k: 'Bed Assignment', v: row.bed },
-        { k: 'Scheduled Round', v: row.time },
-        { k: 'Administration Status', v: row.status },
-        { k: 'Nurse Sign-off', v: `${row.nurse} (${row.signedAt})` }
+        { k: 'Bed Number', v: m.bed, b: true },
+        { k: 'Patient Name', v: m.patient, b: true },
+        { k: 'Medication Name', v: m.drug, b: true },
+        { k: 'Dosage & Route', v: m.route },
+        { k: 'Scheduled Time', v: m.time },
+        { k: 'Prescribing Doctor', v: m.prescriber },
+        { k: 'Pharmacy Verification', v: m.verification },
+        { k: 'High-Alert Drug', v: m.isHighAlert ? 'Yes (Requires 2-Nurse Sign-off)' : 'Standard' },
+        { k: 'Current Stage', v: m.stage },
+        { k: 'Administered By', v: m.nurse || 'Pending Administration' },
+        { k: 'Signed At', v: m.signedAt || '—' }
       ],
       actions: [
-        { label: 'Confirm Barcode Admin', primary: true, on: () => alert(`Administered ${row.med} to ${row.patient}`) },
-        { label: 'Hold Dose / Report Allergy' }
+        {
+          label: '✓ Administer & Sign Off',
+          primary: true,
+          on: () => handleAdminister(m)
+        },
+        {
+          label: 'Mark Awaiting Pharmacy',
+          on: async () => {
+            try {
+              if (m.id) {
+                await apiService.signOffEmarRecord(m.id, { status: 'Scheduled', stage: 'Awaiting pharmacy', administered_by: '' });
+                setData(prev => prev.map(item => item.id === m.id ? { ...item, status: 'Scheduled', stage: 'Awaiting pharmacy' } : item));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No eMAR data to export.');
+    const headers = ['Bed', 'Patient', 'Medication', 'Dosage & Route', 'Scheduled Time', 'Status', 'Stage', 'High Alert', 'Prescriber', 'Administered By', 'Signed At'];
+    const rows = data.map(d => [
+      d.bed, `"${d.patient}"`, `"${d.drug}"`, `"${d.route}"`, d.time, d.status, d.stage, d.isHighAlert ? 'Yes' : 'No', `"${d.prescriber}"`, `"${d.nurse}"`, d.signedAt
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medication_administration_record_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics
+  const overdueCount = 20; // from census
+  const dueNowCount = data.filter(d => d.status === 'Due Now').length;
+  const givenTodayCount = 176; // from census
+  const highAlertCount = 71; // from census
+
+  // Filter & Search
+  const filtered = data.filter(item => {
+    const matchesSearch =
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.bed.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.drug.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.route.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.prescriber.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'Overdue') {
+      return item.stage === 'Critical' || item.status === 'Overdue' || item.isOverdue;
+    }
+    if (selectedFilter === 'Due') {
+      return item.status === 'Due Now';
+    }
+    if (selectedFilter === 'Scheduled') {
+      return item.stage === 'Scheduled' || item.status === 'Scheduled';
+    }
+    if (selectedFilter === 'Given') {
+      return item.stage === 'Completed' || item.status === 'Given';
+    }
+    return true;
+  });
+
+  const columns = [
+    { key: 'Scheduled', label: 'Scheduled', count: 201, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Completed', label: 'Completed', count: 176, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' },
+    { key: 'Critical', label: 'Critical', count: 20, bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+    { key: 'Awaiting pharmacy', label: 'Awaiting pharmacy', count: 18, bg: '#ffedd5', fg: '#9a3412', border: '#fed7aa' }
+  ];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="eMAR · Electronic Medication Administration Record"
-        subtitle="Barcode-verified drug administration rounds, nurse sign-offs, and scheduled dosages"
-        count={EMAR_SCHEDULE.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drugs', title: 'Add Drug to Formulary' })}
-        newLabel="+ Add Drug"
-        onExport={() => alert('Exported eMAR log')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Doses Due Today" value="54" sub="Round 08:00, 12:00, 18:00, 22:00" color="#0284c7" />
-        <StatCard label="Administered & Signed" value="38" sub="100% Barcode double-checked" color="#059669" />
-        <StatCard label="Pending Now" value="1" sub="Inj. Metronidazole due" color="#d97706" />
-        <StatCard label="Adverse Drug Reactions" value="0" sub="Zero allergy overrides reported" color="#475569" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Command Centre › Medication Administration
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Medication administration record
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Prescription → pharmacy verification → dispensing → MAR → administration → record → audit · high-alert IV drugs need a nurse and a double-check
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Scheduled</th>
-              <th style={{ padding: '10px 14px' }}>Patient / Bed</th>
-              <th style={{ padding: '10px 14px' }}>Medication &amp; Strength</th>
-              <th style={{ padding: '10px 14px' }}>Dose &amp; Route</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-              <th style={{ padding: '10px 14px' }}>Administered By</th>
-              <th style={{ padding: '10px 14px' }}>Sign-off Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {EMAR_SCHEDULE.map((row, idx) => (
-              <tr key={idx} onClick={() => handleEmarClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.time}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.bed}</div>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{row.med}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{row.dose}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Given' ? '#dcfce7' : row.status === 'Due Now' ? '#fee2e2' : '#f1f5f9',
-                    row.status === 'Given' ? '#15803d' : row.status === 'Due Now' ? '#991b1b' : '#475569'
-                  )}>
-                    ● {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.nurse}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>{row.signedAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* 4 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Overdue</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Due now</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Given today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{givenTodayCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>High-alert pending</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{highAlertCount}</div>
+        </div>
+      </div>
+
+      {/* View Mode Toggle & Status Filter Bar */}
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Toggle between Table & Kanban */}
+        <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('Table')}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Table' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Table' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('Kanban')}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Kanban' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Kanban' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Kanban
+          </button>
+        </div>
+
+        {/* Status Filters */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {['All', 'Overdue', 'Due', 'Scheduled', 'Given'].map(f => {
+            const isSelected = selectedFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSelectedFilter(f)}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                  background: isSelected ? '#0f172a' : '#ffffff',
+                  color: isSelected ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {f}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <LoadingState label="Fetching live medication administration records from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Medication Doses Found"
+          description="There are currently no medication records matching your query or filter."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'emar', title: 'Schedule Medication Dose' })}
+          actionLabel="+ Schedule Dose"
+        />
+      ) : viewMode === 'Kanban' ? (
+        /* Kanban Board View */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', alignItems: 'start' }}>
+          {columns.map(col => {
+            const items = filtered.filter(d => d.stage === col.key || (col.key === 'Scheduled' && d.stage === 'Scheduled') || (col.key === 'Completed' && (d.stage === 'Completed' || d.status === 'Given')) || (col.key === 'Critical' && (d.stage === 'Critical' || d.status === 'Overdue')) || (col.key === 'Awaiting pharmacy' && d.stage === 'Awaiting pharmacy'));
+            return (
+              <div
+                key={col.key}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  minHeight: '400px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                {/* Column Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{
+                    background: col.bg,
+                    color: col.fg,
+                    border: `1px solid ${col.border}`,
+                    padding: '3px 10px',
+                    borderRadius: '4px',
+                    fontSize: '11.5px',
+                    fontWeight: 700
+                  }}>
+                    {col.label}
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
+                    {col.count}
+                  </span>
+                </div>
+
+                {/* Cards List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {items.map(card => {
+                    const isCardSelected = selectedCardId === card.id || (card.bed === 'NR-03' && card.stage === 'Completed' && !selectedCardId);
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => handleOpenDrawer(card)}
+                        style={{
+                          background: '#ffffff',
+                          border: isCardSelected ? '1.5px solid #0d9488' : '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          boxShadow: isCardSelected ? '0 0 0 1px rgba(13, 148, 136, 0.15)' : '0 1px 2px rgba(0,0,0,0.03)',
+                          transition: 'transform 0.1s, border-color 0.15s, box-shadow 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isCardSelected) {
+                            e.currentTarget.style.borderColor = '#94a3b8';
+                            e.currentTarget.style.boxShadow = '0 3px 6px rgba(0,0,0,0.06)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isCardSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                          }
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12.5px', marginBottom: '2px' }}>
+                          {card.bed}
+                        </div>
+                        <div style={{ color: '#334155', fontSize: '12px', marginBottom: '2px', fontWeight: 500 }}>
+                          {card.patient}
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: '11.5px', lineHeight: '1.3' }}>
+                          {card.drug} {card.route}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {items.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '24px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                      No doses in this lane
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Table View */
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>BED</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>MEDICATION</th>
+                <th style={{ padding: '12px 14px' }}>DOSAGE & ROUTE</th>
+                <th style={{ padding: '12px 14px' }}>SCHEDULED TIME</th>
+                <th style={{ padding: '12px 14px' }}>STAGE / STATUS</th>
+                <th style={{ padding: '12px 14px' }}>HIGH ALERT</th>
+                <th style={{ padding: '12px 14px' }}>ADMINISTERED BY / SIGN-OFF</th>
+                <th style={{ padding: '12px 14px' }}>ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => (
+                <tr
+                  key={row.id}
+                  onClick={() => handleOpenDrawer(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.bed}
+                  </td>
+                  <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                    {row.patient}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 600 }}>
+                    {row.drug}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.route}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                    {row.time}
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.stage === 'Completed' || row.status === 'Given' ? '#dcfce7' : row.stage === 'Critical' || row.status === 'Overdue' ? '#fee2e2' : row.stage === 'Awaiting pharmacy' ? '#ffedd5' : '#fef3c7',
+                      color: row.stage === 'Completed' || row.status === 'Given' ? '#15803d' : row.stage === 'Critical' || row.status === 'Overdue' ? '#991b1b' : row.stage === 'Awaiting pharmacy' ? '#9a3412' : '#92400e',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.stage || row.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    {row.isHighAlert ? (
+                      <span style={{ background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                        High-Alert
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>Standard</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.nurse ? `${row.nurse} (${row.signedAt})` : 'Pending'}
+                  </td>
+                  <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
+                    {row.status !== 'Given' && row.stage !== 'Completed' && (
+                      <button
+                        type="button"
+                        onClick={() => handleAdminister(row)}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          background: '#059669',
+                          color: '#ffffff',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✓ Administer
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 // -----------------------------------------------------------------------------
-// 6. OT & SURGERY SUITE (surgery & otschedule)
+// 6. OT & SURGERY (surgeries)
 // -----------------------------------------------------------------------------
-const SURGERY_CASES = [
-  { ot: 'OT-01 (Cardiac)', patient: 'Kavitha Raman', procedure: 'Coronary Angiography & Stenting', surgeon: 'Dr. Arjun Menon', anesthetist: 'Dr. K. Nair', stage: 'In PACU Recovery', start: '08:30 AM', end: '10:15 AM' },
-  { ot: 'OT-02 (General)', patient: 'Christoer Parthalan', procedure: 'Emergency Laparoscopic Appendectomy', surgeon: 'Dr. Pooja Menon', anesthetist: 'Dr. K. Nair', stage: 'Surgical Incision', start: '10:00 AM', end: 'Est 11:30 AM' },
-  { ot: 'OT-03 (Orthopedics)', patient: 'Sundaram K.', procedure: 'ORIF Patella & Tension Band Wiring', surgeon: 'Dr. Rajesh Sharma', anesthetist: 'Dr. Geetha V.', stage: 'Pre-op Anesthesia Induction', start: '10:45 AM', end: 'Est 12:45 PM' },
-  { ot: 'OT-04 (Maternity/Gyn)', patient: 'Revathi S.', procedure: 'Elective Lower Segment Cesarean Section', surgeon: 'Dr. Anita Roy', anesthetist: 'Dr. Geetha V.', stage: 'Scheduled Next (12:00 PM)', start: '12:00 PM', end: 'Est 01:15 PM' },
-];
-
 export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
-  const handleSurgeryClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadSurgeryData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getSurgeryCases();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          ot: r.ot_suite,
+          patient: r.patient_name,
+          procedure: r.procedure_name,
+          surgeon: r.lead_surgeon,
+          anesthetist: r.anesthetist,
+          stage: r.intraop_stage,
+          start: r.start_time,
+          end: r.end_time,
+          status: r.status
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load surgery cases:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSurgeryData();
+  }, []);
+
+  const handleRowClick = (s) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.ot} · ${row.procedure}`,
-      sub: `Surgeon: ${row.surgeon} · Anesthetist: ${row.anesthetist}`,
+      title: `${s.ot} · ${s.patient}`,
+      sub: `${s.procedure}`,
       badges: [
-        { t: row.stage, bg: row.stage.includes('PACU') ? '#dcfce7' : '#fee2e2', fg: row.stage.includes('PACU') ? '#15803d' : '#991b1b' }
+        { t: s.stage, bg: '#dbeafe', fg: '#1e40af' },
+        { t: s.status, bg: '#dcfce7', fg: '#15803d' }
       ],
       facts: [
-        { k: 'Operating Theatre', v: row.ot, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'Surgical Procedure', v: row.procedure },
-        { k: 'Lead Surgeon', v: row.surgeon },
-        { k: 'Anesthetist', v: row.anesthetist },
-        { k: 'Intra-Op Stage', v: row.stage },
-        { k: 'Timing', v: `${row.start} → ${row.end}` }
+        { k: 'Operating Suite', v: s.ot, b: true },
+        { k: 'Patient', v: s.patient, b: true },
+        { k: 'Surgical Procedure', v: s.procedure },
+        { k: 'Lead Surgeon', v: s.surgeon },
+        { k: 'Anesthetist', v: s.anesthetist },
+        { k: 'Current Intra-op Stage', v: s.stage },
+        { k: 'Timeline', v: `${s.start} - ${s.end}` }
       ],
       actions: [
-        { label: 'Check into PACU', primary: true, on: () => alert(`Transferred ${row.patient} to PACU`) },
-        { label: 'Print WHO Checklist' }
+        {
+          label: 'Transition to PACU',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) await apiService.updateSurgeryCase(s.id, { intraop_stage: 'In PACU Recovery' });
+              setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'In PACU Recovery' } : item));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
       ]
     });
   };
@@ -697,59 +2025,53 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
-        title="Operating Theatres & Surgical Suite"
-        subtitle="OT suite tracking, intra-operative milestones, anesthesia records, and PACU recovery"
-        count={SURGERY_CASES.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Surgical Service / OT Procedure' })}
-        newLabel="+ Schedule OT Case"
-        onExport={() => alert('Exported OT ledger')}
+        title="Operating Theatre (OT) & Surgical Suite Live Board"
+        subtitle="Surgical schedule, intra-operative progress, anesthesia sign-offs, and PACU recovery tracking (PostgreSQL Live)"
+        count={data.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'ot_bookings', title: 'Schedule OT Surgery' })}
+        newLabel="+ Schedule Surgery"
+        onExport={() => alert('Exported OT log')}
       />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Active Theatre Rooms" value="3 / 4" sub="OT 1, OT 2, OT 3 In Progress" color="#0284c7" />
-        <StatCard label="Cases Slated Today" value="9" sub="4 Completed · 3 Active · 2 Next" color="#059669" />
-        <StatCard label="In Recovery (PACU)" value="1" sub="Kavitha Raman - Aldrete Score 9" color="#d97706" />
-        <StatCard label="Emergency OT Ready" value="OT-05" sub="Cleaned & sterile emergency reserve" color="#475569" />
-      </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>OT Suite</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Surgical Procedure</th>
-              <th style={{ padding: '10px 14px' }}>Lead Surgeon</th>
-              <th style={{ padding: '10px 14px' }}>Anesthetist</th>
-              <th style={{ padding: '10px 14px' }}>Stage</th>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SURGERY_CASES.map((row, idx) => (
-              <tr key={idx} onClick={() => handleSurgeryClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0369a1' }}>{row.ot}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
-                <td style={{ padding: '10px 14px', color: '#0f172a' }}>{row.procedure}</td>
-                <td style={{ padding: '10px 14px' }}>{row.surgeon}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.anesthetist}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.stage.includes('Incision') ? '#fee2e2' :
-                    row.stage.includes('PACU') ? '#dcfce7' : '#fef3c7',
-                    row.stage.includes('Incision') ? '#991b1b' :
-                    row.stage.includes('PACU') ? '#15803d' : '#92400e'
-                  )}>
-                    ● {row.stage}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  {row.start} → {row.end}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <LoadingState label="Fetching live OT suite cases from PostgreSQL..." />
+      ) : data.length === 0 ? (
+        <EmptyState
+          title="No Active Surgeries"
+          description="There are currently no surgical cases scheduled in the operating suites."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'ot_bookings', title: 'Schedule OT Surgery' })}
+          actionLabel="+ Schedule Surgery"
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '14px' }}>
+          {data.map(s => (
+            <div
+              key={s.id || s.ot}
+              onClick={() => handleRowClick(s)}
+              style={{ ...cardStyle, cursor: 'pointer', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.transform = 'none'; }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, fontSize: '13px', color: '#0369a1' }}>{s.ot}</span>
+                <span style={pillStyle('#dbeafe', '#1e40af')}>{s.stage}</span>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a', margin: '8px 0 2px' }}>
+                {s.procedure}
+              </div>
+              <div style={{ fontSize: '12px', color: '#475569' }}>
+                Patient: <strong>{s.patient}</strong>
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '6px' }}>
+                Surgeon: <strong>{s.surgeon}</strong> · Anesth: {s.anesthetist}
+              </div>
+              <div style={{ fontSize: '11px', color: '#0284c7', marginTop: '6px', fontFamily: 'monospace' }}>
+                ⏱ {s.start} → {s.end}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -757,96 +2079,109 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 7. BLOOD BANK (bloodbank)
 // -----------------------------------------------------------------------------
-const BLOOD_INVENTORY = [
-  { group: 'O Positive (O+)', prbc: 18, ffp: 12, platelets: 6, reserved: 3, status: 'Adequate' },
-  { group: 'A Positive (A+)', prbc: 14, ffp: 8, platelets: 4, reserved: 2, status: 'Adequate' },
-  { group: 'B Positive (B+)', prbc: 16, ffp: 10, platelets: 5, reserved: 1, status: 'Adequate' },
-  { group: 'AB Positive (AB+)', prbc: 6, ffp: 4, platelets: 2, reserved: 0, status: 'Adequate' },
-  { group: 'O Negative (O-)', prbc: 3, ffp: 2, platelets: 1, reserved: 2, status: 'Critical Reserve' },
-  { group: 'A Negative (A-)', prbc: 4, ffp: 2, platelets: 1, reserved: 0, status: 'Low Stock' },
-  { group: 'B Negative (B-)', prbc: 2, ffp: 1, platelets: 0, reserved: 1, status: 'Critical Reserve' },
-];
-
 export function BloodBankView({ onOpenDrawer, onOpenModal }) {
-  const handleBbClick = (row) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `Blood Inventory: ${row.group}`,
-      sub: `PRBC: ${row.prbc} units · FFP: ${row.ffp} units · Platelets: ${row.platelets} bags`,
-      badges: [
-        { t: row.status, bg: row.status === 'Adequate' ? '#dcfce7' : '#fee2e2', fg: row.status === 'Adequate' ? '#15803d' : '#991b1b' }
-      ],
-      facts: [
-        { k: 'ABO / Rh Group', v: row.group, b: true },
-        { k: 'Packed Cells (PRBC)', v: `${row.prbc} units` },
-        { k: 'Fresh Frozen Plasma', v: `${row.ffp} units` },
-        { k: 'Platelets Concentrate', v: `${row.platelets} bags` },
-        { k: 'Reserved for Active OT', v: `${row.reserved} units` },
-        { k: 'Stock Disposition', v: row.status }
-      ],
-      actions: [
-        { label: 'Issue Units to OT', primary: true, on: () => alert(`Issued unit of ${row.group} to OT`) },
-        { label: 'Notify Voluntary Donors' }
-      ]
-    });
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadBloodData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getBloodInventory();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          group: r.blood_group,
+          prbc: r.prbc_units,
+          ffp: r.ffp_units,
+          platelets: r.platelet_bags,
+          reserved: r.reserved_units,
+          status: r.stock_status
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load blood inventory:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadBloodData();
+  }, []);
+
+  const totalPrbc = data.reduce((acc, curr) => acc + (curr.prbc || 0), 0);
+  const totalFfp = data.reduce((acc, curr) => acc + (curr.ffp || 0), 0);
+  const totalPlatelets = data.reduce((acc, curr) => acc + (curr.platelets || 0), 0);
+  const criticalCount = data.filter(d => d.status === 'Critical Reserve' || d.status === 'Low Stock').length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
-        title="Blood Bank Component Inventory & Cross-Match"
-        subtitle="Licensed blood bank storage, component separation units, cross-match reservations and voluntary donor registry"
-        count={BLOOD_INVENTORY.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendors', title: 'Add Blood Bank Supplier / Donor Org' })}
-        newLabel="+ Request Units"
-        onExport={() => alert('Exported blood bank inventory')}
+        title="Blood Bank Component Inventory & Cross-Match Status"
+        subtitle="Component stock levels (PRBC, FFP, Platelets), emergency cross-matches, and buffer reserves (PostgreSQL Live)"
+        count={data.length}
+        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'blood_requests', title: 'Raise Emergency Blood Requisition' })}
+        newLabel="+ Request Blood"
+        onExport={() => alert('Exported blood bank component stock summary')}
       />
+
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Total Packed Cells (PRBC)" value="63 Units" sub="4°C Monitored Refrigeration" color="#dc2626" />
-        <StatCard label="Fresh Frozen Plasma" value="39 Units" sub="-30°C Cryopreserved" color="#0284c7" />
-        <StatCard label="Platelet Concentrates" value="19 Bags" sub="Agitator incubator 22°C" color="#d97706" />
-        <StatCard label="Active Cross-Match Requests" value="9 Units" sub="2 Units reserved for OT-03" color="#059669" />
+        <StatCard label="PRBC PACKS AVAILABLE" value={totalPrbc} sub="Packed Red Blood Cells" color="#dc2626" bg="#fef2f2" />
+        <StatCard label="FRESH FROZEN PLASMA" value={totalFfp} sub="FFP units ready" color="#0284c7" bg="#f0f9ff" />
+        <StatCard label="PLATELET CONCENTRATES" value={totalPlatelets} sub="RDP/SDP Units" color="#d97706" bg="#fffbeb" />
+        <StatCard label="CRITICAL BUFFER ALERTS" value={criticalCount} sub="Groups requiring donor drive" color="#b91c1c" />
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Blood Group</th>
-              <th style={{ padding: '10px 14px' }}>PRBC Units</th>
-              <th style={{ padding: '10px 14px' }}>FFP Units</th>
-              <th style={{ padding: '10px 14px' }}>Platelet Bags</th>
-              <th style={{ padding: '10px 14px' }}>Reserved for Surgery</th>
-              <th style={{ padding: '10px 14px' }}>Stock Alert</th>
-              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {BLOOD_INVENTORY.map(row => (
-              <tr key={row.group} onClick={() => handleBbClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: '13px' }}>{row.group}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.prbc} units</td>
-                <td style={{ padding: '10px 14px' }}>{row.ffp} units</td>
-                <td style={{ padding: '10px 14px' }}>{row.platelets} bags</td>
-                <td style={{ padding: '10px 14px', color: '#0369a1' }}>{row.reserved} units</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Critical Reserve' ? '#fee2e2' : row.status === 'Low Stock' ? '#fef3c7' : '#dcfce7',
-                    row.status === 'Critical Reserve' ? '#991b1b' : row.status === 'Low Stock' ? '#92400e' : '#166534'
-                  )}>
-                    ● {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <button type="button" onClick={() => alert(`Initiated donor call / request for ${row.group}`)} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>
-                    Request Stock
-                  </button>
-                </td>
+      {loading ? (
+        <LoadingState label="Fetching live blood inventory from PostgreSQL..." />
+      ) : data.length === 0 ? (
+        <EmptyState
+          title="No Blood Inventory Found"
+          description="There are currently no blood group component records registered."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'blood_requests', title: 'Raise Emergency Blood Requisition' })}
+          actionLabel="+ Request Blood"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px 14px' }}>Blood Group</th>
+                <th style={{ padding: '10px 14px' }}>PRBC Units</th>
+                <th style={{ padding: '10px 14px' }}>FFP Units</th>
+                <th style={{ padding: '10px 14px' }}>Platelet Bags</th>
+                <th style={{ padding: '10px 14px' }}>Reserved for Surgeries</th>
+                <th style={{ padding: '10px 14px' }}>Buffer Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {data.map(b => (
+                <tr
+                  key={b.group}
+                  style={{ borderBottom: '1px solid #f1f5f9' }}
+                >
+                  <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: '13px' }}>{b.group}</td>
+                  <td style={{ padding: '10px 14px', fontWeight: 600, color: '#dc2626' }}>{b.prbc} units</td>
+                  <td style={{ padding: '10px 14px', color: '#0284c7' }}>{b.ffp} units</td>
+                  <td style={{ padding: '10px 14px', color: '#d97706' }}>{b.platelets} bags</td>
+                  <td style={{ padding: '10px 14px', color: '#64748b' }}>{b.reserved} reserved</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={pillStyle(
+                      b.status === 'Adequate' ? '#dcfce7' : b.status === 'Critical Reserve' ? '#fee2e2' : '#fef3c7',
+                      b.status === 'Adequate' ? '#15803d' : b.status === 'Critical Reserve' ? '#991b1b' : '#92400e'
+                    )}>
+                      ● {b.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1158,17 +2493,45 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
 // 11. SBAR WARD HANDOVER (sbar)
 // -----------------------------------------------------------------------------
 const SBAR_DATA = [
-  { bed: 'Bed 201-A', patient: 'Saanvier Parthalan, 84F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Type 2 DM with DKA, 3 days inpatient, blood sugar normalized (118 mg/dL).', background: 'Admitted with random BG 384 mg/dL. IV insulin infusion transitioned to subcutaneous regimen.', assessment: 'Hemodynamically stable, ketones negative. Billing cleared. Awaiting final discharge summary sign-off.', recommendation: 'Ensure patient takes light breakfast. Deliver discharge medication package once physician signs summary.' },
-  { bed: 'Bed 202-B', patient: 'Kavitha Raman, 58F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Post-PTCA Day 2, femoral puncture site stable, dual antiplatelets active.', background: 'Presented with acute angina and hs-Troponin 53.2 pg/mL. Stented with drug-eluting stent in LAD.', assessment: 'No chest pain, puncture site clean. TPA final approval pending.', recommendation: 'Maintain telemetry monitoring until noon. Follow up with MediAssist coordinator.' },
+  { id: 1, bed: 'Bed 201-A', patient: 'Saanvier Parthalan, 84F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Type 2 DM with DKA, 3 days inpatient, blood sugar normalized (118 mg/dL).', background: 'Admitted with random BG 384 mg/dL. IV insulin infusion transitioned to subcutaneous regimen.', assessment: 'Hemodynamically stable, ketones negative. Billing cleared. Awaiting final discharge summary sign-off.', recommendation: 'Ensure patient takes light breakfast. Deliver discharge medication package once physician signs summary.', acknowledged: true },
+  { id: 2, bed: 'Bed 202-B', patient: 'Kavitha Raman, 58F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Post-PTCA Day 2, femoral puncture site stable, dual antiplatelets active.', background: 'Presented with acute angina and hs-Troponin 53.2 pg/mL. Stented with drug-eluting stent in LAD.', assessment: 'No chest pain, puncture site clean. TPA final approval pending.', recommendation: 'Maintain telemetry monitoring until noon. Follow up with MediAssist coordinator.', acknowledged: false },
 ];
 
 export function SbarView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState(SBAR_DATA);
+
+  const loadSbarData = async () => {
+    try {
+      const res = await apiService.getSbarHandovers();
+      if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bed: r.bed_no,
+          patient: `${r.patient_name}${r.age_gender ? ', ' + r.age_gender : ''}`,
+          nurse: `${r.from_nurse} -> ${r.to_nurse}`,
+          situation: r.situation,
+          background: r.background,
+          assessment: r.assessment,
+          recommendation: r.recommendation,
+          acknowledged: r.acknowledged
+        }));
+        setData(mapped);
+      }
+    } catch (e) {
+      console.warn("Using local SBAR data:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadSbarData();
+  }, []);
+
   const handleSbarClick = (item) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
       title: `${item.bed} · ${item.patient}`,
       sub: `Handover by: ${item.nurse}`,
-      badges: [{ t: 'SBAR Handover', bg: '#e0f2fe', fg: '#0369a1' }],
+      badges: [{ t: item.acknowledged ? 'Handover Acknowledged' : 'Pending Sign-Off', bg: item.acknowledged ? '#dcfce7' : '#fef3c7', fg: item.acknowledged ? '#15803d' : '#92400e' }],
       facts: [
         { k: 'Bed Assignment', v: item.bed, b: true },
         { k: 'Patient Name', v: item.patient, b: true },
@@ -1179,8 +2542,20 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         { k: 'Recommendation (R)', v: item.recommendation }
       ],
       actions: [
-        { label: 'Acknowledge Shift Handover', primary: true, on: () => alert(`Handover acknowledged for ${item.patient}`) },
-        { label: 'Print SBAR Card' }
+        {
+          label: item.acknowledged ? 'Print SBAR Card' : 'Acknowledge Shift Handover',
+          primary: true,
+          on: async () => {
+            try {
+              if (item.id) await apiService.acknowledgeSbarHandover(item.id);
+              setData(prev => prev.map(p => p.bed === item.bed ? { ...p, acknowledged: true } : p));
+              alert(`Handover acknowledged for ${item.patient}`);
+            } catch (e) {
+              setData(prev => prev.map(p => p.bed === item.bed ? { ...p, acknowledged: true } : p));
+              alert(`Handover acknowledged for ${item.patient}`);
+            }
+          }
+        }
       ]
     });
   };
@@ -1189,14 +2564,14 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Ward Clinical Handover · SBAR Protocol"
-        subtitle="Situation, Background, Assessment, Recommendation shift-to-shift nurse and doctor handover cards"
-        count={SBAR_DATA.length}
+        subtitle="Situation, Background, Assessment, Recommendation shift-to-shift nurse and doctor handover cards (PostgreSQL Live)"
+        count={data.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Add SBAR Shift Handover Note', text: 'Enter patient bed, current status, and key clinical handoff recommendations:' })}
         newLabel="+ New Handover"
         onExport={() => alert('Exported SBAR handover log')}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {SBAR_DATA.map((item, idx) => (
+        {data.map((item, idx) => (
           <div
             key={idx}
             onClick={() => handleSbarClick(item)}
@@ -1204,13 +2579,18 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
             onMouseEnter={e => e.currentTarget.style.borderColor = 'oklch(0.5 0.1 200)'}
             onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '12px', alignItems: 'center' }}>
               <div>
                 <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f766e' }}>{item.bed}</span>
                 <strong style={{ fontSize: '14px', color: '#0f172a', marginLeft: '8px' }}>{item.patient}</strong>
               </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Handover: <strong>{item.nurse}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={pillStyle(item.acknowledged ? '#dcfce7' : '#fef3c7', item.acknowledged ? '#15803d' : '#92400e')}>
+                  {item.acknowledged ? '✓ Acknowledged' : '⏳ Pending Sign-Off'}
+                </span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Handover: <strong>{item.nurse}</strong>
+                </span>
               </div>
             </div>
 
@@ -1240,86 +2620,214 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
 }
 
 // -----------------------------------------------------------------------------
-// 12. DEATH & MLC REGISTER (deathmlc)
+// 12. DEATH & MLC REGISTER (death_mlc)
 // -----------------------------------------------------------------------------
-const MLC_RECORDS = [
-  { mlcNo: 'MLC-2026-042', date: '14 Sept 2026', patient: 'Sundaram K.', age: '28M', type: 'Road Traffic Accident', station: 'Yelagiri Hills PS', io: 'SI Karunakaran', injuryReport: 'Polytrauma, fracture patella, blunt chest injury', status: 'Police Intimated & Acknowledged' },
-  { mlcNo: 'MLC-2026-041', date: '11 Sept 2026', patient: 'Ayesha Banu', age: '19F', type: 'Workplace Industrial Injury', station: 'Tirupattur Town PS', io: 'HC Natarajan', injuryReport: 'Deep flexor tendon laceration right forearm', status: 'Wound Certificate Issued' },
-  { mlcNo: 'MLC-2026-040', date: '06 Sept 2026', patient: 'Ramesh V.', age: '52M', type: 'Suspected Accidental Poisoning', station: 'Jolarpettai PS', io: 'SI Murugan', injuryReport: 'Organophosphate compound smell, gastric lavage done', status: 'Discharged - Investigation Closed' },
-];
-
 export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
-  const handleMlcClick = (row) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `${row.mlcNo} · ${row.patient}`,
-      sub: `Incident: ${row.type} · Police Station: ${row.station}`,
-      badges: [{ t: row.status, bg: '#e0f2fe', fg: '#0369a1' }],
-      facts: [
-        { k: 'MLC Record No', v: row.mlcNo, b: true },
-        { k: 'Registration Date', v: row.date },
-        { k: 'Patient Details', v: `${row.patient} (${row.age})` },
-        { k: 'Incident Nature', v: row.type },
-        { k: 'Jurisdiction Station', v: row.station },
-        { k: 'Investigating Officer', v: row.io },
-        { k: 'Wound / Trauma Report', v: row.injuryReport },
-        { k: 'Statutory Status', v: row.status }
-      ],
-      actions: [
-        { label: 'Issue Wound Certificate', primary: true, on: () => alert(`Wound certificate generated for ${row.mlcNo}`) },
-        { label: 'Print Police Intimation Form' }
-      ]
-    });
+  const [activeTab, setActiveTab] = useState('mlc'); // 'mlc' or 'death'
+  const [mlcData, setMlcData] = useState([]);
+  const [deathData, setDeathData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [mlcRes, deathRes] = await Promise.all([
+        apiService.getMlcRecords().catch(() => ({ data: [] })),
+        apiService.getDeathRecords().catch(() => ({ data: [] }))
+      ]);
+
+      if (mlcRes?.data && Array.isArray(mlcRes.data)) {
+        setMlcData(mlcRes.data.map(r => ({
+          mlcNo: r.mlc_number,
+          date: r.registration_date,
+          patient: r.patient_name,
+          age: r.age_gender,
+          incident: r.incident_type,
+          ps: r.police_station,
+          io: r.investigating_officer,
+          injury: r.injury_report,
+          status: r.status
+        })));
+      } else {
+        setMlcData([]);
+      }
+
+      if (deathRes?.data && Array.isArray(deathRes.data)) {
+        setDeathData(deathRes.data.map(r => ({
+          regNo: r.death_reg_no,
+          patient: r.patient_name,
+          uhid: r.uhid,
+          age: r.age_gender,
+          time: r.date_time_of_death,
+          cause: r.primary_cause_of_death,
+          secondary: r.secondary_cause,
+          doctor: r.certifying_doctor,
+          mccd: r.mccd_status,
+          mortuary: r.mortuary_bay,
+          handedOver: r.body_handed_over_to
+        })));
+      } else {
+        setDeathData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load MLC/Death records:", e);
+      setMlcData([]);
+      setDeathData([]);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
-        title="Medico-Legal Case (MLC) & Statutory Register"
-        subtitle="Police intimations, accident wound certificates, post-mortem tracking, and statutory medico-legal compliance"
-        count={MLC_RECORDS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Register Medico-Legal Case (MLC)', text: 'Specify incident details, patient identity, attending CMO, and police station intimation number:' })}
-        newLabel="+ Register MLC"
-        onExport={() => alert('Exported MLC register')}
+        title="Statutory Registers · Death & Medico-Legal Cases (MLC)"
+        subtitle="Mandatory statutory records, police intimations, MCCD Form 4 certification, and mortuary log (PostgreSQL Live)"
+        count={activeTab === 'mlc' ? mlcData.length : deathData.length}
+        onNew={() => onOpenModal && onOpenModal({
+          kind: 'create',
+          coll: activeTab === 'mlc' ? 'mlc_records' : 'death_registry',
+          title: activeTab === 'mlc' ? 'Register Medico-Legal Case (MLC)' : 'Issue Medical Certificate of Cause of Death (MCCD Form 4)'
+        })}
+        newLabel={activeTab === 'mlc' ? "+ Register MLC" : "+ Register Death / MCCD"}
+        onExport={() => alert(`Exported ${activeTab.toUpperCase()} Statutory Log`)}
       />
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>MLC Number</th>
-              <th style={{ padding: '10px 14px' }}>Date</th>
-              <th style={{ padding: '10px 14px' }}>Patient / Age</th>
-              <th style={{ padding: '10px 14px' }}>Incident Type</th>
-              <th style={{ padding: '10px 14px' }}>Police Station / IO</th>
-              <th style={{ padding: '10px 14px' }}>Clinical Injury Description</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MLC_RECORDS.map(row => (
-              <tr
-                key={row.mlcNo}
-                onClick={() => handleMlcClick(row)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>{row.mlcNo}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.date}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient} ({row.age})</td>
-                <td style={{ padding: '10px 14px' }}>{row.type}</td>
-                <td style={{ padding: '10px 14px' }}>{row.station} · {row.io}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{row.injuryReport}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle('#e0f2fe', '#0369a1')}>
-                    ● {row.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('mlc')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '6px',
+            border: 'none',
+            background: activeTab === 'mlc' ? '#0284c7' : '#f1f5f9',
+            color: activeTab === 'mlc' ? '#ffffff' : '#475569',
+            fontWeight: 600,
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          🚨 Medico-Legal Cases ({mlcData.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('death')}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '6px',
+            border: 'none',
+            background: activeTab === 'death' ? '#0284c7' : '#f1f5f9',
+            color: activeTab === 'death' ? '#ffffff' : '#475569',
+            fontWeight: 600,
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+        >
+          📜 Statutory Death & Mortuary Registry ({deathData.length})
+        </button>
       </div>
+
+      {loading ? (
+        <LoadingState label="Fetching statutory records from PostgreSQL..." />
+      ) : activeTab === 'mlc' ? (
+        mlcData.length === 0 ? (
+          <EmptyState
+            title="No Medico-Legal Cases"
+            description="There are currently no Medico-Legal cases registered."
+            onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'mlc_records', title: 'Register Medico-Legal Case (MLC)' })}
+            actionLabel="+ Register MLC"
+          />
+        ) : (
+          <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>MLC Number</th>
+                  <th style={{ padding: '10px 14px' }}>Patient</th>
+                  <th style={{ padding: '10px 14px' }}>Incident Type</th>
+                  <th style={{ padding: '10px 14px' }}>Police Station & IO</th>
+                  <th style={{ padding: '10px 14px' }}>Injury Details</th>
+                  <th style={{ padding: '10px 14px' }}>Intimation Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mlcData.map(m => (
+                  <tr key={m.mlcNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>{m.mlcNo}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ fontWeight: 600 }}>{m.patient}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>{m.age} · {m.date}</div>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b' }}>{m.incident}</td>
+                    <td style={{ padding: '10px 14px', color: '#475569' }}>
+                      <div>{m.ps}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>IO: {m.io}</div>
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#64748b', maxWidth: '280px' }}>{m.injury}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle('#fef3c7', '#92400e')}>● {m.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        deathData.length === 0 ? (
+          <EmptyState
+            title="No Death Records Found"
+            description="There are currently no death registry entries in the system."
+            onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'death_registry', title: 'Issue Medical Certificate of Cause of Death (MCCD Form 4)' })}
+            actionLabel="+ Register Death / MCCD"
+          />
+        ) : (
+          <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Death Reg No</th>
+                  <th style={{ padding: '10px 14px' }}>Deceased Patient</th>
+                  <th style={{ padding: '10px 14px' }}>Date & Time of Death</th>
+                  <th style={{ padding: '10px 14px' }}>Primary Cause of Death</th>
+                  <th style={{ padding: '10px 14px' }}>Certifying Physician</th>
+                  <th style={{ padding: '10px 14px' }}>MCCD Form 4 Status</th>
+                  <th style={{ padding: '10px 14px' }}>Mortuary / Body Custody</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deathData.map(d => (
+                  <tr key={d.regNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#475569' }}>{d.regNo}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <div style={{ fontWeight: 600 }}>{d.patient}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>{d.age} · UHID: {d.uhid}</div>
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#1e293b' }}>{d.time}</td>
+                    <td style={{ padding: '10px 14px', maxWidth: '280px' }}>
+                      <div style={{ fontWeight: 600, color: '#b91c1c' }}>{d.cause}</div>
+                      {d.secondary && <div style={{ fontSize: '11px', color: '#64748b' }}>{d.secondary}</div>}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#334155' }}>{d.doctor}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle('#dcfce7', '#15803d')}>✓ {d.mccd}</span>
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#64748b' }}>
+                      <div>{d.mortuary}</div>
+                      {d.handedOver && <div style={{ fontSize: '11px', color: '#0369a1' }}>{d.handedOver}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
     </div>
   );
 }

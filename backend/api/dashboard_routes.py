@@ -105,13 +105,20 @@ def get_dashboard_summary(
         conn = get_conn()
         cur = conn.cursor()
 
+        # Sanitize query parameters if passed directly as Query objects
+        d_from_str = date_from if isinstance(date_from, str) else None
+        d_to_str = date_to if isinstance(date_to, str) else None
+        dept_str = department if isinstance(department, str) else None
+        doc_id_val = doctor_id if isinstance(doctor_id, int) else None
+        source_str = booking_source if isinstance(booking_source, str) else None
+
         today = date.today().isoformat()
-        eff_from = date_from if date_from else (date_to if date_to else today)
-        eff_to = date_to if date_to else (date_from if date_from else today)
+        eff_from = d_from_str if d_from_str else (d_to_str if d_to_str else today)
+        eff_to = d_to_str if d_to_str else (d_from_str if d_from_str else today)
 
         role = current_user.get("role")
         user_doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
-        target_doctor_id = user_doctor_id if user_doctor_id is not None else doctor_id
+        target_doctor_id = user_doctor_id if user_doctor_id is not None else doc_id_val
 
         # 1. Total patients in system / under doctor
         if target_doctor_id:
@@ -139,12 +146,12 @@ def get_dashboard_summary(
         if target_doctor_id:
             appt_conditions.append("a.doctor_id = %s")
             appt_params.append(target_doctor_id)
-        if department:
+        if dept_str:
             appt_conditions.append("LOWER(dept.department_name) = LOWER(%s)")
-            appt_params.append(department)
-        if booking_source:
+            appt_params.append(dept_str)
+        if source_str:
             appt_conditions.append("a.booking_source = %s")
-            appt_params.append(booking_source.upper())
+            appt_params.append(source_str.upper())
 
         appt_where = "WHERE " + " AND ".join(appt_conditions)
 
@@ -159,7 +166,7 @@ def get_dashboard_summary(
                 COUNT(*) FILTER (WHERE a.status = 'NO_SHOW') as no_show,
                 COUNT(DISTINCT a.patient_id) as unique_patients
             FROM appointments a
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON a.department_id = dept.id
             {appt_where};
         """, appt_params)
         appt_row = cur.fetchone()
@@ -177,7 +184,7 @@ def get_dashboard_summary(
         cur.execute(f"""
             SELECT a.booking_source, COUNT(*) as cnt
             FROM appointments a
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON a.department_id = dept.id
             {appt_where}
             GROUP BY a.booking_source;
         """, appt_params)
@@ -226,13 +233,13 @@ def get_dashboard_summary(
         if target_doctor_id:
             adm_conditions.append("pa.doctor_id = %s")
             adm_params.append(target_doctor_id)
-        if department:
+        if dept_str:
             adm_conditions.append("LOWER(dept.department_name) = LOWER(%s)")
-            adm_params.append(department)
+            adm_params.append(dept_str)
         cur.execute(f"""
             SELECT COUNT(*) 
             FROM pre_admissions pa
-            JOIN departments dept ON pa.department_id = dept.id
+            LEFT JOIN departments dept ON pa.department_id = dept.id
             WHERE {' AND '.join(adm_conditions)};
         """, adm_params)
         admissions_in_range = cur.fetchone()[0]
@@ -809,19 +816,34 @@ def get_appointments(
         d_to_str = date_to if isinstance(date_to, str) else None
         d_type = date_type if isinstance(date_type, str) else 'appointment_date'
 
-        role = current_user.get("role")
-        user_doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
+        role = str(current_user.get("role", "")).upper()
+        user_doctor_id = current_user.get("doctor_id")
 
-        if user_doctor_id:
-            conditions.append("a.doctor_id = %s")
-            params.append(user_doctor_id)
-        elif doc_id_val:
+        if doc_id_val:
             conditions.append("a.doctor_id = %s")
             params.append(doc_id_val)
+        elif role == "DOCTOR" and user_doctor_id:
+            conditions.append("a.doctor_id = %s")
+            params.append(user_doctor_id)
+        elif role == "DOCTOR":
+            user_id = current_user.get("user_id")
+            full_name = current_user.get("full_name") or ""
+            username = current_user.get("username") or ""
+            cur.execute("""
+                SELECT id FROM doctors 
+                WHERE user_id = %s 
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                LIMIT 1;
+            """, (user_id, f"%{full_name.lower()}%", full_name, f"%{username.lower()}%", username))
+            matched_doc = cur.fetchone()
+            if matched_doc:
+                conditions.append("a.doctor_id = %s")
+                params.append(matched_doc[0])
 
         if search_str:
             conditions.append(
-                "(LOWER(p.first_name || ' ' || p.last_name) LIKE %s OR a.booking_id LIKE %s OR LOWER(d.display_name) LIKE %s OR p.patient_code LIKE %s)"
+                "(LOWER(COALESCE(p.first_name || ' ' || COALESCE(p.last_name, ''), 'Patient #' || a.patient_id)) LIKE %s OR a.booking_id LIKE %s OR LOWER(COALESCE(d.display_name, '')) LIKE %s OR COALESCE(p.patient_code, 'PAT-' || a.patient_id) LIKE %s)"
             )
             like = f"%{search_str.lower()}%"
             params += [like, like, like, like]
@@ -859,9 +881,9 @@ def get_appointments(
             f"""
             SELECT COUNT(*)
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dept ON a.department_id = dept.id
             {where};
             """,
             params,
@@ -875,7 +897,7 @@ def get_appointments(
         elif sort_field in ("patient", "patient_name"):
             order_clause = f"patient_name {order_dir}"
         elif sort_field in ("doctor", "doctor_name"):
-            order_clause = f"d.display_name {order_dir}"
+            order_clause = f"COALESCE(d.display_name, '') {order_dir}"
         elif sort_field == "status":
             order_clause = f"a.status {order_dir}"
         else:
@@ -889,15 +911,19 @@ def get_appointments(
                    COALESCE(s.slot_duration_minutes, 30) as duration_minutes,
                    a.status, a.booking_source, a.patient_reason, a.cancellation_reason, a.reschedule_reason,
                    a.created_at, a.cancelled_at, a.rescheduled_at,
-                   p.id as patient_id, p.patient_code,
-                   (p.first_name || ' ' || p.last_name) as patient_name,
-                   p.phone as patient_phone, p.relationship_to_contact, p.guardian_phone, p.is_dependent, p.guardian_patient_id,
-                   d.id as doctor_id, d.display_name as doctor_name, d.specialization,
-                   dept.id as department_id, dept.department_name
+                   COALESCE(p.id, a.patient_id) as patient_id,
+                   COALESCE(p.patient_code, 'PAT-' || a.patient_id) as patient_code,
+                   COALESCE(NULLIF(TRIM(p.first_name || ' ' || COALESCE(p.last_name, '')), ''), 'Patient #' || a.patient_id) as patient_name,
+                   COALESCE(p.phone, 'N/A') as patient_phone, p.relationship_to_contact, p.guardian_phone, p.is_dependent, p.guardian_patient_id,
+                   COALESCE(d.id, a.doctor_id) as doctor_id,
+                   COALESCE(d.display_name, 'Doctor #' || a.doctor_id) as doctor_name,
+                   COALESCE(d.specialization, 'General Medicine') as specialization,
+                   COALESCE(dept.id, a.department_id) as department_id,
+                   COALESCE(dept.department_name, 'General Medicine') as department_name
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dept ON a.department_id = dept.id
             LEFT JOIN LATERAL (
                 SELECT slot_duration_minutes
                 FROM doctor_schedules

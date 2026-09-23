@@ -1,6 +1,6 @@
 import { financialApi } from './financialApi';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 const FETCH_TIMEOUT_MS = 45000;
 
@@ -22,7 +22,7 @@ try {
       if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
     });
   }
-} catch (e) {}
+} catch (e) { }
 
 export function subscribeToDataUpdates(callback) {
   updateListeners.add(callback);
@@ -52,7 +52,7 @@ function clearAllStorageCache() {
         if (k.startsWith('hc_gold_cache_')) sessionStorage.removeItem(k);
       });
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function fetchWithTimeout(url, options = {}) {
@@ -133,7 +133,7 @@ async function fetchCachedJson(url, options = {}) {
   if (!forceRefresh && cached && cached.data) {
     if (now - cached.timestamp > revalidateMs) {
       // Trigger background revalidation seamlessly without blocking the UI
-      triggerFetch().catch(() => {});
+      triggerFetch().catch(() => { });
     }
     return cached.data;
   }
@@ -177,7 +177,7 @@ export const apiService = {
       this.getWards({ limit: 100 });
       this.getBeds({ limit: 500 });
       this.getPostgresTables();
-    } catch (e) {}
+    } catch (e) { }
   },
 
   // Databricks Healthcare Lakehouse Generic Table APIs
@@ -536,8 +536,8 @@ export const apiService = {
 
   // 1. Trigger Databricks Notebook Execution for Patient (/api/v1/notebook/run-patient)
   async runPatientNotebook(patientId, options = {}) {
-    const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id) 
-      ? (options.notebookId || options.notebook_id) 
+    const notebookId = typeof options === 'object' && (options?.notebookId || options?.notebook_id)
+      ? (options.notebookId || options.notebook_id)
       : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
@@ -563,8 +563,8 @@ export const apiService = {
 
   // 2. Trigger Registered Databricks Job Execution for Patient (/api/v1/job/run-patient)
   async runPatientJob(patientId, options = {}) {
-    const jobId = typeof options === 'object' && (options?.jobId || options?.job_id) 
-      ? (options.jobId || options.job_id) 
+    const jobId = typeof options === 'object' && (options?.jobId || options?.job_id)
+      ? (options.jobId || options.job_id)
       : (typeof options === 'string' ? options : null);
     const timeoutSec = typeof options === 'object' && options?.timeoutSeconds ? options.timeoutSeconds : 300;
 
@@ -796,6 +796,270 @@ export const apiService = {
       total_count: filtered.length,
       discharged_count: discharges.length
     };
+  },
+
+  // -------------------------------------------------------------------------
+  // Clinical Operations & Front Office Endpoints
+  // -------------------------------------------------------------------------
+  async getEmergencyCases(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createEmergencyCase(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating ER case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, data);
+    return data;
+  },
+
+  async updateEmergencyCase(caseId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emergency/${encodeURIComponent(caseId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating ER case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, data);
+    return data;
+  },
+
+  async getConsultantSchedules(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createConsultantSchedule(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating schedule ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, data);
+    return data;
+  },
+
+  async updateConsultantSchedule(id, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating schedule ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, data);
+    return data;
+  },
+
+  async getNursingTasks(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createNursingTask(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating nursing task ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, data);
+    return data;
+  },
+
+  async updateNursingTask(taskId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/nursing/${taskId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating task ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, data);
+    return data;
+  },
+
+  async getEmarRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createEmarRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error scheduling eMAR dose ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emar`, data);
+    return data;
+  },
+
+  async signOffEmarRecord(recordId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/emar/${recordId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error signing off eMAR dose ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/emar`, data);
+    return data;
+  },
+
+  async getSurgeryCases(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createSurgeryCase(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error scheduling surgery ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, data);
+    return data;
+  },
+
+  async updateSurgeryCase(caseId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/surgery/${caseId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating surgery case ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/surgery`, data);
+    return data;
+  },
+
+  async getBloodInventory(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async updateBloodInventory(bloodGroup, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/${encodeURIComponent(bloodGroup)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating blood inventory ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank`, data);
+    return data;
+  },
+
+  async getMlcRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createMlcRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating MLC record ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/mlc`, data);
+    return data;
+  },
+
+  async getDeathRecords(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createDeathRecord(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error registering death record ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, data);
+    return data;
+  },
+
+  async getSbarHandovers(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async createSbarHandover(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error creating SBAR handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async acknowledgeSbarHandover(handoverId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar/${handoverId}/acknowledge`, {
+      method: 'PATCH'
+    });
+    if (!res.ok) throw new Error(`Error acknowledging handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async getOtSchedules(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async bookOtSlot(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error booking OT slot ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, data);
+    return data;
   }
 };
 
@@ -1068,7 +1332,7 @@ export function resolveClinicalDiagnosis(rawDiag, reasonForAdmission) {
   if (Array.isArray(rawDiag) && rawDiag.length === 0 && !reasonForAdmission) {
     return '';
   }
-  
+
   const strDiag = Array.isArray(rawDiag) ? rawDiag.join(', ').trim() : String(rawDiag || '').trim();
   const strReason = String(reasonForAdmission || '').trim();
 
@@ -1109,31 +1373,42 @@ export function resolveClinicalDiagnosis(rawDiag, reasonForAdmission) {
  * Formats clinical diagnoses from JSON objects, Python dictionary strings, or raw text.
  * Strips empty brackets, formats ICD-10 codes, and creates clean semicolon-separated diagnosis lists.
  */
-export function formatClinicalDiagnoses(val) {
-  if (!val) return '';
-  if (Array.isArray(val)) {
-    return val.map(item => {
-      if (typeof item === 'object' && item !== null) {
-        const desc = item.description || item.name || item.diagnosis || item.primary || '';
-        const code = item.icd10 || item.code || item.icd || '';
-        return code && !desc.includes(code) ? `${desc} (ICD-10: ${code})` : desc;
-      }
-      return String(item || '').trim();
-    }).filter(Boolean).join('; ');
-  }
-
-  if (typeof val === 'object' && val !== null) {
-    const desc = val.description || val.name || val.diagnosis || val.primary || '';
-    const code = val.icd10 || val.code || val.icd || '';
-    let res = code && !desc.includes(code) ? `${desc} (ICD-10: ${code})` : desc;
-    if (Array.isArray(val.secondary) && val.secondary.length > 0) {
-      const sec = val.secondary.map(s => typeof s === 'object' ? (s.description || s.name || '') : String(s)).filter(Boolean).join('; ');
-      if (sec) res = `${res}; Secondary: ${sec}`;
+/**
+ * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
+ */
+function formatSingleDiagItem(item, defaultCode = '') {
+  if (!item) return '';
+  if (typeof item === 'string') {
+    const s = item.trim();
+    if (!s || s === '[object Object]') return '';
+    if (defaultCode && !s.includes(defaultCode)) {
+      return `${s} (ICD-10: ${defaultCode})`;
     }
-    return res || cleanDiagnosis(JSON.stringify(val));
+    return s;
   }
+  if (typeof item === 'object' && item !== null) {
+    const rawDesc = item.description || item.diagnosis || item.name || item.primary || item.title || item.disease || '';
+    const desc = typeof rawDesc === 'object' ? formatSingleDiagItem(rawDesc) : String(rawDesc || '').trim();
+    const code = item.icd10 || item.code || item.icd || item.icd10_primary || defaultCode || '';
+    if (code && desc && !desc.includes(code)) {
+      return `${desc} (ICD-10: ${code})`;
+    }
+    return desc || (code ? `(ICD-10: ${code})` : '');
+  }
+  return String(item || '').trim();
+}
 
-  let str = String(val).trim();
+/**
+ * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
+ */
+export function cleanDiagnosis(diag) {
+  if (!diag) return '';
+  if (typeof diag === 'object') {
+    return formatClinicalDiagnoses(diag);
+  }
+  let str = String(diag).trim();
+  if (!str || str === '[object Object]') return '';
+
   const numMatch = str.match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
   if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
     return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
@@ -1142,55 +1417,20 @@ export function formatClinicalDiagnoses(val) {
     return CLINICAL_DIAGNOSIS_MAP[str.toLowerCase()];
   }
 
-  // If string contains JSON or Python dictionary representations
-  if (str.includes('{') || str.includes('[')) {
+  // If it's a JSON or Python dict string
+  if (str.startsWith('{') || str.startsWith('[')) {
     try {
-      const parsed = JSON.parse(str);
-      return formatClinicalDiagnoses(parsed);
+      const parsed = JSON.parse(str.replace(/'/g, '"'));
+      const formatted = formatClinicalDiagnoses(parsed);
+      if (formatted) return formatted;
     } catch (e) {
-      try {
-        const jsonCompatible = str.replace(/'/g, '"');
-        const parsed = JSON.parse(jsonCompatible);
-        return formatClinicalDiagnoses(parsed);
-      } catch (e2) {
-        const dictRegex = /\{([^}]+)\}/g;
-        const matches = [];
-        let match;
-        while ((match = dictRegex.exec(str)) !== null) {
-          const body = match[1];
-          const descMatch = body.match(/['"](?:description|name|diagnosis|primary)['"]\s*:\s*['"]([^'"]+)['"]/i);
-          const icdMatch = body.match(/['"](?:icd10|code|icd)['"]\s*:\s*['"]([^'"]+)['"]/i);
-          const desc = descMatch ? descMatch[1].trim() : '';
-          const icd = icdMatch ? icdMatch[1].trim() : '';
-          if (desc && icd && !desc.includes(icd)) {
-            matches.push(`${desc} (ICD-10: ${icd})`);
-          } else if (desc) {
-            matches.push(desc);
-          }
-        }
-        if (matches.length > 0) {
-          return matches.join('; ');
-        }
-      }
+      // ignore JSON parse failure
     }
   }
 
-  return cleanDiagnosis(str);
-}
-
-/**
- * Strips empty bracket artifacts and empty secondary diagnoses from diagnosis strings
- */
-export function cleanDiagnosis(diag) {
-  if (!diag || typeof diag !== 'string') return '';
-  if (diag.includes('{') || diag.includes('[')) {
-    return formatClinicalDiagnoses(diag);
-  }
-  const numMatch = diag.trim().match(/^(?:diagnosis|d)[ -]?(\d+)$/i);
-  if (numMatch && CLINICAL_DIAGNOSIS_MAP[numMatch[1]]) {
-    return CLINICAL_DIAGNOSIS_MAP[numMatch[1]];
-  }
-  return diag
+  return str
+    // Remove duplicate consecutive parenthesized expressions e.g. (Stroke) (Stroke)
+    .replace(/\(([^)]+)\)\s*\(\1\)/gi, '($1)')
     // Remove secondary diagnosis labels when followed by empty brackets []
     .replace(/(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]/gi, '')
     .replace(/(?:[;,|]\s*)?Secondary\s*:\s*\[\s*\]/gi, '')
@@ -1199,9 +1439,38 @@ export function cleanDiagnosis(diag) {
     .replace(/;\s*\[\s*\]/g, '')
     .replace(/\|\s*\[\s*\]/g, '')
     .replace(/\[\s*\]/g, '')
+    .replace(/\[object Object\]/gi, '')
     // Remove any trailing or dangling punctuation
     .replace(/[:;,|]\s*$/g, '')
     .trim();
+}
+
+/**
+ * Normalizes clinical diagnoses from various data shapes into a clean readable string.
+ * Strips empty brackets, formats ICD-10 codes, and creates clean semicolon-separated diagnosis lists.
+ */
+export function formatClinicalDiagnoses(val) {
+  if (!val) return '';
+  if (Array.isArray(val)) {
+    return val.map(item => formatSingleDiagItem(item)).filter(Boolean).join('; ');
+  }
+
+  if (typeof val === 'object' && val !== null) {
+    const primaryDesc = formatSingleDiagItem(val.primary || val.description || val.name || val.diagnosis, val.icd10_primary || val.icd10 || val.code);
+    let res = primaryDesc;
+    if (val.secondary) {
+      if (Array.isArray(val.secondary) && val.secondary.length > 0) {
+        const sec = val.secondary.map(s => formatSingleDiagItem(s)).filter(Boolean).join('; ');
+        if (sec) res = res ? `${res}; Secondary: ${sec}` : sec;
+      } else if (typeof val.secondary === 'object' || typeof val.secondary === 'string') {
+        const sec = formatSingleDiagItem(val.secondary);
+        if (sec) res = res ? `${res}; Secondary: ${sec}` : sec;
+      }
+    }
+    return res || (val.primary ? String(val.primary) : '');
+  }
+
+  return cleanDiagnosis(val);
 }
 
 /**
@@ -1813,7 +2082,7 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
   const processedPatientIds = new Set();
   const cases = [];
 
-  // 1. Summaries
+  // 1. Generated Summaries
   rawSummaries.forEach((c, index) => {
     const parsed = parseDischargeSummaryRecord(c);
     if (!parsed) return;
@@ -1821,18 +2090,21 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     processedPatientIds.add(pid);
     if (c.admission_id) processedPatientIds.add('adm_' + c.admission_id);
 
-    const adm = admMap[pid] || admMap['adm_' + c.admission_id] || {};
+    const adm = admMap[pid] || (c.admission_id && admMap['adm_' + c.admission_id]) || {};
     const doc = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
     cases.push({ doctor: doc });
   });
 
-  // 2. Admissions
+  // 2. Remaining Inpatient Admissions
   rawAdmissions.forEach((adm, index) => {
     const pid = String(adm.patient_id || adm.id || ('ADM-' + index));
-    if (processedPatientIds.has(pid) || (adm.admission_id && processedPatientIds.has('adm_' + adm.admission_id))) {
+    const aid = String(adm.admission_id || '');
+    if (processedPatientIds.has(pid) || (aid && processedPatientIds.has('adm_' + aid))) {
       return;
     }
     processedPatientIds.add(pid);
+    if (aid) processedPatientIds.add('adm_' + aid);
+
     const doc = adm.attending_doctor || adm.doctor_name || 'Dr. Sneha Das';
     cases.push({ doctor: doc });
   });

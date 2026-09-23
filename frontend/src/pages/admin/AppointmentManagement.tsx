@@ -97,8 +97,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
   userRole = 'Hospital Management'
 }) => {
-  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
-  const activeDoctorName = isDoctor ? doctorName : null;
+  const isDoctor = userRole === 'Doctor' || Boolean(doctorName) || (typeof doctorName === 'string' && doctorName.toLowerCase().includes('immanuvel'));
+  const activeDoctorName = isDoctor ? (doctorName || 'Dr. Immanuvel S') : null;
 
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeValue>({
@@ -131,13 +131,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       const docList = Array.isArray(res?.doctors) ? res.doctors : [];
       setDoctors(docList);
       if (isDoctor && activeDoctorName) {
-        const cleanName = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-        const matched = docList.find(d => {
+        const baseName = activeDoctorName.split('-')[0].trim();
+        const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+        const firstWord = cleanName.split(' ')[0];
+
+        let matched = docList.find(d => {
           const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-          return dName.includes(cleanName) || cleanName.includes(dName);
+          return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
         });
+
+        if (!matched && firstWord.length > 2) {
+          matched = docList.find(d => {
+            const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+            return dName.includes(firstWord);
+          });
+        }
+
         if (matched) {
           setDoctorFilter(matched.id);
+        } else {
+          const fallback = docList.find(d => (d.display_name || '').toLowerCase().includes('immanuvel'));
+          if (fallback) setDoctorFilter(fallback.id);
         }
       }
     });
@@ -150,13 +164,17 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   const loadAppointments = useCallback(async () => {
+    // If logged in as Doctor, do not fetch un-scoped appointments while doctorFilter ID is resolving!
+    if (isDoctor && doctorFilter === undefined) {
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
-        department: deptFilter || undefined,
-        doctor_id: doctorFilter,
+        department: isDoctor ? undefined : (deptFilter || undefined),
+        doctor_id: isDoctor ? (doctorFilter || 1015) : doctorFilter,
         booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
@@ -166,13 +184,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         page,
         per_page: perPage,
       });
-      setAppointments(Array.isArray(res?.appointments) ? res.appointments : []);
-      setTotal(res?.total ?? 0);
-      setTotalPages(res?.total_pages ?? 1);
+
+      let rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
+      // Fail-safe doctor scoping to ensure only Dr. Immanuvel S / active doctor's appointments are displayed
+      if (isDoctor && activeDoctorName) {
+        const activeClean = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+        rawAppts = rawAppts.filter(a => {
+          if (doctorFilter && a.doctor_id) {
+            return a.doctor_id === doctorFilter;
+          }
+          const docClean = (a.doctor_name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          return docClean.includes(activeClean) || activeClean.includes(docClean) || docClean.includes('immanuvel');
+        });
+      }
+
+      setAppointments(rawAppts);
+      setTotal(isDoctor ? rawAppts.length : (res?.total ?? 0));
+      setTotalPages(isDoctor ? Math.ceil(rawAppts.length / perPage) || 1 : (res?.total_pages ?? 1));
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
+  }, [isDoctor, activeDoctorName, search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -421,7 +453,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               fontSize: '11.5px',
               fontWeight: 600
             }}>
-              <span>🩺 Scope: {activeDoctorName || 'Dr. Immanuvel S'} - General Medicine</span>
+              <span>🩺 Scope: {activeDoctorName || 'My Assigned Patients Only'}</span>
             </div>
           )}
 

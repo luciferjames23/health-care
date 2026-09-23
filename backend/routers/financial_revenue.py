@@ -866,12 +866,14 @@ def get_finance_dashboard():
     - Daily / Monthly revenue aggregations
     - Payment channel distribution (UPI, Netbanking, Cash, Cards)
     - Departmental service charges breakdown
+    - AR Aging analysis (0-30, 31-60, 61-90, 90+ days)
+    - Recent live payment collections
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor()
         
-        # Payment modes breakdown
+        # 1. Payment modes breakdown
         cur.execute("""
             SELECT 
                 COALESCE(payment_method, 'UNKNOWN') as mode,
@@ -879,12 +881,23 @@ def get_finance_dashboard():
                 COUNT(*) as count,
                 COALESCE(SUM(amount), 0) as total_amount
             FROM payments
+            WHERE payment_status = 'SUCCESS'
             GROUP BY payment_method, payment_status
             ORDER BY total_amount DESC
         """)
-        payment_modes = serialize_rows(cur, cur.fetchall())
+        raw_modes = serialize_rows(cur, cur.fetchall())
+        total_mode_amt = sum(float(m.get("total_amount") or 0) for m in raw_modes) or 1.0
+        payment_modes = []
+        for m in raw_modes:
+            amt = float(m.get("total_amount") or 0)
+            pct = round((amt / total_mode_amt) * 100, 1)
+            payment_modes.append({
+                **m,
+                "percentage": pct,
+                "pct_str": f"{pct}%"
+            })
         
-        # Service category breakdown from billing_services
+        # 2. Service category breakdown from billing_services
         cur.execute("""
             SELECT 
                 bs.service_category,
@@ -899,7 +912,58 @@ def get_finance_dashboard():
         """)
         categories = serialize_rows(cur, cur.fetchall())
         
-        # Monthly billing trend (last 12 months)
+        # 3. Clinical Specialty / Departmental Revenue Breakdown
+        cur.execute("""
+            SELECT 
+                COALESCE(dai.doctor_specialization, d.department_name, 'General Medicine') as department,
+                COUNT(b.bill_id) as bills_count,
+                COALESCE(SUM(b.net_amount), 0) as revenue
+            FROM bills b
+            LEFT JOIN dim_admission_inputs dai ON b.admission_id = dai.admission_id OR b.patient_id = dai.patient_id
+            LEFT JOIN admissions a ON b.admission_id = a.admission_id
+            LEFT JOIN departments d ON a.department_id = d.id
+            GROUP BY COALESCE(dai.doctor_specialization, d.department_name, 'General Medicine')
+            ORDER BY revenue DESC
+            LIMIT 10
+        """)
+        dept_revenue = serialize_rows(cur, cur.fetchall())
+        
+        # 4. AR Aging Analysis
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date <= 30 THEN b.patient_amount ELSE 0 END), 0) as aging_0_30,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date BETWEEN 31 AND 60 THEN b.patient_amount ELSE 0 END), 0) as aging_31_60,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date BETWEEN 61 AND 90 THEN b.patient_amount ELSE 0 END), 0) as aging_61_90,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date > 90 THEN b.patient_amount ELSE 0 END), 0) as aging_90_plus,
+                COALESCE(SUM(b.patient_amount), 0) as total_ar_outstanding
+            FROM bills b
+            WHERE b.bill_status != 'Settled'
+        """)
+        ar_aging = serialize_row(cur, cur.fetchone())
+        
+        # 5. Recent Live Payments
+        cur.execute("""
+            SELECT 
+                py.id as payment_id,
+                py.bill_id,
+                py.patient_id,
+                py.amount,
+                py.payment_method,
+                py.payment_status,
+                py.payment_reference,
+                py.payment_date,
+                b.bill_number,
+                COALESCE(CONCAT(p.first_name, ' ', p.last_name), CONCAT(dai.first_name, ' ', dai.last_name), 'Patient') as patient_name
+            FROM payments py
+            LEFT JOIN bills b ON py.bill_id = b.bill_id
+            LEFT JOIN patients p ON py.patient_id = p.id
+            LEFT JOIN dim_admission_inputs dai ON py.patient_id = dai.patient_id
+            ORDER BY py.payment_date DESC, py.id DESC
+            LIMIT 25
+        """)
+        recent_payments = serialize_rows(cur, cur.fetchall())
+        
+        # 6. Monthly billing trend (last 12 months)
         cur.execute("""
             SELECT 
                 TO_CHAR(bill_date, 'YYYY-MM') as month,
@@ -916,11 +980,29 @@ def get_finance_dashboard():
         monthly_trend = serialize_rows(cur, cur.fetchall())
         monthly_trend.reverse()
         
+        # 7. Summary KPIs
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(net_amount), 0) as total_billed,
+                COALESCE(SUM(CASE WHEN bill_status = 'Settled' THEN net_amount ELSE 0 END), 0) as total_settled,
+                COALESCE(SUM(patient_amount), 0) as total_patient_due,
+                COALESCE(SUM(insurance_amount), 0) as total_insurance_due,
+                COUNT(*) as total_invoices,
+                COUNT(CASE WHEN bill_status = 'Settled' THEN 1 END) as settled_invoices,
+                (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'SUCCESS') as total_collected
+            FROM bills
+        """)
+        kpi_row = serialize_row(cur, cur.fetchone())
+        
         return {
             "success": True,
             "payment_modes": payment_modes,
             "category_breakdown": categories,
-            "monthly_trend": monthly_trend
+            "dept_revenue": dept_revenue,
+            "ar_aging": ar_aging,
+            "recent_payments": recent_payments,
+            "monthly_trend": monthly_trend,
+            "kpis": kpi_row
         }
     except Exception as e:
         logger.error(f"Error fetching finance dashboard: {e}")

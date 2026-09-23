@@ -467,7 +467,12 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   if (!isOpen || !summaryData) return null;
 
   const handlePrint = () => {
+    const prevTitle = document.title;
+    document.title = `Discharge Summary - ${form.patient_name || 'Patient'} (${form.patient_number || form.patient_id || 'MER-PAT'})`;
     window.print();
+    setTimeout(() => {
+      document.title = prevTitle;
+    }, 1000);
   };
 
   const handleSave = async (overrideStatus = null) => {
