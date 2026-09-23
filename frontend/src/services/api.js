@@ -280,6 +280,7 @@ export const apiService = {
     if (params.patient_number) queryParams.append("patient_number", params.patient_number);
     if (params.admission_type) queryParams.append("admission_type", params.admission_type);
     if (params.admission_status) queryParams.append("admission_status", params.admission_status);
+    if (params.discharge_status) queryParams.append("discharge_status", params.discharge_status);
     if (params.gender) queryParams.append("gender", params.gender);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
@@ -697,6 +698,43 @@ export const apiService = {
       url = `${API_BASE_URL}/api/v1/discharge-agent/clear-bill`;
     }
 
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: JSON.stringify(bodyPayload),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || errBody?.message || `HTTP error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(url, data);
+    return data;
+  },
+
+  // -------------------------------------------------------------------------
+  // Escalate and Fast-track Discharge Case to Ready (Persisted to Database)
+  // POST /api/v1/discharge-agent/escalate-case
+  // -------------------------------------------------------------------------
+  async escalateCase(caseIdOrPayload, params = {}, options = {}) {
+    let bodyPayload = null;
+    if (typeof caseIdOrPayload === 'object' && caseIdOrPayload !== null) {
+      bodyPayload = { ...caseIdOrPayload, ...params };
+    } else {
+      bodyPayload = {
+        case_id: String(caseIdOrPayload || '').trim(),
+        patient_id: params.patient_id,
+        admission_id: params.admission_id,
+        remarks: params.remarks || 'Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead'
+      };
+    }
+
+    const url = `${API_BASE_URL}/api/v1/discharge-agent/escalate-case`;
     const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {

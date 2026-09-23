@@ -143,6 +143,21 @@ def reset_database_to_default():
 
             print(f"[OK] Restored Patient #{pid} ({data['name']}) -> Bill: Pending (Rs. {data['outstanding_balance']:,.2f}), Vitals: Baseline")
 
+        # 1b. Reset bills table for baseline patients to 'Pending'
+        cur.execute("""
+            UPDATE bills
+            SET bill_status = 'Pending'
+            WHERE patient_id IN %s AND admission_id IS NOT NULL;
+        """, (tuple(BASELINE_PATIENTS.keys()),))
+
+        # 1c. Clean up test payments for baseline patients
+        cur.execute("""
+            DELETE FROM payments
+            WHERE patient_id IN %s 
+               OR bill_id IN (SELECT bill_id FROM bills WHERE patient_id IN %s);
+        """, (tuple(BASELINE_PATIENTS.keys()), tuple(BASELINE_PATIENTS.keys())))
+        print(f"[OK] Reset baseline bills to Pending and cleared test payments.")
+
         # 2. Delete any test summaries that were generated for non-original patients
         cur.execute("""
             DELETE FROM dim_generated_discharge_summaries

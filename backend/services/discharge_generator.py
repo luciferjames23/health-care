@@ -537,6 +537,10 @@ def call_multi_provider_llm(
     )
     prompt_text = "Patient Clinical Admission Data:\n" + json.dumps(prompt_dict, indent=2, default=str)
 
+    # Fast offline deterministic clinical engine
+    if prov == "local":
+        return None
+
     # 1. Groq Provider
     if prov == "groq":
         key = api_key or os.getenv("GROQ_API_KEY")
@@ -1011,6 +1015,21 @@ def generate_and_persist_discharge_summaries(
         "model_source"
     ]
 
+    def _clean_val_for_pg(col: str, val: Any) -> Any:
+        if val is None:
+            return None
+        if col in ("summary_id", "admission_id", "patient_id", "doctor_id"):
+            try:
+                return int(val)
+            except Exception:
+                return None
+        if isinstance(val, (dict, list, tuple)):
+            try:
+                return json.dumps(val, ensure_ascii=False)
+            except Exception:
+                return str(val)
+        return str(val)
+
     for adm in selected_admissions:
         rec = generate_patient_discharge_summary(
             adm,
@@ -1019,7 +1038,7 @@ def generate_and_persist_discharge_summaries(
             api_key=api_key
         )
         generated_records.append(rec)
-        row_vals = [rec.get(col) for col in TABLE_COLS]
+        row_vals = [_clean_val_for_pg(col, rec.get(col)) for col in TABLE_COLS]
         rows_to_insert.append(row_vals)
 
     # 4. Persist batch into dim_generated_discharge_summaries (upserting existing summary_ids)

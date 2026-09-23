@@ -339,8 +339,18 @@ class DatabricksConnector:
             for col, val in filters.items():
                 if val is not None:
                     db_col = self._map_filter_col(real_table, col)
-                    where_clauses.append(f"{db_col} = %s")
-                    params.append(val)
+                    if isinstance(val, (list, tuple, set)):
+                        val_list = list(val)
+                        if val_list:
+                            placeholders = ", ".join(["%s"] * len(val_list))
+                            where_clauses.append(f"{db_col} IN ({placeholders})")
+                            params.extend(val_list)
+                    elif isinstance(val, str) and val.startswith("!="):
+                        where_clauses.append(f"{db_col} != %s")
+                        params.append(val[2:].strip())
+                    else:
+                        where_clauses.append(f"{db_col} = %s")
+                        params.append(val)
 
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
         mapped_sort = self._map_filter_col(real_table, sort_by) if sort_by else None

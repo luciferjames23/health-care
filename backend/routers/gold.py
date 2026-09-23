@@ -335,6 +335,7 @@ def get_dim_admission_inputs(
     offset: int = Query(default=0, ge=0)
 ):
     """Query `health_care.gold.dim_admission_inputs` table with optional filters and pagination."""
+    # Normalize potential QueryInfo defaults when called directly as a Python function
     clean_aid = admission_id if isinstance(admission_id, int) else None
     clean_pid = patient_id if isinstance(patient_id, int) else None
     clean_pnum = patient_number if isinstance(patient_number, str) else None
@@ -360,7 +361,6 @@ def get_dim_admission_inputs(
                 filters["discharge_status"] = clean_ds.strip()
     elif clean_as:
         filters["admission_status"] = clean_as
-
     if isinstance(gender, str) and gender: filters["gender"] = gender
     if isinstance(admission_date_from, str) and admission_date_from: filters["admission_date_from"] = admission_date_from
     if isinstance(admission_date_to, str) and admission_date_to: filters["admission_date_to"] = admission_date_to

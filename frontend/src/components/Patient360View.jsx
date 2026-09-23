@@ -304,16 +304,48 @@ export default function Patient360View({
     const taxAmount = Number(liveBill?.tax_amount ?? billing.bill_tax_amount ?? 0);
     const insuranceAmount = Number(liveBill?.insurance_amount ?? billing.bill_insurance_portion ?? 0);
     
-    const billStatus = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || 'Pending').trim();
-    const clearanceStatus = String(raw.bill_clearance_status || d.bill_clearance_status || billing.bill_clearance_status || billStatus).trim();
-    
-    const rawOutstanding = liveBill?.patient_amount ?? billing.outstanding_balance ?? billing.bill_patient_portion ?? raw.outstanding_balance ?? d.outstanding_balance ?? (billNetAmount - insuranceAmount);
-    const outstandingBalance = Math.max(0, Number(rawOutstanding));
+    const rawBillStatus = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || 'Pending').trim();
+    const rawClearance = String(raw.bill_clearance_status || d.bill_clearance_status || billing.bill_clearance_status || '').trim();
 
-    const isCleared = (
-      outstandingBalance <= 0 ||
-      ['PAID', 'CLEARED', 'SETTLED', 'ZERO_BALANCE', 'APPROVED'].includes(billStatus.toUpperCase())
+    // Check if admission record has an explicit outstanding balance
+    const rawAdmOutstanding = (raw.outstanding_balance != null && raw.outstanding_balance !== '')
+      ? Number(raw.outstanding_balance)
+      : (d.outstanding_balance != null && d.outstanding_balance !== '' ? Number(d.outstanding_balance) : null);
+
+    // Sum of confirmed successful payments on liveBill
+    const successfulPaymentsTotal = (liveBill?.payments || [])
+      .filter(py => String(py.payment_status || '').toUpperCase() === 'SUCCESS')
+      .reduce((sum, py) => sum + Number(py.amount || 0), 0);
+
+    // Admission is explicitly pending clearance if clearance status is 'pending' or outstanding balance > 0
+    const isExplicitlyPending = (
+      rawClearance.toLowerCase() === 'pending' ||
+      String(raw.bill_status || '').toLowerCase() === 'pending' ||
+      (rawAdmOutstanding !== null && rawAdmOutstanding > 0)
     );
+
+    // Determine if bill is genuinely cleared:
+    // It is cleared only if NOT explicitly pending, AND either marked cleared/paid/settled OR balance is 0
+    const isCleared = !isExplicitlyPending && (
+      rawClearance.toLowerCase() === 'cleared' ||
+      ['PAID', 'SETTLED'].includes(String(raw.bill_status || '').toUpperCase()) ||
+      ['PAID', 'SETTLED'].includes(String(liveBill?.bill_status || '').toUpperCase()) ||
+      (rawAdmOutstanding !== null && rawAdmOutstanding <= 0) ||
+      (successfulPaymentsTotal >= billNetAmount && billNetAmount > 0)
+    );
+
+    // If cleared, outstanding balance is strictly 0.
+    // If pending, use rawAdmOutstanding or liveBill patient liability minus payments.
+    const calculatedOutstanding = isCleared
+      ? 0
+      : (rawAdmOutstanding !== null
+          ? rawAdmOutstanding
+          : Math.max(0, (liveBill?.patient_amount != null ? Number(liveBill.patient_amount) : (billNetAmount - insuranceAmount)) - successfulPaymentsTotal)
+        );
+    const outstandingBalance = Math.max(0, calculatedOutstanding);
+
+    const billStatus = isCleared ? 'Paid' : (rawBillStatus === 'Settled' && !isCleared ? 'Pending' : rawBillStatus);
+    const clearanceStatus = isCleared ? 'Cleared' : (rawClearance || 'Pending');
 
     const rawDischargeStatus = String(
       liveAdmission?.discharge_status ||
@@ -1249,7 +1281,7 @@ export default function Patient360View({
                 ['Bill Number', p.billNumber],
                 ['Net Amount', `₹${p.billNetAmount.toLocaleString('en-IN')}`],
                 ['Status', p.billingStatusDisplay],
-                ['Patient Due', `₹${p.outstandingBalance.toLocaleString('en-IN')}`],
+                ['Patient Due', `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`],
               ].map(([k, v]) => (
                 <div key={k} style={{ display: 'grid', gridTemplateColumns: '90px minmax(0, 1fr)', gap: '4px 12px', padding: '3px 0', fontSize: '12px' }}>
                   <span style={{ color: '#8a9096' }}>{k}</span>
@@ -2104,7 +2136,7 @@ export default function Patient360View({
                   `₹${Math.round(p.billNetAmount * 0.9).toLocaleString('en-IN')}`,
                   `₹${p.billNetAmount.toLocaleString('en-IN')}`,
                   `₹${(p.isCleared ? p.billNetAmount : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
-                  `₹${p.outstandingBalance.toLocaleString('en-IN')}`,
+                  `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`,
                   p.billingStatusDisplay
                 ],
               ]}
@@ -2266,7 +2298,7 @@ export default function Patient360View({
               <div style={{ background: p.isCleared ? '#f0fdf4' : '#fef2f2', padding: '12px', borderRadius: '6px', border: `1px solid ${p.isCleared ? '#bbf7d0' : '#fecaca'}` }}>
                 <div style={{ fontSize: '11px', color: p.isCleared ? '#15803d' : '#991b1b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Patient Balance Due</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: p.isCleared ? '#15803d' : '#991b1b', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{p.outstandingBalance.toLocaleString('en-IN')}
+                  ₹{(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}
                 </div>
               </div>
             </div>
@@ -2316,7 +2348,7 @@ export default function Patient360View({
               p.admittedDate || '17 May 2025',
               p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
               p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
-              p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Pending Bill Clearance')
+              p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Blocked · Pending Bill Clearance')
             ],
           ]}
           onRowClick={() => {
