@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
 
 const Spinner = () => (
   <span style={{
@@ -32,7 +32,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       }
       try {
         const results = await Promise.allSettled([
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }),
           apiService.getDischargedPatients({}, { forceRefresh: true }),
           apiService.getBedManagementData({}, { forceRefresh: true })
         ]);
@@ -66,17 +66,36 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         const dischargedTracker = extractDischargedPatientIds(rawDischarges);
         
         // Discharge API and admission status: remove actually discharged patients from current admissions
+        const dischargedInAdmissions = rawAdmissions.filter(p => {
+          const st = String(p.discharge_status || p.admission_status || '').trim().toLowerCase();
+          return st === 'discharged';
+        });
+
         const actualAdmissions = rawAdmissions.filter(p => {
-          const st = (p.discharge_status || p.admission_status || '').toLowerCase();
+          const st = String(p.discharge_status || p.admission_status || '').trim().toLowerCase();
           if (st === 'discharged') return false;
           return !dischargedTracker.has(p);
         });
 
-        // Only count summaries that are ACTUALLY approved / signed off as discharged patients
-        const actuallyDischargedCount = rawDischarges.filter(r => {
+        const dischargedInSummaries = rawDischarges.filter(r => {
           const st = String(r.approval_status || r.status || '').trim().toLowerCase();
           return st === 'approved' || st === 'signed' || st === 'signed off' || st === 'completed';
-        }).length;
+        });
+
+        // Compute unique discharged patients count
+        const allDischargedPids = new Set();
+        dischargedInAdmissions.forEach(p => {
+          const pid = p.patient_id != null ? String(p.patient_id) : (p.id != null ? String(p.id) : (p.admission_id ? `adm_${p.admission_id}` : ''));
+          if (pid) allDischargedPids.add(pid);
+        });
+        dischargedInSummaries.forEach(r => {
+          const pid = r.patient_id != null ? String(r.patient_id) : (r.id != null ? String(r.id) : (r.admission_id ? `adm_${r.admission_id}` : ''));
+          if (pid) allDischargedPids.add(pid);
+        });
+
+        const actuallyDischargedCount = allDischargedPids.size > 0
+          ? allDischargedPids.size
+          : (dischargedInAdmissions.length + dischargedInSummaries.length);
 
         const discharges = rawDischarges.map(parseDischargeSummaryRecord).filter(Boolean);
         const kpisObj = bmRes?.kpis || {};
@@ -115,19 +134,22 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
         setLiveWards(wardsList);
 
-          // Build exceptions from active discharge cases
+        // Build exceptions from active discharge cases
         if (discharges.length > 0) {
-          const exList = discharges.slice(0, 5).map((c) => ({
-            ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
-            owner: c.doctor || 'Attending Physician',
-            age: 'Active Record',
-            pri: c.approval_status === 'Approved' ? 'Low' : 'High',
-            priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
-            reason: c.diagnoses ? (c.diagnoses.length > 55 ? `${c.diagnoses.slice(0, 55)}...` : c.diagnoses) : 'Clinical summary review',
-            next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
-            target: 'discharge'
-          }));
-          setLiveExceptions(exList);
+          const exList = discharges.slice(0, 5).map((c) => {
+            const cleanDiag = cleanDiagnosis(c.diagnoses || c.primary_diagnosis || c.discharge_diagnosis || '');
+            return {
+              ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
+              owner: c.doctor || 'Attending Physician',
+              age: 'Active Record',
+              pri: c.approval_status === 'Approved' ? 'Low' : 'High',
+              priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
+              reason: cleanDiag ? (cleanDiag.length > 55 ? `${cleanDiag.slice(0, 55)}...` : cleanDiag) : 'Clinical summary review',
+              next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
+              target: 'discharge'
+            };
+          });
+          setLiveExceptions(exList);;
 
           const appList = discharges.slice(0, 4).map(c => ({
             type: 'Discharge summary',
