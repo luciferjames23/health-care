@@ -5631,13 +5631,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             custom_p = "You have multiple patient profiles registered with this WhatsApp number. Please select the profile you would like to access." if is_show_all else None
             return prompt_patient_selection(conversation_code, state, current_lang, action_intent=intent, custom_prompt=custom_p)
 
-    if state.get("confirmation_pending") and any(w in message_text.lower() for w in ["yes", "yeah", "yep", "sure", "confirm", "btn_confirm_appt", "change", "btn_change_appt", "cancel", "btn_cancel_appt"]):
-        state["intent"] = "BOOK_APPOINTMENT"
-        intent = "BOOK_APPOINTMENT"
-
     if state.get("reg_confirmation_pending") and any(w in message_text.lower() for w in ["confirm", "btn_confirm_reg", "edit", "btn_edit_reg", "change"]):
         state["intent"] = "REGISTER_PATIENT"
         intent = "REGISTER_PATIENT"
+    elif state.get("confirmation_pending") and any(w in message_text.lower() for w in ["yes", "yeah", "yep", "sure", "confirm", "btn_confirm_appt", "change", "btn_change_appt", "cancel", "btn_cancel_appt"]):
+        state["intent"] = "BOOK_APPOINTMENT"
+        intent = "BOOK_APPOINTMENT"
 
     if intent == "GREETING":
         msg_l_btn = message_text.lower().strip()
@@ -5675,19 +5674,67 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "interactive_buttons": state["interactive_buttons"]
             }
 
-        is_first_time = any(w in msg_l for w in ["first time", "first-time", "btn_first_time", "new patient", "register"]) or msg_l == "1"
-        is_existing = any(w in msg_l for w in ["existing patient", "existing", "btn_existing", "registered patient"]) or msg_l == "2"
+        # Validate WhatsApp phone number against patients database
+        w_num = extract_whatsapp_number(conversation_code, state)
+        id_res = patient_id_service.identify_patient_by_phone(w_num)
 
-        if is_first_time:
+        existing_patient = None
+        if id_res.get("found") and id_res.get("patient"):
+            existing_patient = id_res["patient"]
+            state["patient_id"] = existing_patient["id"]
+            state["entities"]["patient_id"] = existing_patient["id"]
+        elif state.get("patient_id"):
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            try:
+                cur.execute("SELECT id, first_name, last_name FROM patients WHERE id = %s AND status = 'ACTIVE';", (state["patient_id"],))
+                r = cur.fetchone()
+                if r:
+                    existing_patient = {"id": r[0], "first_name": r[1], "last_name": r[2] or ""}
+            finally:
+                cur.close()
+                conn.close()
+
+        if existing_patient:
+            p_name = format_patient_full_name(existing_patient.get("first_name"), existing_patient.get("last_name"), existing_patient.get("full_name"))
+            if current_lang == "TAMIL":
+                response_text = f"வணக்கம் {p_name}! 👋\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?"
+            elif current_lang == "HINDI":
+                response_text = f"नमस्ते {p_name}! 👋\n\nआज मैं आपकी क्या मदद कर सकता हूँ?"
+            elif current_lang == "TELUGU":
+                response_text = f"నమస్తే {p_name}! 👋\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?"
+            elif current_lang == "MALAYALAM":
+                response_text = f"നമസ്കാരം {p_name}! 👋\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?"
+            elif current_lang == "KANNADA":
+                response_text = f"ನಮಸ್ಕಾರ {p_name}! 👋\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
+            elif current_lang == "URDU":
+                response_text = f"خوش آمدید {p_name}! 👋\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
+            else:
+                response_text = f"Welcome back, {p_name}! 👋\n\nHow can I help you today?"
+            state["interactive_buttons"] = language_service.get_main_menu_buttons(current_lang)
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+            return {
+                "success": True,
+                "conversation_id": conversation_code,
+                "language": current_lang,
+                "intent": "GREETING",
+                "response": response_text,
+                "missing_information": [],
+                "tool_called": None,
+                "interactive_buttons": state["interactive_buttons"]
+            }
+        else:
+            # Phone number is NEW (unregistered in DB) — Prompt for patient registration first
             state["intent"] = "REGISTER_PATIENT"
             state["patient_type"] = "FIRST_TIME"
-            # Incremental registration — start with name only
             if not isinstance(state.get("registration_fields"), dict):
                 state["registration_fields"] = {}
             state["booking_stage"] = conversation_stages.Stage.REGISTERING_NAME.value
             response_text = (
-                "Welcome! 😊\n\n"
-                "Let's create your patient profile step by step.\n\n"
+                "Welcome to Meridian Hospital! 😊\n\n"
+                "I couldn't find a registered patient profile associated with this phone number.\n\n"
+                "To get started, let's create your patient profile step by step.\n\n"
                 "What is your *full name*?"
             )
             state["interactive_buttons"] = []
@@ -5703,104 +5750,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "tool_called": None,
                 "interactive_buttons": []
             }
-        elif is_existing or state.get("patient_id"):
-            # Check existing patient in database via session patient_id or conversation lookup
-            conn = db_config.get_db_connection()
-            cur = conn.cursor()
-            p_name = None
-            try:
-                if state.get("patient_id"):
-                    cur.execute("SELECT first_name, last_name FROM patients WHERE id = %s AND status = 'ACTIVE';", (state["patient_id"],))
-                    r = cur.fetchone()
-                    if r:
-                        p_name = f"{r[0]} {r[1] or ''}".strip()
-                if not p_name:
-                    cur.execute("SELECT whatsapp_number FROM conversations WHERE conversation_code = %s;", (conversation_code,))
-                    w_row = cur.fetchone()
-                    if w_row and w_row[0]:
-                        cond = get_phone_query_condition()
-                        params = get_phone_query_params(w_row[0])
-                        cur.execute(f"SELECT id, first_name, last_name FROM patients WHERE {cond} AND status = 'ACTIVE' LIMIT 1;", params)
-                        r = cur.fetchone()
-                        if r:
-                            state["patient_id"] = r[0]
-                            state["entities"]["patient_id"] = r[0]
-                            p_name = f"{r[1]} {r[2] or ''}".strip()
-            finally:
-                cur.close()
-                conn.close()
 
-            if p_name:
-                if current_lang == "TAMIL":
-                    response_text = f"வணக்கம் {p_name}! 👋\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?"
-                elif current_lang == "HINDI":
-                    response_text = f"नमस्ते {p_name}! 👋\n\nआज मैं आपकी क्या मदद कर सकता हूँ?"
-                elif current_lang == "TELUGU":
-                    response_text = f"నమస్తే {p_name}! 👋\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?"
-                elif current_lang == "MALAYALAM":
-                    response_text = f"നമസ്കാരം {p_name}! 👋\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?"
-                elif current_lang == "KANNADA":
-                    response_text = f"ನಮಸ್ಕಾರ {p_name}! 👋\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
-                elif current_lang == "URDU":
-                    response_text = f"خوش آمدید {p_name}! 👋\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
-                else:
-                    response_text = f"Welcome back, {p_name}! 👋\n\nHow can I help you today?"
-                state["interactive_buttons"] = language_service.get_main_menu_buttons(current_lang)
-            else:
-                response_text = "I couldn't find a patient profile associated with this WhatsApp number.\n\nWould you like to register as a new patient?"
-                state["interactive_buttons"] = [
-                    {"id": "btn_first_time", "title": "Register"},
-                    language_service.get_translated_button("btn_cat_doctors", current_lang),
-                    language_service.get_translated_button("btn_cat_emergency", current_lang)
-                ]
-        else:
-            p_name_gen = None
-            if state.get("patient_id"):
-                conn = db_config.get_db_connection()
-                cur = conn.cursor()
-                try:
-                    cur.execute("SELECT first_name FROM patients WHERE id = %s;", (state["patient_id"],))
-                    r = cur.fetchone()
-                    if r:
-                        p_name_gen = r[0]
-                finally:
-                    cur.close()
-                    conn.close()
-
-            if p_name_gen:
-                if current_lang == "TAMIL":
-                    response_text = f"வணக்கம் {p_name_gen}! 👋\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?"
-                elif current_lang == "HINDI":
-                    response_text = f"नमस्ते {p_name_gen}! 👋\n\nआज मैं आपकी क्या मदद कर सकता हूँ?"
-                elif current_lang == "TELUGU":
-                    response_text = f"నమస్తే {p_name_gen}! 👋\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?"
-                elif current_lang == "MALAYALAM":
-                    response_text = f"നമസ്കാരം {p_name_gen}! 👋\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?"
-                elif current_lang == "KANNADA":
-                    response_text = f"ನಮಸ್ಕಾರ {p_name_gen}! 👋\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
-                elif current_lang == "URDU":
-                    response_text = f"خوش آمدید {p_name_gen}! 👋\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
-                else:
-                    response_text = f"Welcome back, {p_name_gen}! 👋\n\nHow can I help you today?"
-            else:
-                if current_lang == "TAMIL":
-                    response_text = "👋 மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம்!\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?"
-                elif current_lang == "HINDI":
-                    response_text = "👋 मेरिडियन अस्पताल में आपका स्वागत है!\n\nआज मैं आपकी क्या मदद कर सकता हूँ?"
-                elif current_lang == "TELUGU":
-                    response_text = "👋 మెరిడియన్ హాస్పిటల్‌కు స్వాగతం!\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?"
-                elif current_lang == "MALAYALAM":
-                    response_text = "👋 മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം!\n\nഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?"
-                elif current_lang == "KANNADA":
-                    response_text = "👋 ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ!\n\nಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?"
-                elif current_lang == "URDU":
-                    response_text = "👋 میریڈین ہسپتال میں آپ کا خیر مقدم ہے!\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
-                else:
-                    response_text = (
-                        "👋 Welcome to Meridian Hospital!\n\n"
-                        "How can I help you today?"
-                    )
-            state["interactive_buttons"] = language_service.get_main_menu_buttons(current_lang)
 
 
     elif intent == "IDENTIFY_PATIENT":
