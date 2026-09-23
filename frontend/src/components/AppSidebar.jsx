@@ -58,8 +58,8 @@ export const NAV_GROUPS = [
     title: 'REVENUE CYCLE',
     items: [
       { id: 'billing', label: 'Billing' },
-      { id: 'insurance', label: 'Insurance · Preauth' },
-      { id: 'claims', label: 'Insurance Claims' },
+      { id: 'insurance', label: 'Insurance' },
+      { id: 'claims', label: 'Claims' },
       { id: 'finance', label: 'Finance Dashboard' },
       { id: 'tax', label: 'Tax Configuration' },
     ]

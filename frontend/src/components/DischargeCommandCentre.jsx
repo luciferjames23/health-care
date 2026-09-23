@@ -810,7 +810,7 @@ export default function DischargeCommandCentre({
     });
   }, [enrichedCases, search]);
 
-  // Sorting
+  // Sorting (9 Columns: Patient, Doctor, Insurer, Intent, Critical path, Pending, Owner, Age, Status)
   const sortedCases = useMemo(() => {
     const list = [...filteredCases];
     list.sort((a, b) => {
@@ -821,12 +821,15 @@ export default function DischargeCommandCentre({
         case 1: valA = a.doctor; valB = b.doctor; break;
         case 2: valA = a.insurer; valB = b.insurer; break;
         case 3: valA = a.intentAt; valB = b.intentAt; break;
-        case 4: valA = a.eta; valB = b.eta; break;
-        case 5: valA = a.blocker; valB = b.blocker; break;
-        case 6: valA = a.pendingCount; valB = b.pendingCount; break;
-        case 7: valA = a.owner; valB = b.owner; break;
-        case 8: valA = a.isCompleted ? '999' : '0'; valB = b.isCompleted ? '999' : '0'; break;
-        case 9: valA = a.status; valB = b.status; break;
+        case 4: valA = a.blocker; valB = b.blocker; break;
+        case 5: valA = a.pendingCount; valB = b.pendingCount; break;
+        case 6: valA = a.owner; valB = b.owner; break;
+        case 7: {
+          const ageA = Number(a.patientAge || a.age || 0);
+          const ageB = Number(b.patientAge || b.age || 0);
+          return sortDir === 'asc' ? ageA - ageB : ageB - ageA;
+        }
+        case 8: valA = a.status; valB = b.status; break;
         default: valA = a.patient; valB = b.patient; break;
       }
       return sortDir === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
@@ -2530,7 +2533,7 @@ export default function DischargeCommandCentre({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing ${allCases.length} assigned discharge case${allCases.length === 1 ? '' : 's'}`
-              : `${allCases.length} active hospital cases · dependency graph, predicted ready time and critical path by Discharge Orchestration Agent v3.0.2`}
+              : `${allCases.length} active hospital cases · dependency graph and critical path by Discharge Orchestration Agent v3.0.2`}
           </div>
         </div>
 
@@ -2559,7 +2562,7 @@ export default function DischargeCommandCentre({
             type="button"
             onClick={() => {
               if (!sortedCases.length) return alert('No records to export');
-              const headers = ['Case ID', 'Patient', 'Bed', 'Doctor', 'Insurer', 'Intent', 'Predicted Ready', 'Critical Path', 'Pending', 'Status'];
+              const headers = ['Case ID', 'Patient', 'Bed', 'Doctor', 'Insurer', 'Intent', 'Critical Path', 'Pending', 'Owner', 'Age', 'Status'];
               const rows = sortedCases.map(c => [
                 `"${c.id}"`,
                 `"${c.patient}"`,
@@ -2567,9 +2570,10 @@ export default function DischargeCommandCentre({
                 `"${c.doctor}"`,
                 `"${c.insurer}"`,
                 `"${c.intentAt}"`,
-                `"${c.eta}"`,
                 `"${c.blocker}"`,
                 `"${c.pendingCount}"`,
+                `"${c.owner}"`,
+                `"${c.patientAge || c.age || 45}"`,
                 `"${c.status}"`
               ]);
               const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -2827,7 +2831,6 @@ export default function DischargeCommandCentre({
                     ['Doctor', 140],
                     ['Insurer', 120],
                     ['Intent', 70],
-                    ['Predicted ready', 90],
                     ['Critical path', 180],
                     ['Pending', 65],
                     ['Owner', 140],
@@ -2887,9 +2890,6 @@ export default function DischargeCommandCentre({
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px' }}>
                       {formatTime12(c.intentAt)}
                     </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: c.statusKind === 'ready' ? '#047857' : '#15181b' }}>
-                      {formatTime12(c.eta)}
-                    </td>
                     <td style={{ padding: '10px 12px', color: '#52585e', fontSize: '11.5px' }}>
                       {c.blocker}
                     </td>
@@ -2897,8 +2897,8 @@ export default function DischargeCommandCentre({
                       {c.pendingCount}
                     </td>
                     <td style={{ padding: '10px 12px', color: '#52585e' }}>{c.owner}</td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', color: '#8a9096' }}>
-                      {c.isCompleted ? '—' : '2 h'}
+                    <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', color: '#15181b', fontWeight: 500 }}>
+                      {c.patientAge || c.age || 45}
                     </td>
                     <td style={{ padding: '10px 12px' }}>
                       {renderStatusPill(c.status)}
