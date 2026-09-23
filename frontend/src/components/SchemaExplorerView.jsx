@@ -13,26 +13,6 @@ import { apiService } from '../services/api';
 
 const GOLD_TABLES_FALLBACK = [
   {
-    table_name: "dim_revenue_predictions",
-    domain: "Financial & Predictive Analytics",
-    row_count: 1000,
-    primary_key: "revenue_prediction_id",
-    description: "Departmental and patient-level revenue projections, actual amounts, prediction variances, and monthly totals.",
-    columns: [
-      { column_name: "revenue_prediction_id", data_type: "BIGINT", is_primary: true, description: "Unique revenue prediction record identifier" },
-      { column_name: "bill_number", data_type: "STRING", is_primary: false, description: "Hospital IPD billing identifier" },
-      { column_name: "patient_id", data_type: "BIGINT", is_primary: false, description: "Foreign key reference to patient" },
-      { column_name: "patient_number", data_type: "STRING", is_primary: false, description: "Patient hospital registration code" },
-      { column_name: "patient_name", data_type: "STRING", is_primary: false, description: "Patient full legal name" },
-      { column_name: "bill_date", data_type: "TIMESTAMP", is_primary: false, description: "Date of financial invoice generation" },
-      { column_name: "bill_status", data_type: "STRING", is_primary: false, description: "Settlement clearance status" },
-      { column_name: "actual_net_amount", data_type: "DOUBLE", is_primary: false, description: "Audited actual collection amount in INR" },
-      { column_name: "predicted_revenue", data_type: "DOUBLE", is_primary: false, description: "AI regression model predicted collection" },
-      { column_name: "prediction_variance", data_type: "DOUBLE", is_primary: false, description: "Variance between forecast and actuals" },
-      { column_name: "model_name", data_type: "STRING", is_primary: false, description: "Databricks MLflow model version identifier" }
-    ]
-  },
-  {
     table_name: "fact_bed_demand_forecast_7day_detailed",
     domain: "Clinical Operations & Bed Management",
     row_count: 350,
@@ -105,9 +85,9 @@ const GOLD_TABLES_FALLBACK = [
   }
 ];
 
-export default function SchemaExplorerView({ tables = [], initialTable = 'dim_revenue_predictions', onViewData }) {
+export default function SchemaExplorerView({ tables = [], initialTable = 'fact_bed_demand_forecast_7day_detailed', onViewData }) {
   const [tableList, setTableList] = useState(GOLD_TABLES_FALLBACK);
-  const [selectedTable, setSelectedTable] = useState(initialTable || 'dim_revenue_predictions');
+  const [selectedTable, setSelectedTable] = useState(initialTable || 'fact_bed_demand_forecast_7day_detailed');
   const [schemaData, setSchemaData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -187,14 +167,14 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_re
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            DATABRICKS LAKEHOUSE · GOLD LAYER METADATA
+            CLINICAL DATA FOUNDATION · SCHEMA METADATA
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <TableProperties style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
-            Gold Schema &amp; Data Dictionary Explorer
+            Clinical Schema &amp; Data Dictionary Explorer
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Inspect table definitions, column types, primary keys, and description metadata for Databricks Gold schema.
+            Inspect table definitions, column types, primary keys, and description metadata for clinical database tables.
           </div>
         </div>
 
@@ -273,7 +253,7 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_re
                       {t.table_name}
                     </div>
                     <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                      {t.domain || 'Gold Lakehouse'}
+                      {t.domain || 'Clinical Schema'}
                     </div>
                   </div>
                   <span style={{
@@ -300,15 +280,15 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_re
                     fontFamily: 'monospace', fontSize: '11px', color: '#0369a1', fontWeight: 600,
                     padding: '2px 8px', background: '#e0f2fe', borderRadius: '12px'
                   }}>
-                    health_care.gold
+                    Clinical Registry
                   </span>
-                  <span style={{ fontSize: '11.5px', color: '#64748b' }}>Delta Lake Format</span>
+                  <span style={{ fontSize: '11.5px', color: '#64748b' }}>Clinical Dataset</span>
                 </div>
                 <h2 style={{ fontSize: '18px', fontWeight: 700, fontFamily: 'monospace', margin: '6px 0 2px', color: '#0f172a' }}>
                   {currentTableObj.table_name}
                 </h2>
                 <div style={{ color: '#52585e', fontSize: '12px' }}>
-                  {currentTableObj.description || 'Gold layer curated analytical dataset.'}
+                  {currentTableObj.description || 'Curated clinical database records.'}
                 </div>
               </div>
 
@@ -334,7 +314,7 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'dim_re
             {loading ? (
               <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                 <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-                <span style={{ fontSize: '12px' }}>Fetching Databricks DESCRIBE TABLE schema...</span>
+                <span style={{ fontSize: '12px' }}>Fetching table schema...</span>
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>

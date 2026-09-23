@@ -285,7 +285,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Hospital Operating Platform</span> › <span>AI PLATFORM</span> › <span style={{ color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>DISCHARGE ORCHESTRATION AGENT (AG-19)</span>
+            <span>Hospital Operating Platform</span> › <span>AI PLATFORM</span> › <span style={{ color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>DISCHARGE SUMMARY AGENT (AG-19)</span>
           </div>
           <div style={{ fontSize: '22px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span>Discharge Orchestration Agent</span>
@@ -494,7 +494,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                 ✓ {flowRunResult.message}
               </div>
               <div style={{ fontSize: '11.5px', color: '#334155' }}>
-                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now committed to the Lakehouse Gold layer and available in the Discharge Command Centre.
+                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now saved to clinical records and available in the Discharge Command Centre.
               </div>
             </div>
           )}
@@ -1014,7 +1014,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                     </div>
                     <div style={{ fontSize: '11.5px', color: '#52585e', marginTop: '2px' }}>
                       {isEligible
-                        ? 'The agent is cleared to collect patient context, generate the discharge summary, and commit to the Lakehouse.'
+                        ? 'The agent is cleared to collect patient context, generate the discharge summary, and save to clinical records.'
                         : `The agent has blocked summary generation due to pending requirements: ${pendingReqs.join(', ')}.`}
                     </div>
                   </div>

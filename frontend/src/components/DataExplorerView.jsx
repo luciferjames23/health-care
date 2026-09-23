@@ -11,16 +11,15 @@ import {
 import { apiService } from '../services/api';
 
 const DEFAULT_TABLES = [
-  { table_name: 'dim_revenue_predictions', domain: 'Financial', row_count: 1000 },
   { table_name: 'fact_bed_demand_forecast_7day_detailed', domain: 'Operations', row_count: 350 },
   { table_name: 'dim_generated_discharge_summaries', domain: 'Discharge AI', row_count: 50 },
   { table_name: 'patients', domain: 'Master Index', row_count: 4000 },
   { table_name: 'admissions', domain: 'Inpatients', row_count: 250 }
 ];
 
-export default function DataExplorerView({ tables = [], initialTable = 'dim_revenue_predictions' }) {
+export default function DataExplorerView({ tables = [], initialTable = 'fact_bed_demand_forecast_7day_detailed' }) {
   const [tableList, setTableList] = useState(DEFAULT_TABLES);
-  const [selectedTable, setSelectedTable] = useState(initialTable || 'dim_revenue_predictions');
+  const [selectedTable, setSelectedTable] = useState(initialTable || 'fact_bed_demand_forecast_7day_detailed');
   const [dataResult, setDataResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [limit, setLimit] = useState(25);
@@ -109,14 +108,14 @@ export default function DataExplorerView({ tables = [], initialTable = 'dim_reve
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-            DATABRICKS LAKEHOUSE · INTERACTIVE QUERY VIEWER
+            HOSPITAL DATABASE · INTERACTIVE QUERY VIEWER
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 700, margin: '2px 0 0', color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Database style={{ width: '22px', height: '22px', color: 'oklch(0.5 0.1 200)' }} />
             Interactive Data Grid &amp; Query Previewer
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Query live records from Databricks Gold lakehouse tables with real-time pagination and export options.
+            Query records from hospital database tables with real-time pagination and export options.
           </div>
         </div>
 
@@ -175,7 +174,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'dim_reve
             >
               {tableList.map(t => (
                 <option key={t.table_name} value={t.table_name}>
-                  {t.table_name} ({t.domain || 'Lakehouse'})
+                  {t.table_name} ({t.domain || 'Clinical Data'})
                 </option>
               ))}
             </select>
@@ -240,7 +239,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'dim_reve
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
             <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Gold Lakehouse...</span>
+            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Hospital Database...</span>
           </div>
         ) : filteredRows.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>

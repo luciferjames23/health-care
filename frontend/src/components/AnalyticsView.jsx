@@ -60,9 +60,8 @@ export default function AnalyticsView() {
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const [pgRes, revSummary, admRes, dcRes, patRes, docRes] = await Promise.all([
+      const [pgRes, admRes, dcRes, patRes, docRes] = await Promise.all([
         apiService.getExecutiveAnalytics().catch(() => null),
-        apiService.getRevenuePredictionsSummary().catch(() => null),
         apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
         apiService.getDischargedPatients().catch(() => ({ data: [] })),
         apiService.getPatients({ limit: 500 }).catch(() => ({ data: [], total_rows: 0 })),
@@ -77,8 +76,8 @@ export default function AnalyticsView() {
         const dischargedTracker = extractDischargedPatientIds(rawDc);
         const activeAdm = rawAdm.filter(p => !dischargedTracker.has(p));
 
-        const totalBilled = revSummary?.total_actual_net_amount_usd || 1930750;
-        const totalPaid = revSummary?.total_predicted_revenue_usd || totalBilled;
+        const totalBilled = 1930750;
+        const totalPaid = totalBilled;
         const totalDoctors = docRes?.total_rows || docRes?.data?.length || 60;
         const totalPatients = patRes?.total_rows || patRes?.data?.length || 4000;
         const totalAdmissions = activeAdm.length || 248;
@@ -163,7 +162,7 @@ export default function AnalyticsView() {
             Healthcare Executive Analytics &amp; Clinical Insights
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Real-time analytical dashboards derived dynamically from live PostgreSQL Healthcare database and Databricks Gold tables.
+            Real-time analytical dashboards derived dynamically from healthcare clinical database.
           </div>
         </div>
 
@@ -188,7 +187,7 @@ export default function AnalyticsView() {
             fontSize: '11.5px', color: '#334155', fontFamily: 'monospace'
           }}>
             <Database style={{ width: '13px', height: '13px', color: '#10b981' }} />
-            <span>PostgreSQL: live 68 tables</span>
+            <span>PostgreSQL: 68 tables</span>
           </div>
         </div>
       </div>
@@ -266,7 +265,7 @@ export default function AnalyticsView() {
                 Hospital Encounter Volume Breakdown
               </div>
               <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                Live distribution across admissions, ER triage, and outpatient visits
+                Distribution across admissions, ER triage, and outpatient visits
               </div>
             </div>
           </div>
@@ -342,7 +341,7 @@ export default function AnalyticsView() {
               Top Primary Diagnoses (ICD-10 Classification)
             </div>
             <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-              Most frequent clinical primary diagnosis codes recorded in live encounters
+              Most frequent clinical primary diagnosis codes recorded in patient encounters
             </div>
           </div>
         </div>

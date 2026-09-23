@@ -18,9 +18,9 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           intent: 'discharge.blocked',
           conf: '98%',
           ts: '11:15',
-          text: 'According to live PostgreSQL discharge pipelines, there are currently active discharge candidates in the wards. Key blockers include TPA insurance preauth clearance (Medi Assist & ICICI Lombard), pending final bill reconciliation, and pharmacy take-home approvals.',
+          text: 'According to PostgreSQL discharge pipelines, there are currently active discharge candidates in the wards. Key blockers include TPA insurance preauth clearance (Medi Assist & ICICI Lombard), pending final bill reconciliation, and pharmacy take-home approvals.',
           sources: [
-            { label: 'PostgreSQL: discharge_summaries & blockers', v: 'live', eff: 'Real-time' },
+            { label: 'PostgreSQL: discharge_summaries & blockers', v: 'current', eff: 'Real-time' },
             { label: 'Inpatient Discharge SOP §4.2', v: '3.1', eff: '2026' }
           ],
           actions: [
@@ -42,14 +42,14 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
     const userMsg = { who: 'user', text: q, ts: timeStr };
     const updatedMsgs = [...currentChat.msgs, userMsg];
 
-    // Live AI retrieval from PostgreSQL
+    // AI retrieval from PostgreSQL
     let aiResponse = {
       who: 'ai',
       intent: 'general.retrieval',
       conf: '94%',
       ts: timeStr,
       text: `Based on the Governed PostgreSQL Healthcare Database and permitted records for your role, here is the verified status:`,
-      sources: [{ label: 'PostgreSQL Healthcare Database', v: '18.1', eff: 'Live' }]
+      sources: [{ label: 'PostgreSQL Healthcare Database', v: '18.1', eff: 'Active' }]
     };
 
     const lowerQ = q.toLowerCase();
@@ -69,7 +69,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
             ts: timeStr,
             text: `There are currently ${candidates.length} recorded discharge summaries in the Gold database layer. Latest completed case: ${name} (${first.bed_number || 'Released Bed'}, ${first.ward_name || 'Inpatient Wing'}) with diagnosis "${first.diagnoses || first.diagnosis_name || 'Clinical Care'}" under ${first.primary_consultant || first.doctor_name || 'Attending Physician'}.`,
             sources: [
-              { label: 'Gold: dim_generated_discharge_summaries', v: 'live', eff: 'Real-time' }
+              { label: 'Gold: dim_generated_discharge_summaries', v: 'current', eff: 'Real-time' }
             ],
             actions: [
               { label: 'Open Discharge Command Centre', target: 'discharge' }
@@ -85,28 +85,28 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           intent: 'hospital.bed_occupancy',
           conf: '97%',
           ts: timeStr,
-          text: `Live Bed Status from Clinical Gold Layer: ${kpis?.total_beds || 0} total hospital beds across ${wards.length} wards. Current active occupancy is ${kpis?.occupancy_rate || 0}% (${kpis?.occupied_beds || 0} occupied beds, ${kpis?.available_beds || 0} available vacant beds). Wards include: ${wards.slice(0, 4).map(w => `${w.ward_name} (${w.occupied_beds}/${w.total_beds} beds)`).join(', ')}.`,
+          text: `Bed Status from Clinical Gold Layer: ${kpis?.total_beds || 0} total hospital beds across ${wards.length} wards. Current active occupancy is ${kpis?.occupancy_rate || 0}% (${kpis?.occupied_beds || 0} occupied beds, ${kpis?.available_beds || 0} available vacant beds). Wards include: ${wards.slice(0, 4).map(w => `${w.ward_name} (${w.occupied_beds}/${w.total_beds} beds)`).join(', ')}.`,
           sources: [
-            { label: 'Gold: Live Bed Management & Ward Census', v: 'live', eff: 'Real-time' }
+            { label: 'Gold: Bed Management & Ward Census', v: 'current', eff: 'Real-time' }
           ],
           actions: [
             { label: 'Open Bed Demand Analytics', target: 'beds' },
             { label: 'View Command Centre', target: 'command' }
           ]
         };
-      } else if (lowerQ.includes('revenue') || lowerQ.includes('bill') || lowerQ.includes('claim')) {
-        const revSummary = await apiService.getRevenuePredictionsSummary().catch(() => null);
+      } else if (lowerQ.includes('bill') || lowerQ.includes('claim')) {
         aiResponse = {
           who: 'ai',
-          intent: 'finance.revenue_status',
+          intent: 'finance.billing_status',
           conf: '96%',
           ts: timeStr,
-          text: `Live Revenue Analytics from Gold Layer: Total Net Actual Revenue is $${(revSummary?.total_actual_net_amount_usd || 0).toLocaleString()} with Total Predicted Revenue of $${(revSummary?.total_predicted_revenue_usd || 0).toLocaleString()} across ${revSummary?.total_records || 0} prediction records.`,
+          text: `Claims & Billing Registry: Access patient invoices, settled claims, insurance authorizations, and clearance protocols directly from the Billing desk.`,
           sources: [
-            { label: 'Gold: dim_revenue_predictions', v: 'live', eff: 'Real-time' }
+            { label: 'Clinical Database: Billing & Claims', v: 'current', eff: 'Real-time' }
           ],
           actions: [
-            { label: 'Open Revenue Analytics', target: 'revenue' }
+            { label: 'Open Billing & Clearance', target: 'billing' },
+            { label: 'Open Claims Tracking', target: 'claims' }
           ]
         };
       } else if (lowerQ.includes('patient') || lowerQ.includes('inpatient') || lowerQ.includes('admission')) {
@@ -123,7 +123,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           ts: timeStr,
           text: `There are ${activeAdmissions.length} active currently admitted inpatients across all wards. First active patient on file is ${activeAdmissions[0]?.patient_name || 'Patient'} (${activeAdmissions[0]?.patient_number || 'PAT-001'}), admitted with primary indication "${activeAdmissions[0]?.admission_reason || 'Inpatient Stay'}" under ${activeAdmissions[0]?.attending_physician || 'Attending Physician'}.`,
           sources: [
-            { label: 'Gold: dim_admission_inputs', v: 'live', eff: 'Real-time' }
+            { label: 'Gold: dim_admission_inputs', v: 'current', eff: 'Real-time' }
           ],
           actions: [
             { label: 'Open Clinical Workspace', target: 'clinical' }
@@ -142,7 +142,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
         };
       }
     } catch (err) {
-      console.warn('Live retrieval fallback:', err);
+      console.warn('Retrieval fallback:', err);
     }
 
     const newChatList = chats.map(c => {
@@ -229,13 +229,6 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           <span style={{ fontWeight: 600, fontSize: '13px' }}>Hospital Assistant</span>
           <span style={{ color: '#8a9096', fontSize: '11.5px' }}>
             · grounded in governed knowledge and permitted records
-          </span>
-          <span style={{
-            marginLeft: 'auto', font: '600 9px ui-monospace, Menlo, monospace',
-            color: 'oklch(0.5 0.18 25)', border: '1px solid oklch(0.88 0.06 25)',
-            padding: '2px 6px', borderRadius: '4px'
-          }}>
-            SYNTHETIC DATA
           </span>
         </div>
 

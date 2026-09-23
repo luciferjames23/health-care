@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from '../services/api';
+import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 
-export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate }) {
+export default function AdmissionsView({
+  onSelectPatient,
+  onOpenSoap,
+  onNavigate,
+  doctorName = null,
+  userRole = 'Hospital Management'
+}) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
+
   const [admissions, setAdmissions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -86,8 +95,15 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
     };
   }, []);
 
+  const scopedAdmissions = useMemo(() => {
+    if (!activeDoctorName) return admissions;
+    return admissions.filter(item =>
+      matchesDoctor(item.doctor || item.attending_doctor || item.doctor_name, activeDoctorName)
+    );
+  }, [admissions, activeDoctorName]);
+
   const filteredAdmissions = useMemo(() => {
-    return admissions.filter(item => {
+    return scopedAdmissions.filter(item => {
       // Type filter
       if (selectedType !== 'All' && item.admission_type !== selectedType) {
         return false;
@@ -107,19 +123,19 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
              (item.bed && item.bed.toLowerCase().includes(s)) ||
              (item.ward && item.ward.toLowerCase().includes(s));
     });
-  }, [admissions, selectedType, selectedWard, search]);
+  }, [scopedAdmissions, selectedType, selectedWard, search]);
 
   // KPIs
-  const totalAdmissions = admissions.length;
-  const emergencyCount = admissions.filter(a => a.admission_source?.includes('Emergency') || a.admission_type === 'Emergency').length;
-  const referralCount = admissions.filter(a => a.admission_type === 'Referral').length;
-  const highEwsCount = admissions.filter(a => a.ewsType === 'red').length;
+  const totalAdmissions = scopedAdmissions.length;
+  const emergencyCount = scopedAdmissions.filter(a => a.admission_source?.includes('Emergency') || a.admission_type === 'Emergency').length;
+  const referralCount = scopedAdmissions.filter(a => a.admission_type === 'Referral').length;
+  const highEwsCount = scopedAdmissions.filter(a => a.ewsType === 'red').length;
 
   const handleExportCsv = () => {
-    if (admissions.length === 0) return alert('No admission records to export');
+    if (scopedAdmissions.length === 0) return alert('No admission records to export');
     const headers = ['Admission ID / MRN', 'Patient Name', 'Admission Date', 'Admission Type', 'Source', 'Ward', 'Bed', 'Attending Doctor', 'Specialization', 'Reason for Admission', 'EWS Score'];
     const rows = [headers.join(',')];
-    admissions.forEach(a => {
+    scopedAdmissions.forEach(a => {
       rows.push([
         `"${a.mrn || a.admission_number || ''}"`,
         `"${a.name || ''}"`,
@@ -137,11 +153,10 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
     const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `inpatient_admissions_${new Date().toISOString().slice(0,10)}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `admissions_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -150,13 +165,17 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Front Office & Patients</span> › <span>Inpatient Admissions</span>
+            <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Admissions' : 'Inpatient Admissions'}</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600 }}>
-            Inpatient Admissions & Bed Allocation
+            {isDoctor && activeDoctorName
+              ? `Inpatient Admissions · ${activeDoctorName}`
+              : 'Inpatient Admissions & Bed Allocation'}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Active patient admission streams, attending clinical consultant allocation, and telemetry monitoring
+            {isDoctor && activeDoctorName
+              ? `Doctor Scope: ${activeDoctorName} · Showing ${scopedAdmissions.length} active inpatient admissions under your clinical care`
+              : 'Active patient admission streams, attending clinical consultant allocation, and telemetry monitoring'}
           </div>
         </div>
 
@@ -260,7 +279,7 @@ export default function AdmissionsView({ onSelectPatient, onOpenSoap, onNavigate
         {loading && admissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Inpatient Admissions...</div>
-            <div style={{ fontSize: '12px' }}>Fetching live admission records from clinical data system…</div>
+            <div style={{ fontSize: '12px' }}>Fetching admission records from clinical data system…</div>
           </div>
         ) : filteredAdmissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>

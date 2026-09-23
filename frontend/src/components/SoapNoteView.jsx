@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, resolveClinicalDiagnosis } from '../services/api';
+
+function getPatientDiagnosis(p) {
+  if (!p) return 'Clinical Inpatient Evaluation';
+  return resolveClinicalDiagnosis(
+    p.primaryDiagnosis || p.diagnosis || p.primary_diagnosis || p.procedure,
+    p.reason_for_admission || p.admission_reason
+  );
+}
 
 export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', onBack, onOpenPatient }) {
   const [lang, setLang] = useState('EN'); // 'EN' | 'TA'
@@ -22,10 +30,10 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
         p: '1. Inpatient clinical care protocol.\n2. Continuous vital signs and telemetry monitoring.\n3. Daily consultant rounds.'
       };
     }
-    const pName = patient.name || patient.patient || 'Patient';
+    const pName = patient.name || patient.patient_name || patient.patient || 'Patient';
     const age = patient.age ? `${patient.age}yo` : '';
     const sex = patient.sex || '';
-    const diag = patient.diagnosis || patient.admission_reason || 'Inpatient Stay';
+    const diag = getPatientDiagnosis(patient);
     const bp = patient.latestBp || (patient.systolic_bp ? `BP ${patient.systolic_bp}/${patient.diastolic_bp} mmHg, HR ${patient.heart_rate || 76} bpm, SpO2 ${patient.oxygen_saturation || 98}%` : 'Vital signs within normal limits.');
     const doc = patient.doctor || patient.primary_consultant || doctorName;
     const meds = Array.isArray(patient.medications) ? patient.medications : [];
@@ -63,10 +71,10 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           }
         } else if (patient) {
           // Direct dynamic update from live patient object
-          const pName = patient.name || patient.patient || 'Patient';
+          const pName = patient.name || patient.patient_name || patient.patient || 'Patient';
           const age = patient.age ? `${patient.age}yo` : '';
           const sex = patient.sex || '';
-          const diag = patient.diagnosis || patient.admission_reason || 'Inpatient Stay';
+          const diag = getPatientDiagnosis(patient);
           const bp = patient.latestBp || (patient.systolic_bp ? `BP ${patient.systolic_bp}/${patient.diastolic_bp} mmHg, HR ${patient.heart_rate || 76} bpm, SpO2 ${patient.oxygen_saturation || 98}%` : 'Vital signs within normal limits.');
           const doc = patient.doctor || patient.primary_consultant || doctorName;
           const meds = Array.isArray(patient.medications) ? patient.medications : [];
@@ -83,7 +91,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           setRecState('done');
         }
       } catch (err) {
-        console.warn("Using live SOAP note data:", err);
+        console.warn("Using SOAP note data:", err);
       }
     }
     loadDbDrafts();
@@ -111,12 +119,13 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
 
   const handleGenDraft = () => {
     setIsDrafting(true);
+    const diag = getPatientDiagnosis(patient);
     setTimeout(() => {
       setIsDrafting(false);
       setAiDraft({
-        s: lang === 'TA' ? `நோயாளி நிலைமை கண்காணிக்கப்படுகிறது (${patient?.diagnosis || 'Inpatient Care'}).` : `Patient presents for ongoing inpatient management of ${patient?.diagnosis || 'clinical condition'}. Denies acute pain or distress.`,
+        s: lang === 'TA' ? `நோயாளி நிலைமை கண்காணிக்கப்படுகிறது (${diag}).` : `Patient presents for ongoing inpatient management of ${diag}. Denies acute pain or distress.`,
         o: "Vitals stable on continuous telemetry. Oxygen saturation 98% on room air. Normal heart sounds and chest clear.",
-        a: `${patient?.diagnosis || 'Inpatient Management'}. Patient hemodynamically stable.`,
+        a: `${diag}. Patient hemodynamically stable.`,
         p: "Continue current prescription regimen. Nursing monitoring every 4 hours. Consultant review scheduled."
       });
     }, 1200);
@@ -136,12 +145,25 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
     alert(`SOAP note officially signed by ${doctorName} at ${now}. Note locked to EMR clinical record.`);
   };
 
-  const pName = patient?.patient_name || patient?.name || 'Madhav Pillai';
-  const pBed = patient?.bed_number || patient?.bed || 'BED-0005';
-  const pMrn = patient?.patient_number || patient?.mrn || 'MER-PAT-0000029';
+  const pName = patient?.name || patient?.patient_name || patient?.patient || 'Patient';
+  const rawBed = patient?.bed_number || patient?.bed || 'BED-0193';
+  const isSyntheticBed = typeof rawBed === 'string' && /^bed \d+$/i.test(rawBed.trim());
+  const pBed = (!isSyntheticBed && rawBed) ? (rawBed.startsWith('BED-') ? rawBed : (rawBed.toLowerCase().startsWith('bed') ? rawBed : `Bed ${rawBed}`)) : 'BED-0193';
+  const pMrn = patient?.uhid || patient?.patient_number || patient?.mrn || (patient?.patient_id ? `MER-PAT-${String(patient.patient_id).padStart(7, '0')}` : 'MER-PAT-0000001');
+  const pEncounter = patient?.encounter || (patient?.admission_number ? `ENC-${patient.admission_number}` : (patient?.admission_id ? `ENC-MER-ADM-${String(patient.admission_id).padStart(7, '0')}` : 'ENC-ADM-0000001'));
+  const attendingDoc = doctorName || patient?.doctor || 'Attending Physician';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* Navigation Breadcrumb */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#687076' }}>
+        <span>Patient 360</span>
+        <span>›</span>
+        <span style={{ color: '#15181b', fontWeight: 600 }}>{pName}</span>
+        <span>›</span>
+        <span style={{ color: '#8a9096' }}>SOAP Note</span>
+      </div>
+
       {/* Top Header Card */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px 18px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
@@ -157,14 +179,14 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
               </span>
             </div>
             <div style={{ color: '#52585e', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', marginTop: '2px' }}>
-              {pMrn} · Bed {pBed} · Encounter ENC-1042 · Attending: {doctorName}
+              {pMrn} · {pBed} · Encounter {pEncounter} · Attending: {attendingDoc}
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
             {dbDrafts.length > 0 && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8a9096', fontSize: '11.5px' }}>
-                <span>Load Live Draft</span>
+                <span>Load Draft</span>
                 <select
                   onChange={(e) => {
                     const found = dbDrafts.find(d => String(d.draft_id) === e.target.value);

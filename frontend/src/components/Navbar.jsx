@@ -30,13 +30,13 @@ export default function Navbar({ healthInfo, onRefresh, loading }) {
           </div>
         </div>
 
-        {/* Center: Live Status Indicator */}
+        {/* Center: Status Indicator */}
         <div className="hidden md:flex items-center space-x-3 bg-slate-900/80 border border-slate-800 rounded-full px-4 py-1.5 shadow-inner">
           <div className="flex items-center space-x-2">
             <span className={`w-2.5 h-2.5 rounded-full ${isLive ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`}></span>
             <span className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
               <Server className="w-3.5 h-3.5 text-slate-400" />
-              {isLive ? 'FastAPI Backend Live' : 'Local Engine Mode'}
+              {isLive ? 'FastAPI Backend Connected' : 'Local Engine Mode'}
             </span>
           </div>
           <span className="text-slate-700">|</span>

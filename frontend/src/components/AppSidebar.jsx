@@ -1,24 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, computeDischargeCasesCount } from '../services/api';
 import { ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
-  {
-    title: 'DOCTOR PORTAL',
-    items: [
-      { id: 'doctor-dashboard', label: 'Doctor Dashboard', badge: 'Doctor', badgeColor: 'oklch(0.5 0.1 200)' },
-      { id: 'doctor-profile', label: 'My Doctor Profile' },
-    ]
-  },
   {
     title: 'FRONT OFFICE & PATIENTS',
     items: [
       { id: 'command', label: 'Command Centre' },
       { id: 'patients', label: 'Patients' },
-      { id: 'doctors', label: 'Doctors & Consultants' },
       { id: 'appointments', label: 'Appointments' },
+      { id: 'pre-admission', label: 'Pre-Admission Desk' },
+      { id: 'doctor-management', label: 'Doctor Directory' },
       { id: 'admissions', label: 'Admissions' },
-      { id: 'preadmissions', label: 'Pre-Admissions', badge: 'New', badgeColor: 'oklch(0.5 0.1 200)' },
       { id: 'bedboard', label: 'Bed Board' },
       { id: 'emergency', label: 'Emergency' },
       { id: 'schedules', label: 'Consultant Schedules' },
@@ -28,7 +21,7 @@ export const NAV_GROUPS = [
     title: 'CLINICAL',
     items: [
       { id: 'clinical', label: 'Clinical Workspace' },
-      { id: 'doctor-escalations', label: 'AI Escalations', badge: '2', badgeColor: 'oklch(0.45 0.17 25)' },
+      { id: 'doctor-portal', label: 'Doctor Clinical Desk', badge: 'Portal' },
       { id: 'nursing', label: 'Nursing Workspace' },
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },
@@ -45,27 +38,71 @@ export const NAV_GROUPS = [
       { id: 'lab', label: 'Lab Dashboard' },
       { id: 'criticalvalues', label: 'Results & Critical Values' },
       { id: 'diagnostics', label: 'Diagnostics' },
-      { id: 'radiology', label: 'Radiology', badge: 'Live PoC' },
+      { id: 'radiology', label: 'Radiology' },
     ]
   },
   {
-    title: 'FINANCIAL & REVENUE',
+    title: 'PHARMACY & SUPPLY CHAIN',
     items: [
-      { id: 'billing', label: 'Billing & Clearance' },
-      { id: 'insurance', label: 'Insurance & Claims' },
-      { id: 'claims', label: 'Claims Tracking' },
+      { id: 'prescriptions', label: 'Prescriptions' },
+      { id: 'drugs', label: 'Drug Master' },
+      { id: 'pharmacy', label: 'Pharmacy' },
+      { id: 'inventory', label: 'Inventory' },
+      { id: 'stores', label: 'Stores' },
+      { id: 'procurement', label: 'Procurement' },
+      { id: 'vendors', label: 'Vendors' },
+      { id: 'cssd', label: 'CSSD' },
+    ]
+  },
+  {
+    title: 'REVENUE CYCLE',
+    items: [
+      { id: 'billing', label: 'Billing' },
+      { id: 'insurance', label: 'Insurance · Preauth' },
+      { id: 'claims', label: 'Insurance Claims' },
       { id: 'finance', label: 'Finance Dashboard' },
       { id: 'tax', label: 'Tax Configuration' },
     ]
   },
   {
+    title: 'PEOPLE',
+    items: [
+      { id: 'hr-dashboard', label: 'HR & Employee Service' },
+      { id: 'employees', label: 'Employees' },
+      { id: 'attendance', label: 'Attendance' },
+      { id: 'credentials', label: 'Staff Credentials' },
+      { id: 'staff', label: 'Staff Roster' },
+      { id: 'canteen', label: 'Canteen' },
+    ]
+  },
+  {
+    title: 'ADMINISTRATION',
+    items: [
+      { id: 'integration-arch', label: 'Integration Architecture' },
+      { id: 'escalations', label: 'Human Escalations' },
+      { id: 'notifications', label: 'Notifications', badge: '26', badgeColor: 'oklch(0.45 0.17 25)' },
+      { id: 'config', label: 'Configuration' },
+      { id: 'reports', label: 'Reports' },
+      { id: 'users', label: 'Users' },
+      { id: 'roles', label: 'Roles' },
+      { id: 'permissions', label: 'Permissions' },
+      { id: 'identity', label: 'Identity' },
+      { id: 'departments', label: 'Departments' },
+      { id: 'services', label: 'Services' },
+      { id: 'insurers', label: 'Insurers' },
+      { id: 'payment-methods', label: 'Payment Methods' },
+      { id: 'facilities', label: 'Facilities & Housekeeping' },
+      { id: 'integrations', label: 'Integrations' },
+    ]
+  },
+  {
     title: 'AI PLATFORM',
     items: [
-      { id: 'ai-patient-desk', label: 'AI Patient Desk', badge: 'Live', badgeColor: 'oklch(0.45 0.17 25)' },
       { id: 'assistant', label: 'Hospital Assistant' },
+      { id: 'ai-desk', label: 'AI Patient Desk' },
+      { id: 'patient-chat', label: 'Patient Portal Chat', badge: 'Interactive' },
       { id: 'ai-command', label: 'AI Command Centre' },
       { id: 'agents', label: 'Agents' },
-      { id: 'discharge-agent', label: 'Discharge Agent', badge: 'AG-19', badgeColor: 'oklch(0.5 0.1 200)' },
       { id: 'orchestrator', label: 'Orchestrator' },
       { id: 'runs', label: 'Agent Runs' },
       { id: 'approvals', label: 'Approval Centre', badge: '8', badgeColor: 'oklch(0.45 0.17 25)' },
@@ -82,7 +119,6 @@ export const NAV_GROUPS = [
       { id: 'trainer', label: 'AI Trainer' },
     ]
   },
-
   {
     title: 'DATA',
     items: [
@@ -103,17 +139,45 @@ export const NAV_GROUPS = [
   }
 ];
 
-export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor' }) {
-  const [dischargeCount, setDischargeCount] = useState(null);
+export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor', doctorName = null, dischargeCount: externalDischargeCount = null }) {
+  const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
 
+  // Synchronize when external dischargeCount is passed down
+  useEffect(() => {
+    if (externalDischargeCount !== null && externalDischargeCount !== undefined) {
+      setDischargeCount(externalDischargeCount);
+    }
+  }, [externalDischargeCount]);
+
+  // Listen to live discharge count updates emitted from DischargeCommandCentre
+  useEffect(() => {
+    const handleCountUpdate = (e) => {
+      const count = e.detail?.count;
+      if (count !== undefined && count !== null) {
+        setDischargeCount(count);
+      }
+    };
+    window.addEventListener('hc_discharge_count_updated', handleCountUpdate);
+    return () => window.removeEventListener('hc_discharge_count_updated', handleCountUpdate);
+  }, []);
+
+  // Fetch discharge count dynamically combining summaries and admissions matching doctor/role
   useEffect(() => {
     let isMounted = true;
     async function fetchDischargeCount() {
       try {
-        const res = await apiService.getDischargedPatients({}, { forceRefresh: true });
+        const [resSummaries, resAdmissions] = await Promise.all([
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+        ]);
         if (!isMounted) return;
-        const total = res?.data?.length;
-        if (total !== undefined) {
+        const targetDoctor = userRole === 'Doctor' ? doctorName : null;
+        const total = computeDischargeCasesCount(
+          resSummaries?.data || [],
+          resAdmissions?.data || [],
+          targetDoctor
+        );
+        if (total !== undefined && total !== null) {
           setDischargeCount(total);
         }
       } catch (err) {
@@ -123,7 +187,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
     fetchDischargeCount();
 
-    const timer = setInterval(fetchDischargeCount, 6000);
+    const timer = setInterval(fetchDischargeCount, 8000);
     const handleUpdate = () => fetchDischargeCount();
     window.addEventListener('hc_api_updated', handleUpdate);
 
@@ -132,17 +196,10 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
       clearInterval(timer);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [doctorName, userRole]);
 
-  const allowedPages = ROLE_PAGE_ACCESS[userRole];
-
-  const visibleGroups = NAV_GROUPS.map(group => {
-    const visibleItems = group.items.filter(item => {
-      if (allowedPages === null || allowedPages === undefined) return true;
-      return allowedPages.includes(item.id);
-    });
-    return { ...group, items: visibleItems };
-  }).filter(group => group.items.length > 0);
+  // Keep module names, grouping and order identical for every account.
+  const visibleGroups = NAV_GROUPS;
 
   return (
     <nav style={{

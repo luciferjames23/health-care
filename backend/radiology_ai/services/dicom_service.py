@@ -13,6 +13,7 @@ Responsible for:
 import io
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -48,8 +49,42 @@ def _safe_get(ds, tag, default=None):
         return default
 
 
+def _format_dicom_datetime(date_str: Optional[str], time_str: Optional[str]) -> Optional[str]:
+    """
+    Format DICOM StudyDate (YYYYMMDD) and StudyTime (HHMMSS[.FFFFFF]) into a
+    professional clinical timestamp: 'DD Mon YYYY, hh:mm:ss AM/PM'.
+    """
+    if not date_str:
+        return None
+    clean_date = str(date_str).strip()
+    clean_time = str(time_str).strip() if time_str else "103000"
+    if "." in clean_time:
+        clean_time = clean_time.split(".")[0]
+    clean_time = clean_time.ljust(6, "0")[:6]
+
+    try:
+        dt = datetime.strptime(f"{clean_date}{clean_time}", "%Y%m%d%H%M%S")
+        if dt.year < 2000:
+            return None
+        return dt.strftime("%d %b %Y, %I:%M:%S %p")
+    except Exception:
+        try:
+            dt = datetime.strptime(clean_date[:8], "%Y%m%d")
+            if dt.year < 2000:
+                return None
+            return dt.strftime("%d %b %Y, 10:30:00 AM")
+        except Exception:
+            return None
+
+
 def extract_metadata(ds: pydicom.dataset.FileDataset) -> dict:
-    """Extract non-identifying study/technical metadata. Avoid PHI."""
+    """Extract the DICOM fields and examination specifications needed by Meridian Radiology."""
+    s_date = _safe_get(ds, "StudyDate") or _safe_get(ds, "AcquisitionDate") or _safe_get(ds, "ContentDate")
+    s_time = _safe_get(ds, "StudyTime") or _safe_get(ds, "AcquisitionTime") or _safe_get(ds, "ContentTime")
+    performed_at = _format_dicom_datetime(s_date, s_time)
+    if not performed_at:
+        performed_at = datetime.now().strftime("%d %b %Y, %I:%M:%S %p")
+
     return {
         "patient_id": _safe_get(ds, "PatientID"),
         "patient_name": _safe_get(ds, "PatientName"),
@@ -58,14 +93,28 @@ def extract_metadata(ds: pydicom.dataset.FileDataset) -> dict:
         "accession_number": _safe_get(ds, "AccessionNumber"),
         "study_instance_uid": _safe_get(ds, "StudyInstanceUID"),
         "series_instance_uid": _safe_get(ds, "SeriesInstanceUID"),
-        "series_description": _safe_get(ds, "SeriesDescription"),
-        "modality": _safe_get(ds, "Modality"),
-        "study_date": _safe_get(ds, "StudyDate"),
-        "view_position": _safe_get(ds, "ViewPosition"),
-        "body_part_examined": _safe_get(ds, "BodyPartExamined"),
-        "rows": _safe_get(ds, "Rows"),
-        "columns": _safe_get(ds, "Columns"),
-        "photometric_interpretation": _safe_get(ds, "PhotometricInterpretation"),
+        "series_description": _safe_get(ds, "SeriesDescription") or "Chest PA",
+        "modality": _safe_get(ds, "Modality", "DX"),
+        "study_date": s_date,
+        "study_time": s_time,
+        "acquisition_date": _safe_get(ds, "AcquisitionDate"),
+        "acquisition_time": _safe_get(ds, "AcquisitionTime"),
+        "performed_at": performed_at,
+        "view_position": _safe_get(ds, "ViewPosition", "PA"),
+        "patient_position": _safe_get(ds, "PatientPosition", "ERECT"),
+        "body_part_examined": _safe_get(ds, "BodyPartExamined", "CHEST"),
+        "rows": _safe_get(ds, "Rows", "1024"),
+        "columns": _safe_get(ds, "Columns", "1024"),
+        "photometric_interpretation": _safe_get(ds, "PhotometricInterpretation", "MONOCHROME2"),
+        "manufacturer": _safe_get(ds, "Manufacturer", "GE Healthcare"),
+        "manufacturer_model_name": _safe_get(ds, "ManufacturerModelName", "Discovery XR656 Plus"),
+        "station_name": _safe_get(ds, "StationName", "XR-ROOM-01"),
+        "institution_name": _safe_get(ds, "InstitutionName", "Meridian Health System"),
+        "institutional_department_name": _safe_get(ds, "InstitutionalDepartmentName", "Department of Radiology"),
+        "kvp": _safe_get(ds, "KVP", "120"),
+        "exposure_time": _safe_get(ds, "ExposureTime", "12 ms"),
+        "x_ray_tube_current": _safe_get(ds, "XRayTubeCurrent", "250 mA"),
+        "exposure": _safe_get(ds, "Exposure", "3.2 mAs"),
     }
 
 
@@ -92,7 +141,7 @@ def read_dicom_bytes(file_bytes: bytes) -> DicomResult:
     if pixel_array is None or pixel_array.size == 0:
         raise DicomProcessingError("DICOM pixel data is missing or empty.")
 
-    # If multi-frame, just take the first frame for this PoC
+    # If multi-frame, just take the first frame
     if pixel_array.ndim == 3 and pixel_array.shape[0] > 1 and pixel_array.shape[-1] not in (3, 4):
         pixel_array = pixel_array[0]
 

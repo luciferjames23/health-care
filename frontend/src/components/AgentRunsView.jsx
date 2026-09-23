@@ -133,7 +133,7 @@ export default function AgentRunsView({ onNavigate }) {
         {/* Runs Table */}
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid #eef0f1', fontWeight: 700, fontSize: '13px' }}>
-            Live Executions ({runs.length})
+            Executions ({runs.length})
           </div>
 
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>

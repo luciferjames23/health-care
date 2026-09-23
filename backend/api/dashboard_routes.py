@@ -17,7 +17,7 @@ Endpoints:
   GET  /api/dashboard/charts/intent-breakdown   — intent distribution
   POST /api/dashboard/doctors/{id}/status    — activate/deactivate doctor
 
-All queries read from the live PostgreSQL database (healthcare).
+All queries read from the PostgreSQL database (healthcare).
 No mock or hardcoded data is used in production paths.
 """
 
@@ -367,17 +367,23 @@ def get_dashboard_summary(
 @router.get("/patients")
 def get_patients(
     search: Optional[str] = Query(None),
+    patient_id: Optional[int] = Query(None, description="Filter directly by patient ID"),
     status: Optional[str] = Query(None),
-    doctor_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Returns a paginated list of patients.
-    Supports search by name, phone, or patient_code, and filter by status and doctor_id.
-    Enforces doctor scope for DOCTOR role or explicitly supplied doctor_id.
+    Supports search by patient_id, name, phone, or patient_code, and filter by status.
     """
+    # Unwrap FastAPI Query objects if invoked directly in tests/python code
+    if hasattr(search, 'default') or 'Query' in type(search).__name__: search = None
+    if hasattr(status, 'default') or 'Query' in type(status).__name__: status = None
+    if hasattr(patient_id, 'default') or 'Query' in type(patient_id).__name__: patient_id = None
+    if hasattr(page, 'default') or 'Query' in type(page).__name__: page = 1
+    if hasattr(per_page, 'default') or 'Query' in type(per_page).__name__: per_page = 20
+
     conn = None
     try:
         conn = get_conn()
@@ -386,10 +392,10 @@ def get_patients(
         conditions = []
         params = []
 
-        role_upper = (current_user.get("role") or "").upper()
-        eff_doctor_id = current_user.get("doctor_id") if role_upper == "DOCTOR" else doctor_id
+        role = current_user.get("role")
+        doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
 
-        if eff_doctor_id:
+        if doctor_id:
             conditions.append("""
                 (EXISTS (
                     SELECT 1 FROM appointments a 
@@ -399,14 +405,18 @@ def get_patients(
                     WHERE pa.patient_id = patients.id AND pa.doctor_id = %s
                 ))
             """)
-            params.extend([eff_doctor_id, eff_doctor_id])
+            params.extend([doctor_id, doctor_id])
+
+        if patient_id is not None:
+            conditions.append("patients.id = %s")
+            params.append(patient_id)
 
         if search:
             conditions.append(
-                "(LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
+                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
             )
             like = f"%{search.lower()}%"
-            params += [like, like, like, like]
+            params += [like, like, like, like, like]
 
         if status:
             conditions.append("status = %s")
@@ -771,13 +781,15 @@ def get_appointments(
         d_to_str = date_to if isinstance(date_to, str) else None
         d_type = date_type if isinstance(date_type, str) else 'appointment_date'
 
-        role_upper = (current_user.get("role") or "").upper()
-        user_doctor_id = current_user.get("doctor_id") if role_upper == "DOCTOR" else None
-        eff_doc_id = user_doctor_id if user_doctor_id is not None else doc_id_val
+        role = current_user.get("role")
+        user_doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
 
-        if eff_doc_id:
+        if user_doctor_id:
             conditions.append("a.doctor_id = %s")
-            params.append(eff_doc_id)
+            params.append(user_doctor_id)
+        elif doc_id_val:
+            conditions.append("a.doctor_id = %s")
+            params.append(doc_id_val)
 
         if search_str:
             conditions.append(
@@ -1146,48 +1158,56 @@ def create_doctor(body: NewDoctorRequest, admin_user: dict = Depends(require_adm
             raise HTTPException(status_code=400, detail=f"Email '{clean_email}' is already in use by another doctor.")
 
         # 4. Get DOCTOR role ID
-        cur.execute("SELECT id FROM roles WHERE name = 'DOCTOR';")
+        cur.execute("SELECT id FROM roles WHERE UPPER(name) = 'DOCTOR';")
         role_row = cur.fetchone()
         if not role_row:
             raise HTTPException(status_code=500, detail="DOCTOR role not found in database. Please contact admin.")
         doctor_role_id = role_row[0]
 
-        # 5. Create user account with email & phone populated
-        password_hash = get_hashed_password(body.password)
-        cur.execute(
-            """
-            INSERT INTO users (username, password_hash, role_id, email, phone, first_name, last_name, is_active, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            RETURNING id;
-            """,
-            (clean_username, password_hash, doctor_role_id, clean_email, clean_phone, body.first_name.strip(), body.last_name.strip())
-        )
-        user_id = cur.fetchone()[0]
-
-        # 6. Generate a doctor code
+        # 5. Generate doctor code and display name
         cur.execute("SELECT COUNT(*) FROM doctors;")
         count = cur.fetchone()[0]
         doctor_code = f"DOC{(count + 1):04d}"
-
-        # 7. Build display_name
         display_name = f"Dr. {body.first_name.strip()} {body.last_name.strip()}"
+        today_date = date.today().isoformat()
+        staff_code = f"STF-{doctor_code}"
 
-        # 8. Create doctor record
+        # 6. Create user account with required staff & constraint fields
+        password_hash = get_hashed_password(body.password)
+        cur.execute(
+            """
+            INSERT INTO users (
+                username, password_hash, role_id, email, phone, first_name, last_name, 
+                is_active, must_change_password, staff_code, staff_name, staff_type,
+                department_id, joining_date, experience, salary, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, FALSE, %s, %s, 'Doctor', %s, %s, %s, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id;
+            """,
+            (
+                clean_username, password_hash, doctor_role_id, clean_email, clean_phone, 
+                body.first_name.strip(), body.last_name.strip(), staff_code, display_name,
+                body.department_id, today_date, body.experience_years
+            )
+        )
+        user_id = cur.fetchone()[0]
+
+        # 7. Create doctor record
         cur.execute(
             """
             INSERT INTO doctors (
                 user_id, doctor_code, display_name, first_name, last_name,
                 specialization, qualification, experience_years,
-                phone, email, consultation_fee, department_id, status,
+                phone, email, consultation_fee, department_id, status, joining_date,
                 created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE',
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'ACTIVE', %s,
                       CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id;
             """,
             (
                 user_id, doctor_code, display_name, body.first_name.strip(), body.last_name.strip(),
                 body.specialization.strip(), body.qualification.strip(), body.experience_years,
-                clean_phone, clean_email, body.consultation_fee, body.department_id
+                clean_phone, clean_email, body.consultation_fee, body.department_id, today_date
             )
         )
         doctor_id = cur.fetchone()[0]

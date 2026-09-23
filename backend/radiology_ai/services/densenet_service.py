@@ -95,7 +95,7 @@ def load_densenet_model(checkpoint_path: str = DENSENET_CHECKPOINT_PATH, device:
         logger.warning(
             "DenseNet preprocessing is UNCONFIRMED against the original training "
             "notebook. Probabilities from this model should be treated as "
-            "unvalidated for this PoC. See config.py for details."
+            "unvalidated for clinical use. See config.py for details."
         )
 
     return model

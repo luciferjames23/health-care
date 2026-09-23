@@ -1,7 +1,14 @@
 import os
+import sys
+import threading
+from pathlib import Path
 import psycopg2
 import psycopg2.pool
-import threading
+
+# Load backend directory into sys.path if not present
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 def load_dotenv(override=True):
     """Lightweight, zero-dependency dotenv loader."""
@@ -26,16 +33,49 @@ def load_dotenv(override=True):
 
 load_dotenv()
 
-DB_HOST = os.getenv("DATABASE_HOST", "localhost")
-DB_PORT = os.getenv("DATABASE_PORT", "5433")
-DB_NAME = os.getenv("DATABASE_NAME", "healthcare")
-DB_USER = os.getenv("DATABASE_USER", "postgres")
-DB_PASSWORD = os.getenv("DATABASE_PASSWORD", "reji123@")
+# Import existing centralized Config
+try:
+    from config.config import Config
+    DEFAULT_HOST = Config.POSTGRES_HOST
+    DEFAULT_PORT = str(Config.POSTGRES_PORT)
+    DEFAULT_NAME = Config.POSTGRES_DB
+    DEFAULT_USER = Config.POSTGRES_USER
+    DEFAULT_PASSWORD = Config.POSTGRES_PASSWORD
+except Exception:
+    DEFAULT_HOST = "rivesca.eu.db.rivestack.io"
+    DEFAULT_PORT = "5432"
+    DEFAULT_NAME = "rv_pbpkghvg"
+    DEFAULT_USER = "rv_pbpkghvg"
+    DEFAULT_PASSWORD = "d_3zzwU0qzrtkujXG6YVBGlXGx9-kxp05cfBMiHqQ48="
 
+# Database Config Defaults linked to our shared PostgreSQL Lakehouse
+DB_HOST = os.getenv("DATABASE_HOST", os.getenv("POSTGRES_HOST", DEFAULT_HOST))
+DB_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", DEFAULT_PORT))
+DB_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", DEFAULT_NAME))
+DB_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", DEFAULT_USER))
+DB_PASSWORD = os.getenv("DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", DEFAULT_PASSWORD))
+# Local development PostgreSQL may not provide TLS; remote cloud connections still require it.
+# Treat loopback addresses AND RFC-1918 private LAN addresses as non-SSL-required hosts.
+def _is_local_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+_DEFAULT_SSLMODE = "prefer" if _is_local_host(DB_HOST) else "require"
+DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMODE))
+
+# Connection Pooling
 _pool_lock = threading.Lock()
-_connection_pool = None
+_connection_pool = None  # Lazy-initialized on first call
 
-_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+# This database role is shared with other services and administrative clients.
+# Increase DB_POOL_MAX only when the role has spare connection capacity.
 _POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 
 
@@ -61,6 +101,12 @@ class _PooledConnection:
     def rollback(self):
         return self._conn.rollback()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     @property
     def autocommit(self):
         return self._conn.autocommit
@@ -70,6 +116,7 @@ class _PooledConnection:
         self._conn.autocommit = value
 
     def close(self):
+        """Return the connection to the pool instead of destroying it."""
         if self._closed:
             return
         self._closed = True
@@ -85,6 +132,7 @@ class _PooledConnection:
 
 
 def _get_pool(database_name=None):
+    """Lazily initializes and returns the ThreadedConnectionPool singleton."""
     global _connection_pool
     dbname = database_name or DB_NAME
     if _connection_pool is not None:
@@ -101,33 +149,47 @@ def _get_pool(database_name=None):
                 database=dbname,
                 user=DB_USER,
                 password=DB_PASSWORD,
+                sslmode=DB_SSLMODE,
+                connect_timeout=10,
             )
-            print(f"[PERF] DB connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
+            print(f"[PERF] Shared PostgreSQL connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
         except Exception as exc:
-            print(f"[PERF] Failed to initialize connection pool: {exc}. Falling back to direct connections.")
+            print(f"[PERF] Connection pool init warning: {exc}, falling back to direct connections")
             _connection_pool = None
         return _connection_pool
 
 
 def get_db_connection(database_name=None):
-    pool = _get_pool(database_name)
-    if pool is not None:
-        try:
-            raw_conn = pool.getconn()
-            if raw_conn and not raw_conn.closed:
-                return _PooledConnection(raw_conn, pool)
-        except Exception:
-            pass
-
+    """
+    Returns a database connection pointing to our PostgreSQL database.
+    Uses connection pooling when available, falling back to direct connection.
+    """
     dbname = database_name or DB_NAME
+    try:
+        pool = _get_pool(database_name)
+        if pool is not None:
+            try:
+                raw_conn = pool.getconn()
+                if raw_conn and not raw_conn.closed:
+                    return _PooledConnection(raw_conn, pool)
+            except Exception:
+                pass  # Pool busy/exhausted — fall through to direct connection
+    except Exception:
+        pass
+
+    # Direct connection fallback
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,
         database=dbname,
         user=DB_USER,
-        password=DB_PASSWORD
+        password=DB_PASSWORD,
+        sslmode=DB_SSLMODE,
+        connect_timeout=10
     )
 
+
 def get_db_connection_string(database_name=None):
+    """Returns the PostgreSQL connection DSN string."""
     dbname = database_name or DB_NAME
-    return f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{dbname}"
+    return f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{dbname}?sslmode={DB_SSLMODE}"

@@ -183,9 +183,16 @@ def route_patient_message_llm(
 
 
 def check_emergency(message_text: str) -> bool:
-    """Returns True if message contains an emergency symptom phrase."""
+    """Returns True if message contains an acute emergency symptom phrase or emergency guidance intent."""
     msg_clean = message_text.lower().strip()
-    return any(s in msg_clean for s in EMERGENCY_SYMPTOMS) or (intent_detector.detect_intent(message_text) == "EMERGENCY_GUIDANCE")
+    ACUTE_EMERGENCY_INDICATORS = [
+        "severe", "acute", "sudden", "emergency", "crushing", "extreme",
+        "cannot", "can't", "unconscious", "choking", "stroke", "heart attack", "heavy bleeding"
+    ]
+    if any(ind in msg_clean for ind in ACUTE_EMERGENCY_INDICATORS):
+        return any(s in msg_clean for s in EMERGENCY_SYMPTOMS) or (intent_detector.detect_intent(message_text) == "EMERGENCY_GUIDANCE")
+    return intent_detector.detect_intent(message_text) == "EMERGENCY_GUIDANCE"
+
 
 
 

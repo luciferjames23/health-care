@@ -17,4 +17,4 @@ npm run dev
 Open http://localhost:5173
 
 ## Important
-`frontend/public/meridian-prototype-v2.1.html` is the exact prototype master. Do not edit its non-Radiology modules when integrating the live Radiology PoC.
+`frontend/public/meridian-prototype-v2.1.html` is the exact prototype master. Do not edit its non-Radiology modules when integrating the Radiology service.

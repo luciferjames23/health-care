@@ -9,7 +9,7 @@ Manages:
   - Media Upload/Download mechanics
   - Graceful mock simulation for local/offline testing
 
-Step 5.3 — Meridian Hospital POC
+Step 5.3 — Meridian Hospital
 """
 
 import os
@@ -256,7 +256,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         send_text_message(to_number, text)
         text = "Please choose an option below:"
 
-    if len(buttons) > 3:
+    if len(buttons) > 3 or any(len(str(b.get("title", ""))) > 20 for b in buttons):
         rows = []
         # Meta WhatsApp Cloud API limits interactive list messages to max 10 rows total across all sections.
         for btn in buttons[:10]:
@@ -409,7 +409,7 @@ def send_audio_message(to_number: str, audio_data_uri_or_path: str) -> dict:
         "recipient_type": "individual",
         "to": to_number,
         "type": "audio",
-        "audio": {"link": "http://meridian-hospital.poc/static/audio_response.wav"}
+        "audio": {"link": "http://meridian-hospital.local/static/audio_response.wav"}
     }
     
     if is_mock_mode():
@@ -625,6 +625,7 @@ def send_typing_indicator(to_number: str) -> dict:
             print(f"[WhatsApp] send_typing_indicator error: {e}")
         log_outbound_simulation("typing_indicator", to_number, payload)
         return {"success": True, "fallback": True}
+
 
 def process_incoming_whatsapp_payload(payload: dict) -> dict:
     """Processes incoming WhatsApp payload dictionary."""

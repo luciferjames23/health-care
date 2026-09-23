@@ -1,13 +1,18 @@
 """Orthanc demo PACS integration.
 
-This module ONLY retrieves DICOM studies/instances from the simulated Orthanc
-server. It never performs AI inference; PACS and manual-upload paths converge
-into the same run_full_analysis() pipeline in main.py.
+Retrieves original DICOM studies and publishes stored AI localization previews
+as derived Secondary Capture series. It never performs AI inference.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 import requests
+import hashlib
+import threading
+import uuid
+
+_localization_lock = threading.Lock()
+AI_SERIES_DESCRIPTION = "AI Localization - Derived Preview"
 
 import config
 
@@ -23,7 +28,7 @@ class OrthancInstanceRef:
     instance_id: str
 
 
-def _request(method: str, path: str, *, timeout: int = 15) -> requests.Response:
+def _request(method: str, path: str, *, timeout: int = 15, json=None) -> requests.Response:
     url = f"{config.ORTHANC_URL.rstrip('/')}{path}"
     try:
         response = requests.request(
@@ -31,6 +36,7 @@ def _request(method: str, path: str, *, timeout: int = 15) -> requests.Response:
             url,
             auth=(config.ORTHANC_USERNAME, config.ORTHANC_PASSWORD),
             timeout=timeout,
+            json=json,
         )
     except requests.RequestException as exc:
         raise OrthancError("Demo PACS is unavailable.") from exc
@@ -74,8 +80,13 @@ def get_first_instance_for_study(study_id: str) -> OrthancInstanceRef:
     if not series_ids:
         raise OrthancError("No series were found for this PACS study.")
 
-    series_id = series_ids[0]
-    series = get_series(series_id)
+    # Never feed the derived, burned-in AI preview back into inference.
+    originals = [(sid, get_series(sid)) for sid in series_ids]
+    originals = [(sid, series) for sid, series in originals
+                 if (series.get("MainDicomTags") or {}).get("SeriesDescription") != AI_SERIES_DESCRIPTION]
+    if not originals:
+        raise OrthancError("No original image series were found for this PACS study.")
+    series_id, series = originals[0]
     instance_ids = series.get("Instances") or []
     if not instance_ids:
         raise OrthancError("No DICOM instances were found for this PACS study.")
@@ -138,3 +149,39 @@ def get_studies() -> list[dict[str, Any]]:
         })
 
     return studies
+
+
+def ensure_localized_series(record: dict) -> dict:
+    """Publish the stored overlay as a separate Secondary Capture series."""
+    uid = (record.get("source") or {}).get("study_instance_uid") or (record.get("metadata") or {}).get("study_instance_uid")
+    image = (record.get("images") or {}).get("annotated")
+    if not uid or not image:
+        raise OrthancError("This result needs a PACS study and a stored localized image.")
+    digest = hashlib.sha256(image.encode("ascii")).hexdigest()
+    seed = f"{uid}:{record['study_id']}:{digest}"
+    series_uid = "2.25." + str(uuid.uuid5(uuid.NAMESPACE_URL, seed + ":series").int)
+    sop_uid = "2.25." + str(uuid.uuid5(uuid.NAMESPACE_URL, seed + ":instance").int)
+    with _localization_lock:
+        parents = _request("POST", "/tools/find", json={
+            "Level": "Study", "Query": {"StudyInstanceUID": uid}
+        }).json()
+        if len(parents) != 1:
+            raise OrthancError("The original study could not be uniquely located in PACS.")
+        existing = _request("POST", "/tools/find", json={
+            "Level": "Instance", "Query": {"SOPInstanceUID": sop_uid}
+        }).json()
+        if not existing:
+            _request("POST", "/tools/create-dicom", timeout=30, json={
+                "Parent": parents[0], "Force": True,
+                "Content": image if image.startswith("data:") else "data:image/png;base64," + image,
+                "Tags": {
+                    "SOPClassUID": "1.2.840.10008.5.1.4.1.1.7",
+                    "SeriesInstanceUID": series_uid, "SOPInstanceUID": sop_uid,
+                    "SeriesDescription": AI_SERIES_DESCRIPTION,
+                    "SeriesNumber": "900", "InstanceNumber": "1", "Modality": "OT",
+                    "ImageType": "DERIVED\\SECONDARY",
+                    "ConversionType": "WSD", "BurnedInAnnotation": "YES",
+                    "DerivationDescription": "Stored AI localization preview with burned-in boxes; not a diagnostic original.",
+                },
+            })
+    return {"study_instance_uid": uid, "series_instance_uid": series_uid}

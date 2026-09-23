@@ -1,13 +1,17 @@
 import re
 import time
 import datetime
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+import uuid
+import logging
+from typing import Optional, List, Dict, Any, Union
+from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 from services.discharge_generator import generate_and_persist_discharge_summaries
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/discharge-agent",
@@ -19,6 +23,49 @@ db_connector = DatabricksConnector()
 DEFAULT_NOTEBOOK_ID = "2865138219507461"
 
 
+class ClearBillRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    bill_number: Optional[str] = None
+    amount: Optional[float] = None
+    payment_method: Optional[str] = "UPI"
+    payment_reference: Optional[str] = None
+    remarks: Optional[str] = "Cleared via Bill Clearance API"
+
+
+class SimulateInsurerRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    bill_id: Optional[Union[str, int]] = None
+    bill_number: Optional[str] = None
+    decision: str = "approve"  # "approve" / "approved" or "reject" / "rejected"
+    insurer: Optional[str] = None
+    amount: Optional[float] = None
+    remarks: Optional[str] = None
+
+
+class EscalateCaseRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    case_id: Optional[str] = None
+    remarks: Optional[str] = "Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead"
+
+
+
+class GenerateVitalsRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    vital_type: str = "normal"  # "normal" or "abnormal"
+    temperature: Optional[float] = None
+    heart_rate: Optional[int] = None
+    systolic_bp: Optional[int] = None
+    diastolic_bp: Optional[int] = None
+    oxygen_saturation: Optional[float] = None
+    respiratory_rate: Optional[int] = None
+    recorded_by: Optional[int] = None
+    notes: Optional[str] = None
+
+
 class PatientDischargeValidateRequest(BaseModel):
     patient_id: str
 
@@ -26,6 +73,9 @@ class PatientDischargeValidateRequest(BaseModel):
 class PatientDischargeOrchestrateRequest(BaseModel):
     patient_id: str
     notebook_id: Optional[str] = DEFAULT_NOTEBOOK_ID
+    model_name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
     force_generate: Optional[bool] = False
     timeout_seconds: Optional[int] = 300
 
@@ -83,6 +133,15 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
         sec_diag_str = ""
     sec_diag_str = re.sub(r'\[\s*\]', '', sec_diag_str).strip()
 
+    # Resolve bed_number: prefer explicit bed_number, then format bed_id as BED-0xxx
+    raw_bed = adm.get("bed_number") or adm.get("bed_id")
+    if raw_bed and str(raw_bed).isdigit():
+        bed_number = f"BED-{str(raw_bed).zfill(4)}"
+    elif raw_bed:
+        bed_number = str(raw_bed)
+    else:
+        bed_number = None
+
     return {
         "patient_id": adm.get("patient_id") or pid_str,
         "patient_number": adm.get("patient_number") or f"MER-PAT-{pid_str}",
@@ -109,7 +168,8 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
         "bill_clearance_status": adm.get("bill_clearance_status") or adm.get("bill_status") or "Pending",
         "bill_net_amount": float(adm.get("bill_net_amount", 0.0) or 0.0),
         "outstanding_balance": float(adm.get("outstanding_balance", 0.0) if adm.get("outstanding_balance") is not None else 0.0),
-        "risk_score": float(adm.get("risk_score", 0.42) or 0.42)
+        "risk_score": float(adm.get("risk_score", 0.42) or 0.42),
+        "bed_number": bed_number
     }
 
 
@@ -608,7 +668,8 @@ def list_discharge_agent_patients():
                 "vitals_issues": vitals_issues,
                 "is_eligible": is_ready,
                 "has_generated_summary": False,
-                "risk_score": p_info["risk_score"]
+                "risk_score": p_info["risk_score"],
+                "bed_number": p_info.get("bed_number")
             })
 
         return {
@@ -678,9 +739,14 @@ def orchestrate_discharge(request: PatientDischargeOrchestrateRequest):
             "action_required": "Resolve all pending items before triggering discharge summary generation."
         }
 
-    # Step 3 & 4: Execute discharge summary generation locally and persist into Gold table
+    # Step 3 & 4: Execute discharge summary generation with chosen model and persist into Gold table
     eligible_pids_str = ",".join(str(vp["patient_id"]) for vp in validated_patients) if validated_patients else raw_pid
-    gen_res = generate_and_persist_discharge_summaries(eligible_pids_str)
+    gen_res = generate_and_persist_discharge_summaries(
+        eligible_pids_str,
+        model_name=request.model_name,
+        provider=request.provider,
+        api_key=request.api_key
+    )
     try:
         db_connector.clear_cache()
     except Exception:
@@ -722,6 +788,9 @@ def orchestrate_discharge(request: PatientDischargeOrchestrateRequest):
 class RunFlowRequest(BaseModel):
     patient_ids: Optional[List[str]] = None
     notebook_id: Optional[str] = DEFAULT_NOTEBOOK_ID
+    model_name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
     timeout_seconds: Optional[int] = 300
 
 
@@ -894,6 +963,9 @@ def run_discharge_flow(request: RunFlowRequest = RunFlowRequest()):
         orch_req = PatientDischargeOrchestrateRequest(
             patient_id=comma_separated_pids,
             notebook_id=notebook_id,
+            model_name=request.model_name,
+            provider=request.provider,
+            api_key=request.api_key,
             force_generate=False,
             timeout_seconds=timeout_sec
         )
@@ -929,5 +1001,1146 @@ def run_discharge_flow(request: RunFlowRequest = RunFlowRequest()):
         "batch_notebook_run": batch_orch_res.get("notebook_run") if batch_orch_res else None,
         "message": f"Discharge flow executed. Triggered notebook once for {len(executed_results)} eligible patient(s) ({','.join(str(c['patient_id']) for c in candidates) if candidates else 'none'}). {flow_data['step_2_vitals_summary']['unstable_vitals_count']} patients flagged with abnormal vitals."
     }
+
+
+def _parse_id_numeric(val: Any) -> Optional[int]:
+    """Safely extracts numeric integer from ID (e.g., 'MER-PAT-0087231' -> 87231, '87231' -> 87231)."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    digits = re.findall(r'\d+', s)
+    if digits:
+        try:
+            return int(digits[-1])
+        except Exception:
+            return None
+    return None
+
+
+def clear_patient_bill_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    bill_id: Optional[Union[str, int]] = None,
+    bill_number: Optional[str] = None,
+    amount: Optional[float] = None,
+    payment_method: Optional[str] = "UPI",
+    payment_reference: Optional[str] = None,
+    remarks: Optional[str] = "Cleared via Bill Clearance API"
+) -> Dict[str, Any]:
+    """
+    Clears / settles a hospital bill in PostgreSQL:
+    1. Updates `dim_admission_inputs`:
+       - bill_status = 'Paid' (or 'Partially Paid' if partial payment)
+       - bill_clearance_status = 'Cleared' (or 'Partial Payment')
+       - outstanding_balance = updated outstanding balance (0.00 if fully cleared)
+    2. Updates `bills`:
+       - bill_status = 'Settled' (or 'Partially Paid')
+    3. Inserts into `payments`:
+       - payment record with payment_status = 'SUCCESS' and unique transaction reference
+    4. Invalidates cache in DatabricksConnector so UI dashboards & discharge agents update immediately.
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+    parsed_bid = _parse_id_numeric(bill_id)
+    b_num = str(bill_number).strip() if bill_number else None
+
+    if not any([parsed_pid, parsed_aid, parsed_bid, b_num]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier must be provided: patient_id, admission_id, bill_id, or bill_number."
+        )
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        adm_row = None
+        # Step 1: Look up admission record in dim_admission_inputs
+        if parsed_aid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and b_num:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE bill_number = %s
+                LIMIT 1;
+            """, (b_num,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and parsed_pid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE patient_id = %s
+                ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+                LIMIT 1;
+            """, (parsed_pid,))
+            adm_row = cur.fetchone()
+            if not adm_row:
+                cur.execute("""
+                    SELECT admission_id, patient_id, first_name, last_name, 
+                           bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                    FROM dim_admission_inputs
+                    WHERE admission_id = %s
+                    ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+                    LIMIT 1;
+                """, (parsed_pid,))
+                adm_row = cur.fetchone()
+
+        if not adm_row and parsed_bid is not None:
+            cur.execute("""
+                SELECT b.admission_id, b.patient_id, b.bill_number
+                FROM bills b
+                WHERE b.bill_id = %s
+                LIMIT 1;
+            """, (parsed_bid,))
+            b_info = cur.fetchone()
+            if b_info:
+                b_aid, b_pid, b_num_found = b_info
+                if b_aid:
+                    cur.execute("""
+                        SELECT admission_id, patient_id, first_name, last_name, 
+                               bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                        FROM dim_admission_inputs
+                        WHERE admission_id = %s
+                        LIMIT 1;
+                    """, (b_aid,))
+                    adm_row = cur.fetchone()
+                elif b_pid:
+                    cur.execute("""
+                        SELECT admission_id, patient_id, first_name, last_name, 
+                               bill_number, bill_net_amount, bill_status, bill_clearance_status, outstanding_balance
+                        FROM dim_admission_inputs
+                        WHERE patient_id = %s
+                        ORDER BY admission_id DESC
+                        LIMIT 1;
+                    """, (b_pid,))
+                    adm_row = cur.fetchone()
+
+        resolved_pid = None
+        resolved_aid = None
+        resolved_b_num = None
+        resolved_bid = parsed_bid
+        pat_name = "Patient"
+        prev_outstanding = 0.0
+        bill_net = 0.0
+
+        if adm_row:
+            resolved_aid = adm_row[0]
+            resolved_pid = adm_row[1]
+            first_n = adm_row[2] or ""
+            last_n = adm_row[3] or ""
+            pat_name = f"{first_n} {last_n}".strip() or f"Patient #{resolved_pid}"
+            resolved_b_num = adm_row[4]
+            bill_net = float(adm_row[5] or 0.0)
+            prev_outstanding = float(adm_row[8] if adm_row[8] is not None else bill_net)
+        else:
+            # Fallback directly to bills table
+            cur.execute("""
+                SELECT b.bill_id, b.patient_id, b.admission_id, b.bill_number, b.net_amount, b.patient_amount, b.bill_status,
+                       p.first_name, p.last_name
+                FROM bills b
+                LEFT JOIN patients p ON b.patient_id = p.id
+                WHERE (%s IS NOT NULL AND b.bill_id = %s)
+                   OR (%s IS NOT NULL AND b.bill_number = %s)
+                   OR (%s IS NOT NULL AND b.admission_id = %s)
+                   OR (%s IS NOT NULL AND b.patient_id = %s)
+                   OR (%s IS NOT NULL AND b.admission_id = %s)
+                ORDER BY (b.bill_status != 'Settled') DESC, b.bill_id DESC
+                LIMIT 1;
+            """, (parsed_bid, parsed_bid, b_num, b_num, parsed_aid, parsed_aid, parsed_pid, parsed_pid, parsed_pid, parsed_pid))
+            b_row = cur.fetchone()
+            if not b_row:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No bill or admission record found matching: patient_id={patient_id}, admission_id={admission_id}, bill_id={bill_id}, bill_number={bill_number}."
+                )
+            resolved_bid = b_row[0]
+            resolved_pid = b_row[1]
+            resolved_aid = b_row[2]
+            resolved_b_num = b_row[3]
+            bill_net = float(b_row[4] or 0.0)
+            p_amt = float(b_row[5] or bill_net)
+            prev_outstanding = p_amt if b_row[6] != 'Settled' else 0.0
+            pat_name = f"{b_row[7] or ''} {b_row[8] or ''}".strip() or f"Patient #{resolved_pid}"
+
+        # Calculate clearance amount
+        effective_outstanding = prev_outstanding if prev_outstanding > 0 else bill_net
+        if amount is not None and float(amount) > 0:
+            pay_amt = float(amount)
+            new_outstanding = max(0.0, effective_outstanding - pay_amt)
+            cleared_amt = min(pay_amt, effective_outstanding)
+        else:
+            cleared_amt = effective_outstanding
+            new_outstanding = 0.0
+
+        is_fully_cleared = (new_outstanding <= 0.0)
+        new_status = "Paid" if is_fully_cleared else "Partially Paid"
+        new_clearance = "Cleared" if is_fully_cleared else "Partial Payment"
+        new_bill_tbl_status = "Settled" if is_fully_cleared else "Partially Paid"
+
+        # Update dim_admission_inputs
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET bill_status = %s,
+                    bill_clearance_status = %s,
+                    outstanding_balance = %s
+                WHERE admission_id = %s;
+            """, (new_status, new_clearance, new_outstanding, resolved_aid))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET bill_status = %s,
+                    bill_clearance_status = %s,
+                    outstanding_balance = %s
+                WHERE patient_id = %s;
+            """, (new_status, new_clearance, new_outstanding, resolved_pid))
+
+        # Update bills table
+        matched_bill_id = resolved_bid
+        if not matched_bill_id:
+            cur.execute("""
+                SELECT bill_id FROM bills
+                WHERE (%s IS NOT NULL AND admission_id = %s)
+                   OR (%s IS NOT NULL AND bill_number = %s)
+                   OR (%s IS NOT NULL AND patient_id = %s AND bill_status != 'Settled')
+                ORDER BY (bill_status != 'Settled') DESC, bill_id DESC
+                LIMIT 1;
+            """, (resolved_aid, resolved_aid, resolved_b_num, resolved_b_num, resolved_pid, resolved_pid))
+            b_found = cur.fetchone()
+            if b_found:
+                matched_bill_id = b_found[0]
+
+        if matched_bill_id:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = %s
+                WHERE bill_id = %s;
+            """, (new_bill_tbl_status, matched_bill_id))
+        elif resolved_aid:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = %s
+                WHERE admission_id = %s;
+            """, (new_bill_tbl_status, resolved_aid))
+
+        # Insert audit record in payments table
+        now_dt = datetime.datetime.now()
+        ref = payment_reference or f"PAY-CLR-{uuid.uuid4().hex[:8].upper()}"
+        txn_ref = f"TXN-{uuid.uuid4().hex[:10].upper()}"
+        pay_method = (payment_method or "UPI").upper()
+
+        cur.execute("""
+            INSERT INTO payments (
+                id, bill_id, patient_id, amount, payment_method,
+                payment_status, payer_type, payment_reference,
+                transaction_reference, payment_date, created_at, updated_at
+            ) VALUES (
+                (SELECT COALESCE(MAX(id), 0) + 1 FROM payments),
+                %s, %s, %s, %s,
+                'SUCCESS', 'PATIENT', %s,
+                %s, %s, %s, %s
+            ) RETURNING id;
+        """, (
+            matched_bill_id, resolved_pid, cleared_amt, pay_method,
+            ref, txn_ref, now_dt, now_dt, now_dt
+        ))
+        payment_id = cur.fetchone()[0]
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        return {
+            "success": True,
+            "message": f"Bill successfully cleared and marked '{new_clearance}' for {pat_name}",
+            "patient_id": resolved_pid,
+            "patient_name": pat_name,
+            "admission_id": resolved_aid,
+            "bill_id": matched_bill_id,
+            "bill_number": resolved_b_num,
+            "cleared_amount": round(cleared_amt, 2),
+            "outstanding_balance": round(new_outstanding, 2),
+            "bill_status": new_status,
+            "bill_clearance_status": new_clearance,
+            "is_bill_cleared": is_fully_cleared,
+            "discharge_gate_1_status": "PASSED" if is_fully_cleared else "FAILED",
+            "payment": {
+                "payment_id": payment_id,
+                "amount": round(cleared_amt, 2),
+                "payment_method": pay_method,
+                "payment_reference": ref,
+                "transaction_reference": txn_ref,
+                "status": "SUCCESS",
+                "payment_date": now_dt.isoformat()
+            }
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to clear bill: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/clear-bill", summary="Clear Patient Hospital Bill & Grant Financial Clearance")
+def clear_patient_bill(request: ClearBillRequest):
+    """
+    Clears and settles the outstanding hospital bill for an inpatient or patient.
+    Accepts patient_id, admission_id, bill_id, or bill_number.
+    Updates PostgreSQL tables:
+    - `dim_admission_inputs` (bill_status -> 'Paid', bill_clearance_status -> 'Cleared', outstanding_balance -> 0.00)
+    - `bills` (bill_status -> 'Settled')
+    - `payments` (records successful transaction)
+    Immediately marks Gate 1 (Bill Clearance) as PASSED in the Discharge Orchestration Agent pipeline.
+    """
+    return clear_patient_bill_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        bill_number=request.bill_number,
+        amount=request.amount,
+        payment_method=request.payment_method,
+        payment_reference=request.payment_reference,
+        remarks=request.remarks
+    )
+
+
+@router.post("/patient/{patient_id}/clear-bill", summary="Clear Patient Hospital Bill by Patient ID")
+def clear_patient_bill_by_id(
+    patient_id: str,
+    payment_method: Optional[str] = Query("UPI"),
+    amount: Optional[float] = Query(None)
+):
+    """
+    Convenience endpoint to clear a patient's bill directly via URL path:
+    POST /api/v1/discharge-agent/patient/{patient_id}/clear-bill
+    """
+    return clear_patient_bill_internal(
+        patient_id=patient_id,
+        amount=amount,
+        payment_method=payment_method
+    )
+
+
+def escalate_discharge_case_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    case_id: Optional[str] = None,
+    remarks: Optional[str] = "Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead"
+) -> Dict[str, Any]:
+    """
+    Escalates a discharge case and permanently stores its status as 'Ready' in PostgreSQL:
+    1. Updates `dim_admission_inputs`:
+       - discharge_status = 'Ready'
+       - bill_status = 'Paid'
+       - bill_clearance_status = 'Cleared'
+       - outstanding_balance = 0.00
+    2. Updates `admissions`:
+       - discharge_status = 'Ready'
+    3. Updates `bills`:
+       - bill_status = 'Settled'
+    4. Updates `dim_generated_discharge_summaries`:
+       - approval_status = 'Approved'
+    5. Invalidates DatabricksConnector cache so UI dashboards & page reloads reflect 'Ready' permanently.
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+
+    if not parsed_aid and not parsed_pid and case_id:
+        c_str = str(case_id).strip()
+        nums = re.findall(r'\d+', c_str)
+        if nums:
+            if 'ADM' in c_str.upper():
+                parsed_aid = int(nums[-1])
+            else:
+                parsed_pid = int(nums[-1])
+
+    if not parsed_aid and not parsed_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier (patient_id, admission_id, or case_id) must be provided to escalate discharge case."
+        )
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        resolved_aid = None
+        resolved_pid = None
+        patient_name = "Patient"
+
+        if parsed_aid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name
+                FROM dim_admission_inputs
+                WHERE admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        if not resolved_aid and parsed_pid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name
+                FROM dim_admission_inputs
+                WHERE patient_id = %s
+                ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+                LIMIT 1;
+            """, (parsed_pid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        if not resolved_aid and parsed_aid is not None:
+            cur.execute("""
+                SELECT a.admission_id, a.patient_id, p.first_name, p.last_name
+                FROM admissions a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                WHERE a.admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        resolved_aid = resolved_aid or parsed_aid
+        resolved_pid = resolved_pid or parsed_pid
+
+        # 1. Update dim_admission_inputs
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET discharge_status = 'Ready',
+                    bill_status = 'Paid',
+                    bill_clearance_status = 'Cleared',
+                    outstanding_balance = 0.00
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET discharge_status = 'Ready',
+                    bill_status = 'Paid',
+                    bill_clearance_status = 'Cleared',
+                    outstanding_balance = 0.00
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        # 2. Update admissions table
+        if resolved_aid:
+            cur.execute("""
+                UPDATE admissions
+                SET discharge_status = 'Ready'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE admissions
+                SET discharge_status = 'Ready'
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        # 3. Update bills table
+        if resolved_aid:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = 'Settled'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = 'Settled'
+                WHERE patient_id = %s AND admission_id IS NOT NULL;
+            """, (resolved_pid,))
+
+        # 4. Update discharge summaries if present
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_generated_discharge_summaries
+                SET approval_status = 'Approved'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_generated_discharge_summaries
+                SET approval_status = 'Approved'
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        logger.info(f"Discharge case escalated to Ready in DB: patient_id={resolved_pid}, admission_id={resolved_aid}")
+
+        return {
+            "success": True,
+            "patient_id": resolved_pid,
+            "admission_id": resolved_aid,
+            "patient_name": patient_name,
+            "status": "Ready",
+            "message": f"Discharge case successfully escalated and stored as Ready in database for {patient_name}."
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error escalating discharge case: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to escalate discharge case: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/escalate-case", summary="Escalate and Fast-track Discharge Case to Ready in Database")
+def escalate_discharge_case_api(request: EscalateCaseRequest):
+    """
+    Escalates operational bottlenecks and moves patient discharge status to 'Ready'.
+    Persists changes directly into PostgreSQL tables (`dim_admission_inputs`, `admissions`, `bills`).
+    Ensures that page refreshes maintain the patient in 'Ready' state.
+    """
+    return escalate_discharge_case_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        case_id=request.case_id,
+        remarks=request.remarks
+    )
+
+
+@router.post("/patient/{patient_id}/escalate", summary="Escalate Discharge Case by Patient ID")
+def escalate_discharge_case_by_patient_id(
+    patient_id: str,
+    remarks: Optional[str] = Query("Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead")
+):
+    return escalate_discharge_case_internal(
+        patient_id=patient_id,
+        remarks=remarks
+    )
+
+
+@router.post("/case/{case_id}/escalate", summary="Escalate Discharge Case by Case ID")
+def escalate_discharge_case_by_case_id(
+    case_id: str,
+    remarks: Optional[str] = Query("Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead")
+):
+    return escalate_discharge_case_internal(
+        case_id=case_id,
+        remarks=remarks
+    )
+
+
+def simulate_insurer_decision_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    bill_id: Optional[Union[str, int]] = None,
+    bill_number: Optional[str] = None,
+    decision: str = "approve",
+    insurer: Optional[str] = None,
+    amount: Optional[float] = None,
+    remarks: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Simulates insurer preauth / enhancement approval or rejection in PostgreSQL Lakehouse:
+    1. Updates or inserts record in `insurance_claims`:
+       - Approved: claim_status='Approved', approved_amount=amount, rejected_amount=0, settlement_date=CURRENT_DATE
+       - Rejected: claim_status='Rejected', approved_amount=0, rejected_amount=amount, rejection_reason=remarks
+    2. Updates `bills`:
+       - Approved: insurance_amount=amount, patient_amount=GREATEST(0, net_amount - amount)
+       - Rejected: insurance_amount=0, patient_amount=net_amount
+    3. Updates `dim_admission_inputs`:
+       - Approved: outstanding_balance=GREATEST(0, bill_net_amount - amount)
+       - Rejected: outstanding_balance=bill_net_amount
+    4. Clears DatabricksConnector cache so frontend queries see real-time updates.
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+    parsed_bid = _parse_id_numeric(bill_id)
+    b_num = str(bill_number).strip() if bill_number else None
+
+    if not any([parsed_pid, parsed_aid, parsed_bid, b_num]):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier must be provided: patient_id, admission_id, bill_id, or bill_number."
+        )
+
+    is_approve = str(decision).strip().lower() in ("approve", "approved", "accept", "accepted")
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Step 1: Look up admission in dim_admission_inputs
+        adm_row = None
+        if parsed_aid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and parsed_pid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE patient_id = %s
+                ORDER BY admission_id DESC
+                LIMIT 1;
+            """, (parsed_pid,))
+            adm_row = cur.fetchone()
+
+        if not adm_row and b_num:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name, 
+                       bill_number, bill_net_amount, outstanding_balance
+                FROM dim_admission_inputs
+                WHERE bill_number = %s
+                LIMIT 1;
+            """, (b_num,))
+            adm_row = cur.fetchone()
+
+        resolved_aid = adm_row[0] if adm_row else parsed_aid
+        resolved_pid = adm_row[1] if adm_row else parsed_pid
+        resolved_b_num = adm_row[4] if adm_row else b_num
+        bill_net = float(adm_row[5] if adm_row and adm_row[5] is not None else 187500.0)
+        pat_name = f"{adm_row[2] or ''} {adm_row[3] or ''}".strip() if adm_row else f"Patient #{resolved_pid}"
+
+        # Step 2: Find linked bill in bills table (prioritizing active admission)
+        bill_row = None
+        if resolved_aid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE admission_id = %s
+                ORDER BY bill_id DESC
+                LIMIT 1;
+            """, (resolved_aid,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and parsed_bid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE bill_id = %s
+                LIMIT 1;
+            """, (parsed_bid,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and resolved_b_num:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE bill_number = %s
+                LIMIT 1;
+            """, (resolved_b_num,))
+            bill_row = cur.fetchone()
+
+        if not bill_row and resolved_pid:
+            cur.execute("""
+                SELECT bill_id, bill_number, net_amount, patient_amount, insurance_amount
+                FROM bills
+                WHERE patient_id = %s
+                ORDER BY (admission_id IS NOT NULL) DESC, bill_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            bill_row = cur.fetchone()
+
+        resolved_bid = bill_row[0] if bill_row else (parsed_bid or resolved_aid)
+        if bill_row and bill_row[2]:
+            bill_net = float(bill_row[2])
+
+        # Step 3: Find insurance details from patient_insurance
+        ins_provider = insurer
+        pol_num = None
+        if resolved_pid:
+            cur.execute("""
+                SELECT insurance_provider, policy_number
+                FROM patient_insurance
+                WHERE patient_id = %s
+                ORDER BY insurance_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            pi_row = cur.fetchone()
+            if pi_row:
+                ins_provider = insurer or pi_row[0]
+                pol_num = pi_row[1]
+
+        if not ins_provider:
+            ins_provider = "Star Health"
+        if not pol_num:
+            pol_num = f"POL-{resolved_pid or resolved_aid or '2026'}"
+
+        claim_amt = float(amount) if amount is not None and float(amount) > 0 else bill_net
+
+        # Step 4: Upsert insurance_claims (linked to current bill/admission)
+        existing_claim = None
+        if resolved_bid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE bill_id = %s
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_bid,))
+            existing_claim = cur.fetchone()
+
+        if not existing_claim and resolved_aid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE bill_id IN (SELECT bill_id FROM bills WHERE admission_id = %s)
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_aid,))
+            existing_claim = cur.fetchone()
+
+        if not existing_claim and resolved_pid:
+            cur.execute("""
+                SELECT claim_id FROM insurance_claims
+                WHERE patient_id = %s
+                ORDER BY claim_id DESC
+                LIMIT 1;
+            """, (resolved_pid,))
+            existing_claim = cur.fetchone()
+
+        now_date = datetime.date.today()
+        claim_id = None
+
+        if existing_claim:
+            claim_id = existing_claim[0]
+            if is_approve:
+                cur.execute("""
+                    UPDATE insurance_claims
+                    SET claim_status = 'Approved',
+                        approved_amount = %s,
+                        rejected_amount = 0.00,
+                        settled_amount = %s,
+                        outstanding_amount = 0.00,
+                        rejection_reason = NULL,
+                        settlement_date = %s,
+                        insurance_provider = %s,
+                        policy_number = %s,
+                        bill_id = %s
+                    WHERE claim_id = %s;
+                """, (claim_amt, claim_amt, now_date, ins_provider, pol_num, resolved_bid, claim_id))
+            else:
+                cur.execute("""
+                    UPDATE insurance_claims
+                    SET claim_status = 'Rejected',
+                        approved_amount = 0.00,
+                        rejected_amount = %s,
+                        settled_amount = 0.00,
+                        outstanding_amount = %s,
+                        rejection_reason = %s,
+                        settlement_date = NULL,
+                        insurance_provider = %s,
+                        policy_number = %s,
+                        bill_id = %s
+                    WHERE claim_id = %s;
+                """, (claim_amt, claim_amt, remarks or "Enhancement rejected · patient liability counselling needed", ins_provider, pol_num, resolved_bid, claim_id))
+        else:
+            claim_num = f"MER-CLM-{str(resolved_aid or resolved_bid or resolved_pid or 1000).zfill(7)}"
+            if is_approve:
+                cur.execute("""
+                    INSERT INTO insurance_claims (
+                        claim_id, claim_number, patient_id, bill_id, insurance_provider,
+                        policy_number, claim_date, claimed_amount, approved_amount,
+                        rejected_amount, settled_amount, outstanding_amount,
+                        claim_status, rejection_reason, settlement_date
+                    ) VALUES (
+                        (SELECT COALESCE(MAX(claim_id), 0) + 1 FROM insurance_claims),
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        0.00, %s, 0.00,
+                        'Approved', NULL, %s
+                    ) RETURNING claim_id;
+                """, (claim_num, resolved_pid, resolved_bid, ins_provider, pol_num, now_date, claim_amt, claim_amt, claim_amt, now_date))
+            else:
+                cur.execute("""
+                    INSERT INTO insurance_claims (
+                        claim_id, claim_number, patient_id, bill_id, insurance_provider,
+                        policy_number, claim_date, claimed_amount, approved_amount,
+                        rejected_amount, settled_amount, outstanding_amount,
+                        claim_status, rejection_reason, settlement_date
+                    ) VALUES (
+                        (SELECT COALESCE(MAX(claim_id), 0) + 1 FROM insurance_claims),
+                        %s, %s, %s, %s,
+                        %s, %s, %s, 0.00,
+                        %s, 0.00, %s,
+                        'Rejected', %s, NULL
+                    ) RETURNING claim_id;
+                """, (claim_num, resolved_pid, resolved_bid, ins_provider, pol_num, now_date, claim_amt, claim_amt, claim_amt, remarks or "Enhancement rejected · patient liability counselling needed"))
+            claim_id = cur.fetchone()[0]
+
+        # Step 5: Update bills table
+        if resolved_bid:
+            if is_approve:
+                cur.execute("""
+                    UPDATE bills
+                    SET insurance_amount = %s,
+                        patient_amount = GREATEST(0.00, net_amount - %s)
+                    WHERE bill_id = %s;
+                """, (claim_amt, claim_amt, resolved_bid))
+            else:
+                cur.execute("""
+                    UPDATE bills
+                    SET insurance_amount = 0.00,
+                        patient_amount = net_amount
+                    WHERE bill_id = %s;
+                """, (resolved_bid,))
+
+        # Step 6: Update dim_admission_inputs
+        new_balance = max(0.0, bill_net - claim_amt) if is_approve else bill_net
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET outstanding_balance = %s
+                WHERE admission_id = %s;
+            """, (new_balance, resolved_aid))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET outstanding_balance = %s
+                WHERE patient_id = %s;
+            """, (new_balance, resolved_pid))
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        return {
+            "success": True,
+            "decision": "Approved" if is_approve else "Rejected",
+            "message": f"Insurance {('approved for Rs. ' + str(claim_amt)) if is_approve else 'enhancement rejected'} successfully for {pat_name}",
+            "claim_id": claim_id,
+            "patient_id": resolved_pid,
+            "admission_id": resolved_aid,
+            "insurer": ins_provider,
+            "claimed_amount": claim_amt,
+            "approved_amount": claim_amt if is_approve else 0.0,
+            "rejected_amount": 0.0 if is_approve else claim_amt,
+            "outstanding_balance": new_balance,
+            "claim_status": "Approved" if is_approve else "Rejected"
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error simulating insurer decision: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/simulate-insurer", summary="Simulate Insurer Approval or Rejection")
+def simulate_insurer_decision_api(request: SimulateInsurerRequest):
+    """
+    Simulates insurer preauth / enhancement approval or rejection and updates PostgreSQL.
+    """
+    return simulate_insurer_decision_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        bill_id=request.bill_id,
+        bill_number=request.bill_number,
+        decision=request.decision,
+        insurer=request.insurer,
+        amount=request.amount,
+        remarks=request.remarks
+    )
+
+
+@router.post("/patient/{patient_id}/simulate-insurer", summary="Simulate Insurer Approval or Rejection by Patient ID")
+def simulate_insurer_by_patient_id(
+    patient_id: str,
+    decision: str = Query("approve"),
+    amount: Optional[float] = Query(None),
+    insurer: Optional[str] = Query(None)
+):
+    """
+    Convenience endpoint to simulate insurer decision by patient ID in URL.
+    """
+    return simulate_insurer_decision_internal(
+        patient_id=patient_id,
+        decision=decision,
+        amount=amount,
+        insurer=insurer
+    )
+
+
+
+def generate_and_save_vitals_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    vital_type: str = "normal",
+    temperature: Optional[float] = None,
+    heart_rate: Optional[int] = None,
+    systolic_bp: Optional[int] = None,
+    diastolic_bp: Optional[int] = None,
+    oxygen_saturation: Optional[float] = None,
+    respiratory_rate: Optional[int] = None,
+    recorded_by: Optional[int] = None,
+    notes: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generates and stores vital signs report for a patient:
+    - 'normal': Generates stable physiological values (Temp 98.6°F, HR 74 bpm, BP 120/80, SpO2 98.5%, RR 16)
+    - 'abnormal': Generates critical physiological values (Temp 103.4°F, HR 138 bpm, BP 185/115, SpO2 86.5%, RR 28)
+    Updates `dim_admission_inputs` and inserts a new audit measurement in `vital_signs` table.
+    Evaluates real-time Discharge Gate 2 (Vitals Stability).
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+
+    if parsed_pid is None and parsed_aid is None:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier (patient_id or admission_id) must be provided."
+        )
+
+    v_type_normalized = (vital_type or "normal").strip().lower()
+    is_abnormal = v_type_normalized in ["abnormal", "unstable", "critical", "abnormal_vitals", "bad"]
+
+    if is_abnormal:
+        temp_val = float(temperature) if temperature is not None else 103.40
+        hr_val = int(heart_rate) if heart_rate is not None else 138
+        sbp_val = int(systolic_bp) if systolic_bp is not None else 185
+        dbp_val = int(diastolic_bp) if diastolic_bp is not None else 115
+        spo2_val = float(oxygen_saturation) if oxygen_saturation is not None else 86.50
+        rr_val = int(respiratory_rate) if respiratory_rate is not None else 28
+        classification = "ABNORMAL"
+    else:
+        temp_val = float(temperature) if temperature is not None else 98.60
+        hr_val = int(heart_rate) if heart_rate is not None else 74
+        sbp_val = int(systolic_bp) if systolic_bp is not None else 120
+        dbp_val = int(diastolic_bp) if diastolic_bp is not None else 80
+        spo2_val = float(oxygen_saturation) if oxygen_saturation is not None else 98.50
+        rr_val = int(respiratory_rate) if respiratory_rate is not None else 16
+        classification = "NORMAL"
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        # Step 1: Look up patient/admission details
+        cur.execute("""
+            SELECT admission_id, patient_id, first_name, last_name, primary_diagnosis, discharge_status
+            FROM dim_admission_inputs
+            WHERE (%s IS NOT NULL AND admission_id = %s)
+               OR (%s IS NOT NULL AND patient_id = %s)
+            ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+            LIMIT 1;
+        """, (parsed_aid, parsed_aid, parsed_pid, parsed_pid))
+        adm_row = cur.fetchone()
+
+        resolved_aid = parsed_aid
+        resolved_pid = parsed_pid
+        pat_name = "Patient"
+        diag = "Clinical Inpatient Care"
+
+        if adm_row:
+            resolved_aid = adm_row[0]
+            resolved_pid = adm_row[1]
+            first_n = adm_row[2] or ""
+            last_n = adm_row[3] or ""
+            pat_name = f"{first_n} {last_n}".strip() or f"Patient #{resolved_pid}"
+            diag = adm_row[4] or diag
+        else:
+            # Check admissions or patients table
+            cur.execute("""
+                SELECT a.admission_id, a.patient_id, p.first_name, p.last_name, a.reason_for_admission
+                FROM admissions a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                WHERE (%s IS NOT NULL AND a.admission_id = %s)
+                   OR (%s IS NOT NULL AND a.patient_id = %s)
+                ORDER BY a.admission_id DESC
+                LIMIT 1;
+            """, (parsed_aid, parsed_aid, parsed_pid, parsed_pid))
+            fb_row = cur.fetchone()
+            if fb_row:
+                resolved_aid = fb_row[0]
+                resolved_pid = fb_row[1]
+                pat_name = f"{fb_row[2] or ''} {fb_row[3] or ''}".strip() or f"Patient #{resolved_pid}"
+                diag = fb_row[4] or diag
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Patient not found for patient_id={patient_id}, admission_id={admission_id}"
+                )
+
+        # Step 2: Update dim_admission_inputs table
+        cur.execute("""
+            UPDATE dim_admission_inputs
+            SET latest_temperature = %s,
+                latest_heart_rate = %s,
+                latest_systolic_bp = %s,
+                latest_diastolic_bp = %s,
+                latest_oxygen_saturation = %s
+            WHERE (%s IS NOT NULL AND admission_id = %s)
+               OR (%s IS NOT NULL AND patient_id = %s);
+        """, (
+            temp_val, hr_val, sbp_val, dbp_val, spo2_val,
+            resolved_aid, resolved_aid, resolved_pid, resolved_pid
+        ))
+
+        # Resolve visit_id and recorded_by (required by vital_signs NOT NULL constraint)
+        resolved_vid = None
+        if resolved_aid:
+            cur.execute("SELECT visit_id FROM admissions WHERE admission_id = %s LIMIT 1;", (resolved_aid,))
+            v_row = cur.fetchone()
+            if v_row and v_row[0]:
+                resolved_vid = v_row[0]
+        if not resolved_vid:
+            resolved_vid = resolved_aid or resolved_pid
+
+        staff_user_id = int(recorded_by) if recorded_by is not None else 1
+
+        # Step 3: Insert audit record into vital_signs table
+        cur.execute("""
+            INSERT INTO vital_signs (
+                patient_id, admission_id, visit_id, recorded_by,
+                recorded_at, temperature, heart_rate, systolic_bp, diastolic_bp,
+                respiratory_rate, oxygen_saturation
+            ) VALUES (
+                %s, %s, %s, %s,
+                CURRENT_TIMESTAMP, %s, %s, %s, %s,
+                %s, %s
+            ) RETURNING vital_id, recorded_at;
+        """, (
+            resolved_pid, resolved_aid, resolved_vid, staff_user_id,
+            temp_val, hr_val, sbp_val, dbp_val,
+            rr_val, spo2_val
+        ))
+        vital_res = cur.fetchone()
+        new_vital_id = vital_res[0] if vital_res else None
+        recorded_at_str = vital_res[1].isoformat() if vital_res and hasattr(vital_res[1], 'isoformat') else datetime.datetime.now().isoformat()
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        # Step 4: Evaluate Gate 2 real-time clinical stability
+        is_stable, vitals_issues = check_patient_vitals_stability(
+            temp_val=temp_val,
+            hr_val=hr_val,
+            sbp_val=sbp_val,
+            dbp_val=dbp_val,
+            spo2_val=spo2_val
+        )
+
+        gate_2_status = "PASSED" if is_stable else "FAILED"
+        if is_stable:
+            summary_eval = "Vital signs are stable and meet clinical discharge criteria."
+        else:
+            summary_eval = f"Vital signs unstable: {'; '.join(vitals_issues)}. Clinical intervention required before discharge."
+
+        return {
+            "success": True,
+            "message": f"{classification.capitalize()} vital signs report successfully generated and saved for {pat_name}",
+            "patient_id": resolved_pid,
+            "patient_name": pat_name,
+            "admission_id": resolved_aid,
+            "vital_id": new_vital_id,
+            "vital_type": classification,
+            "recorded_at": recorded_at_str,
+            "vitals": {
+                "temperature": temp_val,
+                "temperature_unit": "°F",
+                "heart_rate": hr_val,
+                "heart_rate_unit": "bpm",
+                "blood_pressure": f"{sbp_val}/{dbp_val} mmHg",
+                "systolic_bp": sbp_val,
+                "diastolic_bp": dbp_val,
+                "oxygen_saturation": spo2_val,
+                "oxygen_saturation_unit": "%",
+                "respiratory_rate": rr_val,
+                "respiratory_rate_unit": "breaths/min"
+            },
+            "clinical_evaluation": {
+                "is_stable": is_stable,
+                "discharge_gate_2_status": gate_2_status,
+                "clinical_issues": vitals_issues,
+                "summary": summary_eval
+            }
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to generate vital report: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/generate-vitals", summary="Generate & Save Patient Vital Signs (Normal / Abnormal)")
+def generate_patient_vitals(request: GenerateVitalsRequest):
+    """
+    Generates and saves vital signs report for a patient:
+    - **vital_type = 'normal'**: Generates normal, stable vitals (Temp: 98.6°F, HR: 74 bpm, BP: 120/80, SpO2: 98.5%).
+      Discharge Gate 2 is marked as **PASSED**.
+    - **vital_type = 'abnormal'**: Generates critical/abnormal vitals (Temp: 103.4°F, HR: 138 bpm, BP: 185/115, SpO2: 86.5%).
+      Discharge Gate 2 is marked as **FAILED** (held from discharge due to clinical instability).
+
+    Persists to both `dim_admission_inputs` and `vital_signs` tables in PostgreSQL.
+    """
+    return generate_and_save_vitals_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        vital_type=request.vital_type,
+        temperature=request.temperature,
+        heart_rate=request.heart_rate,
+        systolic_bp=request.systolic_bp,
+        diastolic_bp=request.diastolic_bp,
+        oxygen_saturation=request.oxygen_saturation,
+        respiratory_rate=request.respiratory_rate,
+        recorded_by=request.recorded_by,
+        notes=request.notes
+    )
+
+
+@router.post("/patient/{patient_id}/generate-vitals", summary="Generate & Save Patient Vital Signs by Patient ID")
+def generate_patient_vitals_by_id(
+    patient_id: str,
+    vital_type: str = Query("normal", description="Choose 'normal' for stable vitals or 'abnormal' for critical/unstable vitals")
+):
+    """
+    Convenience endpoint to generate vitals report directly via URL:
+    POST /api/v1/discharge-agent/patient/{patient_id}/generate-vitals?vital_type=normal|abnormal
+    """
+    return generate_and_save_vitals_internal(
+        patient_id=patient_id,
+        vital_type=vital_type
+    )
+
+
 
 

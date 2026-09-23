@@ -272,8 +272,8 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
             INSERT INTO appointments (
                 booking_id, patient_id, doctor_id, department_id, 
                 appointment_date, appointment_time, status, booking_source, 
-                patient_reason, created_by_user_id
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                patient_reason, appointment_type, created_by_user_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPD', %s)
             RETURNING id;
         """, (booking_id, patient_id, doctor_id, department_id, date_obj, time_obj, status_val, booking_source, patient_reason, created_by_user_id))
         appt_id = cur.fetchone()[0]
@@ -489,9 +489,9 @@ def cancel_appointment(booking_id, reason, cancelled_by_user_id=None):
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")
@@ -579,9 +579,9 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")

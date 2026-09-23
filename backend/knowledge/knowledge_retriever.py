@@ -3,7 +3,7 @@ knowledge_retriever.py
 ======================
 PostgreSQL full-text search retrieval for the Meridian Hospital Knowledge Base.
 
-Uses native PostgreSQL tsvector + plainto_tsquery for POC-compatible retrieval
+Uses native PostgreSQL tsvector + plainto_tsquery for compatible retrieval
 without requiring external embedding APIs.
 
 Retrieval pipeline:
@@ -12,7 +12,7 @@ Retrieval pipeline:
   3. Results are ranked by score, top_k returned
   4. Source metadata (document_id, chunk_id, category) is always preserved
 
-Step 5.1 — Meridian Hospital POC
+Step 5.1 — Meridian Hospital
 """
 
 import sys

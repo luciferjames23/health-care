@@ -1,6 +1,6 @@
 """Background watcher for the Orthanc Demo PACS.
 
-The watcher is intentionally small and PoC-focused:
+The watcher is intentionally small and focused:
 - polls Orthanc for newly arrived studies,
 - records the Orthanc ingestion timestamp,
 - analyzes each Orthanc study once per backend process,
@@ -36,13 +36,24 @@ def _ensure_state(study: dict) -> dict:
     with _lock:
         state = _states.get(study_id)
         if state is None:
-            state = {
-                "study_id": study_id,
-                "ingested_at": study.get("ingested_at") or _now_iso(),
-                "analysis_status": "PENDING",
-                "analysis_error": None,
-                "analyzed_at": None,
-            }
+            from radiology_ai.services.study_store import get_study
+            existing = get_study(study_id)
+            if existing:
+                state = {
+                    "study_id": study_id,
+                    "ingested_at": existing.get("ingested_at") or study.get("ingested_at") or _now_iso(),
+                    "analysis_status": "ANALYZED",
+                    "analysis_error": None,
+                    "analyzed_at": existing.get("analyzed_at") or _now_iso(),
+                }
+            else:
+                state = {
+                    "study_id": study_id,
+                    "ingested_at": study.get("ingested_at") or _now_iso(),
+                    "analysis_status": "PENDING",
+                    "analysis_error": None,
+                    "analyzed_at": None,
+                }
             _states[study_id] = state
         elif not state.get("ingested_at") and study.get("ingested_at"):
             state["ingested_at"] = study["ingested_at"]
@@ -53,6 +64,18 @@ def get_status(study_id: str) -> dict:
     with _lock:
         state = _states.get(study_id)
         if state is None:
+            from radiology_ai.services.study_store import get_study
+            existing = get_study(study_id)
+            if existing:
+                state = {
+                    "study_id": study_id,
+                    "ingested_at": existing.get("ingested_at") or _now_iso(),
+                    "analysis_status": "ANALYZED",
+                    "analysis_error": None,
+                    "analyzed_at": existing.get("analyzed_at") or _now_iso(),
+                }
+                _states[study_id] = state
+                return dict(state)
             return {
                 "study_id": study_id,
                 "ingested_at": None,
@@ -92,7 +115,10 @@ def scan_once(analyze_study: Callable[[str, str], None]) -> None:
     """
     studies = get_studies()
 
+    from routers.imaging_orders import patient_for_ordered_study
     for study in studies:
+        if not patient_for_ordered_study(study.get('study_instance_uid')):
+            continue
         state = _ensure_state(study)
         study_id = study["study_id"]
 
@@ -124,7 +150,7 @@ def scan_once(analyze_study: Callable[[str, str], None]) -> None:
             logger.info("Demo PACS study %s analyzed and added to worklist", study_id)
 
 
-def start_watcher(analyze_study: Callable[[str, str], None], interval_seconds: int = 5) -> None:
+def start_watcher(analyze_study: Callable[[str, str], None], interval_seconds: int = 2) -> None:
     global _thread, _stop_event
 
     if _thread is not None and _thread.is_alive():
@@ -134,13 +160,19 @@ def start_watcher(analyze_study: Callable[[str, str], None], interval_seconds: i
 
     def _run() -> None:
         logger.info("Demo PACS auto-analysis watcher started (poll every %ss)", interval_seconds)
+        orthanc_reachable = True
         while _stop_event is not None and not _stop_event.is_set():
             try:
                 scan_once(analyze_study)
+                if not orthanc_reachable:
+                    logger.info("Demo PACS watcher successfully reconnected to Orthanc.")
+                    orthanc_reachable = True
             except OrthancError as exc:
                 # Orthanc may be started after the API.  This is not fatal;
                 # retry on the next poll rather than killing the backend.
-                logger.warning("Demo PACS watcher could not reach Orthanc: %s", exc)
+                if orthanc_reachable:
+                    logger.warning("Demo PACS watcher could not reach Orthanc: %s (suppressing further repeated warnings)", exc)
+                    orthanc_reachable = False
             except Exception:
                 logger.exception("Unexpected Demo PACS watcher error")
 

@@ -67,8 +67,12 @@ def tool_get_available_slots(conversation_code: str, doctor_id: int, date_str: s
         
         # Filter out past slots for today's date in Asia/Kolkata
         import datetime
-        import pytz
-        ist = pytz.timezone('Asia/Kolkata')
+        try:
+            import pytz
+            ist = pytz.timezone('Asia/Kolkata')
+        except ImportError:
+            from zoneinfo import ZoneInfo
+            ist = ZoneInfo('Asia/Kolkata')
         now_ist = datetime.datetime.now(ist)
         today_str = now_ist.strftime("%Y-%m-%d")
         if date_str == today_str:

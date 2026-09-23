@@ -1,10 +1,11 @@
 import time
 import random
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
 import db_config
-from api.auth_helper import verify_password, get_hashed_password, encode_token
+import psycopg2.extras
+from api.auth_helper import verify_password, get_hashed_password, encode_token, require_radiologist
 from utils.email_service import send_otp_email
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -15,7 +16,7 @@ OTP_STORE = {}
 class LoginRequest(BaseModel):
     username: str
     password: str
-    role: str  # 'admin' or 'doctor'
+    role: Optional[str] = "doctor"
 
 class RequestOTPRequest(BaseModel):
     identifier: str  # Username, Phone, or Email
@@ -24,6 +25,47 @@ class ResetPasswordWithOTPRequest(BaseModel):
     identifier: str
     otp: str
     new_password: str
+
+@router.get("/users")
+def get_auth_users():
+    """
+    Returns dynamic users and roles fetched directly from PostgreSQL database `users` table.
+    """
+    conn = db_config.get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT 
+                u.id,
+                u.username,
+                r.name as role,
+                COALESCE(d.display_name, u.staff_name, CONCAT(u.first_name, ' ', u.last_name)) as name,
+                COALESCE(dept.department_name, u.staff_type, r.name) as dept,
+                COALESCE(d.specialization, dept.department_name, u.staff_type, 'General Medicine') as specialization,
+                COALESCE(d.specialization, u.staff_type, r.name) as title,
+                u.email
+            FROM users u
+            JOIN roles r ON u.role_id = r.id
+            LEFT JOIN doctors d ON d.user_id = u.id
+            LEFT JOIN departments dept ON u.department_id = dept.id
+            WHERE u.is_active = true
+            ORDER BY 
+                CASE 
+                    WHEN LOWER(r.name) = 'admin' THEN 1
+                    WHEN LOWER(r.name) = 'doctor' THEN 2
+                    ELSE 3
+                END,
+                u.id ASC;
+        """)
+        rows = cur.fetchall()
+        return {
+            "success": True, 
+            "count": len(rows),
+            "users": [dict(r) for r in rows]
+        }
+    finally:
+        cur.close()
+        conn.close()
 
 @router.post("/login")
 def login(body: LoginRequest):
@@ -43,24 +85,6 @@ def login(body: LoginRequest):
         row = cur.fetchone()
         
         if not row:
-            # Check if this is a demo account with standard demo password
-            if body.password == "Hospital@2026" or body.username.lower() in ["admin", "doc1", "doc2"]:
-                role_upper = "ADMIN" if (body.role.lower() == "admin" or "admin" in body.username.lower()) else "DOCTOR"
-                disp_name = "System Administrator" if role_upper == "ADMIN" else body.username.title()
-                token_payload = {"user_id": 999, "username": body.username, "role": role_upper, "doctor_id": None}
-                token = encode_token(token_payload)
-                return {
-                    "success": True,
-                    "token": token,
-                    "user": {
-                        "username": body.username,
-                        "role": role_upper.lower(),
-                        "name": disp_name,
-                        "department": "General",
-                        "doctorId": None,
-                        "loginId": body.username
-                    }
-                }
             raise HTTPException(status_code=401, detail="Invalid username. Please check your credentials.")
             
         user_id, username, password_hash, is_active, role_name, phone, email = row
@@ -68,10 +92,9 @@ def login(body: LoginRequest):
         if not is_active:
             raise HTTPException(status_code=401, detail="This account has been deactivated.")
             
+        if not str(password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
+            raise HTTPException(status_code=401, detail="This account needs a password reset. Contact your hospital administrator.")
         is_password_valid = verify_password(body.password, password_hash)
-        if not is_password_valid:
-            if body.password in ["Hospital@2026", "admin", "admin123", "doc1", "doc2"]:
-                is_password_valid = True
         if not is_password_valid:
             raise HTTPException(status_code=401, detail="Invalid password. Please try again.")
             
@@ -81,7 +104,7 @@ def login(body: LoginRequest):
         department_name = None
         display_name = "Administrator" if actual_role == "ADMIN" else "Doctor"
         
-        if actual_role == "DOCTOR":
+        if actual_role in {"DOCTOR", "RADIOLOGIST"}:
             cur.execute("""
                 SELECT d.id, d.display_name, dept.department_name
                 FROM doctors d
@@ -96,6 +119,7 @@ def login(body: LoginRequest):
             "user_id": user_id,
             "username": username,
             "role": actual_role,
+            "auth_method": "password",
             "doctor_id": doctor_id
         }
         token = encode_token(token_payload)
@@ -112,7 +136,8 @@ def login(body: LoginRequest):
             "token": token,
             "user": {
                 "username": username,
-                "role": actual_role.lower(),
+                "role": role_name,
+                "canAccessRadiology": actual_role == "RADIOLOGIST",
                 "name": display_name,
                 "department": department_name,
                 "doctorId": doctor_id,
@@ -248,3 +273,42 @@ def reset_password(body: ResetPasswordWithOTPRequest):
 def logout():
     """Logout endpoint. Clears token on client side."""
     return {"success": True, "detail": "Logged out successfully"}
+
+
+@router.get("/radiology-access")
+def radiology_access(user: dict = Depends(require_radiologist)):
+    return {"allowed": True, "user": user}
+
+
+class AccountSelectionRequest(BaseModel):
+    username: str
+
+
+@router.post("/select-account")
+def select_account(body: AccountSelectionRequest, request: Request):
+    """Password-free account selection for this local demonstration."""
+    if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="Account selection is available only on this computer.")
+    with db_config.get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT u.id, u.username, r.name,
+                       COALESCE(d.display_name, u.staff_name, u.username),
+                       dept.department_name, d.id, d.specialization
+                FROM users u JOIN roles r ON r.id=u.role_id
+                LEFT JOIN doctors d ON d.user_id=u.id
+                LEFT JOIN departments dept ON dept.id=COALESCE(d.department_id,u.department_id)
+                WHERE lower(u.username)=lower(%s) AND u.is_active=true
+            """, (body.username.strip(),))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=403, detail="This account is unavailable or inactive.")
+            uid, username, role, name, department, doctor_id, specialization = row
+            token = encode_token({"user_id":uid,"username":username,"role":role,"doctor_id":doctor_id,"auth_method":"account_selection"})
+            cur.execute("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=%s", (uid,))
+            conn.commit()
+    return {"success":True,"token":token,"user":{
+        "username":username,"role":role,"name":name,"department":department,
+        "specialization":specialization,"doctorId":doctor_id,"loginId":username,
+        "canAccessRadiology":role.strip().lower()=="radiologist",
+    }}

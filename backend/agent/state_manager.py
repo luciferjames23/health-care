@@ -11,7 +11,7 @@ import db_config
 
 import copy
 
-from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone
+from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 
 def get_default_state():
     return {
@@ -107,6 +107,7 @@ def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_num
 
     return None
 
+
 def get_conversation_state(conversation_code: str, whatsapp_number: str = "919999999999", default_language: str = "ENGLISH") -> dict:
     """
     Retrieves the conversation state.
@@ -114,10 +115,10 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
     If it exists, retrieves the state from the metadata of the latest logged message.
     Validates and reconciles patient_id against the patients table.
     """
-    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code and conversation_code.startswith("WA_"):
-        parts = conversation_code.split("_")
-        if len(parts) >= 2 and parts[1].isdigit():
-            whatsapp_number = parts[1]
+    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code:
+        extracted = extract_whatsapp_number(conversation_code)
+        if extracted and extracted != "919999999999":
+            whatsapp_number = extracted
 
     conn = db_config.get_db_connection()
     cur = conn.cursor()
@@ -130,12 +131,12 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
             # Check if whatsapp_number matches an existing active patient
             initial_patient_id = resolve_valid_patient_id(cur, None, whatsapp_number)
             
-            # Create a new conversation row
+            channel_val = "WHATSAPP" if conversation_code and conversation_code.startswith("WA_") else "WEB"
             cur.execute("""
-                INSERT INTO conversations (conversation_code, patient_id, whatsapp_number, language, current_intent, conversation_status)
-                VALUES (%s, %s, %s, %s, 'GREETING', 'ACTIVE')
+                INSERT INTO conversations (conversation_code, patient_id, whatsapp_number, channel, language, current_intent, conversation_status)
+                VALUES (%s, %s, %s, %s, %s, 'GREETING', 'ACTIVE')
                 RETURNING id;
-            """, (conversation_code, initial_patient_id, whatsapp_number, default_language))
+            """, (conversation_code, initial_patient_id, whatsapp_number, channel_val, default_language))
             conv_id = cur.fetchone()[0]
             conn.commit()
             
@@ -154,7 +155,7 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
         # Query latest message containing state metadata
         cur.execute("""
             SELECT metadata FROM messages
-            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata ->> 'language' IS NOT NULL
+            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata::jsonb ->> 'language' IS NOT NULL
             ORDER BY id DESC LIMIT 1;
         """, (conv_db_id,))
         msg_row = cur.fetchone()
@@ -249,7 +250,7 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
             'IDENTIFY_PATIENT': 'GREETING',
             'POST_BOOKING': 'BOOK_APPOINTMENT',
             'LANGUAGE_CHANGE': 'GREETING',
-            'REGISTER_PATIENT': 'GREETING',
+            'REGISTER_PATIENT': 'REGISTER_PATIENT',
             'UNKNOWN': 'GREETING',
         }
         valid_intents = [
@@ -283,6 +284,16 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
                 LIMIT 1
             );
         """, (json.dumps(state_dict, default=str), conversation_code))
+        
+        if cur.rowcount == 0:
+            cur.execute("SELECT id FROM conversations WHERE conversation_code = %s;", (conversation_code,))
+            c_row = cur.fetchone()
+            if c_row:
+                cur.execute("""
+                    INSERT INTO messages (conversation_id, sender_type, message_type, message_text, metadata)
+                    VALUES (%s, 'SYSTEM', 'SYSTEM', 'State checkpoint', %s::jsonb);
+                """, (c_row[0], json.dumps(state_dict, default=str)))
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -290,3 +301,4 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
     finally:
         cur.close()
         conn.close()
+

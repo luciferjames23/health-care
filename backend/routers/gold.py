@@ -1,6 +1,8 @@
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+import psycopg2
+import psycopg2.extras
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
@@ -12,26 +14,6 @@ router = APIRouter(
 db_connector = DatabricksConnector()
 
 GOLD_TABLES_META = {
-    "dim_revenue_predictions": {
-        "table_name": "dim_revenue_predictions",
-        "primary_key": "revenue_prediction_id",
-        "domain": "Financial & Predictive Analytics",
-        "description": "Departmental and patient-level revenue projections, actual amounts, prediction variances, model names, and monthly totals.",
-        "schema": [
-            {"column_name": "revenue_prediction_id", "data_type": "BIGINT", "is_primary": True},
-            {"column_name": "bill_number", "data_type": "STRING", "is_primary": False},
-            {"column_name": "patient_id", "data_type": "BIGINT", "is_primary": False},
-            {"column_name": "patient_number", "data_type": "STRING", "is_primary": False},
-            {"column_name": "patient_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "bill_date", "data_type": "TIMESTAMP", "is_primary": False},
-            {"column_name": "bill_status", "data_type": "STRING", "is_primary": False},
-            {"column_name": "actual_net_amount", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "predicted_revenue", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "prediction_variance", "data_type": "DOUBLE", "is_primary": False},
-            {"column_name": "model_name", "data_type": "STRING", "is_primary": False},
-            {"column_name": "prediction_date", "data_type": "TIMESTAMP", "is_primary": False}
-        ]
-    },
     "fact_bed_demand_forecast_7day_detailed": {
         "table_name": "fact_bed_demand_forecast_7day_detailed",
         "primary_key": "forecast_date,ward_id",
@@ -222,15 +204,11 @@ def get_gold_table_schema(table_name: str):
 
 @router.get("/summary", summary="Gold Schema Executive Analytics Overview")
 def get_gold_executive_summary():
-    """Computes executive KPIs across revenue predictions and 7-day bed demand forecasts."""
+    """Computes executive KPIs across 7-day bed demand forecasts and clinical capacity."""
     try:
-        rev_res = db_connector.query_gold_table("dim_revenue_predictions", limit=1000)
         bed_res = db_connector.query_gold_table("fact_bed_demand_forecast_7day_detailed", limit=1000)
-
-        rev_data = rev_res.get("data", [])
         bed_data = bed_res.get("data", [])
 
-        total_predicted_revenue = sum(float(r.get("predicted_revenue", 0) or 0) for r in rev_data)
         total_predicted_beds = sum(int(b.get("predicted_beds", 0) or 0) for b in bed_data)
         avg_occupancy = (sum(float(b.get("predicted_occupancy_rate", 0) or 0) for b in bed_data) / len(bed_data)) if bed_data else 0.0
 
@@ -248,10 +226,6 @@ def get_gold_executive_summary():
         return {
             "catalog": Config.DATABRICKS_CATALOG,
             "schema": Config.DATABRICKS_SCHEMA,
-            "financial_kpis": {
-                "total_predicted_revenue_usd": round(total_predicted_revenue, 2),
-                "total_prediction_records": len(rev_data)
-            },
             "bed_capacity_kpis": {
                 "total_beds_capacity": total_capacity,
                 "occupied_beds_count": total_predicted_beds,
@@ -263,70 +237,6 @@ def get_gold_executive_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate executive summary: {str(e)}")
-
-
-# ---------------------------------------------------------------------------
-# DIM_REVENUE_PREDICTIONS ENDPOINTS
-# ---------------------------------------------------------------------------
-@router.get("/revenue-predictions", summary="Query dim_revenue_predictions Table")
-def get_dim_revenue_predictions(
-    department_name: Optional[str] = Query(None, description="Filter by department_name"),
-    bill_status: Optional[str] = Query(None, description="Filter by bill status (e.g. Settled, Pending)"),
-    bill_date_from: Optional[str] = Query(None, description="Bill date starting on or after (YYYY-MM-DD)"),
-    bill_date_to: Optional[str] = Query(None, description="Bill date starting on or before (YYYY-MM-DD)"),
-    limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
-    offset: int = Query(default=0, ge=0)
-):
-    """Query `health_care.gold.dim_revenue_predictions` table with optional parameters and pagination."""
-    filters = {}
-    if department_name: filters["department_name"] = department_name
-    if bill_status: filters["bill_status"] = bill_status
-    if bill_date_from: filters["bill_date_from"] = bill_date_from
-    if bill_date_to: filters["bill_date_to"] = bill_date_to
-
-    try:
-        return db_connector.query_gold_table("dim_revenue_predictions", filters=filters, limit=limit, offset=offset)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to query dim_revenue_predictions: {str(e)}")
-
-
-@router.get("/revenue-predictions/summary", summary="Revenue Predictions Summary Analytics")
-def get_revenue_predictions_summary():
-    """Computes total predicted revenue, total net actual revenue, prediction variance, and model metrics."""
-    try:
-        res = db_connector.query_gold_table("dim_revenue_predictions", limit=1000)
-        data = res.get("data", [])
-
-        total_count = len(data)
-        if total_count == 0:
-            return {"notice": "No revenue prediction records found", "metrics": {}}
-
-        total_predicted = sum(float(r.get("predicted_revenue", 0) or 0) for r in data)
-        total_actual = sum(float(r.get("actual_net_amount", 0) or 0) for r in data)
-        avg_variance = sum(float(r.get("prediction_variance", 0) or 0) for r in data) / total_count
-
-        return {
-            "table_name": "dim_revenue_predictions",
-            "total_records": total_count,
-            "total_predicted_revenue_usd": round(total_predicted, 2),
-            "total_actual_net_amount_usd": round(total_actual, 2),
-            "avg_prediction_variance_usd": round(avg_variance, 2)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to compute revenue prediction summary: {str(e)}")
-
-
-@router.get("/revenue-predictions/{prediction_id}", summary="Get Single Revenue Prediction Record")
-def get_revenue_prediction_by_id(prediction_id: str):
-    """Retrieve a single revenue prediction record by revenue_prediction_id or bill_number."""
-    res = db_connector.query_gold_table("dim_revenue_predictions", filters={"revenue_prediction_id": prediction_id}, limit=1)
-    data = res.get("data", [])
-    if not data:
-        res = db_connector.query_gold_table("dim_revenue_predictions", filters={"bill_number": prediction_id}, limit=1)
-        data = res.get("data", [])
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Revenue prediction record '{prediction_id}' not found.")
-    return data[0]
 
 
 # ---------------------------------------------------------------------------
@@ -412,8 +322,11 @@ def get_bed_demand_forecast_summary():
 def get_dim_admission_inputs(
     patient_id: Optional[int] = Query(None, description="Filter by patient_id"),
     patient_number: Optional[str] = Query(None, description="Filter by patient_number (e.g. PAT-10892)"),
+    admission_id: Optional[int] = Query(None, description="Filter by admission_id"),
+    admission_number: Optional[str] = Query(None, description="Filter by admission_number (e.g. MER-ADM-0087230)"),
     admission_type: Optional[str] = Query(None, description="Filter by admission type (Emergency, Urgent, Elective)"),
     admission_status: Optional[str] = Query(None, description="Filter by status (Admitted, In Progress, Discharged)"),
+    discharge_status: Optional[str] = Query(None, description="Filter by discharge status (Admitted, Ready, Discharged, all)"),
     gender: Optional[str] = Query(None, description="Filter by gender (M, F, Other)"),
     admission_date_from: Optional[str] = Query(None, description="Admission date starting on or after (YYYY-MM-DD)"),
     admission_date_to: Optional[str] = Query(None, description="Admission date starting on or before (YYYY-MM-DD)"),
@@ -422,18 +335,102 @@ def get_dim_admission_inputs(
     offset: int = Query(default=0, ge=0)
 ):
     """Query `health_care.gold.dim_admission_inputs` table with optional filters and pagination."""
+    # Normalize potential QueryInfo defaults when called directly as a Python function
+    clean_aid = admission_id if isinstance(admission_id, int) else None
+    clean_pid = patient_id if isinstance(patient_id, int) else None
+    clean_pnum = patient_number if isinstance(patient_number, str) else None
+    clean_anum = admission_number if isinstance(admission_number, str) else None
+    clean_ds = discharge_status if isinstance(discharge_status, str) else None
+    clean_as = admission_status if isinstance(admission_status, str) else None
+    clean_limit = limit if isinstance(limit, int) else None
+    clean_offset = offset if isinstance(offset, int) else 0
+
     filters = {}
-    if patient_id is not None: filters["patient_id"] = patient_id
-    if patient_number: filters["patient_number"] = patient_number
-    if admission_type: filters["admission_type"] = admission_type
-    if admission_status: filters["admission_status"] = admission_status
-    if gender: filters["gender"] = gender
-    if admission_date_from: filters["admission_date_from"] = admission_date_from
-    if admission_date_to: filters["admission_date_to"] = admission_date_to
-    if risk_score_gt is not None: filters["risk_score_gt"] = risk_score_gt
+    if clean_aid is not None: filters["admission_id"] = clean_aid
+    if clean_anum: filters["admission_number"] = clean_anum
+    if clean_pid is not None: filters["patient_id"] = clean_pid
+    if clean_pnum: filters["patient_number"] = clean_pnum
+    if isinstance(admission_type, str) and admission_type: filters["admission_type"] = admission_type
+
+    if clean_ds:
+        ds_lower = clean_ds.strip().lower()
+        if ds_lower != "all":
+            if "," in clean_ds:
+                filters["discharge_status"] = [s.strip() for s in clean_ds.split(",") if s.strip()]
+            else:
+                filters["discharge_status"] = clean_ds.strip()
+    elif clean_as:
+        filters["admission_status"] = clean_as
+    if isinstance(gender, str) and gender: filters["gender"] = gender
+    if isinstance(admission_date_from, str) and admission_date_from: filters["admission_date_from"] = admission_date_from
+    if isinstance(admission_date_to, str) and admission_date_to: filters["admission_date_to"] = admission_date_to
+    if isinstance(risk_score_gt, (int, float)): filters["risk_score_gt"] = float(risk_score_gt)
 
     try:
-        return db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=limit, offset=offset)
+        res = db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=clean_limit, offset=clean_offset)
+        data = res.get("data", [])
+        if data:
+            try:
+                conn = db_connector.get_connection()
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("""
+                    SELECT a.admission_id, a.patient_id, b.bed_number, r.room_number, w.ward_name, b.bed_type
+                    FROM admissions a
+                    JOIN beds b ON a.bed_id = b.bed_id
+                    JOIN rooms r ON b.room_id = r.room_id
+                    JOIN wards w ON b.ward_id = w.ward_id;
+                """)
+                bed_map = {r['admission_id']: r for r in cur.fetchall()}
+
+                # Enrich with live insurance claims and patient insurance
+                cur.execute("""
+                    SELECT DISTINCT ON (patient_id)
+                        patient_id, bill_id, insurance_provider, policy_number, claim_status,
+                        approved_amount, rejected_amount, claimed_amount
+                    FROM insurance_claims
+                    ORDER BY patient_id, claim_date DESC, claim_id DESC;
+                """)
+                claim_map = {r['patient_id']: r for r in cur.fetchall()}
+
+                cur.execute("""
+                    SELECT DISTINCT ON (patient_id)
+                        patient_id, insurance_provider, policy_number, coverage_limit, status
+                    FROM patient_insurance
+                    ORDER BY patient_id, insurance_id DESC;
+                """)
+                ins_map = {r['patient_id']: r for r in cur.fetchall()}
+
+                cur.close()
+                conn.close()
+
+                for row in data:
+                    fn = (row.get('first_name') or '').strip()
+                    ln = (row.get('last_name') or '').strip()
+                    if fn or ln:
+                        row['patient_name'] = f"{fn} {ln}".strip()
+
+                    b_info = bed_map.get(row.get('admission_id'))
+                    if b_info:
+                        row['bed_number'] = b_info['bed_number']
+                        row['room_number'] = b_info['room_number']
+                        row['ward_name'] = b_info['ward_name']
+                        row['bed_type'] = b_info['bed_type']
+
+                    c_info = claim_map.get(row.get('patient_id'))
+                    i_info = ins_map.get(row.get('patient_id'))
+                    if c_info:
+                        row['insurance_provider'] = c_info.get('insurance_provider') or row.get('insurance_provider')
+                        row['claim_status'] = c_info.get('claim_status')
+                        row['insurance_status'] = c_info.get('claim_status')
+                        row['approved_amount'] = float(c_info.get('approved_amount') or 0.0)
+                        row['rejected_amount'] = float(c_info.get('rejected_amount') or 0.0)
+                        row['policy_number'] = c_info.get('policy_number')
+                    elif i_info:
+                        row['insurance_provider'] = i_info.get('insurance_provider') or row.get('insurance_provider')
+                        row['policy_number'] = i_info.get('policy_number')
+            except Exception:
+                pass
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query dim_admission_inputs: {str(e)}")
 
@@ -486,7 +483,12 @@ def get_current_admission_llm_input_by_id(admission_id: str):
         data = res.get("data", [])
     if not data:
         raise HTTPException(status_code=404, detail=f"Admission LLM record '{admission_id}' not found.")
-    return data[0]
+    rec = data[0]
+    fn = (rec.get('first_name') or '').strip()
+    ln = (rec.get('last_name') or '').strip()
+    if fn or ln:
+        rec['patient_name'] = f"{fn} {ln}".strip()
+    return rec
 
 
 # ---------------------------------------------------------------------------
@@ -507,17 +509,19 @@ def get_dim_generated_discharge_summaries(
 ):
     """Query `health_care.gold.dim_generated_discharge_summaries` table with optional filters and pagination."""
     filters = {}
-    if patient_id is not None: filters["patient_id"] = patient_id
-    if patient_number: filters["patient_number"] = patient_number
-    if admission_id: filters["admission_id"] = admission_id
-    if approval_status: filters["approval_status"] = approval_status
-    if attending_physician: filters["attending_physician"] = attending_physician
-    if model_name: filters["model_name"] = model_name
-    if discharge_date_from: filters["discharge_date_from"] = discharge_date_from
-    if discharge_date_to: filters["discharge_date_to"] = discharge_date_to
+    if isinstance(patient_id, int): filters["patient_id"] = patient_id
+    if isinstance(patient_number, str) and patient_number: filters["patient_number"] = patient_number
+    if isinstance(admission_id, (str, int)) and admission_id: filters["admission_id"] = admission_id
+    if isinstance(approval_status, str) and approval_status: filters["approval_status"] = approval_status
+    if isinstance(attending_physician, str) and attending_physician: filters["attending_physician"] = attending_physician
+    if isinstance(model_name, str) and model_name: filters["model_name"] = model_name
+    if isinstance(discharge_date_from, str) and discharge_date_from: filters["discharge_date_from"] = discharge_date_from
+    if isinstance(discharge_date_to, str) and discharge_date_to: filters["discharge_date_to"] = discharge_date_to
+    clean_limit = limit if isinstance(limit, int) else None
+    clean_offset = offset if isinstance(offset, int) else 0
 
     try:
-        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters=filters, limit=limit, offset=offset)
+        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters=filters, limit=clean_limit, offset=clean_offset)
         # Automatically extract patient_name and primary_consultant if missing
         import re
         for row in res.get("data", []):
@@ -527,6 +531,66 @@ def get_dim_generated_discharge_summaries(
                     row["patient_name"] = m.group(1).strip()
             if not row.get("primary_consultant") and row.get("doctor_name"):
                 row["primary_consultant"] = row.get("doctor_name")
+
+        # Enrich with actual hospital bed number, ward, and patient name from admissions, beds, & patients
+        adm_ids = [r["admission_id"] for r in res.get("data", []) if r.get("admission_id")]
+        if adm_ids:
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name,
+                           p.first_name, p.last_name
+                    FROM admissions a
+                    LEFT JOIN beds b ON a.bed_id = b.bed_id
+                    LEFT JOIN wards w ON b.ward_id = w.ward_id
+                    LEFT JOIN patients p ON a.patient_id = p.id
+                    WHERE a.admission_id = ANY(%s)
+                """, (adm_ids,))
+                bed_info = {
+                    row[0]: {
+                        "bed_id": row[1], "bed_number": row[2], "bed_type": row[3], "ward_name": row[4],
+                        "first_name": row[5], "last_name": row[6]
+                    } for row in cur.fetchall()
+                }
+                cur.close()
+                conn.close()
+                for row in res.get("data", []):
+                    aid = row.get("admission_id")
+                    if aid in bed_info:
+                        row["bed_id"] = bed_info[aid]["bed_id"]
+                        row["bed_number"] = bed_info[aid]["bed_number"]
+                        row["bed_type"] = bed_info[aid]["bed_type"]
+                        row["ward_name"] = bed_info[aid]["ward_name"]
+                        fn = bed_info[aid].get("first_name") or ""
+                        ln = bed_info[aid].get("last_name") or ""
+                        full_name = f"{fn} {ln}".strip()
+                        if full_name:
+                            row["first_name"] = fn
+                            row["last_name"] = ln
+                            row["patient_name"] = full_name
+            except Exception as be:
+                print(f"[WARN] Failed to enrich discharge summaries with bed/patient info: {be}")
+
+        # Also enrich patient_name for any row still missing it via patient_id
+        missing_pids = [r["patient_id"] for r in res.get("data", []) if r.get("patient_id") and not r.get("patient_name")]
+        if missing_pids:
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT id, first_name, last_name FROM patients WHERE id = ANY(%s);", (missing_pids,))
+                pat_info = {r[0]: f"{r[1] or ''} {r[2] or ''}".strip() for r in cur.fetchall()}
+                cur.close()
+                conn.close()
+                for row in res.get("data", []):
+                    pid = row.get("patient_id")
+                    if pid in pat_info and pat_info[pid]:
+                        row["patient_name"] = pat_info[pid]
+            except Exception as pe:
+                print(f"[WARN] Failed to enrich discharge summaries with patient names: {pe}")
+
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query dim_generated_discharge_summaries: {str(e)}")
@@ -587,6 +651,30 @@ def get_generated_discharge_summary_by_id(summary_id: str):
         m = re.search(r'The patient(?:,\s*|\s+)([A-Z][a-zA-Z\s]+?)(?:,|\s+a|\s+an|\s+was|\s+is|\s+aged|\s+\d)', rec["case_history"])
         if m:
             rec["patient_name"] = m.group(1).strip()
+
+    if rec.get("admission_id"):
+        try:
+            import db_config
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name
+                FROM admissions a
+                LEFT JOIN beds b ON a.bed_id = b.bed_id
+                LEFT JOIN wards w ON b.ward_id = w.ward_id
+                WHERE a.admission_id = %s
+            """, (rec["admission_id"],))
+            brow = cur.fetchone()
+            cur.close()
+            conn.close()
+            if brow:
+                rec["bed_id"] = brow[1]
+                rec["bed_number"] = brow[2]
+                rec["bed_type"] = brow[3]
+                rec["ward_name"] = brow[4]
+        except Exception as be:
+            print(f"[WARN] Failed to enrich single summary with bed info: {be}")
+
     return rec
 
 
@@ -656,10 +744,43 @@ def update_dim_generated_discharge_summary(
                 break
 
     if not matched:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Discharge summary '{id_str}' not found in health_care.gold.dim_generated_discharge_summaries."
-        )
+        # Upsert: create a new record in dim_generated_discharge_summaries for this admission/patient
+        import re
+        clean_pid = None
+        try:
+            digits = re.sub(r"[^\d]", "", id_str)
+            clean_pid = int(digits) if digits else None
+        except Exception:
+            clean_pid = None
+
+        new_record = {
+            "patient_id": clean_pid,
+            "diagnoses": payload.diagnoses or "Inpatient admission under clinical observation",
+            "case_history": payload.case_history or payload.hospital_course_summary or "",
+            "investigations": payload.investigations or "",
+            "treatment": payload.treatment or "",
+            "primary_consultant": payload.attending_physician or payload.approved_by or "Attending Physician",
+            "discharge_advice": payload.discharge_advice or payload.followup_instructions or "",
+            "surgery_details": payload.surgery_details or "",
+            "patient_condition": payload.patient_condition or "",
+            "approval_status": payload.approval_status or "Approved"
+        }
+        ins_dict = {k: v for k, v in new_record.items() if v is not None}
+        try:
+            inserted_row = db_connector.insert_record("dim_generated_discharge_summaries", ins_dict)
+            new_sid = (inserted_row or {}).get("summary_id") or (f"DS-{clean_pid}" if clean_pid else id_str)
+            return {
+                "status": "success",
+                "message": f"Discharge summary '{id_str}' successfully created in gold.dim_generated_discharge_summaries.",
+                "summary_id": new_sid,
+                "patient_id": clean_pid,
+                "data": inserted_row or ins_dict
+            }
+        except Exception as insert_err:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Discharge summary '{id_str}' not found and creation failed: {str(insert_err)}"
+            )
 
     actual_sid = matched.get("summary_id")
     update_dict = {k: v for k, v in payload.dict().items() if v is not None}
@@ -701,184 +822,122 @@ def get_bed_management_data(
     ward_id: Optional[int] = Query(None, description="Filter by ward_id"),
     occupancy_status: Optional[str] = Query(None, description="Filter by occupancy_status (Occupied, Available, Maintenance, Blocked)")
 ):
-    """Provides combined hierarchical data connecting Wards -> Rooms -> Beds -> Assigned Patient."""
+    """Provides combined hierarchical data connecting Wards -> Rooms -> Beds -> Assigned Patient dynamically from PostgreSQL."""
     try:
-        from concurrent.futures import ThreadPoolExecutor
+        conn = db_connector.get_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            fut_wards = executor.submit(db_connector.query_bronze_table, "wards")
-            fut_rooms = executor.submit(db_connector.query_bronze_table, "rooms")
-            fut_beds = executor.submit(db_connector.query_bronze_table, "beds")
-            fut_ds = executor.submit(db_connector.query_gold_table, "dim_generated_discharge_summaries", None, 1000)
-            fut_adm_inputs = executor.submit(db_connector.query_gold_table, "dim_admission_inputs")
-            fut_admissions = executor.submit(db_connector.query_bronze_table, "admissions", {"discharge_status": "Admitted"}, 1000)
+        cur.execute("SELECT ward_id, ward_name, department_id, ward_type, floor_number, status FROM wards ORDER BY ward_id;")
+        wards_data = cur.fetchall()
 
-            wards_res = fut_wards.result()
-            rooms_res = fut_rooms.result()
-            beds_res = fut_beds.result()
-            ds_res = fut_ds.result()
-            adm_inputs_res = fut_adm_inputs.result()
-            admissions_res = fut_admissions.result()
+        cur.execute("SELECT room_id, room_number, ward_id, room_type, daily_charge, status FROM rooms ORDER BY room_id;")
+        rooms_data = cur.fetchall()
 
-        wards_data = wards_res.get("data", [])
-        rooms_data = rooms_res.get("data", [])
-        beds_data = beds_res.get("data", [])
+        cur.execute("SELECT bed_id, bed_number, room_id, ward_id, bed_type, daily_charge, status FROM beds ORDER BY bed_id;")
+        beds_data = cur.fetchall()
 
-        # Discharged set - Discharge summary table is source of truth
-        discharged_ids = set()
-        discharged_adm_ids = set()
-        discharged_pnums = set()
-        for r in ds_res.get("data", []):
-            p_id = r.get("patient_id")
-            if p_id is not None:
-                discharged_ids.add(str(p_id).strip())
-            a_id = r.get("admission_id")
-            if a_id:
-                discharged_adm_ids.add(str(a_id).strip())
-            p_num = r.get("patient_number")
-            if p_num:
-                discharged_pnums.add(str(p_num).strip())
+        cur.execute("SELECT summary_id, admission_id, patient_id, approval_status, discharge_date, diagnoses, primary_consultant FROM dim_generated_discharge_summaries;")
+        ds_data = cur.fetchall()
 
-        # Query active admissions for patient assignment mapping (excluding discharged patients)
-        active_patient_map = {}
-        for r in adm_inputs_res.get("data", []):
-            p_id = r.get("patient_id")
-            adm_id = r.get("admission_id")
-            p_num = r.get("patient_number")
+        cur.execute("""
+            SELECT 
+                admission_id, admission_number, patient_id, patient_number,
+                first_name, last_name, attending_doctor, primary_diagnosis,
+                bed_number, room_number, ward_name, admission_date, discharge_status
+            FROM dim_admission_inputs
+            WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged';
+        """)
+        admissions_data = cur.fetchall()
 
-            # If patient is in discharged summaries, skip them (they are discharged)
-            if (p_id is not None and str(p_id).strip() in discharged_ids) or \
-               (adm_id and str(adm_id).strip() in discharged_adm_ids) or \
-               (p_num and str(p_num).strip() in discharged_pnums):
-                continue
+        cur.close()
+        conn.close()
 
-            j_raw = r.get("llm_input_json")
-            p_name = None
-            diag = None
-            doc = None
-            if j_raw:
-                try:
-                    import json as json_lib
-                    j = json_lib.loads(j_raw) if isinstance(j_raw, str) else j_raw
-                    p_demo = j.get("patient_demographics", {})
-                    p_name = f"{p_demo.get('first_name', '')} {p_demo.get('last_name', '')}".strip()
-                    adm_det = j.get("admission_details", {})
-                    doc = adm_det.get("attending_doctor")
-                    diag = j.get("diagnoses", {}).get("primary_diagnosis")
-                except Exception:
-                    pass
-            
-            info = {
-                "patient_id": p_id,
-                "admission_id": adm_id,
-                "patient_name": p_name or f"Patient #{p_id}",
-                "attending_doctor": doc or f"Doctor #{r.get('doctor_id')}",
-                "primary_diagnosis": diag,
-                "admission_date": r.get("admission_date")
-            }
-            if p_id:
-                active_patient_map[str(p_id)] = info
-            if adm_id:
-                active_patient_map[f"adm_{adm_id}"] = info
+        # Discharged set - Only Approved / Finalized discharge summaries count as discharged & bed released
+        discharged_ids = {
+            str(r["patient_id"]).strip() 
+            for r in ds_data 
+            if r.get("patient_id") is not None and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
+        }
+        discharged_adm_ids = {
+            str(r["admission_id"]).strip() 
+            for r in ds_data 
+            if r.get("admission_id") and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
+        }
 
-        # Try to map bed_id to active admission
+        # Build active bed -> patient map (keyed by bed_number and bed_id)
         bed_patient_map = {}
-        for a in admissions_res.get("data", []):
-            p_id = a.get("patient_id")
-            adm_id = a.get("admission_id")
-            p_num = a.get("patient_number")
+        for a in admissions_data:
+            pid = str(a.get("patient_id")).strip() if a.get("patient_id") else None
+            aid = str(a.get("admission_id")).strip() if a.get("admission_id") else None
+            bnum = str(a.get("bed_number")).strip() if a.get("bed_number") else None
 
-            # Exclude discharged patients
-            if (p_id is not None and str(p_id).strip() in discharged_ids) or \
-               (adm_id and str(adm_id).strip() in discharged_adm_ids) or \
-               (p_num and str(p_num).strip() in discharged_pnums):
+            if (pid and pid in discharged_ids) or (aid and aid in discharged_adm_ids):
                 continue
 
-            b_id = a.get("bed_id")
-            if b_id:
-                existing_info = active_patient_map.get(str(p_id), {})
-                bed_patient_map[b_id] = {
-                    "patient_id": p_id,
-                    "admission_id": adm_id,
-                    "admission_number": a.get("admission_number"),
-                    "patient_name": existing_info.get("patient_name") or f"Patient #{p_id}",
-                    "attending_doctor": existing_info.get("attending_doctor") or f"Doctor #{a.get('doctor_id')}",
-                    "primary_diagnosis": existing_info.get("primary_diagnosis") or a.get("reason_for_admission"),
-                    "admission_date": a.get("admission_date")
-                }
+            pname = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() or f"Patient #{a.get('patient_id')}"
+            diag = a.get("primary_diagnosis") or "Inpatient Observation"
+            doc = a.get("attending_doctor") or "Attending Consultant"
 
-        # Identify active admitted patients to map to beds
-        assigned_pids = set()
-        for b_id, p_info in bed_patient_map.items():
-            if p_info.get("patient_id"):
-                assigned_pids.add(str(p_info["patient_id"]).strip())
+            patient_dict = {
+                "id": a.get("patient_id"),
+                "patient_id": a.get("patient_id"),
+                "admission_id": a.get("admission_id"),
+                "admission_number": a.get("admission_number"),
+                "patient_number": a.get("patient_number"),
+                "name": pname,
+                "patient_name": pname,
+                "attending_doctor": doc,
+                "doctor": doc,
+                "primary_diagnosis": diag,
+                "diagnosis": diag,
+                "admission_date": a.get("admission_date").isoformat() if a.get("admission_date") else None
+            }
 
-        unassigned_active_patients = [
-            info for pid, info in active_patient_map.items()
-            if not pid.startswith("adm_") and pid not in assigned_pids and pid not in discharged_ids
-        ]
-        unassigned_idx = 0
+            if bnum:
+                bed_patient_map[bnum] = patient_dict
 
-        # Organize beds by room_id and ward_id
-        beds_by_room = {}
         occupied_count = 0
         available_count = 0
-        blocked_count = 0
+        maintenance_count = 0
 
+        beds_by_room = {}
         for b in beds_data:
-            r_id = b.get("room_id")
-            w_id = b.get("ward_id")
-            b_id = b.get("bed_id")
+            bid = b.get("bed_id")
+            bnum = b.get("bed_number")
+            rid = b.get("room_id")
+            wid = b.get("ward_id")
 
-            # Check assigned patient
-            assigned = bed_patient_map.get(b_id)
-            p_id_raw = b.get("patient_id")
-            p_id_str = str(p_id_raw).strip() if p_id_raw is not None else ""
+            assigned = bed_patient_map.get(bnum) or bed_patient_map.get(str(bid)) or bed_patient_map.get(bid)
+            raw_status = str(b.get("status") or "").strip().lower()
+            is_maint = raw_status in ["maintenance", "blocked", "cleaning", "reserved"]
 
-            is_discharged = (p_id_str and p_id_str in discharged_ids) or \
-                            (b.get("patient_number") and str(b.get("patient_number")).strip() in discharged_pnums) or \
-                            (b.get("admission_id") and str(b.get("admission_id")).strip() in discharged_adm_ids)
-
-            if is_discharged:
-                assigned = None
-            elif not assigned and p_id_str and p_id_str not in ["0", "", "None"]:
-                if p_id_str in active_patient_map:
-                    assigned = active_patient_map[p_id_str]
-                    assigned_pids.add(p_id_str)
-
-            raw_status = str(b.get("status") or b.get("occupancy_status") or "").strip()
-            is_maintenance = raw_status.lower() in ["maintenance", "blocked", "cleaning", "reserved"]
-
-            # If still unassigned and there are unassigned active admitted patients, place them in available beds
-            if not assigned and not is_discharged and not is_maintenance and unassigned_idx < len(unassigned_active_patients):
-                assigned = unassigned_active_patients[unassigned_idx]
-                unassigned_idx += 1
-
-            if assigned:
+            if assigned and raw_status != "available":
                 bed_status = "Occupied"
                 occupied_count += 1
-            elif is_maintenance:
+            elif is_maint:
                 bed_status = "Maintenance"
-                blocked_count += 1
+                maintenance_count += 1
             else:
                 bed_status = "Available"
                 available_count += 1
+                assigned = None
+
+            if occupancy_status and bed_status.lower() != occupancy_status.lower():
+                continue
 
             bed_obj = {
-                "bed_id": b_id,
-                "bed_number": b.get("bed_number"),
-                "room_id": r_id,
-                "ward_id": w_id,
+                "bed_id": bid,
+                "bed_number": bnum,
+                "room_id": rid,
+                "ward_id": wid,
                 "bed_type": b.get("bed_type"),
-                "daily_charge": b.get("daily_charge"),
+                "daily_charge": float(b.get("daily_charge")) if b.get("daily_charge") else 0.0,
                 "status": bed_status,
                 "is_occupied": bed_status == "Occupied",
-                "assigned_patient": assigned
+                "assigned_patient": assigned,
+                "patient": assigned
             }
-
-            if r_id not in beds_by_room:
-                beds_by_room[r_id] = []
-            beds_by_room[r_id].append(bed_obj)
+            beds_by_room.setdefault(rid, []).append(bed_obj)
 
         # Organize rooms by ward_id
         rooms_by_ward = {}
@@ -893,16 +952,13 @@ def get_bed_management_data(
                 "ward_id": w_id,
                 "room_type": rm.get("room_type"),
                 "capacity": rm.get("capacity", len(rm_beds)),
-                "daily_charge": rm.get("daily_charge"),
+                "daily_charge": float(rm.get("daily_charge")) if rm.get("daily_charge") else 0.0,
                 "status": rm.get("status", "Available"),
                 "beds_count": len(rm_beds),
                 "occupied_count": sum(1 for b in rm_beds if b["is_occupied"]),
                 "beds": rm_beds
             }
-
-            if w_id not in rooms_by_ward:
-                rooms_by_ward[w_id] = []
-            rooms_by_ward[w_id].append(room_obj)
+            rooms_by_ward.setdefault(w_id, []).append(room_obj)
 
         # Build Ward hierarchy
         ward_tree = []
@@ -932,15 +988,15 @@ def get_bed_management_data(
 
         total_beds = len(beds_data)
         return {
-            "catalog": Config.DATABRICKS_CATALOG,
-            "schema": "gold",
+            "catalog": Config.POSTGRES_DB,
+            "schema": "public",
             "kpis": {
                 "total_wards": len(wards_data),
                 "total_rooms": len(rooms_data),
                 "total_beds": total_beds,
                 "occupied_beds": occupied_count,
                 "available_beds": available_count,
-                "maintenance_beds": blocked_count,
+                "maintenance_beds": maintenance_count,
                 "occupancy_rate": round(occupied_count / total_beds * 100, 1) if total_beds else 0.0
             },
             "wards": ward_tree
@@ -949,24 +1005,93 @@ def get_bed_management_data(
         raise HTTPException(status_code=500, detail=f"Failed to generate bed management hierarchy: {str(e)}")
 
 
-# ---------------------------------------------------------------------------
-# DYNAMIC GOLD TABLE QUERY ENDPOINT
-# ---------------------------------------------------------------------------
-@router.get("/table/{table_name}", summary="Dynamic Query Endpoint for Gold Tables")
+@router.get("/table/{table_name}", summary="Dynamic Query Endpoint for Tables")
 def query_dynamic_gold_table(
     table_name: str,
     limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0)
 ):
-    """Dynamic pagination and retrieval for Gold tables."""
-    valid_tables = ["dim_revenue_predictions", "fact_bed_demand_forecast_7day_detailed", "dim_admission_inputs", "dim_generated_discharge_summaries"]
-    if table_name not in valid_tables:
-        raise HTTPException(status_code=400, detail=f"Table '{table_name}' is not supported. Valid Gold tables: {valid_tables}")
-
+    """Dynamic pagination and retrieval for PostgreSQL tables."""
     try:
         return db_connector.query_gold_table(table_name, limit=limit, offset=offset)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to query Gold table '{table_name}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to query table '{table_name}': {str(e)}")
 
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Public Patient Scan lookup (no radiologist auth required)
+# Used by Patient360 Diagnoses tab to show inline X-ray data from radiology_scan
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/patient-scans", tags=["Patient 360 Radiology Scans"])
+def get_patient_scans(
+    patient_code: Optional[str] = Query(None, description="Patient code, e.g. MER-PAT-0087243"),
+    patient_id: Optional[int] = Query(None, description="Numeric patient id"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """
+    Fetch radiology_scan records for a specific patient.
+    Returns scan metadata (scan_id, target, priority, scan_report, review_status,
+    probability, findings, clinical_summary, assessment, recommended_action,
+    x/y/width/height bounding box, image data-URL, created_at).
+    Only patients with existing records are returned — an empty list means no scans.
+    """
+    if not patient_code and not patient_id:
+        raise HTTPException(status_code=400, detail="Provide patient_code or patient_id")
+
+    from db_config import get_db_connection
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            where_parts = []
+            params: list = []
+            if patient_code:
+                where_parts.append("(rs.patient_code = %s OR rs.original_patient_id = %s)")
+                params.extend([patient_code.strip(), patient_code.strip()])
+            if patient_id:
+                where_parts.append("rs.patient_id = %s")
+                params.append(patient_id)
+
+            where_sql = " WHERE " + " OR ".join(where_parts)
+            cur.execute(f"""
+                SELECT
+                    rs.scan_id,
+                    rs.patient_id,
+                    rs.patient_code,
+                    rs.original_patient_id,
+                    p.first_name,
+                    p.last_name,
+                    rs.x,
+                    rs.y,
+                    rs.width,
+                    rs.height,
+                    rs.target,
+                    rs.image,
+                    rs.scan_report,
+                    rs.priority,
+                    rs.opacity_detected,
+                    rs.combined_status,
+                    rs.probability,
+                    rs.findings,
+                    rs.clinical_summary,
+                    rs.assessment,
+                    rs.recommended_action,
+                    rs.review_status,
+                    rs.reviewed_at,
+                    rs.reviewed_by,
+                    rs.radiologist_finding,
+                    rs.study_id,
+                    rs.display_study_id,
+                    rs.created_at
+                FROM radiology_scan rs
+                LEFT JOIN patients p ON rs.patient_id = p.id
+                {where_sql}
+                ORDER BY rs.scan_id DESC
+                LIMIT %s;
+            """, params + [limit])
+            rows = [dict(r) for r in cur.fetchall()]
+        return {"count": len(rows), "data": rows}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Patient scan lookup failed: {exc}")
+    finally:
+        conn.close()

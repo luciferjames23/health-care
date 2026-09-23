@@ -56,7 +56,7 @@ DENSENET_POSITIVE_CLASS_INDEX = 1
 DENSENET_PREPROCESSING_CONFIRMED = True  # confirmed against training notebook
 
 # ---------------------------------------------------------------------------
-# Reported model performance (PoC / evaluation metrics only - NOT clinical
+# Reported model performance (evaluation metrics only - NOT clinical
 # sensitivity/specificity, NOT FDA/CE validated)
 # ---------------------------------------------------------------------------
 DENSENET_ROC_AUC = 0.85
@@ -71,10 +71,10 @@ YOLO_RECALL = 0.431
 YOLO_MAP50 = 0.444
 YOLO_MAP50_95 = 0.179
 
-POC_VERSION = "0.1.0-poc"
+POC_VERSION = "0.1.0"
 
 DISCLAIMER = (
-    "AI-assisted triage only. This proof-of-concept is not a diagnostic "
+    "AI-assisted triage only. This system is not a diagnostic "
     "system. Final clinical interpretation must be performed by a "
     "qualified radiologist."
 )
@@ -97,7 +97,16 @@ SCREENING_DISCLAIMER = (
 ORTHANC_URL = os.getenv("ORTHANC_URL", "http://localhost:8042")
 ORTHANC_USERNAME = os.getenv("ORTHANC_USERNAME", "orthanc")
 ORTHANC_PASSWORD = os.getenv("ORTHANC_PASSWORD", "orthanc")
-PACS_POLL_INTERVAL_SECONDS = int(os.getenv("PACS_POLL_INTERVAL_SECONDS", "5"))
+PACS_POLL_INTERVAL_SECONDS = int(os.getenv("PACS_POLL_INTERVAL_SECONDS", "2"))
 
 # CORS
 ALLOWED_ORIGINS = ["http://localhost:5173"]
+
+# ---------------------------------------------------------------------------
+# PostgreSQL Lakehouse Connection Configuration
+# ---------------------------------------------------------------------------
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "rivesca.eu.db.rivestack.io")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "rv_pbpkghvg")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "rv_pbpkghvg")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "d_3zzwU0qzrtkujXG6YVBGlXGx9-kxp05cfBMiHqQ48=")

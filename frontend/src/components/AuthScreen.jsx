@@ -1,103 +1,102 @@
-import React, { useState } from 'react';
-import { DEMO_ROLES, DEMO_PASSWORD } from '../services/meridianData';
-import { setAuthToken } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { selectAccount } from '../services/accountSession';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
-export default function AuthScreen({ onLoginSuccess }) {
-  const [username, setUsername] = useState('arjun.menon');
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+const getPasswordForUser = (uname) => {
+  if (!uname) return 'Hospital@2026';
+  const lower = uname.toLowerCase();
+  if (lower === 'admin') return 'admin123';
+  return 'Hospital@2026';
+};
+
+export default function AuthScreen({
+  onLoginSuccess,
+  initialUsername = null,
+  initialInfo = ''
+}) {
+  const [username, setUsername] = useState(initialUsername || 'admin');
+  const [password, setPassword] = useState(() => getPasswordForUser(initialUsername || 'admin'));
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [info, setInfo] = useState(initialInfo || '');
+  const [usersList, setUsersList] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
 
-  const handleSelectRole = (r) => {
-    setUsername(r.username);
-    setPassword(DEMO_PASSWORD);
-    setError('');
-    setInfo(`Selected ${r.role} (${r.name}). Click Sign In to continue.`);
-  };
+  useEffect(() => {
+    let isMounted = true;
+    async function loadUsers() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/users`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.users && data.users.length > 0 && isMounted) {
+            setUsersList(data.users);
+            if (!initialUsername) {
+              const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
+              if (defaultUser) {
+                setUsername(defaultUser.username);
+                setPassword(getPasswordForUser(defaultUser.username));
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load dynamic users from database table:', err);
+      } finally {
+        if (isMounted) setLoadingUsers(false);
+      }
+    }
+    loadUsers();
+    return () => { isMounted = false; };
+  }, [initialUsername]);
 
-  // Map backend role names to frontend role names
-  const mapRole = (backendRole, username) => {
-    const roleUpper = (backendRole || '').toUpperCase();
-    if (roleUpper === 'ADMIN') return 'Hospital Management';
-    if (roleUpper === 'DOCTOR') return 'Doctor';
-    // Fallback: try to match from demo roles
-    const matched = DEMO_ROLES.find(r => r.username === username);
-    return matched ? matched.role : 'Hospital Management';
-  };
+  useEffect(() => {
+    if (initialUsername) {
+      setUsername(initialUsername);
+      setPassword(getPasswordForUser(initialUsername));
+    }
+  }, [initialUsername]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const u = (username || '').trim();
-    if (!u) {
-      setError('Please enter your username.');
+  useEffect(() => {
+    if (initialInfo) {
+      setInfo(initialInfo);
+    }
+  }, [initialInfo]);
+
+  const activeUsers = [...usersList].sort((a, b) => {
+    const rank = user => user.role?.toLowerCase() === 'radiologist' ? 0 : user.role?.toLowerCase() === 'admin' ? 1 : 2;
+    return rank(a) - rank(b);
+  });
+
+  const selectedUser = usersList.find(u => u.username?.toLowerCase() === (username || '').trim().toLowerCase()) ||
+                       usersList.find(u => u.username === initialUsername) ||
+                       activeUsers[0];
+
+  const handleSignIn = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (signingIn) return;
+    const targetUsername = (username || '').trim();
+    if (!targetUsername) {
+      setError('Please enter a username.');
       return;
     }
-
+    setSigningIn(true);
     setError('');
-    setInfo('');
-    setLoading(true);
-
+    const targetName = selectedUser?.name || targetUsername;
+    setInfo(`Signing in as ${targetName}…`);
     try {
-      // Determine role hint for the backend
-      const matched = DEMO_ROLES.find(r => r.username === u.toLowerCase() || r.username.includes(u.toLowerCase()));
-      const roleHint = matched
-        ? (matched.role === 'Doctor' ? 'doctor' : 'admin')
-        : (u.toLowerCase().includes('doc') ? 'doctor' : 'admin');
-
-      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: u, password: password, role: roleHint }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        setError(data.detail || data.message || 'Login failed. Please check your credentials.');
-        setLoading(false);
-        return;
-      }
-
-      // Store JWT token for authenticated API calls
-      if (data.token) {
-        setAuthToken(data.token);
-      }
-
-      // Build the auth object from backend response
-      const user = data.user || {};
-      const roleName = mapRole(user.role, u.toLowerCase());
-      const fullName = user.name || (matched ? matched.name : u);
-
-      onLoginSuccess({
-        username: user.username || u,
-        role: roleName,
-        name: fullName,
-        dept: user.department || (matched ? matched.dept : 'General'),
-        doctorId: user.doctorId,
-        loginId: user.loginId || u,
-      });
-    } catch (fetchErr) {
-      console.warn('[AUTH] Backend login failed, falling back to demo auth:', fetchErr.message);
-      // Fallback to local demo auth if backend is unreachable
-      const matched = DEMO_ROLES.find(r => r.username === u.toLowerCase() || r.username.includes(u.toLowerCase()));
-      const roleName = matched ? matched.role : (u.toLowerCase().includes('admin') ? 'Hospital Management' : (u.toLowerCase().includes('doc') ? 'Doctor' : 'Hospital Management'));
-      const fullName = matched ? matched.name : (u.toLowerCase().includes('admin') ? 'System Administrator' : u);
-
-      setInfo('Backend unavailable — signed in with demo credentials.');
-      onLoginSuccess({
-        username: u.toLowerCase(),
-        role: roleName,
-        name: fullName,
-        dept: matched ? matched.dept : 'General',
-      });
+      const user = await selectAccount(targetUsername);
+      onLoginSuccess(user);
+    } catch (err) {
+      setError(err.message || 'Unable to sign in.');
+      setInfo('');
     } finally {
-      setLoading(false);
+      setSigningIn(false);
     }
   };
+
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', background: '#fbfbfc' }}>
@@ -131,13 +130,6 @@ export default function AuthScreen({ onLoginSuccess }) {
           </div>
         </div>
 
-        <div style={{
-          font: '600 9px ui-monospace, Menlo, monospace', letterSpacing: '.04em',
-          color: 'oklch(0.8 0.1 25)', border: '1px solid oklch(0.5 0.12 25)',
-          padding: '4px 7px', borderRadius: '4px', alignSelf: 'flex-start'
-        }}>
-          DEMO ENVIRONMENT • SYNTHETIC DATA • NOT FOR CLINICAL USE
-        </div>
       </aside>
 
       {/* Right sign-in container */}
@@ -152,7 +144,7 @@ export default function AuthScreen({ onLoginSuccess }) {
             <div>
               <div style={{ fontSize: '18px', fontWeight: 600 }}>Sign in</div>
               <div style={{ color: '#52585e', marginTop: '2px', lineHeight: 1.45, fontSize: '12px' }}>
-                Use your hospital Employee ID or username. Role, department and consultant scope come from your account.
+                Select an account and sign in to access clinical or hospital workspace.
               </div>
             </div>
 
@@ -176,104 +168,180 @@ export default function AuthScreen({ onLoginSuccess }) {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Employee ID or username</span>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="e.g. arjun.menon or EMP-D014"
-                  disabled={loading}
-                  style={{
-                    height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                    padding: '0 10px', fontSize: '13px', outline: 'none', background: '#fff'
-                  }}
-                />
-              </label>
+            {selectedUser && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                padding: '14px 16px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '38px', height: '38px', borderRadius: '50%',
+                    background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: '13px', flexShrink: 0
+                  }}>
+                    {selectedUser.name ? selectedUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'DR'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '14px', color: '#15181b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedUser.name}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                      <span style={{ fontWeight: 600, color: '#0284c7' }}>{selectedUser.role}</span>
+                      {(selectedUser.specialization || selectedUser.dept) && ` · ${selectedUser.specialization || selectedUser.dept}`}
+                    </div>
+                  </div>
+                </div>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Password</span>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    disabled={loading}
-                    style={{
-                      flex: 1, height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                      padding: '0 10px', fontSize: '13px', outline: 'none', minWidth: 0, background: '#fff'
-                    }}
-                  />
+                {/* Editable Username and Password fields above the Sign In button */}
+                <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '2px' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Username</span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => {
+                        setUsername(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Username"
+                      autoComplete="username"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Password</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          color: 'oklch(0.5 0.1 200)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0
+                        }}
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => {
+                        setPassword(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Password"
+                      autoComplete="current-password"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
                   <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    type="submit"
+                    id="sign-in-submit-btn"
+                    disabled={signingIn}
                     style={{
-                      height: '36px', padding: '0 10px', border: '1px solid #e3e6e8',
-                      borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11px', color: '#52585e'
+                      height: '38px',
+                      borderRadius: '6px',
+                      border: 0,
+                      background: 'oklch(0.5 0.1 200)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      marginTop: '4px',
+                      transition: 'opacity 0.15s'
                     }}
                   >
-                    {showPassword ? 'Hide' : 'Show'}
+                    {signingIn ? 'Signing in…' : `Sign in as ${selectedUser.name} →`}
                   </button>
-                </div>
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
-                <button
-                  type="button"
-                  onClick={() => alert('Synthetic password for demo is: ' + DEMO_PASSWORD)}
-                  style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'oklch(0.5 0.1 200)' }}
-                >
-                  Forgot password?
-                </button>
-                <span style={{ color: '#8a9096' }}>Branch · BR-01</span>
+                </form>
               </div>
+            )}
 
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  height: '38px', borderRadius: '6px', border: 0,
-                  background: loading ? '#b0b6bc' : 'oklch(0.5 0.1 200)', color: '#fff',
-                  fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontSize: '13px',
-                  marginTop: '4px', transition: 'background 0.15s'
-                }}
-              >
-                {loading ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
           </div>
 
-          {/* Role-based demo quick picker */}
+          {/* Dynamic Users from Database Table */}
           <div style={{
             background: '#fff', border: '1px solid #e3e6e8', borderRadius: '10px',
             padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '8px'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontWeight: 600, fontSize: '12px' }}>Role-based demo access</span>
-              <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#8a9096' }}>synthetic accounts</span>
+              <span style={{ fontWeight: 600, fontSize: '12px' }}>Hospital Accounts &amp; Staff Directory</span>
+              <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#0284c7' }}>
+                {loadingUsers ? 'loading database...' : `directory (${activeUsers.length} accounts)`}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {DEMO_ROLES.map((r) => (
-                <button
-                  key={r.username}
-                  type="button"
-                  onClick={() => handleSelectRole(r)}
-                  style={{
-                    height: '28px', padding: '0 10px', borderRadius: '14px',
-                    border: '1px solid #e3e6e8', background: username === r.username ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
-                    cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s'
-                  }}
-                >
-                  <span style={{ fontWeight: 600 }}>{r.role}</span>
-                  <span style={{ color: '#52585e' }}> · {r.name}</span>
-                </button>
-              ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
+              {activeUsers.map((r) => {
+                const isSelected = (username?.toLowerCase() === r.username?.toLowerCase() || selectedUser?.username?.toLowerCase() === r.username?.toLowerCase());
+                return (
+                  <button
+                    key={r.username}
+                    type="button"
+                    disabled={signingIn}
+                    onClick={() => {
+                      setUsername(r.username);
+                      setPassword(getPasswordForUser(r.username));
+                      setError('');
+                    }}
+                    style={{
+                      height: '28px', padding: '0 10px', borderRadius: '14px',
+                      border: isSelected ? '1.5px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                      background: isSelected ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
+                      cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s',
+                      fontWeight: isSelected ? 600 : 400
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
+                    <span style={{ color: '#52585e' }}> · {r.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div style={{ fontSize: '11px', color: '#8a9096', lineHeight: 1.45, marginTop: '4px' }}>
-              Picking an account fills its synthetic credentials (password <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#15181b', fontWeight: 600 }}>{DEMO_PASSWORD}</span>). Password check, MFA, lockout after 5 failures and the audit trail run exactly as for a real user — nothing is bypassed.
+              Select a doctor to request an X-ray, or select Radiologist to view incoming orders.
             </div>
           </div>
 

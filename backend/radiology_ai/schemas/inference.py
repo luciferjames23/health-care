@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel
 
 
@@ -132,10 +132,20 @@ class LocalizationSummaryResponse(BaseModel):
 class WorklistItemResponse(BaseModel):
     study_id: str
     display_study_id: Optional[str] = None
+    patient_id: Optional[Any] = None
+    patient_code: Optional[str] = None
+    original_patient_id: Optional[str] = None
+    patient_name: Optional[str] = None
     source: Optional[SourceMetadataResponse] = None
     analyzed_at: str
     viewed: bool = False
     viewed_at: Optional[str] = None
+    review_status: Optional[str] = "Unread"
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    radiologist_finding: Optional[str] = None
+    radiologist_report: Optional[str] = None
+    scan_report: Optional[str] = None
     source_filename: Optional[str] = None
     metadata: dict
     triage: TriageResponse
@@ -156,14 +166,32 @@ class WorklistResponse(BaseModel):
     counts: WorklistCountsResponse
 
 
+class ReviewStatusRequest(BaseModel):
+    review_status: str
+    reviewed_by: Optional[str] = None
+    report: Optional[str] = None
+    finding: Optional[str] = None
+
+
 class StudyDetailResponse(AnalyzeResponse):
     """Same shape as AnalyzeResponse (so the existing Analysis screen can
     render it unmodified) plus worklist-only fields recorded at save time."""
     analyzed_at: str
     source_filename: Optional[str] = None
     display_study_id: Optional[str] = None
+    patient_id: Optional[Any] = None
+    patient_code: Optional[str] = None
+    original_patient_id: Optional[str] = None
+    patient_name: Optional[str] = None
     viewed: bool = False
     viewed_at: Optional[str] = None
+    review_status: Optional[str] = "Unread"
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    scan_report: Optional[str] = None
+    radiologist_report: Optional[str] = None
+    radiologist_finding: Optional[str] = None
+
 
 
 class ViewedStatusResponse(BaseModel):

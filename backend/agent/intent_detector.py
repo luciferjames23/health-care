@@ -298,10 +298,12 @@ def detect_intent(text: str, current_intent: str = None) -> str:
     """
     text_lower = (text or "").lower().strip()
 
-    # --- Priority 0: Emergency --- Always checked regardless of context
-    for pattern in PATTERNS["EMERGENCY_GUIDANCE"]:
-        if re.search(pattern, text_lower, re.IGNORECASE):
-            return "EMERGENCY_GUIDANCE"
+    # --- Priority 0: Emergency ---
+    is_routine_booking_context = any(w in text_lower for w in ["appointment", "book", "consultation", "schedule", "checkup", "doctor for"]) and not any(w in text_lower for w in ["severe", "acute", "sudden", "emergency", "crushing", "unconscious", "cannot", "can't", "stroke", "heart attack", "heavy bleeding"])
+    if not is_routine_booking_context:
+        for pattern in PATTERNS["EMERGENCY_GUIDANCE"]:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return "EMERGENCY_GUIDANCE"
 
     # --- Priority 1: Human escalation ---
     for pattern in PATTERNS["HUMAN_ESCALATION"]:
@@ -326,12 +328,13 @@ def detect_intent(text: str, current_intent: str = None) -> str:
                 if intent_name in ["THANK_YOU", "GOODBYE"]:
                     return intent_name
                 if intent_name == "GREETING":
-                    # Don't switch to GREETING if already in active workflow and message is not standalone
+                    # Don't switch to GREETING if already in active workflow unless message is an explicit standalone greeting
+                    explicit_greetings = {"hi", "hello", "hey", "good morning", "good afternoon", "good evening", "namaste", "vanakkam", "namaskara", "greetings", "வணக்கம்", "ஹலோ", "ஹாய்", "नमस्ते", "नमस्कार", "हैलो"}
                     if current_intent in [
                         "BOOK_APPOINTMENT", "REGISTER_PATIENT", "IDENTIFY_PATIENT",
                         "RESCHEDULE_APPOINTMENT", "CANCEL_APPOINTMENT", "DOCTOR_AVAILABILITY",
                         "DEPENDENT_PATIENT"
-                    ] and len(text_lower) > 5:
+                    ] and text_lower not in explicit_greetings:
                         break
                     return "GREETING"
                 if intent_name == "APPOINTMENT_CONFIRMATION":

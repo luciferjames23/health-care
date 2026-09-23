@@ -239,6 +239,9 @@ def _call_gemini(prompt: str) -> Optional[str]:
         },
     }
 
+    if not LLM_API_KEY:
+        return None
+
     # Try primary model, then fallback models
     models_to_try = [model_name, "gemini-3.5-flash-lite", "gemini-2.5-flash"]
     seen = set()
@@ -252,13 +255,14 @@ def _call_gemini(prompt: str) -> Optional[str]:
                 attempt_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=2.0,
+                timeout=8.0,
                 verify=verify_ssl,
             )
             if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
                 _log(f"Model {attempt_model} returned 404, trying gemini-1.5-flash-latest")
                 continue
             res.raise_for_status()
+
             data = res.json()
             candidates = data.get("candidates", [])
             if candidates:
@@ -488,7 +492,7 @@ SUPPORTED INTENTS (return exactly one):
 - PATIENT_DETAILS_UPDATE: Updating personal info (name, phone, DOB, email)
 - DEPENDENT_BOOKING: Booking a NEW appointment for a family member (son, daughter, wife, husband, mother, father, child)
 - PRE_ADMISSION: Pre-admission registration, clearance, confirming admission ("confirm admission", "btn_confirm_admission"), cancelling admission ("cancel admission"), pre-admission requirements or documents
-- EMERGENCY: Chest pain, severe difficulty breathing, sudden stroke, heavy bleeding, life-threatening emergency
+- EMERGENCY: Severe acute sudden chest pain, severe difficulty breathing, sudden stroke, heavy bleeding, life-threatening emergency (routine/mild chest pain consultations go to BOOK_APPOINTMENT -> Cardiology)
 - HUMAN_ESCALATION: Asking to talk to a human agent, staff, operator, or customer care
 - GENERAL_MEDICAL_QUERY: General healthcare or medical advice question
 - THANK_YOU: Thanking the bot ("thank you", "thanks", "appreciated")
@@ -944,9 +948,9 @@ def _rule_based_fallback(
                 break
 
         # Only map UNKNOWN to BOOK_APPOINTMENT if the message itself contained medical content (not pure greeting/ack)
-        has_new_medical_info = bool(rule_result.get("symptoms") or rule_result.get("doctor_preference") or (dept and any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"])))
+        has_new_medical_info = bool(dept or rule_result.get("symptoms") or rule_result.get("doctor_preference") or any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"]))
         if canonical_intent == "UNKNOWN" and has_new_medical_info:
-            if current_state.get("intent") == "DOCTOR_AVAILABILITY":
+            if dept or current_state.get("intent") == "DOCTOR_AVAILABILITY":
                 canonical_intent = "DOCTOR_AVAILABILITY"
             else:
                 canonical_intent = "BOOK_APPOINTMENT"
