@@ -1340,30 +1340,118 @@ export function formatClinicalTreatment(val) {
     }
   }
 
-  if (!data || typeof data !== 'object') {
-    return String(val);
-  }
-
-  const meds = data.medications || data.inpatient_medications || data.treatments || data.prescriptions;
-  if (Array.isArray(meds) && meds.length > 0) {
-    const lines = ['Inpatient care and stabilization administered:'];
-    meds.forEach((m, idx) => {
-      if (typeof m === 'object' && m !== null) {
-        const name = m.name || m.medicine || m.drug || 'Medication';
-        const dose = m.dose || m.dosage || '';
-        const route = m.route || '';
-        const freq = m.frequency || m.freq || '';
-        const ind = m.indication || m.indication_notes || m.notes || '';
-        const parts = [dose ? `Dosage: ${dose}` : '', route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', ind ? `Indication: ${ind}` : ''].filter(Boolean);
-        lines.push(`${idx + 1}. Administered: ${name} - ${parts.join(' - ') || 'As directed'}`);
-      } else {
-        lines.push(`${idx + 1}. ${m}`);
+  const extractMedInfo = (str) => {
+    const s = String(str || '').trim();
+    if (!s.includes('{') || !s.includes('}')) return null;
+    const match = s.match(/\{[^{}]+\}/);
+    if (match) {
+      const raw = match[0];
+      for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
+        try {
+          const d = JSON.parse(cand);
+          if (d && (d.name || d.medicine || d.drug)) {
+            return {
+              name: d.name || d.medicine || d.drug,
+              dose: d.dose || d.dosage || '',
+              route: d.route || '',
+              freq: d.frequency || d.freq || '',
+              dur: d.duration || d.dur || '',
+              ind: d.indication || d.notes || ''
+            };
+          }
+        } catch (e) {}
       }
-    });
-    return lines.join('\n');
+      const getField = (keys) => {
+        for (const k of keys) {
+          const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
+          const m = s.match(re);
+          if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
+        }
+        return '';
+      };
+      const name = getField(['name', 'medicine', 'drug']);
+      if (name) {
+        return {
+          name,
+          dose: getField(['dose', 'dosage']),
+          route: getField(['route']),
+          freq: getField(['frequency', 'freq']),
+          dur: getField(['duration', 'dur']),
+          ind: getField(['indication', 'notes'])
+        };
+      }
+    }
+    return null;
+  };
+
+  const parseSingleMedDict = (d) => {
+    if (!d || typeof d !== 'object') return String(d || '');
+    const name = d.name || d.medicine || d.drug || 'Medication';
+    const dose = d.dose || d.dosage || '';
+    const route = d.route || '';
+    const freq = d.frequency || d.freq || '';
+    const dur = d.duration || d.dur || '';
+    const ind = d.indication || d.indication_notes || d.notes || '';
+    const parts = [dose ? `Dosage: ${dose}` : '', route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', dur ? `Duration: ${dur}` : '', ind ? `Indication: ${ind}` : ''].filter(Boolean);
+    return `Administered: ${name} - ${parts.join(' - ') || 'As directed'}`;
+  };
+
+  const cleanTreatmentLine = (line) => {
+    const s = String(line || '').trim();
+    let cleanPrefix = s.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
+    const info = extractMedInfo(cleanPrefix);
+    if (info) {
+      const parts = [
+        info.dose ? `Dosage: ${info.dose}` : '',
+        info.route ? `Route: ${info.route}` : '',
+        info.freq ? `Freq: ${info.freq}` : '',
+        info.dur ? `Duration: ${info.dur}` : '',
+        info.ind ? `Indication: ${info.ind}` : ''
+      ].filter(Boolean);
+      return `Administered: ${info.name} - ${parts.join(' - ') || 'As directed'}`;
+    }
+    return cleanPrefix ? `Administered: ${cleanPrefix}` : '';
+  };
+
+  if (data && typeof data === 'object') {
+    const meds = data.medications || data.inpatient_medications || data.treatments || data.prescriptions || (Array.isArray(data) ? data : null);
+    if (Array.isArray(meds) && meds.length > 0) {
+      const lines = ['Inpatient care and stabilization administered:'];
+      meds.forEach((m, idx) => {
+        if (typeof m === 'object' && m !== null) {
+          lines.push(`${idx + 1}. ${parseSingleMedDict(m)}`);
+        } else {
+          const cl = cleanTreatmentLine(m);
+          lines.push(`${idx + 1}. ${cl}`);
+        }
+      });
+      return lines.join('\n');
+    }
   }
 
-  return String(val);
+  // Handle multiline string with embedded JSON/dict lines
+  const rawLines = String(val).split('\n');
+  const cleanedLines = [];
+  let idx = 1;
+  let hasHeader = false;
+  for (const line of rawLines) {
+    const s = line.trim();
+    if (!s) continue;
+    if (s.toLowerCase().startsWith('inpatient care')) {
+      hasHeader = true;
+      cleanedLines.push('Inpatient care and stabilization administered:');
+      continue;
+    }
+    const cl = cleanTreatmentLine(s);
+    if (cl) {
+      cleanedLines.push(`${idx}. ${cl}`);
+      idx++;
+    }
+  }
+  if (!hasHeader && cleanedLines.length > 0) {
+    cleanedLines.unshift('Inpatient care and stabilization administered:');
+  }
+  return cleanedLines.length > 0 ? cleanedLines.join('\n') : String(val);
 }
 
 /**
@@ -1374,7 +1462,7 @@ export function formatClinicalAdvice(val) {
   let data = null;
   if (typeof val === 'object' && val !== null) {
     data = val;
-  } else if (typeof val === 'string' && (val.includes('{') || val.includes('['))) {
+  } else if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
     try {
       data = JSON.parse(val);
     } catch (e) {
@@ -1384,40 +1472,93 @@ export function formatClinicalAdvice(val) {
     }
   }
 
-  if (!data || typeof data !== 'object') {
-    return String(val)
-      .split('\n')
-      .filter(l => !l.toLowerCase().includes('தமிழ்') && !l.toLowerCase().includes('tamil instructions') && !/[\u0B80-\u0BFF]/.test(l))
-      .join('\n')
-      .trim();
-  }
+  const parseSingleAdviceDict = (d) => {
+    if (!d || typeof d !== 'object') return String(d || '');
+    const name = d.name || d.medicine || d.drug || '';
+    if (name) {
+      const dose = d.dose || d.dosage || '';
+      const route = d.route || '';
+      const freq = d.frequency || d.freq || '';
+      const dur = d.duration || d.dur || '';
+      const parts = [dose, route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : ''].filter(Boolean);
+      const inst = parts.join(', ');
+      const durStr = dur ? ` (Duration: ${dur})` : '';
+      return inst ? `${name} - ${inst}${durStr}` : name;
+    }
+    return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(', ');
+  };
 
-  const lines = [];
-  let idx = 1;
-  const keys = ['discharge_medications', 'medications', 'diet', 'activity', 'lifestyle', 'red_flags', 'emergency_warning', 'followup', 'follow_up', 'review'];
-  for (const k of keys) {
-    const v = data[k];
-    if (v) {
-      if (Array.isArray(v)) {
-        v.forEach(item => {
-          lines.push(`${idx}. ${item}`);
-          idx++;
-        });
-      } else {
-        lines.push(`${idx}. ${v}`);
+  const cleanAdviceLine = (line) => {
+    const s = String(line || '').trim();
+    const cleanPrefix = s.replace(/^\d+[\.\)]\s*/, '').trim();
+    const info = extractMedInfo(cleanPrefix);
+    if (info) {
+      const parts = [info.dose, info.route ? `Route: ${info.route}` : '', info.freq ? `Freq: ${info.freq}` : ''].filter(Boolean);
+      const inst = parts.join(', ');
+      const durStr = info.dur ? ` (Duration: ${info.dur})` : '';
+      return inst ? `${info.name} - ${inst}${durStr}` : info.name;
+    }
+    return cleanPrefix;
+  };
+
+  if (data && typeof data === 'object') {
+    const lines = [];
+    let idx = 1;
+    if (Array.isArray(data)) {
+      data.forEach(item => {
+        if (typeof item === 'object' && item !== null) {
+          lines.push(`${idx}. ${parseSingleAdviceDict(item)}`);
+        } else {
+          lines.push(`${idx}. ${cleanAdviceLine(item)}`);
+        }
         idx++;
+      });
+      return lines.join('\n');
+    }
+
+    const keys = ['discharge_medications', 'medications', 'diet', 'activity', 'lifestyle', 'red_flags', 'emergency_warning', 'followup', 'follow_up', 'review'];
+    for (const k of keys) {
+      const v = data[k];
+      if (v) {
+        if (Array.isArray(v)) {
+          v.forEach(item => {
+            if (typeof item === 'object' && item !== null) {
+              lines.push(`${idx}. ${parseSingleAdviceDict(item)}`);
+            } else {
+              lines.push(`${idx}. ${cleanAdviceLine(item)}`);
+            }
+            idx++;
+          });
+        } else if (typeof v === 'object' && v !== null) {
+          lines.push(`${idx}. ${parseSingleAdviceDict(v)}`);
+          idx++;
+        } else {
+          lines.push(`${idx}. ${cleanAdviceLine(v)}`);
+          idx++;
+        }
       }
     }
+
+    if (lines.length > 0) return lines.join('\n');
   }
 
-  if (lines.length === 0) {
-    for (const [k, v] of Object.entries(data)) {
-      lines.push(`${idx}. ${k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+  // Multiline string
+  const rawLines = String(val).split('\n');
+  const cleanedLines = [];
+  let idx = 1;
+  for (const line of rawLines) {
+    const s = line.trim();
+    if (!s || s.toLowerCase().includes('தமிழ்') || s.toLowerCase().includes('tamil instructions') || /[\u0B80-\u0BFF]/.test(s)) {
+      continue;
+    }
+    const cl = cleanAdviceLine(s);
+    if (cl) {
+      cleanedLines.push(`${idx}. ${cl}`);
       idx++;
     }
   }
 
-  return lines.join('\n');
+  return cleanedLines.join('\n');
 }
 
 /**

@@ -136,6 +136,50 @@ function parseFollowupInstructions(text) {
   return [text.trim()];
 }
 
+function extractMedInfo(str) {
+  const s = String(str || '').trim();
+  if (!s.includes('{') || !s.includes('}')) return null;
+  const match = s.match(/\{[^{}]+\}/);
+  if (match) {
+    const raw = match[0];
+    for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
+      try {
+        const d = JSON.parse(cand);
+        if (d && (d.name || d.medicine || d.drug)) {
+          return {
+            name: d.name || d.medicine || d.drug,
+            dose: d.dose || d.dosage || '',
+            route: d.route || '',
+            freq: d.frequency || d.freq || '',
+            dur: d.duration || d.dur || '',
+            ind: d.indication || d.notes || ''
+          };
+        }
+      } catch (e) {}
+    }
+    const getField = (keys) => {
+      for (const k of keys) {
+        const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
+        const m = s.match(re);
+        if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+      return '';
+    };
+    const name = getField(['name', 'medicine', 'drug']);
+    if (name) {
+      return {
+        name,
+        dose: getField(['dose', 'dosage']),
+        route: getField(['route']),
+        freq: getField(['frequency', 'freq']),
+        dur: getField(['duration', 'dur']),
+        ind: getField(['indication', 'notes'])
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Parses medications array or text block into structured table rows
  * [{ medicine, instructions, notes }]
@@ -159,6 +203,22 @@ function parseMedications(medsArray, medText) {
     return str || 'As directed';
   };
 
+  const parseDictObject = (d) => {
+    if (!d || typeof d !== 'object') return null;
+    const name = cleanMedName(d.name || d.medicine || d.drug || 'Medication');
+    const dose = d.dose || d.dosage || '';
+    const route = d.route || '';
+    const freq = d.frequency || d.freq || '';
+    const dur = d.duration || d.dur || '';
+    const ind = d.indication || d.indication_notes || d.notes || 'Treatment';
+    const parts = [dose, route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', dur ? `Duration: ${dur}` : ''].filter(Boolean);
+    return {
+      medicine: name,
+      instructions: cleanInst(parts.join(', ') || 'As directed'),
+      notes: ind
+    };
+  };
+
   if (Array.isArray(medsArray) && medsArray.length > 0) {
     if (Array.isArray(medsArray[0])) {
       return medsArray.map(m => ({
@@ -168,11 +228,11 @@ function parseMedications(medsArray, medText) {
       }));
     }
     if (typeof medsArray[0] === 'object') {
-      return medsArray.map(m => ({
+      return medsArray.map(m => parseDictObject(m) || {
         medicine: cleanMedName(m.name || m.medicine || m.drug || 'Medication'),
         instructions: cleanInst(m.dose || m.instructions || m.frequency || 'As directed'),
         notes: m.notes || m.indication || 'Treatment'
-      }));
+      });
     }
   }
 
@@ -181,30 +241,15 @@ function parseMedications(medsArray, medText) {
   if (typeof medText === 'object') {
     const list = medText.medications || medText.inpatient_medications || medText.discharge_medications || medText.prescriptions || [];
     if (Array.isArray(list) && list.length > 0) {
-      return list.map(m => {
-        if (typeof m === 'object' && m !== null) {
-          const name = cleanMedName(m.name || m.medicine || m.drug || 'Medication');
-          const dose = m.dose || m.dosage || '';
-          const route = m.route || '';
-          const freq = m.frequency || m.freq || '';
-          const ind = m.indication || m.indication_notes || m.notes || 'Treatment';
-          const instParts = [dose, route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : ''].filter(Boolean);
-          return {
-            medicine: name,
-            instructions: cleanInst(instParts.join(', ') || 'As directed'),
-            notes: ind
-          };
-        }
-        return {
-          medicine: cleanMedName(String(m)),
-          instructions: 'As directed',
-          notes: 'Treatment'
-        };
+      return list.map(m => parseDictObject(m) || {
+        medicine: cleanMedName(String(m)),
+        instructions: 'As directed',
+        notes: 'Treatment'
       });
     }
   }
 
-  if (typeof medText === 'string' && (medText.includes('{') || medText.includes('['))) {
+  if (typeof medText === 'string' && (medText.trim().startsWith('{') || medText.trim().startsWith('['))) {
     try {
       const parsedJson = JSON.parse(medText);
       return parseMedications(null, parsedJson);
@@ -225,8 +270,15 @@ function parseMedications(medsArray, medText) {
 
   const parsed = [];
   for (const line of lines) {
-    const cleaned = line.replace(/^\d+[\.\)]\s*/, '').trim();
+    const cleaned = line.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
     if (!cleaned) continue;
+
+    // Check if line contains an embedded JSON or Python dictionary or extractable info
+    const medInfo = extractMedInfo(cleaned);
+    if (medInfo) {
+      parsed.push(parseDictObject(medInfo));
+      continue;
+    }
 
     if (cleaned.includes(' - ')) {
       const [name, ...restParts] = cleaned.split(' - ');

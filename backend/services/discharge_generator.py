@@ -935,13 +935,90 @@ def format_clinical_investigations(val):
     return joined.replace("\\u00b5L", "µL").replace("\\u00b0F", "°F").replace("\\u202f", " ")
 
 
+def extract_med_info(s):
+    s = str(s).strip()
+    if '{' in s and '}' in s:
+        m = re.search(r'\{[^{}]+\}', s)
+        if m:
+            raw = m.group(0)
+            for cand in [raw, raw.replace("'", '"'), re.sub(r'([{\s,])([a-zA-Z_]+)\s*:', r'\1"\2":', raw)]:
+                try:
+                    d = json.loads(cand)
+                    if isinstance(d, dict) and (d.get("name") or d.get("medicine") or d.get("drug")):
+                        name = d.get("name") or d.get("medicine") or d.get("drug")
+                        dose = d.get("dose") or d.get("dosage") or ""
+                        route = d.get("route") or ""
+                        freq = d.get("frequency") or d.get("freq") or ""
+                        dur = d.get("duration") or d.get("dur") or ""
+                        ind = d.get("indication") or d.get("notes") or ""
+                        return name, dose, route, freq, dur, ind
+                except Exception:
+                    pass
+
+        def get_field(keys):
+            for k in keys:
+                m = re.search(rf'[\'"]?{k}[\'"]?\s*:\s*[\'"]?([^\'",}}]+)', s, re.I)
+                if m:
+                    return m.group(1).strip().strip('\'"')
+            return ""
+
+        name = get_field(["name", "medicine", "drug"])
+        if name:
+            dose = get_field(["dose", "dosage"])
+            route = get_field(["route"])
+            freq = get_field(["frequency", "freq"])
+            dur = get_field(["duration", "dur"])
+            ind = get_field(["indication", "notes"])
+            return name, dose, route, freq, dur, ind
+
+    return None
+
+
+def parse_single_med_dict(d):
+    if not isinstance(d, dict):
+        return str(d)
+    name = d.get("name") or d.get("medicine") or d.get("drug") or "Medication"
+    dose = d.get("dose") or d.get("dosage") or ""
+    route = d.get("route") or ""
+    freq = d.get("frequency") or d.get("freq") or ""
+    dur = d.get("duration") or d.get("dur") or ""
+    ind = d.get("indication") or d.get("notes") or ""
+    parts = []
+    if dose: parts.append(f"Dosage: {dose}")
+    if route: parts.append(f"Route: {route}")
+    if freq: parts.append(f"Freq: {freq}")
+    if dur: parts.append(f"Duration: {dur}")
+    if ind: parts.append(f"Indication: {ind}")
+    details = " - ".join(parts) if parts else "As directed"
+    return f"Administered: {name} - {details}"
+
+
+def clean_treatment_line(line):
+    s = str(line).strip()
+    clean_prefix = re.sub(r'^\d+[\.\)]\s*', '', s)
+    clean_prefix = re.sub(r'^Administered:\s*', '', clean_prefix, flags=re.I).strip()
+    med_info = extract_med_info(clean_prefix)
+    if med_info:
+        name, dose, route, freq, dur, ind = med_info
+        parts = []
+        if dose: parts.append(f"Dosage: {dose}")
+        if route: parts.append(f"Route: {route}")
+        if freq: parts.append(f"Freq: {freq}")
+        if dur: parts.append(f"Duration: {dur}")
+        if ind: parts.append(f"Indication: {ind}")
+        details = " - ".join(parts) if parts else "As directed"
+        return f"Administered: {name} - {details}"
+    return f"Administered: {clean_prefix}" if clean_prefix else ""
+
+
 def format_clinical_treatment(val):
     if not val:
         return "Inpatient care and stabilization administered as per protocol."
+    
     data = None
     if isinstance(val, dict):
         data = val
-    elif isinstance(val, str) and ("{" in val or "[" in val):
+    elif isinstance(val, str) and (val.strip().startswith("{") or val.strip().startswith("[")):
         try:
             data = json.loads(val)
         except Exception:
@@ -950,39 +1027,86 @@ def format_clinical_treatment(val):
             except Exception:
                 pass
 
-    if not data or not isinstance(data, dict):
-        return str(val)
-
-    meds = data.get("medications") or data.get("inpatient_medications") or data.get("treatments") or data.get("prescriptions")
-    if isinstance(meds, list) and meds:
+    if isinstance(data, dict):
+        meds = data.get("medications") or data.get("inpatient_medications") or data.get("treatments") or data.get("prescriptions")
+        if isinstance(meds, list) and meds:
+            lines = ["Inpatient care and stabilization administered:"]
+            for idx, m in enumerate(meds, 1):
+                if isinstance(m, dict):
+                    lines.append(f"{idx}. {parse_single_med_dict(m)}")
+                else:
+                    lines.append(f"{idx}. {clean_treatment_line(m)}")
+            return "\n".join(lines)
+    elif isinstance(data, list):
         lines = ["Inpatient care and stabilization administered:"]
-        for idx, m in enumerate(meds, 1):
+        for idx, m in enumerate(data, 1):
             if isinstance(m, dict):
-                name = m.get("name") or m.get("medicine") or m.get("drug") or "Medication"
-                dose = m.get("dose") or m.get("dosage") or ""
-                route = m.get("route") or ""
-                freq = m.get("frequency") or m.get("freq") or ""
-                ind = m.get("indication") or m.get("indication_notes") or m.get("notes") or ""
-                detail_parts = []
-                if dose: detail_parts.append(f"Dosage: {dose}")
-                if route: detail_parts.append(f"Route: {route}")
-                if freq: detail_parts.append(f"Freq: {freq}")
-                if ind: detail_parts.append(f"Indication: {ind}")
-                details_str = " - ".join(detail_parts) if detail_parts else "As directed"
-                lines.append(f"{idx}. Administered: {name} - {details_str}")
+                lines.append(f"{idx}. {parse_single_med_dict(m)}")
             else:
-                lines.append(f"{idx}. {m}")
+                lines.append(f"{idx}. {clean_treatment_line(m)}")
         return "\n".join(lines)
-    return str(val)
+
+    # Multiline string
+    raw_lines = str(val).split("\n")
+    cleaned_lines = []
+    idx = 1
+    has_header = False
+    for line in raw_lines:
+        s = line.strip()
+        if not s:
+            continue
+        if s.lower().startswith("inpatient care"):
+            has_header = True
+            cleaned_lines.append("Inpatient care and stabilization administered:")
+            continue
+        cleaned = clean_treatment_line(s)
+        if cleaned:
+            cleaned_lines.append(f"{idx}. {cleaned}")
+            idx += 1
+
+    if not has_header and cleaned_lines:
+        cleaned_lines.insert(0, "Inpatient care and stabilization administered:")
+    res_str = "\n".join(cleaned_lines) if cleaned_lines else str(val)
+    return res_str.replace("\\u202f", " ").replace("\u202f", " ").replace("\\u00b5", "µ").replace("\\u00b0", "°")
+
+
+def parse_single_advice_dict(d):
+    if not isinstance(d, dict):
+        return str(d)
+    name = d.get("name") or d.get("medicine") or d.get("drug") or ""
+    if name:
+        dose = d.get("dose") or d.get("dosage") or ""
+        route = d.get("route") or ""
+        freq = d.get("frequency") or d.get("freq") or ""
+        dur = d.get("duration") or d.get("dur") or ""
+        parts = [dose, f"Route: {route}" if route else "", f"Freq: {freq}" if freq else ""]
+        inst = ", ".join(filter(None, parts))
+        dur_str = f" (Duration: {dur})" if dur else ""
+        return f"{name} - {inst}{dur_str}" if inst else name
+    return ", ".join(f"{k}: {v}" for k, v in d.items())
+
+
+def clean_advice_line(line):
+    s = str(line).strip()
+    clean_prefix = re.sub(r'^\d+[\.\)]\s*', '', s).strip()
+    med_info = extract_med_info(clean_prefix)
+    if med_info:
+        name, dose, route, freq, dur, ind = med_info
+        parts = [dose, f"Route: {route}" if route else "", f"Freq: {freq}" if freq else ""]
+        inst = ", ".join(filter(None, parts))
+        dur_str = f" (Duration: {dur})" if dur else ""
+        return f"{name} - {inst}{dur_str}" if inst else name
+    return clean_prefix
 
 
 def format_clinical_advice(val):
     if not val:
         return "Follow-up in OPD as advised by attending physician."
+    
     data = None
     if isinstance(val, dict):
         data = val
-    elif isinstance(val, str) and ("{" in val or "[" in val):
+    elif isinstance(val, str) and (val.strip().startswith("{") or val.strip().startswith("[")):
         try:
             data = json.loads(val)
         except Exception:
@@ -991,31 +1115,52 @@ def format_clinical_advice(val):
             except Exception:
                 pass
 
-    if not data or not isinstance(data, dict):
+    if isinstance(data, dict):
         lines = []
-        for line in str(val).split("\n"):
-            if "தமிழ்" in line or "tamil" in line.lower() or any('\u0B80' <= c <= '\u0BFF' for c in line):
-                continue
-            lines.append(line)
-        return "\n".join(lines).strip()
-
-    lines = []
-    idx = 1
-    for k in ["discharge_medications", "medications", "diet", "activity", "lifestyle", "red_flags", "emergency_warning", "followup", "follow_up", "review"]:
-        v = data.get(k)
-        if v:
-            if isinstance(v, list):
-                for item in v:
-                    lines.append(f"{idx}. {item}")
+        idx = 1
+        for k in ["discharge_medications", "medications", "diet", "activity", "lifestyle", "red_flags", "emergency_warning", "followup", "follow_up", "review"]:
+            v = data.get(k)
+            if v:
+                if isinstance(v, list):
+                    for item in v:
+                        if isinstance(item, dict):
+                            lines.append(f"{idx}. {parse_single_advice_dict(item)}")
+                        else:
+                            lines.append(f"{idx}. {clean_advice_line(item)}")
+                        idx += 1
+                elif isinstance(v, dict):
+                    lines.append(f"{idx}. {parse_single_advice_dict(v)}")
                     idx += 1
+                else:
+                    lines.append(f"{idx}. {clean_advice_line(v)}")
+                    idx += 1
+        if lines:
+            res_str = "\n".join(lines)
+            return res_str.replace("\\u202f", " ").replace("\u202f", " ").replace("\\u00b5", "µ").replace("\\u00b0", "°")
+    elif isinstance(data, list):
+        lines = []
+        for idx, item in enumerate(data, 1):
+            if isinstance(item, dict):
+                lines.append(f"{idx}. {parse_single_advice_dict(item)}")
             else:
-                lines.append(f"{idx}. {v}")
-                idx += 1
-    if not lines:
-        for k, v in data.items():
-            lines.append(f"{idx}. {k.replace('_', ' ').title()}: {v}")
+                lines.append(f"{idx}. {clean_advice_line(item)}")
+        res_str = "\n".join(lines)
+        return res_str.replace("\\u202f", " ").replace("\u202f", " ").replace("\\u00b5", "µ").replace("\\u00b0", "°")
+
+    # Multiline text
+    raw_lines = str(val).split("\n")
+    cleaned_lines = []
+    idx = 1
+    for line in raw_lines:
+        s = line.strip()
+        if not s or "தமிழ்" in s or "tamil" in s.lower() or any('\u0B80' <= c <= '\u0BFF' for c in line):
+            continue
+        cleaned = clean_advice_line(s)
+        if cleaned:
+            cleaned_lines.append(f"{idx}. {cleaned}")
             idx += 1
-    return "\n".join(lines)
+    res_str = "\n".join(cleaned_lines) if cleaned_lines else str(val)
+    return res_str.replace("\\u202f", " ").replace("\u202f", " ").replace("\\u00b5", "µ").replace("\\u00b0", "°")
 
 
 def format_clinical_condition(val):
