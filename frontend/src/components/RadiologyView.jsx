@@ -193,7 +193,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     {tab === 'pacs' && (!pacs ? <Loading text="Loading Demo PACS studies…" /> : <PacsTable pacs={pacs} onRefresh={refreshPacs} />)}
 
-    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={(uid, series) => setOhif(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}${series ? `&initialSeriesInstanceUID=${encodeURIComponent(series)}` : ""}`)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
+    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={(uid, series) => setOhif(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}${series ? `&initialSeriesInstanceUID=${encodeURIComponent(series)}` : ""}&_cb=${Date.now()}`)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
 
     {ohif && <div onClick={() => setOhif(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '97vw', height: '94vh', background: '#fff', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

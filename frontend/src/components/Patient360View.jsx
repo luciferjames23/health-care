@@ -30,6 +30,14 @@ export default function Patient360View({
   const [diagScans, setDiagScans] = useState([]);
   const [diagScanIdx, setDiagScanIdx] = useState(0);
   const [ohifViewerModal, setOhifViewerModal] = useState(null);
+
+  const getOhifViewerUrl = (uid) => {
+    const base = `${OHIF_BASE_URL}/viewer`;
+    const params = new URLSearchParams();
+    if (uid) params.set('StudyInstanceUIDs', uid);
+    params.set('_cb', Date.now().toString());
+    return `${base}?${params.toString()}`;
+  };
   const [patientXrayOrders, setPatientXrayOrders] = useState([]);
 
   // Live polling for patient X-ray / imaging orders
@@ -1876,7 +1884,7 @@ export default function Patient360View({
                       title="Open DICOM image in OHIF Viewer"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setOhifViewerModal(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(studyUid)}`);
+                        setOhifViewerModal(getOhifViewerUrl(studyUid));
                       }}
                       style={{
                         height: '24px',
@@ -2012,7 +2020,7 @@ export default function Patient360View({
                               <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
                                   type="button"
-                                  onClick={() => setOhifViewerModal(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(studyUid)}`)}
+                                  onClick={() => setOhifViewerModal(getOhifViewerUrl(studyUid))}
                                   style={{
                                     flex: 1,
                                     height: '28px',
@@ -3087,9 +3095,7 @@ export default function Patient360View({
                     const uid = currentScan?.study_instance_uid ||
                                 (currentScan?.original_patient_id && currentScan.original_patient_id.includes('.') ? currentScan.original_patient_id : null) ||
                                 (currentScan?.study_id && currentScan.study_id.includes('.') ? currentScan.study_id : null);
-                    const ohifUrl = uid
-                      ? `${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}`
-                      : `${OHIF_BASE_URL}/viewer`;
+                    const ohifUrl = getOhifViewerUrl(uid);
                     // Close the triage popup and open OHIF exclusively in the same tab
                     setScanModalOpen(false);
                     setOhifViewerModal(ohifUrl);
@@ -3177,6 +3183,26 @@ export default function Patient360View({
               </div>
 
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <a
+                  href={ohifViewerModal}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: '1px solid #334155',
+                    background: '#1e293b',
+                    color: '#93c5fd',
+                    textDecoration: 'none',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  Open Direct ↗
+                </a>
                 <button
                   type="button"
                   style={{
