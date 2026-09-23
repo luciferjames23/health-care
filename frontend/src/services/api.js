@@ -1436,10 +1436,16 @@ export function formatClinicalCondition(val) {
     if (notes) parts.push(notes);
     return parts.join('. ');
   }
-  return String(val)
+  let s = String(val)
     .replace(/\\u00b0F/gi, '°F')
     .replace(/\\u202f/gi, ' ')
     .trim();
+
+  // Remove hyphens attached to word endings or between characters
+  s = s.replace(/([a-zA-Z0-9.,;:%\/°])-(?:\s+|$)/g, '$1 ');
+  s = s.replace(/-([a-zA-Z0-9.,;:%\/°])/g, '$1');
+  s = s.replace(/\s+/g, ' ').replace(/°°F/g, '°F').trim().replace(/^[-\s]+|[-\s]+$/g, '');
+  return s;
 }
 
 /**

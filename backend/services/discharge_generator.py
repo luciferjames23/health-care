@@ -1031,7 +1031,11 @@ def format_clinical_condition(val):
         if amb: parts.append(amb)
         if notes: parts.append(notes)
         return ". ".join(parts)
-    return str(val).replace("\\u00b0F", "°F").replace("F", "°F")
+    s = str(val).replace("\\u00b0F", "°F").replace("\\u202f", " ")
+    s = re.sub(r'([a-zA-Z0-9.,;:%\/°])-(?:\s+|$)', r'\1 ', s)
+    s = re.sub(r'-([a-zA-Z0-9.,;:%\/°])', r'\1', s)
+    s = re.sub(r'\s+', ' ', s).replace("°°F", "°F").strip(' -')
+    return s
 
 
     if ai_dict and isinstance(ai_dict, dict):
