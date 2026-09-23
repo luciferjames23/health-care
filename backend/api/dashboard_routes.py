@@ -392,8 +392,22 @@ def get_patients(
         conditions = []
         params = []
 
-        role = current_user.get("role")
-        doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
+        role = str(current_user.get("role", "")).upper()
+        doctor_id = current_user.get("doctor_id")
+        if not doctor_id and role == "DOCTOR":
+            user_id = current_user.get("user_id")
+            full_name = current_user.get("full_name") or ""
+            username = current_user.get("username") or ""
+            cur.execute("""
+                SELECT id FROM doctors 
+                WHERE user_id = %s 
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                LIMIT 1;
+            """, (user_id, f"%{full_name.lower()}%", full_name, f"%{username.lower()}%", username))
+            matched_doc = cur.fetchone()
+            if matched_doc:
+                doctor_id = matched_doc[0]
 
         if doctor_id:
             conditions.append("""
@@ -531,8 +545,22 @@ def get_patient_detail(patient_id: int, current_user: dict = Depends(get_current
         conn = get_conn()
         cur = conn.cursor()
 
-        role = current_user.get("role")
-        doctor_id = current_user.get("doctor_id") if role == "DOCTOR" else None
+        role = str(current_user.get("role", "")).upper()
+        doctor_id = current_user.get("doctor_id")
+        if not doctor_id and role == "DOCTOR":
+            user_id = current_user.get("user_id")
+            full_name = current_user.get("full_name") or ""
+            username = current_user.get("username") or ""
+            cur.execute("""
+                SELECT id FROM doctors 
+                WHERE user_id = %s 
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                   OR (LOWER(display_name) LIKE %s AND %s != '')
+                LIMIT 1;
+            """, (user_id, f"%{full_name.lower()}%", full_name, f"%{username.lower()}%", username))
+            matched_doc = cur.fetchone()
+            if matched_doc:
+                doctor_id = matched_doc[0]
 
         if doctor_id:
             # Check if this patient has an appointment or pre-admission with the doctor

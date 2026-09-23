@@ -387,23 +387,43 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 10, paddingTop: 10, borderTop: '1px solid #eef0f1' }}>
           <Filter size={13} style={{ color: '#8a9096' }} />
 
-          <select
-            value={deptFilter}
-            onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
-            style={selectStyle}
-          >
-            <option value="">All Departments</option>
-            {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
-          </select>
+          {!isDoctor ? (
+            <>
+              <select
+                value={deptFilter}
+                onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
+                style={selectStyle}
+              >
+                <option value="">All Departments</option>
+                {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
+              </select>
 
-          <select
-            value={doctorFilter !== undefined ? String(doctorFilter) : ''}
-            onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
-            style={selectStyle}
-          >
-            <option value="">All Doctors</option>
-            {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
-          </select>
+              <select
+                value={doctorFilter !== undefined ? String(doctorFilter) : ''}
+                onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
+                style={selectStyle}
+              >
+                <option value="">All Doctors</option>
+                {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
+              </select>
+            </>
+          ) : (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              height: '30px',
+              padding: '0 10px',
+              borderRadius: '6px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              color: '#0369a1',
+              fontSize: '11.5px',
+              fontWeight: 600
+            }}>
+              <span>🩺 Scope: {activeDoctorName || 'Dr. Immanuvel S'} - General Medicine</span>
+            </div>
+          )}
 
           <select
             value={statusFilter}

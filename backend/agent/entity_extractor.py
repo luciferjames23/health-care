@@ -318,8 +318,9 @@ def extract_entities(text: str) -> dict:
             # General Medicine — LAST (most general)
             elif re.search(
                 r"\b(general\s*medicine|general\s*physician|general\s*doctor|"
-                r"fever|fevr|cold|cld|cough|couggh|flu|nausea|vomiting|diarrhea|fatigue|weakness|"
-                r"body\s*pain|feverish|pain|payn|payning|infection|ailment|sick|illness|general\s*checkup)\b",
+                r"fever|fevr|high\s*temperature|running\s*a\s*temperature|feverish|cold|cld|cough|couggh|flu|nausea|vomiting|diarrhea|fatigue|weakness|"
+                r"body\s*pain|pain|payn|payning|infection|ailment|sick|illness|general\s*checkup)\b"
+                r"|காய்ச்சல்|காய்ச்சல|बुखार|बुख़ार|జ్వరం|പനി|ಜ್ವರ|بخار",
                 text_lower
             ):
                 did = dept_by_name.get("general medicine")

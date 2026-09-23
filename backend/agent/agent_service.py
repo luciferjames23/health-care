@@ -124,7 +124,18 @@ def sync_selected_doctor_state(state: dict, doctor_id: int):
 def restore_selected_doctor_state(state: dict):
     """
     Restores doctor_id and department_id into state["entities"] if selected_doctor_id exists.
+    Clears stale doctor/department state when starting a fresh booking reason query.
     """
+    if state.get("conversation_state") in ["BOOKING_REASON_REQUIRED", "AWAITING_SYMPTOM"]:
+        state["selected_doctor_id"] = None
+        state["selected_doctor_name"] = None
+        state["selected_department_id"] = None
+        state["selected_department_name"] = None
+        if "entities" in state:
+            state["entities"]["doctor_id"] = None
+            state["entities"]["department_id"] = None
+        return
+
     sel_doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
     if sel_doc_id:
         sync_selected_doctor_state(state, sel_doc_id)
