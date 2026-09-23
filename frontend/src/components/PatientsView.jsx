@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
 
 function getStatusPill(status) {
@@ -40,6 +41,12 @@ export default function PatientsView({
   const [discharged, setDischarged] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, search, activeDoctorName]);
 
   useEffect(() => {
     let alive = true;
@@ -202,6 +209,11 @@ export default function PatientsView({
   }, [admitted, discharged, filter, search, activeDoctorName]);
 
   const total = admitted.length + discharged.length;
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = rows.slice(startIndex, startIndex + pageSize);
 
   const exportCsv = () => {
     if (!rows.length) return alert("No records to export");
@@ -248,18 +260,28 @@ export default function PatientsView({
 
       {error && <div style={{ background: "oklch(0.96 0.03 25)", border: "1px solid oklch(0.88 0.06 25)", borderRadius: "6px", padding: "9px 12px", color: "oklch(0.45 0.17 25)", fontSize: "12px" }}>Unable to load: {error}</div>}
 
-      {/* filter pills */}
-      <div style={{ display: "flex", gap: "4px" }}>
-        {["All", "IP", "OP", "ER", "Discharged"].map(f => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
-            style={{
-              height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
-              background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
-              fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer"
-            }}>
-            {f}
-          </button>
-        ))}
+      {/* filter pills + pagination summary */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "4px" }}>
+          {["All", "IP", "OP", "ER", "Discharged"].map(f => (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              style={{
+                height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
+                background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
+                fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer"
+              }}>
+              {f}
+            </button>
+          ))}
+        </div>
+
+        {totalRows > 0 && (
+          <div style={{ fontSize: "12px", color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span>
+              Showing <strong>{startIndex + 1}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* table */}
@@ -283,9 +305,9 @@ export default function PatientsView({
               {["UHID", "NAME", "AGE \u00b7 SEX", "LANGUAGE", "DEPARTMENT", "DOCTOR", "INSURER", "STATUS"].map(h => <span key={h}>{h}</span>)}
             </div>
 
-            {rows.map((p, idx) => {
+            {paginatedRows.map((p, idx) => {
               const pill = getStatusPill(p._status);
-              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7, "0")}` : (p.mrn || `MER-PAT-${String(idx + 1).padStart(7, "0")}`));
+              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7, "0")}` : (p.mrn || `MER-PAT-${String(startIndex + idx + 1).padStart(7, "0")}`));
               return (
                 <div key={p.id || p.patient_id || idx}
                   onClick={() => onSelectPatient && onSelectPatient(p)}
@@ -308,8 +330,142 @@ export default function PatientsView({
               );
             })}
 
-            <div style={{ padding: "6px 12px", color: "#8a9096", fontSize: "11px", borderTop: "1px solid #f2f3f4" }}>
-              {rows.length} record{rows.length !== 1 ? "s" : ""} {"\u00b7"} click a row for Patient 360
+            {/* Pagination Controls Footer */}
+            <div style={{
+              padding: "10px 14px",
+              background: "#fafbfc",
+              borderTop: "1px solid #eef0f1",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px",
+              fontSize: "12px",
+              color: "#64748b"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> patients
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ fontSize: "11.5px", color: "#8a9096" }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: "24px",
+                        padding: "0 8px",
+                        borderRadius: "4px",
+                        border: "1px solid",
+                        borderColor: pageSize === sz ? "#0284c7" : "#e2e8f0",
+                        background: pageSize === sz ? "#f0f9ff" : "#ffffff",
+                        color: pageSize === sz ? "#0369a1" : "#64748b",
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: "11px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronsLeft style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronLeft style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <span style={{ padding: "0 8px", fontWeight: 600, color: "#0f172a", fontSize: "12px" }}>
+                  Page {safeCurrentPage} of {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronRight style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronsRight style={{ width: "14px", height: "14px" }} />
+                </button>
+              </div>
             </div>
           </>
         )}
