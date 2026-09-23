@@ -121,8 +121,8 @@ export default function PatientsView({
   const rows = useMemo(() => {
     let list = filter === "All" ? [...admitted, ...discharged]
       : filter === "IP" ? admitted
-      : filter === "Discharged" ? discharged
-      : admitted.filter(p => p._type === filter);
+        : filter === "Discharged" ? discharged
+          : admitted.filter(p => p._type === filter);
 
     if (activeDoctorName) {
       list = list.filter(p =>
@@ -172,10 +172,10 @@ export default function PatientsView({
 
   const exportCsv = () => {
     if (!rows.length) return alert("No records to export");
-    const hdr = ["UHID","Name","Age","Sex","Language","Department","Doctor","Insurer","Status"];
-    const lines = [hdr, ...rows.map(p => [p.mrn||p.patient_id||"", p.name||"", p.age||"", p.sex||"", lang(p), dept(p), p.doctor||"", insurer(p), p._status||""].map(v => `"${v}"`))]
+    const hdr = ["UHID", "Name", "Age", "Sex", "Language", "Department", "Doctor", "Insurer", "Status"];
+    const lines = [hdr, ...rows.map(p => [p.mrn || p.patient_id || "", p.name || "", p.age || "", p.sex || "", lang(p), dept(p), p.doctor || "", insurer(p), p._status || ""].map(v => `"${v}"`))]
       .map(r => r.join(",")).join("\n");
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lines],{type:"text/csv"})), download: "patients.csv" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lines], { type: "text/csv" })), download: "patients.csv" });
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
@@ -217,11 +217,13 @@ export default function PatientsView({
 
       {/* filter pills */}
       <div style={{ display: "flex", gap: "4px" }}>
-        {["All","IP","OP","ER","Discharged"].map(f => (
+        {["All", "IP", "OP", "ER", "Discharged"].map(f => (
           <button key={f} type="button" onClick={() => setFilter(f)}
-            style={{ height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
+            style={{
+              height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
               background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
-              fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer" }}>
+              fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer"
+            }}>
             {f}
           </button>
         ))}
@@ -231,7 +233,7 @@ export default function PatientsView({
       <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
         {loading && admitted.length === 0 && discharged.length === 0 ? (
           <div style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {[80,60,70,55,65].map((w,i) => <div key={i} style={{ height: "14px", borderRadius: "6px", background: "#eef0f1", animation: "mpulse 1s infinite", width: w+"%" }} />)}
+            {[80, 60, 70, 55, 65].map((w, i) => <div key={i} style={{ height: "14px", borderRadius: "6px", background: "#eef0f1", animation: "mpulse 1s infinite", width: w + "%" }} />)}
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: "40px", textAlign: "center", color: "#8a9096" }}>
@@ -240,23 +242,27 @@ export default function PatientsView({
           </div>
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+            <div style={{
+              display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
               color: "#8a9096", fontSize: "10.5px", textTransform: "uppercase", letterSpacing: ".04em",
-              borderBottom: "1px solid #eef0f1", minWidth: "940px" }}>
-              {["UHID","NAME","AGE \u00b7 SEX","LANGUAGE","DEPARTMENT","DOCTOR","INSURER","STATUS"].map(h => <span key={h}>{h}</span>)}
+              borderBottom: "1px solid #eef0f1", minWidth: "940px"
+            }}>
+              {["UHID", "NAME", "AGE \u00b7 SEX", "LANGUAGE", "DEPARTMENT", "DOCTOR", "INSURER", "STATUS"].map(h => <span key={h}>{h}</span>)}
             </div>
 
             {rows.map((p, idx) => {
               const pill = getStatusPill(p._status);
-              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7,"0")}` : (p.mrn || `MER-PAT-${String(idx+1).padStart(7,"0")}`));
+              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7, "0")}` : (p.mrn || `MER-PAT-${String(idx + 1).padStart(7, "0")}`));
               return (
                 <div key={p.id || p.patient_id || idx}
                   onClick={() => onSelectPatient && onSelectPatient(p)}
                   onMouseEnter={e => e.currentTarget.style.background = "#f6f7f8"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+                  style={{
+                    display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
                     borderBottom: "1px solid #f2f3f4", alignItems: "center", cursor: "pointer",
-                    fontSize: "12px", minWidth: "940px", transition: "background 0.1s" }}>
+                    fontSize: "12px", minWidth: "940px", transition: "background 0.1s"
+                  }}>
                   <span style={{ fontFamily: "ui-monospace,Menlo,monospace", fontSize: "11px", color: "#8a9096" }}>{uhid}</span>
                   <span style={{ fontWeight: 600, color: "#15181b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "\u2014"}</span>
                   <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : (p.sex ? `\u2014 \u00b7 ${p.sex}` : "\u2014")}</span>

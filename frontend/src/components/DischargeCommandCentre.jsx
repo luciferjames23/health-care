@@ -110,13 +110,21 @@ function createCaseInitialState(base) {
         time: '09:08'
       },
       summary: {
-        status: isReady || isCompleted ? 'done' : isApproval || blocker.includes('summary') ? 'approval' : 'done',
-        note: isReady || isCompleted ? `Signed off by ${base.doctor || 'attending consultant'}` : 'AI draft generated · doctor sign-off required',
+        status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('summary') ? 'approval' : 'done'),
+        note: isCompleted
+          ? `Signed off by ${base.doctor || 'attending consultant'}`
+          : isReady
+            ? 'AI draft generated · pending doctor sign-off on discharge'
+            : 'AI draft generated · doctor sign-off required',
         time: '09:01'
       },
       prescription: {
-        status: isReady || isCompleted ? 'done' : isApproval || blocker.includes('prescription') ? 'approval' : 'done',
-        note: isReady || isCompleted ? 'Discharge prescription validated & e-signed' : 'Discharge e-Rx drafted · pending doctor signature',
+        status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('prescription') ? 'approval' : 'done'),
+        note: isCompleted
+          ? 'Discharge prescription validated & e-signed'
+          : isReady
+            ? 'Discharge e-Rx drafted · pending doctor signature on discharge'
+            : 'Discharge e-Rx drafted · pending doctor signature',
         time: '09:01'
       }
     },
@@ -366,7 +374,7 @@ export default function DischargeCommandCentre({
         admission_id: adm.admission_id || c.admission_id || `ADM-2026-${400 + index}`,
         diagnoses: cleanDiagnosis(parsed.diagnoses && !parsed.diagnoses.match(/^Diagnosis\s+\d+/i) ? parsed.diagnoses : (adm.primary_diagnosis || parsed.diagnoses || 'Cholelithiasis (Gallstone Disease)')),
         patient_number: adm.patient_number || `PAT-${pid}`,
-        patientAge: adm.age_at_admission || 25,
+        patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
         dischargeTime: '10:30',
         intentAt: '09:00',
         initialEta: isDischarged ? '10:30' : 'Now',
@@ -639,6 +647,11 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
+      } else if (base.category === 'Ready') {
+        computedCategory = 'Ready';
+        statusLabel = 'Ready';
+        statusKind = 'ready';
+        blockerText = 'Clear';
       } else if (openBlocked.length > 0) {
         computedCategory = 'Blocked';
         statusLabel = `Blocked · ${openBlocked[0]}`;
@@ -1032,13 +1045,41 @@ export default function DischargeCommandCentre({
     });
   };
 
-  const handleDischargePatient = (caseId) => {
+  const handleDischargePatient = async (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
+    const summaryId = targetCase.rawRecord?.summary_id || targetCase.id?.replace('DIS-SUM-', '') || caseId;
+    const patientId = targetCase.patient_id;
+    const admissionId = targetCase.admission_id;
+
+    // 1. Call backend API to set approval_status = 'Approved' which cascades:
+    //    - Updates admissions.discharge_status = 'Discharged'
+    //    - Updates dim_admission_inputs.discharge_status = 'Discharged'
+    //    - Releases assigned bed (beds.status = 'Available')
+    try {
+      await apiService.updateDischargeSummary(summaryId, {
+        approval_status: 'Approved',
+        patient_id: patientId,
+        admission_id: admissionId
+      });
+    } catch (err) {
+      console.error('Failed to discharge patient via API:', err);
+    }
+
+    // 2. Update local UI state
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur) return prev;
 
       notify('Patient discharged', `${targetCase.patient || 'Patient'} · bed ${targetCase.bed?.split(' ')[0] || 'ward'} released to housekeeping · follow-up booked 19 Sep 10:30`, 'High', 'Front Office');
+
+      // Mark summary and prescription as signed off
+      const updatedDeps = { ...(cur.deps || {}) };
+      if (updatedDeps.summary) {
+        updatedDeps.summary = { ...updatedDeps.summary, status: 'done', note: `Signed off by ${targetCase.doctor || 'attending consultant'}` };
+      }
+      if (updatedDeps.prescription) {
+        updatedDeps.prescription = { ...updatedDeps.prescription, status: 'done', note: 'Discharge prescription validated & e-signed' };
+      }
 
       const nextSteps = [
         { t: '11:45', what: 'Front Office / Nurse · Patient discharged · bed released to Command Centre', col: '#d97706', res: 'Discharged' },
@@ -1052,7 +1093,7 @@ export default function DischargeCommandCentre({
 
       return {
         ...prev,
-        [caseId]: { ...cur, completed: true, dischargedAt: '11:45', steps: nextSteps, log: nextLog }
+        [caseId]: { ...cur, completed: true, dischargedAt: '11:45', steps: nextSteps, log: nextLog, deps: updatedDeps }
       };
     });
   };
@@ -1089,7 +1130,7 @@ export default function DischargeCommandCentre({
   // ─────────────────────────────────────────────────────────────
   if (activeCase) {
     const dc = activeCase;
-    const canRelease = dc.statusKind === 'ready' && !dc.isCompleted;
+    const canRelease = (dc.statusKind === 'ready' || dc.category === 'Ready') && !dc.isCompleted;
     const canSimulate = dc.paStatus?.includes('Submitted') || dc.paStatus?.includes('Pending') || dc.paStatus?.includes('Appeal');
 
     const DEPL = {
@@ -2234,7 +2275,7 @@ export default function DischargeCommandCentre({
             patient_name: dc.patient,
             patient: dc.patient,
             isCompleted: dc.isCompleted || false,
-            age: dc.patientAge || (dc.rawRecord && dc.rawRecord.age) || 25
+            age: (dc.case_history && (dc.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || dc.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || (dc.patientAge && Number(dc.patientAge) !== 25 ? dc.patientAge : null) || (dc.rawRecord && dc.rawRecord.age) || 45
           }}
           onSummaryUpdated={() => {
             loadDischargeCandidates(true);

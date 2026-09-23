@@ -507,7 +507,7 @@ def get_bill_detail(bill_id: int):
         
         # 3. Linked Pharmacy Items
         pharmacy_items = []
-        if admission_id or patient_id:
+        if admission_id:
             cur.execute("""
                 SELECT 
                     psi.sale_item_id,
@@ -525,15 +525,36 @@ def get_bill_detail(bill_id: int):
                 FROM pharmacy_sales ps
                 JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
                 LEFT JOIN medications m ON psi.medication_id = m.medication_id
-                WHERE (ps.admission_id = %s AND %s IS NOT NULL) 
-                   OR (ps.patient_id = %s AND %s IS NOT NULL)
+                WHERE ps.admission_id = %s
                 ORDER BY psi.sale_item_id ASC
-            """, (admission_id, admission_id, patient_id, patient_id))
+            """, (admission_id,))
+            pharmacy_items = serialize_rows(cur, cur.fetchall())
+        elif patient_id:
+            cur.execute("""
+                SELECT 
+                    psi.sale_item_id,
+                    psi.sale_id,
+                    COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
+                    m.generic_name,
+                    m.category,
+                    psi.quantity,
+                    psi.unit_price,
+                    psi.discount_amount,
+                    psi.tax_amount,
+                    psi.net_amount,
+                    ps.sale_date,
+                    ps.payment_status
+                FROM pharmacy_sales ps
+                JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
+                LEFT JOIN medications m ON psi.medication_id = m.medication_id
+                WHERE ps.patient_id = %s AND ps.admission_id IS NULL
+                ORDER BY psi.sale_item_id ASC
+            """, (patient_id,))
             pharmacy_items = serialize_rows(cur, cur.fetchall())
             
         # 4. Linked Lab Investigation Orders & Tests
         lab_items = []
-        if admission_id or patient_id:
+        if admission_id:
             cur.execute("""
                 SELECT 
                     lo.lab_order_id,
@@ -553,10 +574,33 @@ def get_bill_detail(bill_id: int):
                 FROM lab_orders lo
                 LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
                 LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
-                WHERE (lo.admission_id = %s AND %s IS NOT NULL)
-                   OR (lo.patient_id = %s AND %s IS NOT NULL)
+                WHERE lo.admission_id = %s
                 ORDER BY lo.lab_order_id ASC
-            """, (admission_id, admission_id, patient_id, patient_id))
+            """, (admission_id,))
+            lab_items = serialize_rows(cur, cur.fetchall())
+        elif patient_id:
+            cur.execute("""
+                SELECT 
+                    lo.lab_order_id,
+                    lo.ordered_date,
+                    lo.priority,
+                    lo.status as order_status,
+                    COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
+                    lt.test_category,
+                    COALESCE(lt.standard_charge, 0.0) as unit_price,
+                    1 as quantity,
+                    COALESCE(lt.standard_charge, 0.0) as net_amount,
+                    lr.test_parameter,
+                    lr.result_value,
+                    lr.unit,
+                    lr.reference_range,
+                    lr.abnormal_flag
+                FROM lab_orders lo
+                LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+                LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
+                WHERE lo.patient_id = %s AND lo.admission_id IS NULL
+                ORDER BY lo.lab_order_id ASC
+            """, (patient_id,))
             lab_items = serialize_rows(cur, cur.fetchall())
         
         # 5. Payments

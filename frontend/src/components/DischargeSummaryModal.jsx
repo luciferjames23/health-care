@@ -313,7 +313,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
     if (form.admission_id) changedFields.admission_id = form.admission_id;
     if (form.attending_physician) changedFields.attending_physician = form.attending_physician;
 
-    if (Object.keys(changedFields).filter(k => !['patient_id','admission_id','attending_physician'].includes(k)).length === 0 && !overrideStatus) {
+    if (Object.keys(changedFields).filter(k => !['patient_id', 'admission_id', 'attending_physician'].includes(k)).length === 0 && !overrideStatus) {
       setIsEditing(false);
       setSaving(false);
       return;
@@ -1000,8 +1000,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
       {/* 2. PRINT-ONLY CLINICAL DOCUMENT (Portaled outside #root into document.body)*/}
       {/* ========================================================================= */}
       {createPortal(
-        <div id="printArea" style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontVariantLigatures: 'none', textRendering: 'geometricPrecision' }}>
-          <div className="print-page" style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontVariantLigatures: 'none', textRendering: 'geometricPrecision' }}>
+        <div id="printArea" style={{ fontFamily: "Tahoma, 'Segoe UI', Arial, Helvetica, sans-serif", textRendering: 'optimizeLegibility' }}>
+          <div className="print-page" style={{ fontFamily: "Tahoma, 'Segoe UI', Arial, Helvetica, sans-serif", textRendering: 'optimizeLegibility' }}>
             {/* DOCUMENT HEADER */}
             <div className="print-header">
               <div className="print-brand">
@@ -1009,9 +1009,6 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               </div>
               <div className="print-doc-meta">
                 <div className="print-meta-badge">
-                  <span>Encounter ID:</span> <strong>{form.admission_id ? (String(form.admission_id).startsWith('MER-ADM-') ? form.admission_id : `MER-ADM-${String(form.admission_id).padStart(7, '0')}`) : 'MER-ADM-0087315'}</strong>
-                </div>
-                <div className="print-meta-badge" style={{ marginTop: '4px' }}>
                   <span>Discharge Date:</span> <strong>{printDocDate}</strong>
                 </div>
               </div>

@@ -323,6 +323,10 @@ export const apiService = {
     return await this.getDischargedPatients(params, options);
   },
 
+  async getDischargeSummaries(params = {}, options = {}) {
+    return await this.getDischargedPatients(params, options);
+  },
+
   async getGeneratedDischargeSummariesSummary(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/summary`, options);
   },

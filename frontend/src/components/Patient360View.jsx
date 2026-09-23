@@ -197,6 +197,39 @@ export default function Patient360View({
     return () => { alive = false; };
   }, [patient?.admission_id, patient?.patient_id, patient?.id, liveAdmission?.admission_id, liveAdmission?.patient_id]);
 
+  // Fetch discharge summary to track if patient was signed off / approved
+  const [dischargeSummary, setDischargeSummary] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const cleanNum = (val) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      const m = str.match(/\d+/);
+      return m ? m[0].replace(/^0+/, '') || '0' : str;
+    };
+    const aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter || liveAdmission?.admission_id);
+    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || liveAdmission?.patient_id);
+    if (!aid && !pid) return;
+
+    const fetchSummariesFn = apiService.getDischargeSummaries || apiService.getGeneratedDischargeSummaries || apiService.getDischargedPatients;
+    if (typeof fetchSummariesFn === 'function') {
+      fetchSummariesFn.call(apiService, { limit: 100 }, { forceRefresh: true })
+        .then(res => {
+          if (!alive || !res?.data) return;
+          const matched = res.data.find(r => {
+            const rAid = cleanNum(r.admission_id);
+            const rPid = cleanNum(r.patient_id);
+            return (aid && rAid === aid) || (pid && rPid === pid);
+          });
+          if (matched) {
+            setDischargeSummary(matched);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [patient?.admission_id, patient?.patient_id, patient?.id, liveAdmission?.admission_id, liveAdmission?.patient_id]);
+
   // Auto-dismiss scan notification after 8 seconds
   useEffect(() => {
     if (!scanAlert) return;
@@ -282,11 +315,41 @@ export default function Patient360View({
       ['PAID', 'CLEARED', 'SETTLED', 'ZERO_BALANCE', 'APPROVED'].includes(billStatus.toUpperCase())
     );
 
-    const billingStatusDisplay = isCleared
-      ? 'Cleared · Paid'
-      : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Pending Clearance');
+    const rawDischargeStatus = String(
+      liveAdmission?.discharge_status ||
+      raw.discharge_status ||
+      d.discharge_status ||
+      d._status ||
+      d._type ||
+      ''
+    ).trim().toLowerCase();
 
-    const status = d.status || d._status || (isCleared ? 'Cleared for Discharge' : 'Admitted · Pending Clearance');
+    const summaryApproval = String(
+      dischargeSummary?.approval_status ||
+      d.approval_status ||
+      raw.approval_status ||
+      ''
+    ).trim().toLowerCase();
+
+    const isDischarged = (
+      rawDischargeStatus === 'discharged' ||
+      rawDischargeStatus === 'completed' ||
+      summaryApproval === 'approved' ||
+      summaryApproval === 'signed off' ||
+      summaryApproval === 'completed' ||
+      d._type === 'Discharged' ||
+      d.isCompleted === true
+    );
+
+    const billingStatusDisplay = isDischarged
+      ? 'Discharged · Settled'
+      : (isCleared
+          ? 'Cleared · Paid'
+          : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Pending Clearance'));
+
+    const status = isDischarged
+      ? 'Discharged'
+      : (d.status || d._status || (isCleared ? 'Cleared for Discharge' : 'Admitted · Pending Clearance'));
     
     // Clinical diagnoses & procedures
     const rawPrimary = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || raw.primary_diagnosis || d.primaryDiagnosis || d.procedure;
@@ -421,6 +484,8 @@ export default function Patient360View({
       clearanceStatus,
       outstandingBalance,
       isCleared,
+      isDischarged,
+      dischargeSummary,
       billingStatusDisplay,
       latestBp,
       medications: meds,
@@ -429,7 +494,7 @@ export default function Patient360View({
       allergies: demo.allergies || raw.allergies || 'No known drug allergies recorded (NKDA)',
       current_stay_days: adm.current_stay_days || 1,
     };
-  }, [patient, liveAdmission, liveBill, assignedBed]);
+  }, [patient, liveAdmission, liveBill, assignedBed, dischargeSummary]);
 
   const TABS = [
     'Overview',
@@ -977,11 +1042,18 @@ export default function Patient360View({
                   borderRadius: '4px',
                   fontSize: '11px',
                   fontWeight: 600,
-                  background: p.isCleared ? '#dcfce7' : '#fee2e2',
-                  color: p.isCleared ? '#15803d' : '#991b1b',
+                  background: p.isDischarged
+                    ? '#e0f2fe'
+                    : (p.isCleared ? '#dcfce7' : '#fee2e2'),
+                  color: p.isDischarged
+                    ? '#0369a1'
+                    : (p.isCleared ? '#15803d' : '#991b1b'),
+                  border: `1px solid ${p.isDischarged ? '#bae6fd' : (p.isCleared ? '#bbf7d0' : '#fecaca')}`,
                 }}
               >
-                {p.isCleared ? 'Bill Cleared · Admitted' : (p.outstandingBalance > 0 ? `Pending Clearance · ₹${p.outstandingBalance.toLocaleString('en-IN')}` : 'Pending Bill Clearance')}
+                {p.isDischarged
+                  ? (p.isCleared ? 'Bill Cleared · Discharged' : 'Discharged')
+                  : (p.isCleared ? 'Bill Cleared · Admitted' : (p.outstandingBalance > 0 ? `Pending Clearance · ₹${p.outstandingBalance.toLocaleString('en-IN')}` : 'Pending Bill Clearance'))}
               </span>
             </div>
 
@@ -993,7 +1065,7 @@ export default function Patient360View({
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 22px', marginTop: '10px' }}>
               {[
                 ['ENCOUNTER', p.encounter],
-                ['BED', p.bed],
+                ['BED', p.isDischarged ? `${p.bed} (Released)` : p.bed],
                 ['DOCTOR', p.doctor],
                 ['DEPARTMENT', p.dept],
                 ['INSURANCE', p.insurer],
@@ -1080,14 +1152,14 @@ export default function Patient360View({
                 padding: '0 12px',
                 borderRadius: '6px',
                 border: 0,
-                background: 'oklch(0.5 0.1 200)',
+                background: p.isDischarged ? '#0d5244' : 'oklch(0.5 0.1 200)',
                 color: '#fff',
                 fontWeight: 600,
                 cursor: 'pointer',
                 fontSize: '12px',
               }}
             >
-              Open discharge case
+              {p.isDischarged ? '✓ Discharge Summary (Signed Off)' : 'Open discharge case'}
             </button>
           </div>
         </div>
@@ -1265,7 +1337,6 @@ export default function Patient360View({
           rows={[
             [`APT-${p.patient_id || p.admission_id || '01'}-01`, p.doctor, p.admittedDate || '17 May 2025', `${p.dept} Inpatient Admission`, 'Clinical Referral', 'Completed'],
             [`APT-${p.patient_id || p.admission_id || '01'}-02`, p.doctor, 'Daily Round 10:00 AM', 'Inpatient Ward Review', 'Ward Workstation', 'Completed'],
-            [`APT-${p.patient_id || p.admission_id || '01'}-03`, p.doctor, 'Post-Discharge (+7 Days)', `${p.dept} Follow-up Visit`, 'Discharge Protocol', p.isCleared ? 'Scheduled' : 'Pending Discharge'],
           ]}
           onRowClick={(row) => {
             if (onOpenDrawer) {
@@ -1329,19 +1400,6 @@ export default function Patient360View({
               Day {p.current_stay_days || 1} of inpatient admission for {p.primaryDiagnosis}. {p.condition}. Vitals: {p.latestBp || 'Stable'}. {p.isCleared ? 'Patient cleared for discharge with home regimen.' : 'Awaiting final billing clearance and discharge sign-off.'}
             </span>
           </div>
-          <div style={{ marginTop: '14px' }}>
-            <button
-              type="button"
-              onClick={() => onOpenSoap && onOpenSoap(p)}
-              style={{
-                height: '30px', padding: '0 12px', borderRadius: '6px',
-                border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
-                color: 'oklch(0.4 0.1 200)', fontWeight: 600, cursor: 'pointer', fontSize: '12px'
-              }}
-            >
-              Open Doctor SOAP Note →
-            </button>
-          </div>
         </div>
       )}
 
@@ -1388,17 +1446,6 @@ export default function Patient360View({
                 Lab &amp; Diagnostic Orders ({((liveBill?.lab_items?.length || p.lab_results_list?.length) || 2) + patientXrayOrders.length})
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => onOpenSoap && onOpenSoap(p)}
-              style={{
-                height: '28px', padding: '0 10px', borderRadius: '6px',
-                border: '1px solid oklch(0.5 0.1 200)', background: '#fff',
-                color: 'oklch(0.4 0.12 200)', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
-              }}
-            >
-              Open Doctor SOAP Note →
-            </button>
           </div>
 
           {/* Section 1: Clinical Diagnoses */}
@@ -1945,27 +1992,55 @@ export default function Patient360View({
           grid="120px minmax(200px, 1fr) 180px 140px 100px 90px"
           rows={
             (p.medications && p.medications.length > 0)
-              ? p.medications.map((m, idx) => [
-                  `RX-${idx + 101}`,
-                  m.medication_name,
-                  `${m.dosage || ''} ${m.route || 'Oral'} ${m.frequency || 'OD'}`.trim() || 'Standard Dose',
-                  `${m.duration || 'Inpatient Course'} · ${m.instructions || 'Oral'}`,
-                  'Clear',
-                  'Active'
-                ])
+              ? p.medications.map((m, idx) => {
+                  const qtyVal = m.quantity || (() => {
+                    const days = parseInt(m.duration) || 5;
+                    const freqLower = (m.frequency || '').toLowerCase().trim();
+                    const freqMultiplier = freqLower.includes('tds') || freqLower.includes('tid') ? 3
+                      : (freqLower.includes('bd') || freqLower.includes('bid')) ? 2
+                      : freqLower.includes('qid') ? 4
+                      : 1;
+                    return days * freqMultiplier;
+                  })();
+                  return [
+                    `RX-${idx + 101}`,
+                    m.medication_name,
+                    `${m.dosage || ''} ${m.route || 'Oral'} ${m.frequency || 'OD'}`.trim() || 'Standard Dose',
+                    `${m.duration || '5 Days'} · Qty: ${qtyVal}`,
+                    'Clear',
+                    'Active'
+                  ];
+                })
               : (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
                 ? liveBill.pharmacy_items.map((pi, idx) => [
                     `RX-${pi.sale_item_id || idx + 101}`,
                     pi.item_name,
                     `${pi.category || 'Therapeutic'} · Dispensed`,
-                    `${pi.quantity || 1} units · ₹${Number(pi.unit_price || 0).toFixed(2)}/unit`,
+                    `${pi.quantity || 1} units · Qty: ${pi.quantity || 1}`,
                     'Clear',
                     'Active'
                   ])
                 : [
-                    [`RX-${p.admission_id || '87248'}`, 'Tab. Paracetamol 650mg', '650mg Oral SOS', '10 tabs · Inpatient Course', 'Clear', 'Active']
+                    [`RX-${p.admission_id || '87248'}`, 'Tab. Paracetamol 650mg', '650mg Oral SOS', '5 Days · Qty: 10', 'Clear', 'Active']
                   ]
           }
+          onRowClick={(row) => {
+            if (onOpenDrawer) {
+              onOpenDrawer({
+                title: `${row[1]} · ${row[0]}`,
+                sub: `${row[2]} · ${row[3]}`,
+                badges: [{ t: row[5], bg: '#dcfce7', fg: '#15803d' }],
+                facts: [
+                  { k: 'Prescription Code', v: row[0], b: true },
+                  { k: 'Medication Name', v: row[1] },
+                  { k: 'Dosage & Regimen', v: row[2] },
+                  { k: 'Duration & Quantity', v: row[3] },
+                  { k: 'Safety Clearance', v: row[4] },
+                  { k: 'Status', v: row[5] }
+                ]
+              });
+            }
+          }}
         />
       )}
 
@@ -1975,7 +2050,7 @@ export default function Patient360View({
           cols={['Admission', 'Bed', 'Admitted', 'Estimate', 'Status']}
           grid="140px minmax(180px, 1fr) 160px 140px 140px"
           rows={[
-            [p.encounter || `IP-${p.admission_id}`, p.bed, p.admitted, `₹${p.billNetAmount.toLocaleString('en-IN')}`, p.status || 'Active Inpatient'],
+            [p.encounter || `IP-${p.admission_id}`, p.isDischarged ? `${p.bed} (Released)` : p.bed, p.admitted, `₹${p.billNetAmount.toLocaleString('en-IN')}`, p.isDischarged ? 'Discharged' : (p.status || 'Active Inpatient')],
           ]}
         />
       )}
@@ -2239,9 +2314,9 @@ export default function Patient360View({
             [
               `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
               p.admittedDate || '17 May 2025',
-              p.isCleared ? 'Ready' : 'Blocked',
-              p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`,
-              p.isCleared ? 'Ready for Sign-Off' : 'Pending Bill Clearance'
+              p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
+              p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
+              p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Pending Bill Clearance')
             ],
           ]}
           onRowClick={() => {

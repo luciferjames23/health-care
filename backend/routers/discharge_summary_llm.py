@@ -398,9 +398,78 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             key_value=actual_sid,
             updates=update_dict
         )
+
+        # ── Cross-table synchronization: When a discharge summary is Approved / Signed Off,
+        # cascade status change to admissions, dim_admission_inputs, and release assigned bed
+        approval_val = str(update_dict.get("approval_status") or "").strip().lower()
+        target_aid = matched.get("admission_id") or update_dict.get("admission_id")
+        target_pid = matched.get("patient_id") or update_dict.get("patient_id")
+
+        if approval_val in ("approved", "signed off", "signed", "discharged", "completed"):
+            # 1. Update admissions table
+            try:
+                if target_aid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE admissions SET discharge_status = 'Discharged', discharge_date = COALESCE(discharge_date, CURRENT_DATE) WHERE admission_id = {target_aid}"
+                    )
+                elif target_pid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE admissions SET discharge_status = 'Discharged', discharge_date = COALESCE(discharge_date, CURRENT_DATE) WHERE patient_id = {target_pid}"
+                    )
+            except Exception as e_adm:
+                print(f"[WARN] Failed to sync admissions on discharge approval: {e_adm}")
+
+            # 2. Update dim_admission_inputs table
+            try:
+                if target_aid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = {target_aid}"
+                    )
+                elif target_pid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE patient_id = {target_pid}"
+                    )
+            except Exception as e_dim:
+                print(f"[WARN] Failed to sync dim_admission_inputs on discharge approval: {e_dim}")
+
+            # 3. Release assigned bed in beds table
+            try:
+                if target_aid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL)"
+                    )
+                elif target_pid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE patient_id = {target_pid} AND bed_id IS NOT NULL)"
+                    )
+            except Exception as e_bed:
+                print(f"[WARN] Failed to release bed on discharge approval: {e_bed}")
+
+        elif approval_val in ("pending review", "pending approval", "in progress"):
+            # If status was reverted back to pending, restore admission & bed status
+            try:
+                if target_aid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE admissions SET discharge_status = 'Admitted', discharge_date = NULL WHERE admission_id = {target_aid}"
+                    )
+                    db_connector.execute_custom_query(
+                        f"UPDATE dim_admission_inputs SET discharge_status = 'Admitted' WHERE admission_id = {target_aid}"
+                    )
+                    db_connector.execute_custom_query(
+                        f"UPDATE beds SET status = 'Occupied' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL)"
+                    )
+            except Exception as e_rev:
+                print(f"[WARN] Failed to revert admission/bed status: {e_rev}")
+
+        # Invalidate connector caches so all endpoints immediately serve synchronized data
+        try:
+            db_connector.clear_cache()
+        except Exception:
+            pass
+
         return {
             "status": "success",
-            "message": f"Discharge summary '{actual_sid}' successfully updated in gold.dim_generated_discharge_summaries.",
+            "message": f"Discharge summary '{actual_sid}' successfully updated and cascaded across tables.",
             "summary_id": actual_sid,
             "patient_id": matched.get("patient_id"),
             "admission_id": matched.get("admission_id"),
@@ -408,6 +477,8 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             "updated_fields": list(update_dict.keys()),
             "data": upd_res.get("data") or {**matched, **update_dict}
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update discharge summary: {str(e)}")
 
