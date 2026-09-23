@@ -50,6 +50,19 @@ const ICON_CONFIG = {
   waiting: { icon: '◔', bg: '#ffffff', color: '#52585e', border: '2px solid #c9cdd1' }
 };
 
+// Dependency label mapping
+const DEPL = {
+  clinical: 'Clinical clearance',
+  investigations: 'Pending investigations',
+  pharmacy: 'Pharmacy clearance',
+  billing: 'Unbilled charges / final bill',
+  insurance: 'Insurance approval',
+  housekeeping: 'Housekeeping',
+  transport: 'Transport',
+  summary: 'Discharge summary (doctor signs)',
+  prescription: 'Prescription (doctor signs)'
+};
+
 // Helper to format any time string or Date into 12-hour AM/PM format (preventing 24-hr railway time)
 export function formatTime12(timeVal) {
   if (!timeVal) return '';
@@ -133,22 +146,20 @@ function createCaseInitialState(base) {
         time: '09:08 AM'
       },
       summary: {
-        status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('summary') ? 'approval' : 'done'),
+        status: isCompleted || isReady ? 'done' : (isApproval || blocker.includes('summary') ? 'approval' : 'done'),
         note: isCompleted
           ? `Signed off by ${base.doctor || 'attending consultant'}`
           : isReady
-            ? 'AI draft generated · pending doctor sign-off on discharge'
+            ? 'Discharge summary approved & fast-tracked · ready for release'
             : 'AI draft generated · doctor sign-off required',
-        time: '09:01 AM'
+        time: isReady ? 'Now' : '09:01 AM'
       },
       prescription: {
-        status: isCompleted ? 'done' : isReady ? 'waiting' : (isApproval || blocker.includes('prescription') ? 'approval' : 'done'),
-        note: isCompleted
+        status: isCompleted || isReady ? 'done' : (isApproval || blocker.includes('prescription') ? 'approval' : 'done'),
+        note: isCompleted || isReady
           ? 'Discharge prescription validated & e-signed'
-          : isReady
-            ? 'Discharge e-Rx drafted · pending doctor signature on discharge'
-            : 'Discharge e-Rx drafted · pending doctor signature',
-        time: '09:01 AM'
+          : 'Discharge e-Rx drafted · pending doctor signature',
+        time: isReady ? 'Now' : '09:01 AM'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -213,7 +224,11 @@ function createCaseInitialState(base) {
     pauseReason: '',
     completed: isCompleted,
     dischargedAt: isCompleted ? formatTime12(base.initialEta || '09:30 AM') : null,
-    eta: isCompleted ? formatTime12(base.initialEta || '09:30 AM') : isReady ? 'Now' : formatTime12(base.initialEta || '01:30 PM')
+    eta: isCompleted 
+      ? formatTime12(base.initialEta || '09:30 AM') 
+      : isReady 
+        ? 'Now' 
+        : (base.initialEta && base.initialEta !== 'Now' ? formatTime12(base.initialEta) : '01:30 PM')
   };
 }
 
@@ -363,6 +378,7 @@ export default function DischargeCommandCentre({
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
       const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isReadyInDb = String(adm.discharge_status || c.discharge_status || '').toLowerCase() === 'ready';
 
       let category = 'Approval required';
       let blocker = 'summary → prescription';
@@ -372,7 +388,7 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
+      } else if (isReadyInDb || rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -381,6 +397,27 @@ export default function DischargeCommandCentre({
         blocker = 'billing → insurance → transport';
         initialStatus = 'Blocked · billing';
       }
+
+      const actualDischargeTime = (() => {
+        const dtVal = c.discharge_date || adm.discharge_date;
+        if (dtVal) {
+          const dt = new Date(dtVal);
+          if (!isNaN(dt.getTime())) {
+            let h = dt.getHours();
+            const m = String(dt.getMinutes()).padStart(2, '0');
+            const ap = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            return `${String(h).padStart(2, '0')}:${m} ${ap}`;
+          }
+        }
+        return null;
+      })();
+
+      const dynamicEta = isDischarged
+        ? (actualDischargeTime || '09:30 AM')
+        : category === 'Ready'
+          ? 'Now'
+          : (index % 2 === 0 ? '01:30 PM' : '02:15 PM');
 
       resultCases.push({
         id: caseId,
@@ -398,10 +435,10 @@ export default function DischargeCommandCentre({
         diagnoses: cleanDiagnosis(parsed.diagnoses && !parsed.diagnoses.match(/^Diagnosis\s+\d+/i) ? parsed.diagnoses : (adm.primary_diagnosis || parsed.diagnoses || 'Cholelithiasis (Gallstone Disease)')),
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
-        dischargeTime: '10:30 AM',
-        intentAt: '09:00 AM',
-        initialEta: isDischarged ? '10:30 AM' : 'Now',
-        owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : 'Ready for release',
+        discharge_date: c.discharge_date || adm.discharge_date || null,
+        dischargeTime: actualDischargeTime || (isDischarged ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
+        initialEta: dynamicEta,
+        owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
         blocker,
         initialStatus,
@@ -462,6 +499,7 @@ export default function DischargeCommandCentre({
       const insCoverage = Math.max(0, billNet - rawBal);
       const clearance = String(adm.bill_clearance_status || adm.llm_input_json?.billing?.bill_clearance_status || '').toLowerCase();
       const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isReadyInDb = String(adm.discharge_status || '').toLowerCase() === 'ready';
       const claimStatus = String(adm.claim_status || adm.insurance_status || '').trim();
       const isClaimApproved = claimStatus.toLowerCase().includes('approv') || claimStatus.toLowerCase().includes('settle');
       const isClaimRejected = claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni');
@@ -474,7 +512,7 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (clearance === 'cleared' && rawBal === 0) {
+      } else if (isReadyInDb || (clearance === 'cleared' && rawBal === 0)) {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -531,6 +569,27 @@ export default function DischargeCommandCentre({
         investigations: labText
       });
 
+      const actualDischargeTime = (() => {
+        const dtVal = adm.discharge_date;
+        if (dtVal) {
+          const dt = new Date(dtVal);
+          if (!isNaN(dt.getTime())) {
+            let h = dt.getHours();
+            const m = String(dt.getMinutes()).padStart(2, '0');
+            const ap = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            return `${String(h).padStart(2, '0')}:${m} ${ap}`;
+          }
+        }
+        return null;
+      })();
+
+      const dynamicEta = isDischarged
+        ? (actualDischargeTime || '09:30 AM')
+        : category === 'Ready'
+          ? 'Now'
+          : '01:30 PM';
+
       resultCases.push({
         id: caseId,
         patient_id: pid,
@@ -547,9 +606,10 @@ export default function DischargeCommandCentre({
         diagnoses: clinical.primaryDiag,
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
-        dischargeTime: '10:30 AM',
+        discharge_date: adm.discharge_date || null,
+        dischargeTime: actualDischargeTime || (isDischarged ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
         intentAt: '09:15 AM',
-        initialEta: isDischarged ? '10:30 AM' : category === 'Ready' ? 'Now' : '01:30 PM',
+        initialEta: dynamicEta,
         owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : 'Discharge Orchestration Agent',
         category,
         blocker,
@@ -697,11 +757,13 @@ export default function DischargeCommandCentre({
         blockerText = 'Clear';
       }
 
+      const rawEta = st.eta || base.initialEta;
+      const cleanEta = (computedCategory !== 'Ready' && (!rawEta || rawEta === 'Now')) ? '01:30 PM' : (rawEta || '01:30 PM');
       const eta = isCompleted
-        ? formatTime12(st.dischargedAt || base.initialEta || '10:30 AM')
+        ? formatTime12(st.dischargedAt || base.dischargeTime || base.initialEta || '09:30 AM')
         : statusKind === 'ready'
           ? 'Now'
-          : formatTime12(st.eta || base.initialEta || '01:30 PM');
+          : formatTime12(cleanEta);
 
       return {
         ...base,
@@ -1121,8 +1183,117 @@ export default function DischargeCommandCentre({
     });
   };
 
-  const handleEscalate = (targetCase) => {
-    notify('Escalated', `${targetCase.patient} discharge escalated to Operations Lead`, 'High', 'Discharge Board');
+  const handleEscalate = async (targetCase) => {
+    const caseId = targetCase.id;
+    // 1. Optimistic UI update
+    setCaseStates(prev => {
+      const cur = prev[caseId] || createCaseInitialState(targetCase);
+      if (!cur || !cur.deps) return prev;
+
+      // Fast-track and resolve all waiting/blocked/pending dependencies
+      const nextDeps = { ...cur.deps };
+      Object.keys(nextDeps).forEach(k => {
+        if (nextDeps[k].status !== 'done') {
+          nextDeps[k] = {
+            ...nextDeps[k],
+            status: 'done',
+            note: nextDeps[k].note?.includes('Approved') || nextDeps[k].note?.includes('cleared')
+              ? nextDeps[k].note
+              : `Fast-tracked & cleared by Operations Lead`,
+            time: 'Now'
+          };
+        }
+      });
+
+      const nextSteps = [
+        { t: 'Now', what: `Operations Lead · Escalated & expedited all pending clearances for ${targetCase.patient}`, col: '#10b981', res: 'READY' },
+        ...(cur.steps || [])
+      ];
+
+      const nextLog = [
+        { t: 'Now', who: 'Operations Lead', what: 'Escalated discharge bottlenecks · fast-tracked to Ready', col: '#10b981' },
+        ...(cur.log || [])
+      ];
+
+      notify('Escalated & Expedited', `${targetCase.patient} escalated to Operations Lead · stored as Ready in database!`, 'High', 'Discharge Board');
+
+      const updated = {
+        ...cur,
+        deps: nextDeps,
+        steps: nextSteps,
+        log: nextLog,
+        eta: 'Now',
+        approvals: []
+      };
+
+      return {
+        ...prev,
+        [caseId]: updated
+      };
+    });
+
+    // 2. Persist directly to PostgreSQL database so refreshing the page preserves the Ready state!
+    try {
+      const cleanNum = (val) => {
+        if (!val) return null;
+        const m = String(val).match(/\d+/);
+        return m ? m[0] : null;
+      };
+      await apiService.escalateCase({
+        case_id: caseId,
+        patient_id: cleanNum(targetCase.patient_id),
+        admission_id: cleanNum(targetCase.admission_id) || cleanNum(targetCase.id)
+      });
+      // Re-fetch from DB to guarantee permanent synchronization
+      await loadDischargeCandidates(true);
+    } catch (err) {
+      console.error('Failed to persist case escalation to DB:', err);
+    }
+  };
+
+  const handleToggleDependency = (caseId, depKey) => {
+    setCaseStates(prev => {
+      const targetCase = allCases.find(x => x.id === caseId) || {};
+      const cur = prev[caseId] || createCaseInitialState(targetCase);
+      if (!cur || !cur.deps || !cur.deps[depKey]) return prev;
+
+      const currentDep = cur.deps[depKey];
+      const isDone = currentDep.status === 'done';
+      const newStatus = isDone ? 'waiting' : 'done';
+      const depName = DEPL[depKey] || depKey;
+      const newNote = newStatus === 'done'
+        ? `${depName} cleared & confirmed`
+        : `Awaiting ${depName.toLowerCase()}`;
+
+      const nextDeps = {
+        ...cur.deps,
+        [depKey]: {
+          ...currentDep,
+          status: newStatus,
+          note: newNote,
+          time: newStatus === 'done' ? 'Now' : currentDep.time
+        }
+      };
+
+      notify(
+        newStatus === 'done' ? `${depName} Cleared` : `${depName} Pending`,
+        `${targetCase.patient || 'Patient'} · ${newNote}`,
+        'Medium',
+        'Discharge Board'
+      );
+
+      const allDone = Object.values(nextDeps).every(d => d.status === 'done');
+      const updated = {
+        ...cur,
+        deps: nextDeps,
+        eta: allDone ? 'Now' : cur.eta
+      };
+
+      return {
+        ...prev,
+        [caseId]: checkAndAdvanceCase(caseId, updated)
+      };
+    });
   };
 
   const renderStatusPill = (statusName) => {
@@ -1155,18 +1326,6 @@ export default function DischargeCommandCentre({
     const dc = activeCase;
     const canRelease = (dc.statusKind === 'ready' || dc.category === 'Ready') && !dc.isCompleted;
     const canSimulate = dc.paStatus?.includes('Submitted') || dc.paStatus?.includes('Pending') || dc.paStatus?.includes('Appeal');
-
-    const DEPL = {
-      clinical: 'Clinical clearance',
-      investigations: 'Pending investigations',
-      pharmacy: 'Pharmacy clearance',
-      billing: 'Unbilled charges / final bill',
-      insurance: 'Insurance approval',
-      housekeeping: 'Housekeeping',
-      transport: 'Transport',
-      summary: 'Discharge summary (doctor signs)',
-      prescription: 'Prescription (doctor signs)'
-    };
 
     const orderedDepKeys = [
       'clinical',
@@ -1288,7 +1447,7 @@ export default function DischargeCommandCentre({
                             : 'Predicted ready'}
                   </div>
                   <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#15181b', fontWeight: 500, margin: '2px 0' }}>
-                    {dc.isCompleted ? formatTime12(dc.dischargeTime || '10:30 AM') : dc.statusKind === 'ready' ? 'Now' : formatTime12(dc.eta)}
+                    {dc.isCompleted ? formatTime12(dc.dischargeTime || dc.dischargedAt || '09:30 AM') : dc.statusKind === 'ready' ? 'Now' : (dc.eta && dc.eta !== 'Now' ? formatTime12(dc.eta) : '01:30 PM')}
                   </div>
                   <div style={{ fontSize: '10.5px', color: dc.statusKind === 'blocked' ? '#b91c1c' : '#8a9096' }}>
                     {dc.isCompleted
@@ -1348,6 +1507,8 @@ export default function DischargeCommandCentre({
                   return (
                     <div
                       key={key}
+                      onClick={() => !dc.isCompleted && handleToggleDependency(dc.id, key)}
+                      title={!dc.isCompleted ? (item.status === 'done' ? `Click to mark ${DEPL[key]} as pending` : `Click to mark ${DEPL[key]} as cleared`) : ''}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '22px minmax(0, 1fr) auto',
@@ -1357,7 +1518,15 @@ export default function DischargeCommandCentre({
                         margin: '0 -8px',
                         borderRadius: '6px',
                         background: rowBg,
-                        fontSize: '12px'
+                        fontSize: '12px',
+                        cursor: !dc.isCompleted ? 'pointer' : 'default',
+                        transition: 'background 0.15s'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!dc.isCompleted) e.currentTarget.style.background = '#f1f5f9';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = rowBg;
                       }}
                     >
                       <span
@@ -2289,6 +2458,8 @@ export default function DischargeCommandCentre({
           summaryData={{
             ...(dc.rawRecord || {}),
             ...dc,
+            discharge_date: dc.discharge_date || (dc.rawRecord && dc.rawRecord.discharge_date) || null,
+            dischargeTime: dc.dischargeTime || dc.dischargedAt || (dc.statusKind === 'ready' ? 'Now' : dc.eta),
             case_history: dc.case_history,
             hospital_course_summary: dc.hospital_course_summary || dc.case_history,
             investigations: dc.investigations,

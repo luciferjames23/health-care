@@ -61,6 +61,61 @@ function formatClinicalDate(dateStr) {
 }
 
 /**
+ * Formats clinical date and time cleanly as '23 Sep 2026, 09:19 AM'
+ */
+export function formatClinicalDateTime(dateVal, timeVal) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const now = new Date();
+  const todayDateStr = `${String(now.getDate()).padStart(2, '0')} ${months[now.getMonth()]} ${now.getFullYear()}`;
+
+  const formatHoursMinutes = (d) => {
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+  };
+
+  if (!dateVal && !timeVal) {
+    return `${todayDateStr}, ${formatHoursMinutes(now)}`;
+  }
+
+  // If already formatted with date and time (e.g. '23 Sep 2026, 09:19 AM')
+  if (typeof dateVal === 'string' && (dateVal.includes('AM') || dateVal.includes('PM')) && dateVal.length > 8) {
+    return dateVal;
+  }
+
+  // If dateVal is a valid Date or ISO string
+  if (dateVal && String(dateVal).trim().toLowerCase() !== 'now') {
+    const d = new Date(dateVal);
+    if (!isNaN(d.getTime())) {
+      const dStr = `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+      
+      const hasEmbeddedTime = typeof dateVal === 'string'
+        ? (dateVal.includes('T') || (dateVal.includes(':') && !dateVal.endsWith('00:00:00')))
+        : (d.getHours() !== 0 || d.getMinutes() !== 0);
+
+      let tStr = '';
+      if (hasEmbeddedTime) {
+        // ALWAYS use the actual timestamp's time if present!
+        tStr = formatHoursMinutes(d);
+      } else if (timeVal && timeVal !== 'Now' && typeof timeVal === 'string' && (timeVal.includes(':') || /am|pm/i.test(timeVal))) {
+        tStr = timeVal;
+      } else {
+        tStr = formatHoursMinutes(now);
+      }
+      return `${dStr}, ${tStr}`;
+    }
+  }
+
+  // If dateVal is 'Now', null, empty, or undefined:
+  const validTime = (timeVal && timeVal !== 'Now' && typeof timeVal === 'string' && (timeVal.includes(':') || /am|pm/i.test(timeVal)))
+    ? timeVal
+    : formatHoursMinutes(now);
+  return `${todayDateStr}, ${validTime}`;
+}
+
+/**
  * Extracts introductory text from discharge medications string
  */
 function getMedicationIntro(medText) {
@@ -230,7 +285,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         const patientNumber = summaryData.patient_number || summaryData.mrn || (patientId ? `PAT-${patientId}` : '');
         const admissionId = summaryData.admission_id || (patientId ? `ADM-${patientId}` : '');
         const admissionDate = summaryData.admission_date || summaryData.admitted || '';
-        const dischargeDate = summaryData.discharge_date || summaryData.eta || '';
+        const rawDischarge = summaryData.discharge_date && summaryData.discharge_date !== 'Now' ? summaryData.discharge_date : '';
+        const dischargeDate = formatClinicalDateTime(rawDischarge, summaryData.dischargeTime || summaryData.dischargedAt);
         const attendingPhysician = clinical.doctor || summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
         let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
         if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
@@ -277,6 +333,59 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         setIsEditing(false);
         setSuccessMsg(null);
         setErrorMsg(null);
+
+        // Fetch official discharge summary record directly from http://127.0.0.1:8000/api/v1/gold/generated-discharge-summaries
+        const fetchOfficialRecord = async () => {
+          try {
+            const fetchParams = {};
+            if (patientId) fetchParams.patient_id = patientId;
+            else if (admissionId) fetchParams.admission_id = admissionId;
+            const res = await apiService.getDischargedPatients(fetchParams, { forceRefresh: true });
+            const list = res?.data || [];
+            const matched = list.find(s => 
+              (patientId && String(s.patient_id) === String(patientId)) ||
+              (admissionId && String(s.admission_id) === String(admissionId)) ||
+              (summaryId && (String(s.summary_id) === String(summaryId) || `DS-${s.patient_id}` === String(summaryId) || `DS-${s.summary_id}` === String(summaryId)))
+            ) || (list.length > 0 ? list[0] : null);
+
+            if (matched) {
+              let diagText = matched.diagnoses || '';
+              if (diagText && typeof diagText === 'string' && diagText.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(diagText);
+                  diagText = parsed.primary || parsed.diagnosis || diagText;
+                } catch (e) {}
+              }
+
+              const updatedFromApi = {
+                summary_id: matched.summary_id ? `DS-${matched.summary_id}` : summaryId,
+                patient_id: matched.patient_id || patientId,
+                patient_name: matched.patient_name || patientName,
+                patient_number: matched.patient_number || patientNumber,
+                admission_id: matched.admission_id || admissionId,
+                admission_date: matched.admission_date || admissionDate,
+                discharge_date: formatClinicalDateTime(matched.discharge_date || dischargeDate, summaryData.dischargeTime || summaryData.dischargedAt),
+                attending_physician: matched.primary_consultant || matched.attending_physician || attendingPhysician,
+                admission_reason: admissionReason,
+                discharge_diagnosis: cleanDiagnosis(diagText) || dischargeDiagnosis,
+                hospital_course_summary: matched.case_history || hospitalCourse,
+                investigations: matched.investigations || investigations,
+                patient_condition: matched.patient_condition || patientCondition,
+                discharge_medications: matched.treatment || dischargeMeds,
+                followup_instructions: stripTamil(matched.discharge_advice) || followup,
+                surgery_details: matched.surgery_details || surgeryDetails,
+                approval_status: matched.approval_status || approvalStatus,
+                approved_by: matched.approved_by || approvedBy
+              };
+              setForm(prev => ({ ...prev, ...updatedFromApi }));
+              setOriginalForm(prev => ({ ...prev, ...updatedFromApi }));
+            }
+          } catch (err) {
+            console.warn('Could not load official record from /api/v1/gold/generated-discharge-summaries:', err);
+          }
+        };
+
+        fetchOfficialRecord();
       }
     }
   }, [summaryData, isOpen]);
@@ -359,7 +468,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   }
   sex = sex || '—';
   const admissionDisplayDate = formatClinicalDate(form.admission_date);
-  const printDocDate = formatClinicalDate(form.discharge_date || form.admission_date);
+  const printDocDate = form.discharge_date || formatClinicalDateTime(summaryData.discharge_date || form.admission_date, summaryData.dischargeTime || summaryData.dischargedAt);
   const cleanFollowup = stripTamil(form.followup_instructions);
   const cleanDiagText = cleanDiagnosis(form.discharge_diagnosis);
   const medIntro = getMedicationIntro(form.discharge_medications);
@@ -726,9 +835,9 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                   <div>
                     <div style={{ fontSize: '11px', color: '#64748b' }}>Primary Consultant / Attending Physician:</div>
                     <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{form.attending_physician || 'Attending Physician'}</div>
-                    {form.discharge_date && (
-                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Discharge Date: {form.discharge_date}</div>
-                    )}
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      Discharge Date: {form.discharge_date || formatClinicalDateTime(summaryData.discharge_date, summaryData.dischargeTime || summaryData.dischargedAt)}
+                    </div>
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
@@ -785,7 +894,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                       type="text"
                       value={form.discharge_date}
                       onChange={(e) => setForm({ ...form, discharge_date: e.target.value })}
-                      placeholder="e.g. 15 Sept 2026"
+                      placeholder="e.g. 23 Sep 2026, 09:30 AM"
                       style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
                     />
                   </div>

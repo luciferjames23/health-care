@@ -44,6 +44,13 @@ class SimulateInsurerRequest(BaseModel):
     remarks: Optional[str] = None
 
 
+class EscalateCaseRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    admission_id: Optional[Union[str, int]] = None
+    case_id: Optional[str] = None
+    remarks: Optional[str] = "Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead"
+
+
 
 class GenerateVitalsRequest(BaseModel):
     patient_id: Optional[Union[str, int]] = None
@@ -1329,6 +1336,220 @@ def clear_patient_bill_by_id(
         patient_id=patient_id,
         amount=amount,
         payment_method=payment_method
+    )
+
+
+def escalate_discharge_case_internal(
+    patient_id: Optional[Union[str, int]] = None,
+    admission_id: Optional[Union[str, int]] = None,
+    case_id: Optional[str] = None,
+    remarks: Optional[str] = "Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead"
+) -> Dict[str, Any]:
+    """
+    Escalates a discharge case and permanently stores its status as 'Ready' in PostgreSQL:
+    1. Updates `dim_admission_inputs`:
+       - discharge_status = 'Ready'
+       - bill_status = 'Paid'
+       - bill_clearance_status = 'Cleared'
+       - outstanding_balance = 0.00
+    2. Updates `admissions`:
+       - discharge_status = 'Ready'
+    3. Updates `bills`:
+       - bill_status = 'Settled'
+    4. Updates `dim_generated_discharge_summaries`:
+       - approval_status = 'Approved'
+    5. Invalidates DatabricksConnector cache so UI dashboards & page reloads reflect 'Ready' permanently.
+    """
+    from db_config import get_db_connection
+
+    parsed_pid = _parse_id_numeric(patient_id)
+    parsed_aid = _parse_id_numeric(admission_id)
+
+    if not parsed_aid and not parsed_pid and case_id:
+        c_str = str(case_id).strip()
+        nums = re.findall(r'\d+', c_str)
+        if nums:
+            if 'ADM' in c_str.upper():
+                parsed_aid = int(nums[-1])
+            else:
+                parsed_pid = int(nums[-1])
+
+    if not parsed_aid and not parsed_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one identifier (patient_id, admission_id, or case_id) must be provided to escalate discharge case."
+        )
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+
+        resolved_aid = None
+        resolved_pid = None
+        patient_name = "Patient"
+
+        if parsed_aid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name
+                FROM dim_admission_inputs
+                WHERE admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        if not resolved_aid and parsed_pid is not None:
+            cur.execute("""
+                SELECT admission_id, patient_id, first_name, last_name
+                FROM dim_admission_inputs
+                WHERE patient_id = %s
+                ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
+                LIMIT 1;
+            """, (parsed_pid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        if not resolved_aid and parsed_aid is not None:
+            cur.execute("""
+                SELECT a.admission_id, a.patient_id, p.first_name, p.last_name
+                FROM admissions a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                WHERE a.admission_id = %s
+                LIMIT 1;
+            """, (parsed_aid,))
+            row = cur.fetchone()
+            if row:
+                resolved_aid, resolved_pid, fn, ln = row
+                patient_name = f"{fn or ''} {ln or ''}".strip() or f"Patient #{resolved_pid}"
+
+        resolved_aid = resolved_aid or parsed_aid
+        resolved_pid = resolved_pid or parsed_pid
+
+        # 1. Update dim_admission_inputs
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET discharge_status = 'Ready',
+                    bill_status = 'Paid',
+                    bill_clearance_status = 'Cleared',
+                    outstanding_balance = 0.00
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_admission_inputs
+                SET discharge_status = 'Ready',
+                    bill_status = 'Paid',
+                    bill_clearance_status = 'Cleared',
+                    outstanding_balance = 0.00
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        # 2. Update admissions table
+        if resolved_aid:
+            cur.execute("""
+                UPDATE admissions
+                SET discharge_status = 'Ready'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE admissions
+                SET discharge_status = 'Ready'
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        # 3. Update bills table
+        if resolved_aid:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = 'Settled'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE bills
+                SET bill_status = 'Settled'
+                WHERE patient_id = %s AND admission_id IS NOT NULL;
+            """, (resolved_pid,))
+
+        # 4. Update discharge summaries if present
+        if resolved_aid:
+            cur.execute("""
+                UPDATE dim_generated_discharge_summaries
+                SET approval_status = 'Approved'
+                WHERE admission_id = %s;
+            """, (resolved_aid,))
+        elif resolved_pid:
+            cur.execute("""
+                UPDATE dim_generated_discharge_summaries
+                SET approval_status = 'Approved'
+                WHERE patient_id = %s;
+            """, (resolved_pid,))
+
+        conn.commit()
+        DatabricksConnector.clear_cache()
+
+        logger.info(f"Discharge case escalated to Ready in DB: patient_id={resolved_pid}, admission_id={resolved_aid}")
+
+        return {
+            "success": True,
+            "patient_id": resolved_pid,
+            "admission_id": resolved_aid,
+            "patient_name": patient_name,
+            "status": "Ready",
+            "message": f"Discharge case successfully escalated and stored as Ready in database for {patient_name}."
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error escalating discharge case: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to escalate discharge case: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/escalate-case", summary="Escalate and Fast-track Discharge Case to Ready in Database")
+def escalate_discharge_case_api(request: EscalateCaseRequest):
+    """
+    Escalates operational bottlenecks and moves patient discharge status to 'Ready'.
+    Persists changes directly into PostgreSQL tables (`dim_admission_inputs`, `admissions`, `bills`).
+    Ensures that page refreshes maintain the patient in 'Ready' state.
+    """
+    return escalate_discharge_case_internal(
+        patient_id=request.patient_id,
+        admission_id=request.admission_id,
+        case_id=request.case_id,
+        remarks=request.remarks
+    )
+
+
+@router.post("/patient/{patient_id}/escalate", summary="Escalate Discharge Case by Patient ID")
+def escalate_discharge_case_by_patient_id(
+    patient_id: str,
+    remarks: Optional[str] = Query("Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead")
+):
+    return escalate_discharge_case_internal(
+        patient_id=patient_id,
+        remarks=remarks
+    )
+
+
+@router.post("/case/{case_id}/escalate", summary="Escalate Discharge Case by Case ID")
+def escalate_discharge_case_by_case_id(
+    case_id: str,
+    remarks: Optional[str] = Query("Discharge bottlenecks escalated & fast-tracked to Ready by Operations Lead")
+):
+    return escalate_discharge_case_internal(
+        case_id=case_id,
+        remarks=remarks
     )
 
 
