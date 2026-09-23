@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor } from "../services/api";
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
   const s = String(status).toLowerCase();
+  if (s.includes("discharge ready")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Discharge ready" };
   if (s.includes("discharge planning")) return { bg: "oklch(0.95 0.03 200)", fg: "oklch(0.4 0.1 200)", label: "Discharge planning" };
   if (s.includes("post-op") || s.includes("postop")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.45 0.13 70)", label: "Post-operative" };
   if (s.includes("fit for discharge")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Fit for discharge" };
@@ -11,13 +12,13 @@ function getStatusPill(status) {
   if (s.includes("stable")) return { bg: "#f6f7f8", fg: "#52585e", label: "Stable" };
   if (s.includes("signed off")) return { bg: "#f2f3f4", fg: "#8a9096", label: "Signed off" };
   if (s.includes("long stay")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.5 0.18 25)", label: "Long stay" };
-  if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: status };
+  if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: "Discharged" };
   if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Admitted" };
   if (s.includes("critical") || s.includes("icu")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.45 0.17 25)", label: status };
   return { bg: "#f6f7f8", fg: "#52585e", label: status };
 }
 
-const dept = (p) => p.department || p.dept || p.ward || "\u2014";
+const dept = (p) => p.department || p.dept || p.ward || "—";
 const lang = (p) => p.language || p.preferred_language || "Tamil";
 const insurer = (p) => p.insurer || p.insurance || p.insurance_company || p.payor || "Self-pay";
 
@@ -49,55 +50,92 @@ export default function PatientsView({
       setError(null);
       try {
         const [ar, dr] = await Promise.all([
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
 
-        // Only patients whose discharge has been approved or completed are discharged.
-        // If a discharge summary is only "Pending Approval" or a draft, the patient is still admitted!
         const rawDischarges = dr?.data || [];
-        const actuallyDischargedRecords = rawDischarges.filter(r => {
-          if (!r) return false;
-          const approval = String(r.approval_status || '').trim().toLowerCase();
-          const status = String(r.status || '').trim().toLowerCase();
-          return approval === 'approved' || status === 'discharged' || r.is_discharged === true;
+        const rawAdmissions = ar?.data || [];
+
+        const dischargedInAdmissions = rawAdmissions.filter(r => {
+          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+          return st === 'discharged';
         });
 
-        const dischargedTracker = extractDischargedPatientIds(actuallyDischargedRecords);
-        const rawAdmissions = ar?.data || [];
         const actualAdmitted = rawAdmissions
-          .filter(r => !dischargedTracker.has(r))
+          .filter(r => {
+            const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+            return st !== 'discharged';
+          })
           .map(r => {
             const parsed = parseAdmissionLlmRecord(r);
             const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+            const isReady = String(r.discharge_status || '').trim().toLowerCase() === 'ready';
             return {
               ...parsed,
               name: pName,
               patient_name: pName,
+              diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "IP",
-              _status: parsed.status || "Admitted"
+              _status: isReady ? "Fit for discharge" : (parsed.status || "Admitted")
             };
           });
 
-        const parsedDischarged = actuallyDischargedRecords.map(r => {
-          const d = parseDischargeSummaryRecord(r);
-          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
-          return {
-            ...d,
+        const seenDischargedPids = new Set();
+        const parsedDischargedList = [];
+
+        // 1. Actually discharged patients from admissions
+        dischargedInAdmissions.forEach(r => {
+          const parsed = parseAdmissionLlmRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+          const pid = String(r.patient_id || r.id || '');
+          if (pid) seenDischargedPids.add(pid);
+          parsedDischargedList.push({
+            ...parsed,
             name: pName,
             patient_name: pName,
             patient: pName,
-            age: d.age || r.age_at_admission || r.age,
-            sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
-            gender: d.gender || r.gender || 'Unknown',
+            age: r.age_at_admission || parsed.age || 45,
+            sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
+            gender: r.gender || parsed.gender || 'Unknown',
+            doctor: r.attending_doctor || parsed.doctor || 'Attending Physician',
+            diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
             _type: "Discharged",
             _status: "Discharged"
-          };
+          });
+        });
+
+        // 2. Only finalized/approved discharge summary records
+        rawDischarges.forEach(r => {
+          const isApproved = String(r.approval_status || '').trim().toLowerCase() === 'approved';
+          const isExplicitDischarge = String(r.status || '').trim().toLowerCase() === 'discharged';
+          if (!isApproved && !isExplicitDischarge && !r.is_discharged) return;
+
+          const d = parseDischargeSummaryRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
+          const pid = String(r.patient_id || d.patient_id || d.id || '');
+
+          if (!pid || !seenDischargedPids.has(pid)) {
+            if (pid) seenDischargedPids.add(pid);
+            parsedDischargedList.push({
+              ...d,
+              name: pName,
+              patient_name: pName,
+              patient: pName,
+              age: d.age || r.age_at_admission || r.age || 45,
+              sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
+              gender: d.gender || r.gender || 'Unknown',
+              doctor: d.doctor || r.primary_consultant || r.doctor_name || 'Attending Physician',
+              diagnosis: cleanDiagnosis(d.diagnosis || d.diagnoses || r.diagnoses || ''),
+              _type: "Discharged",
+              _status: "Discharged"
+            });
+          }
         });
 
         setAdmitted(actualAdmitted);
-        setDischarged(parsedDischarged);
+        setDischarged(parsedDischargedList);
       } catch (e) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     };

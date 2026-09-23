@@ -59,8 +59,7 @@ const DEPL = {
   insurance: 'Insurance approval',
   housekeeping: 'Housekeeping',
   transport: 'Transport',
-  summary: 'Discharge summary (doctor signs)',
-  prescription: 'Prescription (doctor signs)'
+  summary: 'Discharge summary (doctor signs)'
 };
 
 // Helper to format any time string or Date into 12-hour AM/PM format (preventing 24-hr railway time)
@@ -146,20 +145,11 @@ function createCaseInitialState(base) {
         time: '09:08 AM'
       },
       summary: {
-        status: isCompleted || isReady ? 'done' : (isApproval || blocker.includes('summary') ? 'approval' : 'done'),
+        status: isCompleted ? 'done' : 'approval',
         note: isCompleted
           ? `Signed off by ${base.doctor || 'attending consultant'}`
-          : isReady
-            ? 'Discharge summary approved & fast-tracked · ready for release'
-            : 'AI draft generated · doctor sign-off required',
-        time: isReady ? 'Now' : '09:01 AM'
-      },
-      prescription: {
-        status: isCompleted || isReady ? 'done' : (isApproval || blocker.includes('prescription') ? 'approval' : 'done'),
-        note: isCompleted || isReady
-          ? 'Discharge prescription validated & e-signed'
-          : 'Discharge e-Rx drafted · pending doctor signature',
-        time: isReady ? 'Now' : '09:01 AM'
+          : 'AI draft generated · doctor sign-off required',
+        time: isCompleted ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -862,7 +852,7 @@ export default function DischargeCommandCentre({
 
   const checkAndAdvanceCase = useCallback((caseId, updatedState) => {
     const d = updatedState.deps;
-    const openNonAuto = ['clinical', 'investigations', 'pharmacy', 'billing', 'insurance', 'summary', 'prescription']
+    const openNonAuto = ['clinical', 'investigations', 'pharmacy', 'billing', 'insurance']
       .some(k => d[k] && d[k].status !== 'done');
 
     if (!openNonAuto && !updatedState.paused && !updatedState.completed) {
@@ -896,16 +886,15 @@ export default function DischargeCommandCentre({
 
       const nextDeps = {
         ...cur.deps,
-        summary: { status: 'done', note: `Signed by ${targetCase.doctor || 'Doctor'}`, time: '11:15 AM' },
-        prescription: { status: 'done', note: 'Signed with summary', time: '11:15 AM' }
+        summary: { status: 'done', note: `Signed by ${targetCase.doctor || 'Doctor'}`, time: '11:15 AM' }
       };
       const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Discharge summary sign-off' && a.type !== 'Discharge summary');
       const nextSteps = [
-        { t: '11:15 AM', what: `${targetCase.doctor || 'Doctor'} · Discharge summary + prescription signed`, col: '#d97706', res: 'Approved' },
+        { t: '11:15 AM', what: `${targetCase.doctor || 'Doctor'} · Discharge summary signed`, col: '#d97706', res: 'Approved' },
         ...(cur.steps || [])
       ];
       const nextLog = [
-        { t: '11:15 AM', who: targetCase.doctor || 'Dr. Arjun Menon', what: 'Signed discharge summary and prescription', col: '#d97706' },
+        { t: '11:15 AM', who: targetCase.doctor || 'Dr. Arjun Menon', what: 'Signed discharge summary', col: '#d97706' },
         ...(cur.log || [])
       ];
 
@@ -1157,13 +1146,10 @@ export default function DischargeCommandCentre({
 
       notify('Patient discharged', `${targetCase.patient || 'Patient'} · bed ${targetCase.bed?.split(' ')[0] || 'ward'} released to housekeeping · follow-up booked 19 Sep 10:30`, 'High', 'Front Office');
 
-      // Mark summary and prescription as signed off
+      // Mark summary as signed off
       const updatedDeps = { ...(cur.deps || {}) };
       if (updatedDeps.summary) {
         updatedDeps.summary = { ...updatedDeps.summary, status: 'done', note: `Signed off by ${targetCase.doctor || 'attending consultant'}` };
-      }
-      if (updatedDeps.prescription) {
-        updatedDeps.prescription = { ...updatedDeps.prescription, status: 'done', note: 'Discharge prescription validated & e-signed' };
       }
 
       const nextSteps = [
@@ -1335,8 +1321,7 @@ export default function DischargeCommandCentre({
       'insurance',
       'housekeeping',
       'transport',
-      'summary',
-      'prescription'
+      'summary'
     ];
 
     const familyMsgTa = dc.isCompleted

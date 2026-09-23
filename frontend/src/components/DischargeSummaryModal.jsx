@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { apiService, synthesizeClinicalDetails } from '../services/api';
+import {
+  apiService,
+  synthesizeClinicalDetails,
+  formatClinicalDiagnoses,
+  formatClinicalInvestigations,
+  formatClinicalTreatment,
+  formatClinicalAdvice,
+  formatClinicalCondition,
+  cleanDiagnosis
+} from '../services/api';
 
 /**
  * Strips any Tamil instructions from discharge advice / followup text
@@ -21,25 +30,6 @@ function stripTamil(text) {
       return true;
     })
     .join('\n')
-    .trim();
-}
-
-/**
- * Strips empty brackets '[]', ': []', '; []', and empty secondary diagnoses
- */
-function cleanDiagnosis(diag) {
-  if (!diag || typeof diag !== 'string') return '';
-  return diag
-    // Remove secondary diagnosis labels when followed by empty brackets []
-    .replace(/(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]/gi, '')
-    .replace(/(?:[;,|]\s*)?Secondary\s*:\s*\[\s*\]/gi, '')
-    // Remove standalone empty brackets and bracket prefixes
-    .replace(/:\s*\[\s*\]/g, '')
-    .replace(/;\s*\[\s*\]/g, '')
-    .replace(/\|\s*\[\s*\]/g, '')
-    .replace(/\[\s*\]/g, '')
-    // Remove any trailing or dangling punctuation
-    .replace(/[:;,|]\s*$/g, '')
     .trim();
 }
 
@@ -146,6 +136,50 @@ function parseFollowupInstructions(text) {
   return [text.trim()];
 }
 
+function extractMedInfo(str) {
+  const s = String(str || '').trim();
+  if (!s.includes('{') || !s.includes('}')) return null;
+  const match = s.match(/\{[^{}]+\}/);
+  if (match) {
+    const raw = match[0];
+    for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
+      try {
+        const d = JSON.parse(cand);
+        if (d && (d.name || d.medicine || d.drug)) {
+          return {
+            name: d.name || d.medicine || d.drug,
+            dose: d.dose || d.dosage || '',
+            route: d.route || '',
+            freq: d.frequency || d.freq || '',
+            dur: d.duration || d.dur || '',
+            ind: d.indication || d.notes || ''
+          };
+        }
+      } catch (e) {}
+    }
+    const getField = (keys) => {
+      for (const k of keys) {
+        const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
+        const m = s.match(re);
+        if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+      return '';
+    };
+    const name = getField(['name', 'medicine', 'drug']);
+    if (name) {
+      return {
+        name,
+        dose: getField(['dose', 'dosage']),
+        route: getField(['route']),
+        freq: getField(['frequency', 'freq']),
+        dur: getField(['duration', 'dur']),
+        ind: getField(['indication', 'notes'])
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Parses medications array or text block into structured table rows
  * [{ medicine, instructions, notes }]
@@ -169,6 +203,22 @@ function parseMedications(medsArray, medText) {
     return str || 'As directed';
   };
 
+  const parseDictObject = (d) => {
+    if (!d || typeof d !== 'object') return null;
+    const name = cleanMedName(d.name || d.medicine || d.drug || 'Medication');
+    const dose = d.dose || d.dosage || '';
+    const route = d.route || '';
+    const freq = d.frequency || d.freq || '';
+    const dur = d.duration || d.dur || '';
+    const ind = d.indication || d.indication_notes || d.notes || 'Treatment';
+    const parts = [dose, route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', dur ? `Duration: ${dur}` : ''].filter(Boolean);
+    return {
+      medicine: name,
+      instructions: cleanInst(parts.join(', ') || 'As directed'),
+      notes: ind
+    };
+  };
+
   if (Array.isArray(medsArray) && medsArray.length > 0) {
     if (Array.isArray(medsArray[0])) {
       return medsArray.map(m => ({
@@ -178,15 +228,40 @@ function parseMedications(medsArray, medText) {
       }));
     }
     if (typeof medsArray[0] === 'object') {
-      return medsArray.map(m => ({
+      return medsArray.map(m => parseDictObject(m) || {
         medicine: cleanMedName(m.name || m.medicine || m.drug || 'Medication'),
         instructions: cleanInst(m.dose || m.instructions || m.frequency || 'As directed'),
         notes: m.notes || m.indication || 'Treatment'
-      }));
+      });
     }
   }
 
-  if (!medText || typeof medText !== 'string') return [];
+  if (!medText) return [];
+
+  if (typeof medText === 'object') {
+    const list = medText.medications || medText.inpatient_medications || medText.discharge_medications || medText.prescriptions || [];
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map(m => parseDictObject(m) || {
+        medicine: cleanMedName(String(m)),
+        instructions: 'As directed',
+        notes: 'Treatment'
+      });
+    }
+  }
+
+  if (typeof medText === 'string' && (medText.trim().startsWith('{') || medText.trim().startsWith('['))) {
+    try {
+      const parsedJson = JSON.parse(medText);
+      return parseMedications(null, parsedJson);
+    } catch (e) {
+      try {
+        const parsedJson = JSON.parse(medText.replace(/'/g, '"'));
+        return parseMedications(null, parsedJson);
+      } catch (e2) {}
+    }
+  }
+
+  if (typeof medText !== 'string') return [];
 
   const lines = medText
     .split('\n')
@@ -195,8 +270,15 @@ function parseMedications(medsArray, medText) {
 
   const parsed = [];
   for (const line of lines) {
-    const cleaned = line.replace(/^\d+[\.\)]\s*/, '').trim();
+    const cleaned = line.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
     if (!cleaned) continue;
+
+    // Check if line contains an embedded JSON or Python dictionary or extractable info
+    const medInfo = extractMedInfo(cleaned);
+    if (medInfo) {
+      parsed.push(parseDictObject(medInfo));
+      continue;
+    }
 
     if (cleaned.includes(' - ')) {
       const [name, ...restParts] = cleaned.split(' - ');
@@ -292,12 +374,12 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
           admissionReason = '';
         }
-        const dischargeDiagnosis = clinical.primaryDiag;
-        const hospitalCourse = clinical.narrative;
-        const investigations = clinical.investigations;
-        const patientCondition = clinical.condition;
-        const dischargeMeds = summaryData.discharge_medications || summaryData.treatment || '';
-        const followup = stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || '');
+        const dischargeDiagnosis = formatClinicalDiagnoses(clinical.primaryDiag || summaryData.discharge_diagnosis || summaryData.diagnoses || summaryData.primary_diagnosis);
+        const hospitalCourse = clinical.narrative || summaryData.hospital_course_summary || summaryData.case_history;
+        const investigations = formatClinicalInvestigations(clinical.investigations || summaryData.investigations);
+        const patientCondition = formatClinicalCondition(clinical.condition || summaryData.patient_condition);
+        const dischargeMeds = formatClinicalTreatment(summaryData.discharge_medications || summaryData.treatment || '');
+        const followup = formatClinicalAdvice(stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || ''));
         const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
         // Only treat as Approved if the DB explicitly says so, OR if the case is fully completed.
         // Defaulting to 'Approved' was hiding the sign-off button for Ready patients.
@@ -349,14 +431,6 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             ) || (list.length > 0 ? list[0] : null);
 
             if (matched) {
-              let diagText = matched.diagnoses || '';
-              if (diagText && typeof diagText === 'string' && diagText.startsWith('{')) {
-                try {
-                  const parsed = JSON.parse(diagText);
-                  diagText = parsed.primary || parsed.diagnosis || diagText;
-                } catch (e) {}
-              }
-
               const updatedFromApi = {
                 summary_id: matched.summary_id ? `DS-${matched.summary_id}` : summaryId,
                 patient_id: matched.patient_id || patientId,
@@ -367,12 +441,12 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                 discharge_date: formatClinicalDateTime(matched.discharge_date || dischargeDate, summaryData.dischargeTime || summaryData.dischargedAt),
                 attending_physician: matched.primary_consultant || matched.attending_physician || attendingPhysician,
                 admission_reason: admissionReason,
-                discharge_diagnosis: cleanDiagnosis(diagText) || dischargeDiagnosis,
+                discharge_diagnosis: formatClinicalDiagnoses(matched.diagnoses) || dischargeDiagnosis,
                 hospital_course_summary: matched.case_history || hospitalCourse,
-                investigations: matched.investigations || investigations,
-                patient_condition: matched.patient_condition || patientCondition,
-                discharge_medications: matched.treatment || dischargeMeds,
-                followup_instructions: stripTamil(matched.discharge_advice) || followup,
+                investigations: formatClinicalInvestigations(matched.investigations) || investigations,
+                patient_condition: formatClinicalCondition(matched.patient_condition) || patientCondition,
+                discharge_medications: formatClinicalTreatment(matched.treatment) || dischargeMeds,
+                followup_instructions: formatClinicalAdvice(matched.discharge_advice) || followup,
                 surgery_details: matched.surgery_details || surgeryDetails,
                 approval_status: matched.approval_status || approvalStatus,
                 approved_by: matched.approved_by || approvedBy
@@ -469,8 +543,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   sex = sex || '—';
   const admissionDisplayDate = formatClinicalDate(form.admission_date);
   const printDocDate = form.discharge_date || formatClinicalDateTime(summaryData.discharge_date || form.admission_date, summaryData.dischargeTime || summaryData.dischargedAt);
-  const cleanFollowup = stripTamil(form.followup_instructions);
-  const cleanDiagText = cleanDiagnosis(form.discharge_diagnosis);
+  const cleanFollowup = formatClinicalAdvice(stripTamil(form.followup_instructions));
+  const cleanDiagText = formatClinicalDiagnoses(form.discharge_diagnosis);
   const medIntro = getMedicationIntro(form.discharge_medications);
   const parsedMeds = parseMedications(summaryData.meds, form.discharge_medications);
 
@@ -757,8 +831,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                   <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '4px' }}>
                     Investigations
                   </div>
-                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5 }}>
-                    {form.investigations || 'No specific investigation details recorded.'}
+                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                    {formatClinicalInvestigations(form.investigations) || 'No specific investigation details recorded.'}
                   </div>
                 </div>
 
@@ -768,7 +842,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     Condition on Discharge
                   </div>
                   <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5 }}>
-                    {form.patient_condition || 'Patient is hemodynamically stable at discharge.'}
+                    {formatClinicalCondition(form.patient_condition) || 'Patient is hemodynamically stable at discharge.'}
                   </div>
                 </div>
 
@@ -1156,8 +1230,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             {/* 3. Investigations & Lab Workup */}
             <div className="print-sec">
               <div className="print-sec-title">3. Key Diagnostic Investigations &amp; Lab Workup</div>
-              <div className="print-sec-body">
-                {form.investigations || 'Diagnostic laboratory tests and imaging reviewed and recorded in hospital EMR.'}
+              <div className="print-sec-body" style={{ whiteSpace: 'pre-line' }}>
+                {formatClinicalInvestigations(form.investigations) || 'Diagnostic laboratory tests and imaging reviewed and recorded in hospital EMR.'}
               </div>
             </div>
 
@@ -1175,7 +1249,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             <div className="print-sec">
               <div className="print-sec-title">5. Clinical Condition at Discharge</div>
               <div className="print-sec-body">
-                {form.patient_condition || 'Patient is hemodynamically stable, alert, conscious, and oriented. Vitals are within normal limits. Tolerating oral intake well and medically cleared for safe discharge.'}
+                {formatClinicalCondition(form.patient_condition) || 'Patient is hemodynamically stable, alert, conscious, and oriented. Vitals are within normal limits. Tolerating oral intake well and medically cleared for safe discharge.'}
               </div>
             </div>
 

@@ -342,6 +342,8 @@ def get_dim_admission_inputs(
     clean_anum = admission_number if isinstance(admission_number, str) else None
     clean_ds = discharge_status if isinstance(discharge_status, str) else None
     clean_as = admission_status if isinstance(admission_status, str) else None
+    clean_limit = limit if isinstance(limit, int) else None
+    clean_offset = offset if isinstance(offset, int) else 0
 
     filters = {}
     if clean_aid is not None: filters["admission_id"] = clean_aid
@@ -352,18 +354,13 @@ def get_dim_admission_inputs(
 
     if clean_ds:
         ds_lower = clean_ds.strip().lower()
-        if ds_lower == "all":
-            pass
-        elif "," in clean_ds:
-            filters["discharge_status"] = [s.strip() for s in clean_ds.split(",") if s.strip()]
-        else:
-            filters["discharge_status"] = clean_ds.strip()
+        if ds_lower != "all":
+            if "," in clean_ds:
+                filters["discharge_status"] = [s.strip() for s in clean_ds.split(",") if s.strip()]
+            else:
+                filters["discharge_status"] = clean_ds.strip()
     elif clean_as:
         filters["admission_status"] = clean_as
-    elif clean_aid is None and clean_pid is None and not clean_pnum and not clean_anum:
-        filters["discharge_status"] = ["Admitted", "Ready"]
-    clean_limit = limit if isinstance(limit, int) else None
-    clean_offset = offset if isinstance(offset, int) else 0
     if isinstance(gender, str) and gender: filters["gender"] = gender
     if isinstance(admission_date_from, str) and admission_date_from: filters["admission_date_from"] = admission_date_from
     if isinstance(admission_date_to, str) and admission_date_to: filters["admission_date_to"] = admission_date_to
@@ -512,17 +509,19 @@ def get_dim_generated_discharge_summaries(
 ):
     """Query `health_care.gold.dim_generated_discharge_summaries` table with optional filters and pagination."""
     filters = {}
-    if patient_id is not None: filters["patient_id"] = patient_id
-    if patient_number: filters["patient_number"] = patient_number
-    if admission_id: filters["admission_id"] = admission_id
-    if approval_status: filters["approval_status"] = approval_status
-    if attending_physician: filters["attending_physician"] = attending_physician
-    if model_name: filters["model_name"] = model_name
-    if discharge_date_from: filters["discharge_date_from"] = discharge_date_from
-    if discharge_date_to: filters["discharge_date_to"] = discharge_date_to
+    if isinstance(patient_id, int): filters["patient_id"] = patient_id
+    if isinstance(patient_number, str) and patient_number: filters["patient_number"] = patient_number
+    if isinstance(admission_id, (str, int)) and admission_id: filters["admission_id"] = admission_id
+    if isinstance(approval_status, str) and approval_status: filters["approval_status"] = approval_status
+    if isinstance(attending_physician, str) and attending_physician: filters["attending_physician"] = attending_physician
+    if isinstance(model_name, str) and model_name: filters["model_name"] = model_name
+    if isinstance(discharge_date_from, str) and discharge_date_from: filters["discharge_date_from"] = discharge_date_from
+    if isinstance(discharge_date_to, str) and discharge_date_to: filters["discharge_date_to"] = discharge_date_to
+    clean_limit = limit if isinstance(limit, int) else None
+    clean_offset = offset if isinstance(offset, int) else 0
 
     try:
-        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters=filters, limit=limit, offset=offset)
+        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters=filters, limit=clean_limit, offset=clean_offset)
         # Automatically extract patient_name and primary_consultant if missing
         import re
         for row in res.get("data", []):
