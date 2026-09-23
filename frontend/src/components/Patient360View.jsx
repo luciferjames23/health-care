@@ -1779,14 +1779,19 @@ export default function Patient360View({
               <TableContainer
                 cols={['Code', 'Diagnosis Name', 'Classification', 'Diagnosed Date', 'Attending Clinician', 'Status']}
                 grid="90px minmax(240px, 1.4fr) 140px 120px minmax(160px, 1fr) 110px"
-                rows={(p.diagnoses_list || []).map(dx => [
-                  dx.code,
-                  dx.indication && dx.indication !== dx.name ? `${dx.name} (${dx.indication})` : dx.name,
-                  dx.type,
-                  dx.date,
-                  dx.doctor,
-                  dx.status
-                ])}
+                rows={(p.diagnoses_list || []).map(dx => {
+                  const showInd = dx.indication && 
+                    dx.indication !== dx.name && 
+                    !dx.name.toLowerCase().includes(dx.indication.toLowerCase());
+                  return [
+                    dx.code,
+                    showInd ? `${dx.name} (${dx.indication})` : dx.name,
+                    dx.type,
+                    dx.date,
+                    dx.doctor,
+                    dx.status
+                  ];
+                })}
               />
             </div>
           )}

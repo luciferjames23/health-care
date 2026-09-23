@@ -378,7 +378,15 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb || rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
+      } else if (isReadyInDb) {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
+      } else if (statusLower.includes('pending') || statusLower.includes('approval') || statusLower.includes('review')) {
+        category = 'Approval required';
+        blocker = 'summary → prescription';
+        initialStatus = 'Approval required · summary';
+      } else if (rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -433,6 +441,7 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
+        hasSummary: true,
         case_history: c.case_history || '',
         investigations: c.investigations || '',
         treatment: c.treatment || '',
@@ -465,7 +474,7 @@ export default function DischargeCommandCentre({
       });
     });
 
-    // 2. Inpatient Admissions (dim_admission_inputs)
+    // 2. Remaining Inpatient Admissions (dim_admission_inputs)
     rawAdmissions.forEach((adm, index) => {
       const pid = String(adm.patient_id || adm.id || '');
       const aid = String(adm.admission_id || '');
@@ -494,42 +503,39 @@ export default function DischargeCommandCentre({
       const isClaimApproved = claimStatus.toLowerCase().includes('approv') || claimStatus.toLowerCase().includes('settle');
       const isClaimRejected = claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni');
 
-      let category = 'Blocked';
-      let blocker = 'billing → insurance → transport';
-      let initialStatus = 'Blocked · billing';
+      let category = 'In progress';
+      let blocker = 'clinical → billing';
+      let initialStatus = 'In progress · clinical';
 
       if (isDischarged) {
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb || (clearance === 'cleared' && rawBal === 0)) {
+      } else if (isReadyInDb || (isClaimApproved && clearance === 'cleared' && rawBal === 0)) {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
-      } else if (isClaimApproved && (clearance === 'cleared' || rawBal === 0)) {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
-      } else if (isClaimApproved) {
-        category = 'In progress';
-        blocker = 'billing';
-        initialStatus = 'In progress · billing';
       } else if (isClaimRejected) {
         category = 'Blocked';
         blocker = 'insurance';
         initialStatus = 'Blocked · insurance';
+      } else if (rawBal > 50000 && clearance !== 'cleared') {
+        category = 'Blocked';
+        blocker = 'billing → insurance';
+        initialStatus = 'Blocked · billing';
       } else if (clearance === 'partial payment' || (rawBal > 0 && rawBal < billNet)) {
         category = 'In progress';
         blocker = (index % 2 === 0) ? 'housekeeping' : 'transport';
         initialStatus = 'In progress · clearance';
-      } else if (rawBal === 0) {
+      } else if (rawBal === 0 && !isClaimApproved) {
         category = 'Approval required';
-        blocker = 'summary → prescription';
-        initialStatus = 'Approval required · summary';
+        blocker = 'insurance';
+        initialStatus = 'Approval required · insurance';
       } else {
-        category = 'Blocked';
-        blocker = (index % 3 === 0) ? 'billing → insurance → transport' : (index % 3 === 1) ? 'pharmacy → summary → prescription' : 'investigations → summary → prescription';
-        initialStatus = 'Blocked · billing';
+        const stepMod = index % 3;
+        category = (stepMod === 0 ? 'In progress' : (stepMod === 1 ? 'Blocked' : 'In progress'));
+        blocker = (stepMod === 0 ? 'pharmacy → billing' : (stepMod === 1 ? 'investigations → billing' : 'clinical → billing'));
+        initialStatus = `In progress · ${blocker.split(' → ')[0]}`;
       }
 
       // Extract clinical advice and medications from admission JSON
@@ -605,6 +611,7 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
+        hasSummary: false,
         claimStatus: claimStatus,
         insuranceStatus: claimStatus,
         billStatus: adm.bill_status || '',

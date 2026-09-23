@@ -1019,6 +1019,55 @@ def _parse_id_numeric(val: Any) -> Optional[int]:
     return None
 
 
+def auto_process_discharge_for_ready_patient(patient_id: Optional[Union[str, int]] = None) -> List[int]:
+    """
+    Automated Discharge Agent Trigger:
+    When a patient arrives in 'Ready' (or status updated to Ready / bill cleared),
+    automatically runs the clinical agent to generate and persist their discharge summary
+    into dim_generated_discharge_summaries if not already present.
+    """
+    from db_config import get_db_connection
+    generated_pids = []
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        target_pids = []
+        if patient_id is not None:
+            pid_clean = _parse_id_numeric(patient_id)
+            if pid_clean:
+                cur.execute("SELECT 1 FROM dim_generated_discharge_summaries WHERE patient_id = %s LIMIT 1;", (pid_clean,))
+                if not cur.fetchone():
+                    target_pids.append(pid_clean)
+        else:
+            cur.execute("""
+                SELECT a.patient_id 
+                FROM dim_admission_inputs a
+                LEFT JOIN dim_generated_discharge_summaries s ON a.patient_id = s.patient_id
+                WHERE LOWER(COALESCE(a.discharge_status, '')) = 'ready'
+                  AND s.patient_id IS NULL;
+            """)
+            rows = cur.fetchall()
+            target_pids = [r[0] for r in rows if r[0] is not None]
+        
+        cur.close()
+        conn.close()
+
+        if target_pids:
+            logger.info(f"Discharge Agent: Automatically generating discharge summaries for Ready patient(s): {target_pids}")
+            for pid in target_pids:
+                try:
+                    generate_and_persist_discharge_summaries(patient_ids=[str(pid)])
+                    generated_pids.append(pid)
+                    logger.info(f"Discharge Agent: Successfully generated discharge summary for patient {pid}")
+                except Exception as ex:
+                    logger.error(f"Discharge Agent failed to auto-generate summary for patient {pid}: {ex}")
+    except Exception as e:
+        logger.error(f"Error in auto_process_discharge_for_ready_patient: {e}")
+    
+    return generated_pids
+
+
 def clear_patient_bill_internal(
     patient_id: Optional[Union[str, int]] = None,
     admission_id: Optional[Union[str, int]] = None,
@@ -1199,17 +1248,19 @@ def clear_patient_bill_internal(
                 UPDATE dim_admission_inputs
                 SET bill_status = %s,
                     bill_clearance_status = %s,
-                    outstanding_balance = %s
+                    outstanding_balance = %s,
+                    discharge_status = CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'admitted' AND %s THEN 'Ready' ELSE discharge_status END
                 WHERE admission_id = %s;
-            """, (new_status, new_clearance, new_outstanding, resolved_aid))
+            """, (new_status, new_clearance, new_outstanding, is_fully_cleared, resolved_aid))
         elif resolved_pid:
             cur.execute("""
                 UPDATE dim_admission_inputs
                 SET bill_status = %s,
                     bill_clearance_status = %s,
-                    outstanding_balance = %s
+                    outstanding_balance = %s,
+                    discharge_status = CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'admitted' AND %s THEN 'Ready' ELSE discharge_status END
                 WHERE patient_id = %s;
-            """, (new_status, new_clearance, new_outstanding, resolved_pid))
+            """, (new_status, new_clearance, new_outstanding, is_fully_cleared, resolved_pid))
 
         # Update bills table
         matched_bill_id = resolved_bid
@@ -1264,6 +1315,13 @@ def clear_patient_bill_internal(
 
         conn.commit()
         DatabricksConnector.clear_cache()
+
+        # Automated Agent Trigger: If patient is now Ready, auto-generate discharge summary
+        if is_fully_cleared and resolved_pid:
+            try:
+                auto_process_discharge_for_ready_patient(resolved_pid)
+            except Exception as auto_err:
+                logger.warning(f"Auto discharge generation warning on bill clearance: {auto_err}")
 
         return {
             "success": True,
@@ -1494,6 +1552,13 @@ def escalate_discharge_case_internal(
         conn.commit()
         DatabricksConnector.clear_cache()
 
+        # Automated Agent Trigger: If patient is marked Ready, ensure discharge summary is generated
+        if resolved_pid:
+            try:
+                auto_process_discharge_for_ready_patient(resolved_pid)
+            except Exception as auto_err:
+                logger.warning(f"Auto discharge generation warning on mark ready: {auto_err}")
+
         logger.info(f"Discharge case escalated to Ready in DB: patient_id={resolved_pid}, admission_id={resolved_aid}")
 
         return {
@@ -1529,6 +1594,27 @@ def escalate_discharge_case_api(request: EscalateCaseRequest):
         case_id=request.case_id,
         remarks=request.remarks
     )
+
+
+class AutoProcessReadyRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+
+
+@router.post("/auto-process-ready", summary="Automated Discharge Agent Trigger for Ready Patients")
+def auto_process_ready_patients_api(request: Optional[AutoProcessReadyRequest] = None):
+    """
+    Automated Discharge Agent Trigger:
+    Detects any patient who has transitioned to 'Ready' (e.g. newly arrived Ready patients,
+    cleared bills, or operational clearance) and automatically executes the clinical discharge
+    summary generation agent for them if no summary exists yet.
+    """
+    pid = request.patient_id if request else None
+    generated = auto_process_discharge_for_ready_patient(pid)
+    return {
+        "success": True,
+        "message": f"Automated discharge summary agent processed {len(generated)} Ready patient(s).",
+        "processed_patient_ids": generated
+    }
 
 
 @router.post("/patient/{patient_id}/escalate", summary="Escalate Discharge Case by Patient ID")

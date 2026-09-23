@@ -1,3 +1,4 @@
+import os
 import datetime
 import json
 import re
@@ -796,54 +797,105 @@ def generate_patient_discharge_summary(
         api_key=api_key
     )
 
-def format_clinical_diagnoses(val):
+    if ai_dict and isinstance(ai_dict, dict):
+        # Anchor primary diagnosis to ground-truth record; only format if AI gave clean description matching primary
+        ai_diag = ai_dict.get("diagnoses")
+        if ai_diag and not primary_diag:
+            diagnoses_field = format_clinical_diagnoses(ai_diag)
+        case_history = ai_dict.get("case_history") or case_history
+        investigations = format_clinical_investigations(ai_dict.get("investigations")) or investigations
+        treatment = format_clinical_treatment(ai_dict.get("treatment")) or treatment
+        discharge_advice = format_clinical_advice(ai_dict.get("discharge_advice")) or discharge_advice
+        surgery_details = ai_dict.get("surgery_details") or surgery_details
+        patient_condition = format_clinical_condition(ai_dict.get("patient_condition")) or patient_condition
+
+    is_discharged_status = str(patient_data.get("discharge_status") or "").strip().lower() == "discharged"
+
+    return {
+        "summary_id": patient_data.get("summary_id") or patient_data.get("admission_id") or patient_data.get("patient_id"),
+        "admission_id": patient_data.get("admission_id"),
+        "patient_id": patient_data.get("patient_id"),
+        "doctor_id": patient_data.get("doctor_id") or 14,
+        "admission_date": adm_date,
+        "discharge_date": str(patient_data.get("discharge_date") or now_str),
+        "diagnoses": diagnoses_field,
+        "case_history": case_history,
+        "investigations": investigations,
+        "treatment": treatment,
+        "primary_consultant": consultant_str,
+        "discharge_advice": discharge_advice,
+        "surgery_details": surgery_details,
+        "patient_condition": patient_condition,
+        "generated_at": now_str,
+        "ingestion_timestamp": now_str,
+        "approval_status": "Approved" if is_discharged_status else "Pending Approval",
+        "model_name": clean_model,
+        "model_source": prov,
+        "patient_name": full_name,
+        "patient_number": p_num,
+        "bed_number": patient_data.get("bed_number") or f"BED-{pid}",
+        "ward_name": patient_data.get("ward_name") or "General Ward"
+    }
+
+
+def format_single_diag_item(item: Any, default_code: str = "") -> str:
+    if not item:
+        return ""
+    if isinstance(item, str):
+        s = item.strip()
+        if not s or s == "[object Object]":
+            return ""
+        if default_code and default_code not in s:
+            return f"{s} (ICD-10: {default_code})"
+        return s
+    if isinstance(item, dict):
+        raw_desc = item.get("description") or item.get("diagnosis") or item.get("name") or item.get("primary") or item.get("title") or ""
+        desc = format_single_diag_item(raw_desc) if isinstance(raw_desc, (dict, list)) else str(raw_desc).strip()
+        code = item.get("icd10") or item.get("code") or item.get("icd") or item.get("icd10_primary") or default_code or ""
+        if code and desc and str(code) not in desc:
+            return f"{desc} (ICD-10: {code})"
+        return desc or (f"(ICD-10: {code})" if code else "")
+    return str(item).strip()
+
+
+def format_clinical_diagnoses(val: Any) -> str:
     if not val:
         return ""
     if isinstance(val, list):
-        items = []
-        for item in val:
-            if isinstance(item, dict):
-                desc = item.get("description") or item.get("name") or item.get("diagnosis") or item.get("primary") or ""
-                code = item.get("icd10") or item.get("code") or item.get("icd") or ""
-                items.append(f"{desc} (ICD-10: {code})" if code and code not in desc else desc)
-            else:
-                items.append(str(item).strip())
+        items = [format_single_diag_item(i) for i in val]
         return "; ".join(filter(None, items))
     if isinstance(val, dict):
-        desc = val.get("description") or val.get("name") or val.get("diagnosis") or val.get("primary") or ""
-        code = val.get("icd10") or val.get("code") or val.get("icd") or ""
-        res = f"{desc} (ICD-10: {code})" if code and code not in desc else desc
+        primary_desc = format_single_diag_item(
+            val.get("primary") or val.get("description") or val.get("name") or val.get("diagnosis"),
+            val.get("icd10_primary") or val.get("icd10") or val.get("code") or ""
+        )
+        res = primary_desc
         sec = val.get("secondary")
-        if isinstance(sec, list) and sec:
-            sec_items = [s.get("description", str(s)) if isinstance(s, dict) else str(s) for s in sec]
-            res = f"{res}; Secondary: {'; '.join(sec_items)}"
-        return res
+        if sec:
+            if isinstance(sec, list) and sec:
+                sec_items = [format_single_diag_item(s) for s in sec]
+                sec_str = "; ".join(filter(None, sec_items))
+                if sec_str:
+                    res = f"{res}; Secondary: {sec_str}" if res else sec_str
+            elif isinstance(sec, (dict, str)):
+                sec_str = format_single_diag_item(sec)
+                if sec_str:
+                    res = f"{res}; Secondary: {sec_str}" if res else sec_str
+        return res or str(val.get("primary") or "")
 
     s = str(val).strip()
-    if "{" in s or "[" in s:
+    if s.startswith("{") or s.startswith("["):
         try:
-            parsed = json.loads(s)
+            parsed = json.loads(s.replace("'", '"'))
             return format_clinical_diagnoses(parsed)
         except Exception:
             pass
-        dict_matches = re.findall(r'\{([^{}]+)\}', s)
-        if dict_matches:
-            items = []
-            for m in dict_matches:
-                desc_m = re.search(r'[\'\"](?:description|name|diagnosis|primary)[\'\"]\s*:\s*[\'\"]([^\'\"]+)[\'\"]', m, re.I)
-                icd_m = re.search(r'[\'\"](?:icd10|code|icd)[\'\"]\s*:\s*[\'\"]([^\'\"]+)[\'\"]', m, re.I)
-                desc = desc_m.group(1).strip() if desc_m else ""
-                icd = icd_m.group(1).strip() if icd_m else ""
-                if desc and icd and icd not in desc:
-                    items.append(f"{desc} (ICD-10: {icd})")
-                elif desc:
-                    items.append(desc)
-            if items:
-                return "; ".join(items)
 
     s = re.sub(r'(?:[;,|]\s*)?Secondary(?:\s+Diagnoses|\s+Diagnosis)?\s*:\s*\[\s*\]', '', s, flags=re.I)
     s = re.sub(r':\s*\[\s*\]', '', s)
     s = re.sub(r'\[\s*\]', '', s)
+    s = re.sub(r'\[object Object\]', '', s, flags=re.I)
+    return s.strip()
     return s.strip(" ;:,")
 
 
@@ -1292,7 +1344,10 @@ def generate_and_persist_discharge_summaries(
     prov, clean_model, display_model = resolve_llm_provider(model_name, provider)
     # 1. Fetch admissions from Gold table
     adm_res = db_connector.query_gold_table("dim_admission_inputs", limit=None)
-    admissions = adm_res.get("data", [])
+    admissions = adm_res.get("data", []) if isinstance(adm_res, dict) else []
+    if not admissions:
+        adm_res = db_connector.query_gold_table("admissions", limit=None)
+        admissions = adm_res.get("data", []) if isinstance(adm_res, dict) else []
 
     # 2. Parse target patient IDs
     target_pids = []
