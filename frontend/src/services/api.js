@@ -1091,6 +1091,29 @@ export const apiService = {
     clearAllStorageCache();
     notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/otschedule`, data);
     return data;
+  },
+
+  async getPatientVitals(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.patient_id) query.append('patient_id', params.patient_id);
+    if (params.admission_id) query.append('admission_id', params.admission_id);
+    if (params.limit) query.append('limit', params.limit);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/vitals?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async recordPatientVitals(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/vitals`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error recording vitals ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/vitals`, data);
+    return data;
   }
 };
 

@@ -857,3 +857,60 @@ def book_ot_slot(body: OtSlotBooking):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 11. PATIENT VITAL SIGNS OBSERVATIONS (vital_signs)
+# ---------------------------------------------------------------------------
+class VitalSignRecordCreate(BaseModel):
+    patient_id: int
+    admission_id: Optional[int] = None
+    temperature: Optional[float] = 98.6
+    heart_rate: Optional[int] = 72
+    systolic_bp: Optional[int] = 120
+    diastolic_bp: Optional[int] = 80
+    respiratory_rate: Optional[int] = 16
+    oxygen_saturation: Optional[float] = 98.0
+    recorded_by: Optional[str] = 'Nurse Sheela J'
+
+@router.get("/vitals", summary="Get Patient Vital Signs Observations History")
+def get_patient_vitals(patient_id: Optional[int] = None, admission_id: Optional[int] = None, limit: int = 50):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = []
+        params = []
+        if patient_id:
+            where_clauses.append("patient_id = %s")
+            params.append(patient_id)
+        if admission_id:
+            where_clauses.append("admission_id = %s")
+            params.append(admission_id)
+        
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        params.append(limit)
+        cur.execute(f"SELECT * FROM vital_signs {where_sql} ORDER BY recorded_at DESC LIMIT %s;", tuple(params))
+        rows = cur.fetchall()
+        return {"success": True, "count": len(rows), "data": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.post("/vitals", summary="Record Patient Vital Signs Measurement")
+def record_patient_vitals(body: VitalSignRecordCreate):
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO vital_signs (patient_id, admission_id, temperature, heart_rate, systolic_bp, diastolic_bp, respiratory_rate, oxygen_saturation, recorded_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP) RETURNING vital_id;
+        """, (body.patient_id, body.admission_id, body.temperature, body.heart_rate, body.systolic_bp, body.diastolic_bp, body.respiratory_rate, body.oxygen_saturation))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return {"success": True, "vital_id": new_id, "message": "Vitals measurement logged successfully"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
