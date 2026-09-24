@@ -206,7 +206,7 @@ PATTERNS = {
         r"\b(location|address|directions?|phone\s*number|contact|map|website|hospital\s*info|"
         r"timings?|visiting\s*hours?|where\s*(is\s*the\s*hospital|are\s*you)|"
         r"hospital|departments?|specialty|specialties|facility|facilities|services?|faq|"
-        r"how\s*to\s*(reach|get\s*to)|working\s*hours?|open\s*hours?)\b",
+        r"how\s*to\s*(reach|get\s*to)|working\s*hours?|open\s*hours?|insurance|tpa|cashless|policy|policies|coverage)\b",
         r"(முகவரி|தொலைபேசி|இடம்|வழித்தடம்|துறைகள்|துறை|வசதிகள்|மருத்துவமனை|எங்கே)",
         r"(पता|लोकेशन|फोन\s*नंबर|संपर्क|अस्पताल\s*के\s*बारे\s*में|विभाग|सुविधाएं|अस्पताल|कहाँ)",
         r"(చిరునామా|ఫోన్|లోకేషన్|విభాగాలు|సదుపాయాలు|ఆసుపత్రి|ఎక్కడ)",

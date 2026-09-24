@@ -231,6 +231,14 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         print(f"[ERROR] Background WhatsApp message dispatch failed after {t_total_ms}ms: {e}")
         import traceback
         traceback.print_exc()
+        if sender_num:
+            try:
+                whatsapp_client.send_text_message(
+                    sender_num,
+                    "I encountered an issue processing your request. Please try again or type 'main menu'."
+                )
+            except Exception as _err_send:
+                print(f"[ERROR] Failed to send fallback error reply: {_err_send}")
         return None
 
 

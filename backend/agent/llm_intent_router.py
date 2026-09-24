@@ -239,7 +239,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
         },
     }
 
-    if not LLM_API_KEY:
+    if not LLM_API_KEY or os.environ.get("SKIP_REMOTE_LLM") == "true":
         return None
 
     # Try primary model, then fallback models
@@ -255,7 +255,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
                 attempt_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=8.0,
+                timeout=2.0,
                 verify=verify_ssl,
             )
             if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
