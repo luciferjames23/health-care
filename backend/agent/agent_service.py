@@ -1079,50 +1079,47 @@ def handle_unknown_patient_identification_flow(
         if not reg_fields.get("phone"):
             reg_fields["phone"] = whatsapp_val if whatsapp_val != "919999999999" else "8072851813"
 
-        # Check gender buttons
-        if btn_id in ["btn_g_male", "btn_gender_male"] or msg_raw.lower() in ["male", "man", "ஆண்", "पुरुष", "పురుషుడు", "പുരുഷൻ", "ಪುರುಷ", "مرد"]:
+        # 1. Parse Gender (from buttons or text)
+        if btn_id in ["btn_g_male", "btn_gender_male"] or re.search(r"\b(male|man|boy|ஆண்|पुरुष|పురుషుడు|പുരുഷൻ|ಪುರುಷ|مرد)\b", msg_raw, re.IGNORECASE):
             reg_fields["gender"] = "Male"
-        elif btn_id in ["btn_g_female", "btn_gender_female"] or msg_raw.lower() in ["female", "woman", "பெண்", "महिला", "స్త్రీ", "സ്ത്രീ", "ಮಹಿಳೆ", "عورت"]:
+        elif btn_id in ["btn_g_female", "btn_gender_female"] or re.search(r"\b(female|woman|girl|பெண்|महिला|స్త్రీ|സ്ത്രീ|മാതാവ്|ಮಹಿಳೆ|عورت)\b", msg_raw, re.IGNORECASE):
             reg_fields["gender"] = "Female"
-        elif btn_id in ["btn_g_other", "btn_gender_other"] or msg_raw.lower() in ["other", "மற்றவை", "अन्य", "ఇతర", "മറ്റുള്ളവ", "دیگر"]:
+        elif btn_id in ["btn_g_other", "btn_gender_other"] or re.search(r"\b(other|மற்றவை|अन्य|ఇతర|മറ്റുള്ളവ|دیگر)\b", msg_raw, re.IGNORECASE):
             reg_fields["gender"] = "Other"
 
-        # Extract structured info via LLM and entity extractor
+        # 2. Parse DOB (via date_normalizer)
+        if not reg_fields.get("date_of_birth") and msg_raw:
+            dob_res = date_normalizer.parse_and_normalize_date(msg_raw)
+            dob_extracted = dob_res[0] if dob_res and dob_res[0] else None
+            if dob_extracted:
+                reg_fields["date_of_birth"] = dob_extracted
+
+        # 3. Parse Name (if text input provided and not a button ID)
         if msg_raw and not btn_id:
-            llm_info = llm_service.extract_structured_info(msg_raw, state, current_lang)
-            if llm_info.get("first_name") and entity_extractor.is_valid_person_name(llm_info["first_name"]):
-                reg_fields["first_name"] = llm_info["first_name"]
-                if llm_info.get("last_name"):
-                    reg_fields["last_name"] = llm_info["last_name"]
-            if llm_info.get("gender"):
-                reg_fields["gender"] = llm_info["gender"]
-            if llm_info.get("date_of_birth"):
-                reg_fields["date_of_birth"] = llm_info["date_of_birth"]
+            # Strip DOB patterns and gender keywords from text before name extraction
+            clean_name_text = msg_raw
+            if reg_fields.get("date_of_birth"):
+                clean_name_text = re.sub(r"\b\d{1,4}[-/\.]\d{1,2}[-/\.]\d{1,4}\b", "", clean_name_text)
+            clean_name_text = re.sub(r"\b(male|female|other|man|woman|boy|girl)\b", "", clean_name_text, flags=re.IGNORECASE)
+            clean_name_text = clean_name_text.strip(" ,.-")
 
-            # Fallback regex parsing for name, dob, gender
-            if not reg_fields.get("first_name"):
-                p_name_is = re.search(r"^(?:my\s+name\s+is|i\s+am|iam|name[:\s]+)\s+([a-zA-Z\s\.]+)", msg_raw, re.IGNORECASE)
-                if p_name_is and entity_extractor.is_valid_person_name(p_name_is.group(1).strip()):
-                    n_parts = p_name_is.group(1).strip().split(None, 1)
-                    reg_fields["first_name"] = n_parts[0].capitalize()
-                    reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
-                elif entity_extractor.is_valid_person_name(msg_raw):
-                    n_parts = msg_raw.split(None, 1)
-                    reg_fields["first_name"] = n_parts[0].capitalize()
-                    reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
+            if clean_name_text and not reg_fields.get("first_name"):
+                llm_info = llm_service.extract_structured_info(clean_name_text, state, current_lang)
+                if llm_info.get("first_name") and entity_extractor.is_valid_person_name(llm_info["first_name"]):
+                    reg_fields["first_name"] = llm_info["first_name"]
+                    if llm_info.get("last_name"):
+                        reg_fields["last_name"] = llm_info["last_name"]
 
-            if not reg_fields.get("date_of_birth"):
-                dob_extracted = date_normalizer.parse_and_normalize_date(msg_raw)[0]
-                if dob_extracted:
-                    reg_fields["date_of_birth"] = dob_extracted
-
-            if not reg_fields.get("gender"):
-                if re.search(r"\b(male|man|boy)\b", msg_raw.lower()):
-                    reg_fields["gender"] = "Male"
-                elif re.search(r"\b(female|woman|girl)\b", msg_raw.lower()):
-                    reg_fields["gender"] = "Female"
-                elif re.search(r"\b(other|transgender)\b", msg_raw.lower()):
-                    reg_fields["gender"] = "Other"
+                if not reg_fields.get("first_name"):
+                    p_name_is = re.search(r"^(?:my\s+name\s+is|i\s+am|iam|name[:\s]+)\s+([a-zA-Z\s\.]+)", clean_name_text, re.IGNORECASE)
+                    if p_name_is and entity_extractor.is_valid_person_name(p_name_is.group(1).strip()):
+                        n_parts = p_name_is.group(1).strip().split(None, 1)
+                        reg_fields["first_name"] = n_parts[0].capitalize()
+                        reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
+                    elif entity_extractor.is_valid_person_name(clean_name_text):
+                        n_parts = clean_name_text.split(None, 1)
+                        reg_fields["first_name"] = n_parts[0].capitalize()
+                        reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
 
         # Check missing fields
         if not reg_fields.get("first_name"):
@@ -2080,6 +2077,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         if len(parts) >= 2 and parts[1].isdigit() and parts[1] != "919999999999":
             wa_phone_lookup = parts[1]
 
+    all_pats = []
     if wa_phone_lookup:
         all_pats = patient_id_service.get_all_patients_by_phone(wa_phone_lookup)
         if len(all_pats) == 1:
@@ -2087,7 +2085,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["patient_id"] = p_id
             state["selected_patient_id"] = p_id
             state.setdefault("entities", {})["patient_id"] = p_id
-            state["patient_identification_stage"] = "COMPLETED"
+            if state.get("patient_identification_stage") not in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
+                state["patient_identification_stage"] = "COMPLETED"
         elif len(all_pats) > 1:
             sel_pid = state.get("selected_patient_id")
             if sel_pid and any(p["id"] == sel_pid for p in all_pats):
@@ -2098,26 +2097,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["patient_id"] = None
                 state.setdefault("entities", {})["patient_id"] = None
 
-    # Check if patient_code parameter was provided explicitly and validate ownership
-    if patient_code and wa_phone_lookup:
-        all_pats = patient_id_service.get_all_patients_by_phone(wa_phone_lookup)
-        p_str = str(patient_code).upper().strip()
-        matched = [
-            p for p in all_pats
-            if p.get("patient_code", "").upper() == p_str or str(p.get("id")) == p_str
-        ]
-        if not matched and len(all_pats) == 1:
-            matched = all_pats
-        if matched:
-            p_id = matched[0]["id"]
-            state["patient_id"] = p_id
-            state["selected_patient_id"] = p_id
-            state.setdefault("entities", {})["patient_id"] = p_id
-            state["patient_identification_stage"] = "COMPLETED"
-
-        is_known_btn = bool(btn_id and btn_id not in ["btn_first_time", "btn_existing_patient", "btn_retry_patient_id"])
-        if not matched and not is_known_btn and state.get("patient_identification_stage") != "COMPLETED" and len(all_pats) <= 1:
-            return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
+        # UNKNOWN / UNREGISTERED PATIENT PRIORITY GATE:
+        # If WhatsApp number has 0 registered patients OR patient identification stage is NOT COMPLETED:
+        # Intercept and process ALWAYS in handle_unknown_patient_identification_flow!
+        if not all_pats or state.get("patient_identification_stage") in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
+            if state.get("patient_identification_stage") != "COMPLETED":
+                return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
     if btn_id:
         print(f"[BUTTON_ROUTING] Handling structured button tap: {btn_id}")

@@ -119,19 +119,36 @@ def clean_whatsapp_number(to_number: str) -> str:
     return digits
 
 
-def send_typing_indicator(to_number: str) -> dict:
-    """Send typing indicator (typing_on) status to WhatsApp client during bot waiting time."""
-    to_number = clean_whatsapp_number(to_number)
+def send_typing_indicator(message_id: str) -> dict:
+    """
+    Triggers WhatsApp native typing indicator and marks incoming message as read.
+    Meta Cloud API Payload:
+    POST /{phone_number_id}/messages
+    {
+      "messaging_product": "whatsapp",
+      "status": "read",
+      "message_id": "<THE_EXACT_WAMID_OF_THE_INBOUND_PATIENT_MESSAGE>",
+      "typing_indicator": {
+        "type": "text"
+      }
+    }
+    """
+    if not message_id:
+        return {"success": False, "error": "No message_id provided"}
+
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_number,
-        "type": "typing_status",
-        "typing_status": "typing"
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {
+            "type": "text"
+        }
     }
+
     if is_mock_mode():
-        log_outbound_simulation("typing_indicator", to_number, payload)
-        return {"success": True, "status": "typing_on"}
+        log_outbound_simulation("typing_indicator", "system", payload)
+        return {"success": True, "status": "read_and_typing"}
+
     url = f"{get_api_url()}/{get_phone_number_id()}/messages"
     headers = {
         "Authorization": f"Bearer {get_access_token()}",
@@ -140,21 +157,13 @@ def send_typing_indicator(to_number: str) -> dict:
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=5)
         if not res.ok:
-            # Fallback to action: typing_on format if typing_status isn't supported by gateway version
-            alt_payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": to_number,
-                "type": "action",
-                "action": "typing_on"
-            }
-            res = requests.post(url, json=alt_payload, headers=headers, timeout=5)
-        return {"success": res.ok, "status": "typing_on"}
+            parse_and_log_meta_error(res)
+            print(f"[WhatsApp] send_typing_indicator failed with HTTP status {res.status_code}: {res.text}")
+        return {"success": res.ok, "status": "read_and_typing"}
     except Exception as e:
-        if "401" not in str(e) and "400" not in str(e):
-            print(f"[WhatsApp] send_typing_indicator error: {e}")
-        log_outbound_simulation("typing_indicator", to_number, payload)
-        return {"success": True, "status": "typing_on", "fallback": True}
+        print(f"[WhatsApp] send_typing_indicator error: {e}")
+        log_outbound_simulation("typing_indicator", "system", payload)
+        return {"success": False, "error": str(e), "fallback": True}
 
 
 
