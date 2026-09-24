@@ -454,7 +454,7 @@ def _accept_field(state: dict, field: str, value: Any, log_fn, permissive: bool 
             target(state, value)
         else:
             existing = state.get(target)
-            if target == "department_name" and existing != value:
+            if target == "department_name" and value and existing and str(existing).strip().lower() != str(value).strip().lower():
                 log_fn(f"  DEPT CHANGE {existing!r} -> {value!r}: clearing stale doctor & date selection")
                 state["doctor_name"] = None
                 state["selected_doctor_id"] = None
@@ -469,8 +469,9 @@ def _accept_field(state: dict, field: str, value: Any, log_fn, permissive: bool 
             elif existing and not permissive:
                 log_fn(f"  CARRY  {field} (already set: {existing!r})")
                 return
-            state[target] = value
-            log_fn(f"  WRITE  state[{target}] = {value!r}")
+            if value is not None:
+                state[target] = value
+                log_fn(f"  WRITE  state[{target}] = {value!r}")
 
 
 def _set_reg_field(state: dict, field: str, value: Any) -> None:

@@ -124,6 +124,114 @@ class MockSpeechToTextProvider(SpeechToTextProvider):
             "error": None
         }
 
+class GroqWhisperSpeechToTextProvider(SpeechToTextProvider):
+    """
+    Production Speech-to-Text provider leveraging Groq Whisper API (whisper-large-v3-turbo)
+    for high-speed, highly accurate multilingual transcription (English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu, etc.).
+    """
+    def transcribe(self, audio_file_path: str, language: str = None) -> dict:
+        if not audio_file_path or not os.path.exists(audio_file_path) or os.path.getsize(audio_file_path) == 0:
+            print("[VOICE_AUDIO_INVALID] Audio file missing or 0 bytes")
+            return {
+                "success": False,
+                "text": "",
+                "language": language or "ENGLISH",
+                "confidence": 0.0,
+                "error": "VOICE_AUDIO_INVALID"
+            }
+
+        db_config.load_dotenv(override=True)
+        groq_api_key = os.getenv("GROQ_API_KEY", "")
+        if not groq_api_key:
+            print("[GROQ_STT_FAILED] Missing GROQ_API_KEY")
+            return {
+                "success": False,
+                "text": "",
+                "language": language or "ENGLISH",
+                "confidence": 0.0,
+                "error": "MISSING_GROQ_API_KEY"
+            }
+
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        headers = {"Authorization": f"Bearer {groq_api_key}"}
+        
+        filename = os.path.basename(audio_file_path)
+        ext = os.path.splitext(filename)[1].lower()
+        content_type = "audio/ogg"
+        if ext == ".mp3":
+            content_type = "audio/mp3"
+        elif ext == ".wav":
+            content_type = "audio/wav"
+        elif ext in [".m4a", ".aac"]:
+            content_type = "audio/aac"
+
+        ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "")
+        verify_ssl = ca_bundle if ca_bundle and os.path.exists(ca_bundle) else True
+
+        for model_name in ["whisper-large-v3-turbo", "whisper-large-v3"]:
+            try:
+                with open(audio_file_path, "rb") as audio_f:
+                    files = {"file": (filename, audio_f, content_type)}
+                    data = {
+                        "model": model_name,
+                        "response_format": "verbose_json"
+                    }
+                    if language and language.lower() not in ["auto", "english"]:
+                        lang_map = {"tamil": "ta", "hindi": "hi", "telugu": "te", "malayalam": "ml", "kannada": "kn", "urdu": "ur"}
+                        iso_lang = lang_map.get(language.lower())
+                        if iso_lang:
+                            data["language"] = iso_lang
+
+                    res = requests.post(url, headers=headers, files=files, data=data, timeout=15, verify=verify_ssl)
+                    print(f"[GROQ_WHISPER_RESPONSE] model={model_name} http_status={res.status_code}")
+                    if res.status_code == 200:
+                        res_json = res.json()
+                        raw_text = (res_json.get("text") or "").strip()
+                        detected_lang_code = str(res_json.get("language") or "").lower()
+                        
+                        clean_text = raw_text.strip('"`\'')
+                        invalid_transcripts = ["", "[no_speech]", "no_speech", "voice", "audio", "message", "none", "null", "."]
+                        if not clean_text or clean_text.lower() in invalid_transcripts:
+                            print(f"[GROQ_WHISPER_EMPTY] model={model_name} returned empty or no-speech text: '{clean_text}'")
+                            continue
+
+                        detected_lang = language or "ENGLISH"
+                        if any('\u0b80' <= c <= '\u0bff' for c in clean_text) or detected_lang_code in ["ta", "tamil"]:
+                            detected_lang = "TAMIL"
+                        elif any('\u0900' <= c <= '\u097f' for c in clean_text) or detected_lang_code in ["hi", "hindi"]:
+                            detected_lang = "HINDI"
+                        elif any('\u0c00' <= c <= '\u0c7f' for c in clean_text) or detected_lang_code in ["te", "telugu"]:
+                            detected_lang = "TELUGU"
+                        elif any('\u0d00' <= c <= '\u0d7f' for c in clean_text) or detected_lang_code in ["ml", "malayalam"]:
+                            detected_lang = "MALAYALAM"
+                        elif any('\u0c80' <= c <= '\u0cff' for c in clean_text) or detected_lang_code in ["kn", "kannada"]:
+                            detected_lang = "KANNADA"
+                        elif any('\u0600' <= c <= '\u06ff' for c in clean_text) or detected_lang_code in ["ur", "urdu"]:
+                            detected_lang = "URDU"
+
+                        print(f"[GROQ_WHISPER_SUCCESS] transcript='{clean_text}', lang={detected_lang}")
+                        return {
+                            "success": True,
+                            "text": clean_text,
+                            "language": detected_lang,
+                            "confidence": 0.98,
+                            "error": None
+                        }
+                    else:
+                        print(f"[GROQ_WHISPER_FAILED] model={model_name} HTTP {res.status_code}: {res.text[:200]}")
+            except Exception as e:
+                print(f"[GROQ_WHISPER_EXCEPTION] model={model_name}: {e}")
+                continue
+
+        return {
+            "success": False,
+            "text": "",
+            "language": language or "ENGLISH",
+            "confidence": 0.0,
+            "error": "GROQ_STT_FAILED"
+        }
+
+
 class GeminiSpeechToTextProvider(SpeechToTextProvider):
     """
     Production Speech-to-Text provider leveraging Gemini REST API
@@ -168,9 +276,10 @@ class GeminiSpeechToTextProvider(SpeechToTextProvider):
             elif ext in [".m4a", ".aac"]:
                 mime_type = "audio/aac"
 
-            model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "")
+            verify_ssl = ca_bundle if ca_bundle and os.path.exists(ca_bundle) else True
 
+            models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
             prompt = (
                 "Transcribe this patient voice audio message accurately.\n"
                 "Rules:\n"
@@ -199,77 +308,63 @@ class GeminiSpeechToTextProvider(SpeechToTextProvider):
                 ]
             }
 
-            res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=20)
-            print(f"[VOICE_STT_RESPONSE] http_status={res.status_code}")
-            if res.status_code != 200:
-                print(f"[VOICE_STT_FAILED] HTTP {res.status_code}: {res.text[:200]}")
-                return {
-                    "success": False,
-                    "text": "",
-                    "language": language or "ENGLISH",
-                    "confidence": 0.0,
-                    "error": f"VOICE_STT_HTTP_{res.status_code}"
-                }
+            for model_name in models_to_try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                try:
+                    res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=15, verify=verify_ssl)
+                    print(f"[VOICE_GEMINI_RESPONSE] model={model_name} http_status={res.status_code}")
+                    if res.status_code != 200:
+                        print(f"[VOICE_GEMINI_FAILED] model={model_name} HTTP {res.status_code}: {res.text[:200]}")
+                        continue
 
-            data = res.json()
-            candidates = data.get("candidates", [])
-            if not candidates:
-                print("[VOICE_TRANSCRIPT_EMPTY] No response candidates from STT API")
-                return {
-                    "success": False,
-                    "text": "",
-                    "language": language or "ENGLISH",
-                    "confidence": 0.0,
-                    "error": "VOICE_TRANSCRIPT_EMPTY"
-                }
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        continue
 
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if not parts:
-                print("[VOICE_TRANSCRIPT_EMPTY] No text parts returned from STT API")
-                return {
-                    "success": False,
-                    "text": "",
-                    "language": language or "ENGLISH",
-                    "confidence": 0.0,
-                    "error": "VOICE_TRANSCRIPT_EMPTY"
-                }
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if not parts:
+                        continue
 
-            raw_text = (parts[0].get("text") or "").strip()
-            clean_text = raw_text.strip('"`\'')
-            print(f"[VOICE_TRANSCRIPT_EXTRACTED] transcript_length={len(clean_text)}")
+                    raw_text = (parts[0].get("text") or "").strip()
+                    clean_text = raw_text.strip('"`\'')
 
-            invalid_transcripts = ["", "[no_speech]", "no_speech", "voice", "audio", "message", "none", "null"]
-            if not clean_text or clean_text.lower() in invalid_transcripts:
-                print("[VOICE_TRANSCRIPT_EMPTY] STT returned no intelligible speech")
-                return {
-                    "success": False,
-                    "text": "",
-                    "language": language or "ENGLISH",
-                    "confidence": 0.0,
-                    "error": "VOICE_TRANSCRIPT_EMPTY"
-                }
+                    invalid_transcripts = ["", "[no_speech]", "no_speech", "voice", "audio", "message", "none", "null"]
+                    if not clean_text or clean_text.lower() in invalid_transcripts:
+                        continue
 
-            detected_lang = language or "ENGLISH"
-            if any('\u0b80' <= c <= '\u0bff' for c in clean_text):
-                detected_lang = "TAMIL"
-            elif any('\u0900' <= c <= '\u097f' for c in clean_text):
-                detected_lang = "HINDI"
-            elif any('\u0c00' <= c <= '\u0c7f' for c in clean_text):
-                detected_lang = "TELUGU"
-            elif any('\u0d00' <= c <= '\u0d7f' for c in clean_text):
-                detected_lang = "MALAYALAM"
-            elif any('\u0c80' <= c <= '\u0cff' for c in clean_text):
-                detected_lang = "KANNADA"
-            elif any('\u0600' <= c <= '\u06ff' for c in clean_text):
-                detected_lang = "URDU"
+                    detected_lang = language or "ENGLISH"
+                    if any('\u0b80' <= c <= '\u0bff' for c in clean_text):
+                        detected_lang = "TAMIL"
+                    elif any('\u0900' <= c <= '\u097f' for c in clean_text):
+                        detected_lang = "HINDI"
+                    elif any('\u0c00' <= c <= '\u0c7f' for c in clean_text):
+                        detected_lang = "TELUGU"
+                    elif any('\u0d00' <= c <= '\u0d7f' for c in clean_text):
+                        detected_lang = "MALAYALAM"
+                    elif any('\u0c80' <= c <= '\u0cff' for c in clean_text):
+                        detected_lang = "KANNADA"
+                    elif any('\u0600' <= c <= '\u06ff' for c in clean_text):
+                        detected_lang = "URDU"
 
-            print(f"[VOICE_STT_SUCCESS] transcript='{clean_text}', lang={detected_lang}")
+                    print(f"[VOICE_GEMINI_SUCCESS] transcript='{clean_text}', lang={detected_lang}")
+                    return {
+                        "success": True,
+                        "text": clean_text,
+                        "language": detected_lang,
+                        "confidence": 0.95,
+                        "error": None
+                    }
+                except Exception as ex_m:
+                    print(f"[VOICE_GEMINI_EXCEPTION] model={model_name}: {ex_m}")
+                    continue
+
             return {
-                "success": True,
-                "text": clean_text,
-                "language": detected_lang,
-                "confidence": 0.95,
-                "error": None
+                "success": False,
+                "text": "",
+                "language": language or "ENGLISH",
+                "confidence": 0.0,
+                "error": "GEMINI_STT_FAILED"
             }
         except Exception as e:
             print(f"[VOICE_STT_FAILED] Exception: {e}")
@@ -285,10 +380,11 @@ class GeminiSpeechToTextProvider(SpeechToTextProvider):
 class HybridSpeechToTextProvider(SpeechToTextProvider):
     """
     Hybrid Speech-to-Text provider that delegates deterministic test simulation audio
-    to MockSpeechToTextProvider and real downloaded Meta WhatsApp audio to GeminiSpeechToTextProvider.
+    to MockSpeechToTextProvider and real downloaded Meta WhatsApp audio to GroqWhisper / Gemini providers.
     """
     def __init__(self):
         self.mock_provider = MockSpeechToTextProvider()
+        self.groq_provider = GroqWhisperSpeechToTextProvider()
         self.gemini_provider = GeminiSpeechToTextProvider()
 
     def transcribe(self, audio_file_path: str, language: str = None) -> dict:
@@ -302,7 +398,13 @@ class HybridSpeechToTextProvider(SpeechToTextProvider):
         
         if is_mock_target:
             return self.mock_provider.transcribe(audio_file_path, language=language)
-            
+
+        # For real audio, try Groq Whisper STT first, then fallback to Gemini STT
+        groq_res = self.groq_provider.transcribe(audio_file_path, language=language)
+        if groq_res.get("success"):
+            return groq_res
+
+        print("[HYBRID_STT] Groq Whisper STT did not produce transcript, attempting Gemini STT fallback...")
         return self.gemini_provider.transcribe(audio_file_path, language=language)
 
 

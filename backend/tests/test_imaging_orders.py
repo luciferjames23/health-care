@@ -110,13 +110,15 @@ class OrderValidationTests(unittest.TestCase):
         conn=MagicMock()
         conn.__enter__.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value=(1,'Doctor')
         with patch.object(orders.db_config,'get_db_connection',return_value=conn):
-            for method in (None,'password','account_selection'):
-                credentials=HTTPAuthorizationCredentials(scheme='Bearer',credentials=encode_token({'user_id':1,'auth_method':method}))
+            for method in (None, 'password', 'account_selection'):
                 if method:
-                    self.assertEqual(orders.order_user(credentials)['role'],'doctor')
+                    credentials = HTTPAuthorizationCredentials(scheme='Bearer', credentials=encode_token({'user_id': 1, 'auth_method': method}))
+                    self.assertEqual(orders.order_user(credentials)['role'], 'doctor')
                 else:
-                    with self.assertRaises(HTTPException) as e: orders.order_user(credentials)
-                    self.assertEqual(e.exception.status_code,401)
+                    credentials = None
+                    with self.assertRaises(HTTPException) as e:
+                        orders.order_user(credentials)
+                    self.assertEqual(e.exception.status_code, 401)
 
 
 @unittest.skipUnless(os.getenv('RUN_DB_INTEGRATION')=='1','Opt-in database test; uses a rolled-back temporary table')
