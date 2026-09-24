@@ -12,7 +12,7 @@ Step 5.3 — Real WhatsApp Channel Layer Integration
 from fastapi import APIRouter, Query, HTTPException, Request, Response, BackgroundTasks
 
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import sys
 import os
 import uuid
@@ -180,6 +180,79 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
 
 
 
+def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]:
+    """
+    Dynamically resolves context-aware list_button_title and section_title for Meta WhatsApp Interactive List Messages.
+    Guarantees 'Select Option' is NEVER shown on the WhatsApp UI.
+    """
+    explicit_list_title = agent_res.get("list_button_title")
+    explicit_sec_title = agent_res.get("section_title")
+    
+    intent = (agent_res.get("intent") or "").upper()
+    buttons = agent_res.get("interactive_buttons") or []
+    response = agent_res.get("response") or ""
+    
+    btn_ids_str = " ".join(b.get("id", "") for b in buttons if isinstance(b, dict)).lower()
+    btn_titles_str = " ".join(b.get("title", "") for b in buttons if isinstance(b, dict)).lower()
+    comb_str = f"{intent} {btn_ids_str} {btn_titles_str} {response}".lower()
+
+    # 1. Resolve list_button_title (must be max 20 chars per Meta WhatsApp spec)
+    list_title = explicit_list_title
+    if not list_title or list_title.strip().lower() in ["select option", "select an option", "select"]:
+        if any(k in comb_str for k in ["profile", "btn_update_", "btn_change_profile", "btn_my_profile", "btn_edit_profile"]):
+            list_title = "Profile Options"
+        elif any(k in comb_str for k in ["slot", "time", "10:00", "11:00", "btn_slot_"]):
+            list_title = "Available Slots"
+        elif any(k in comb_str for k in ["date", "today", "tomorrow", "btn_date_"]):
+            list_title = "Available Dates"
+        elif any(k in comb_str for k in ["dept", "department", "pediatrics", "dermatology", "cardiology", "orthopedics", "general medicine", "btn_dept_"]):
+            list_title = "View Departments"
+        elif any(k in comb_str for k in ["doctor", "dr.", "btn_doc_"]):
+            list_title = "Doctor Options"
+        elif any(k in comb_str for k in ["pay", "upi", "gpay", "netbanking", "card", "btn_pay_"]):
+            list_title = "Payment Methods"
+        elif any(k in comb_str for k in ["report", "record", "lab", "btn_my_reports"]):
+            list_title = "Health Options"
+        elif any(k in comb_str for k in ["cancel", "reschedule", "btn_cancel_", "btn_reschedule_"]):
+            list_title = "Appointment Options"
+        elif any(k in comb_str for k in ["handoff", "human", "agent", "staff", "escalat"]):
+            list_title = "Handoff Options"
+        elif any(k in comb_str for k in ["menu", "greeting", "btn_book_appt", "btn_find_doctor"]):
+            list_title = "Main Menu"
+        else:
+            list_title = "Menu Options"
+
+    list_title = list_title[:20]
+
+    # 2. Resolve section_title (max 24 chars per Meta WhatsApp spec)
+    sec_title = explicit_sec_title
+    if not sec_title or sec_title.strip().lower() in ["options", "select option", "select an option"]:
+        if any(k in comb_str for k in ["slot", "time", "10:00", "11:00", "btn_slot_"]):
+            sec_title = "Available Slots"
+        elif any(k in comb_str for k in ["date", "today", "tomorrow", "btn_date_"]):
+            sec_title = "Available Dates"
+        elif any(k in comb_str for k in ["dept", "department", "btn_dept_"]):
+            sec_title = "Hospital Departments"
+        elif any(k in comb_str for k in ["doctor", "dr.", "btn_doc_"]):
+            sec_title = "Available Doctors"
+        elif any(k in comb_str for k in ["profile", "btn_update_", "btn_change_profile"]):
+            sec_title = "Profile Actions"
+        elif any(k in comb_str for k in ["pay", "upi", "gpay", "btn_pay_"]):
+            sec_title = "Payment Methods"
+        elif any(k in comb_str for k in ["report", "record", "btn_my_reports"]):
+            sec_title = "Health Records"
+        elif any(k in comb_str for k in ["cancel", "reschedule"]):
+            sec_title = "Appointment Actions"
+        elif any(k in comb_str for k in ["menu", "greeting"]):
+            sec_title = "Main Menu Options"
+        else:
+            sec_title = "Select Action"
+
+    sec_title = sec_title[:24]
+
+    return list_title, sec_title
+
+
 def process_and_send_reply(session_code: str, sender_num: str, message_id: str, body_text: str, button_id: str = None):
     t_total_start = time.monotonic()
     masked_num = f"***{sender_num[-4:]}" if sender_num and len(sender_num) >= 4 else "****"
@@ -200,8 +273,7 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
 
         t_send_start = time.monotonic()
         if agent_res.get("interactive_buttons"):
-            list_title = agent_res.get("list_button_title") or "Select Option"
-            sec_title = agent_res.get("section_title") or ("Available Slots" if "slot" in str(agent_res.get("interactive_buttons")).lower() else ("Available Dates" if "date" in str(agent_res.get("interactive_buttons")).lower() else "Options"))
+            list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
             send_res = whatsapp_client.send_button_message(
                 sender_num,
                 agent_res["response"],
@@ -231,6 +303,14 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         print(f"[ERROR] Background WhatsApp message dispatch failed after {t_total_ms}ms: {e}")
         import traceback
         traceback.print_exc()
+        if sender_num:
+            try:
+                whatsapp_client.send_text_message(
+                    sender_num,
+                    "I encountered an issue processing your request. Please try again or type 'main menu'."
+                )
+            except Exception as _err_send:
+                print(f"[ERROR] Failed to send fallback error reply: {_err_send}")
         return None
 
 
@@ -338,7 +418,14 @@ def process_voice_reply(session_id: str, from_number: str, msg_id: str, audio_da
         tts_res = tts_provider.synthesize(response_text, language=final_lang)
 
         if interactive_buttons:
-            send_res = whatsapp_client.send_button_message(from_number, response_text, interactive_buttons)
+            list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
+            send_res = whatsapp_client.send_button_message(
+                from_number,
+                response_text,
+                interactive_buttons,
+                list_button_title=list_title,
+                section_title=sec_title
+            )
         else:
             send_res = whatsapp_client.send_text_message(from_number, response_text)
 
@@ -564,8 +651,8 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             }
 
         # 2. Voice/Audio Message flow
-        elif msg_type == "audio":
-            audio_data = message_data.get("audio", {})
+        elif msg_type in ["audio", "voice"]:
+            audio_data = message_data.get("audio") or message_data.get("voice") or {}
             return process_voice_reply(session_id, from_number, msg_id, audio_data)
 
         return {"status": "ok", "detail": f"Unsupported message type: {msg_type}"}

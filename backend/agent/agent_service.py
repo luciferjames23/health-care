@@ -124,7 +124,18 @@ def sync_selected_doctor_state(state: dict, doctor_id: int):
 def restore_selected_doctor_state(state: dict):
     """
     Restores doctor_id and department_id into state["entities"] if selected_doctor_id exists.
+    Clears stale doctor/department state when starting a fresh booking reason query.
     """
+    if state.get("conversation_state") in ["BOOKING_REASON_REQUIRED", "AWAITING_SYMPTOM"]:
+        state["selected_doctor_id"] = None
+        state["selected_doctor_name"] = None
+        state["selected_department_id"] = None
+        state["selected_department_name"] = None
+        if "entities" in state:
+            state["entities"]["doctor_id"] = None
+            state["entities"]["department_id"] = None
+        return
+
     sel_doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
     if sel_doc_id:
         sync_selected_doctor_state(state, sel_doc_id)
@@ -1240,6 +1251,10 @@ def handle_unknown_patient_identification_flow(
                 next_num = (row[0] + 1) if (row and row[0]) else 11
                 next_code = f"P{next_num:03d}"
 
+                raw_dob = reg_fields.get("date_of_birth") or "2000-01-01"
+                norm_dob_tuple = date_normalizer.parse_and_normalize_date(str(raw_dob))
+                norm_dob = norm_dob_tuple[0] if norm_dob_tuple and norm_dob_tuple[0] else "2000-01-01"
+
                 cur.execute("""
                     INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
@@ -1248,7 +1263,7 @@ def handle_unknown_patient_identification_flow(
                     next_code,
                     reg_fields["first_name"] or "Patient",
                     reg_fields.get("last_name") or ".",
-                    reg_fields["date_of_birth"] or "2000-01-01",
+                    norm_dob,
                     reg_fields["gender"] or "Male",
                     reg_phone,
                     whatsapp_val,
@@ -2622,15 +2637,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
             dept_btns = []
             for d_id, d_name in depts:
-                dept_btns.append({"id": f"btn_dep_{d_id}", "title": str(d_name)[:24]})
-            resp = "Please select a department to find doctors:"
+                dept_btns.append({"id": f"btn_dept_{d_id}", "title": str(d_name)[:24]})
+            
+            target_intent = "FIND_DOCTOR" if btn_id == "btn_find_doctor" else "DOCTOR_AVAILABILITY"
+            prompt_header = "Find a Doctor" if target_intent == "FIND_DOCTOR" else "Doctor Availability"
+            resp = f"🏥 *{prompt_header}*\n\nPlease select a department:"
             state["interactive_buttons"] = dept_btns
-            state["intent"] = "DOCTOR_AVAILABILITY"
+            state["intent"] = target_intent
             state_manager.save_conversation_state(conversation_code, state)
-            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "DOCTOR_AVAILABILITY", state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, target_intent, state)
             return {
                 "response": resp,
-                "intent": "DOCTOR_AVAILABILITY",
+                "intent": target_intent,
                 "language": current_lang,
                 "interactive_buttons": state["interactive_buttons"]
             }
@@ -4030,11 +4048,103 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 # Patient has NOT specified a date yet -> Ask for appointment date!
                 return build_verified_date_selection_response(conversation_code, state, pressed_doc_id, doc_info, current_lang=current_lang, intent="BOOK_APPOINTMENT")
 
-    elif btn_id and btn_id.startswith("btn_dep_"):
-        try:
-            pressed_dep_id = int(btn_id.split("btn_dep_")[1])
-        except (ValueError, IndexError):
-            pressed_dep_id = None
+    elif btn_id and (btn_id.startswith("btn_dept_") or btn_id.startswith("btn_dep_")):
+        pressed_id = None
+        if btn_id.startswith("btn_dept_"):
+            try:
+                pressed_id = int(btn_id.split("btn_dept_")[1])
+            except (ValueError, IndexError):
+                pressed_id = None
+        else:
+            try:
+                pressed_id = int(btn_id.split("btn_dep_")[1])
+            except (ValueError, IndexError):
+                pressed_id = None
+
+        # Check if pressed_id is a valid active department ID
+        dept_row = None
+        if pressed_id:
+            conn_dept = db_config.get_db_connection()
+            cur_dept = conn_dept.cursor()
+            try:
+                cur_dept.execute("SELECT id, department_name FROM departments WHERE id = %s AND status = 'ACTIVE';", (pressed_id,))
+                dept_row = cur_dept.fetchone()
+            finally:
+                cur_dept.close()
+                conn_dept.close()
+
+        if dept_row:
+            dept_id, dept_name = dept_row[0], dept_row[1]
+            print(f"[BUTTON_ROUTING] Department button tap: dept_id={dept_id}, dept_name={dept_name}")
+            state["selected_department_id"] = dept_id
+            state["selected_department_name"] = dept_name
+            state["department_name"] = dept_name
+            state.setdefault("entities", {})["department_id"] = dept_id
+            state["entities"]["department_name"] = dept_name
+            state["selected_doctor_id"] = None
+            state["selected_doctor_name"] = None
+            state["doctor_name"] = None
+
+            conn_docs = db_config.get_db_connection()
+            cur_docs = conn_docs.cursor()
+            docs = []
+            try:
+                cur_docs.execute("""
+                    SELECT id, display_name, specialization, experience_years, consultation_fee, qualification
+                    FROM doctors
+                    WHERE department_id = %s AND status = 'ACTIVE'
+                    ORDER BY display_name ASC;
+                """, (dept_id,))
+                docs = cur_docs.fetchall()
+            finally:
+                cur_docs.close()
+                conn_docs.close()
+
+            curr_intent = state.get("intent", "FIND_DOCTOR")
+            if not docs:
+                resp_text = f"🏥 *{dept_name} Department*\n\nThere are currently no active doctors listed in {dept_name}."
+                state["interactive_buttons"] = [language_service.get_translated_button("btn_main_menu", current_lang)]
+            else:
+                doc_lines = []
+                buttons = []
+                for d in docs:
+                    d_id, d_name, d_spec, d_exp, d_fee, d_qual = d[0], d[1], d[2], d[3], d[4], d[5]
+                    clean_n = d_name.replace("Dr. Dr.", "Dr.").strip() if d_name else "Doctor"
+                    exp_str = f" ({d_exp} yrs exp)" if d_exp else ""
+                    qual_str = f" · {d_qual}" if d_qual else ""
+                    fee_str = f" · ₹{int(d_fee)}" if d_fee else ""
+                    doc_lines.append(f"• *{clean_n}*{qual_str}{exp_str}{fee_str}")
+                    buttons.append({"id": f"btn_doc_{d_id}", "title": clean_n[:20]})
+
+                doc_block = "\n".join(doc_lines)
+                if curr_intent == "DOCTOR_AVAILABILITY":
+                    resp_text = (
+                        f"🏥 *{dept_name} Department* — Doctor Availability\n\n"
+                        f"Here are the active specialists in *{dept_name}*:\n"
+                        f"{doc_block}\n\n"
+                        f"Which doctor would you like to check availability for?"
+                    )
+                else:
+                    curr_intent = "FIND_DOCTOR"
+                    resp_text = (
+                        f"👨‍⚕️ *{dept_name} Department Specialists*\n\n"
+                        f"{doc_block}\n\n"
+                        f"Tap a doctor below to view their schedule or book an appointment:"
+                    )
+                state["interactive_buttons"] = buttons[:3]
+
+            state["intent"] = curr_intent
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp_text, current_lang, curr_intent, state)
+            return {
+                "response": resp_text,
+                "intent": curr_intent,
+                "language": current_lang,
+                "interactive_buttons": state["interactive_buttons"]
+            }
+
+        # Otherwise fallback to dependent patient lookup if pressed_id matched a patient
+        pressed_dep_id = pressed_id
         if pressed_dep_id:
             print(f"[BUTTON_ROUTING] Dependent button tap: dep_id={pressed_dep_id}")
             conn = db_config.get_db_connection()
@@ -8645,7 +8755,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # Check intent triggers (buttons or text phrases)
         is_yes = btn_id == "btn_confirm_admission" or any(w in msg_lower for w in ["yes", "confirm", "confirm admission", "i will come", "sure", "coming", "agreed", "btn_confirm"])
         is_no = btn_id == "btn_cancel_admission" or any(w in msg_lower for w in ["no", "cancel", "cancel admission", "cannot come", "not coming", "won't come", "btn_cancel"])
-        is_insurance_escalation = btn_id == "btn_admission_help" or any(w in msg_lower for w in ["insurance", "claim", "coverage", "policy", "cashless", "tpa", "human", "agent", "receptionist", "speak to staff", "call me", "assistance", "need help", "need assistance"])
+        is_insurance_escalation = btn_id == "btn_admission_help" or any(w in msg_lower for w in ["human", "agent", "receptionist", "speak to staff", "call me", "human help", "talk to staff", "escalate", "staff help"])
         is_doc_query = any(w in msg_lower for w in ["document", "bring", "require", "need", "id", "card", "proof", "what to bring"])
 
         raw_doc = pa_record.get('doctor', '') if pa_record else ''

@@ -120,7 +120,7 @@ def clean_whatsapp_number(to_number: str) -> str:
 
 
 def send_typing_indicator(to_number: str) -> dict:
-    """Send typing indicator (typing_on) status to WhatsApp client."""
+    """Send typing indicator (typing_on) status to WhatsApp client during bot waiting time."""
     to_number = clean_whatsapp_number(to_number)
     payload = {
         "messaging_product": "whatsapp",
@@ -139,10 +139,23 @@ def send_typing_indicator(to_number: str) -> dict:
     }
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=5)
+        if not res.ok:
+            # Fallback to action: typing_on format if typing_status isn't supported by gateway version
+            alt_payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to_number,
+                "type": "action",
+                "action": "typing_on"
+            }
+            res = requests.post(url, json=alt_payload, headers=headers, timeout=5)
         return {"success": res.ok, "status": "typing_on"}
     except Exception as e:
+        if "401" not in str(e) and "400" not in str(e):
+            print(f"[WhatsApp] send_typing_indicator error: {e}")
         log_outbound_simulation("typing_indicator", to_number, payload)
-        return {"success": True, "status": "typing_on"}
+        return {"success": True, "status": "typing_on", "fallback": True}
+
 
 
 def send_text_message(to_number: str, text: str) -> dict:
@@ -240,7 +253,7 @@ def send_welcome_message(to_number: str, template_name: str = "meridian_patient_
 
 
 
-def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Select Option", section_title: str = "Options") -> dict:
+def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options") -> dict:
     """
     Sends a Meta WhatsApp interactive button message.
     Meta API strictly limits reply buttons to max 3 items, and body text to 1024 chars.
@@ -599,32 +612,6 @@ def mark_message_read(message_id: str) -> dict:
         return {"success": True, "fallback": True}
 
 
-def send_typing_indicator(to_number: str) -> dict:
-    """Sends/simulates typing status before processing AI response."""
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_number,
-        "type": "action",
-        "action": "typing_on"
-    }
-    if is_mock_mode():
-        log_outbound_simulation("typing_indicator", to_number, payload)
-        return {"success": True}
-    url = f"{get_api_url()}/{get_phone_number_id()}/messages"
-    headers = {
-        "Authorization": f"Bearer {get_access_token()}",
-        "Content-Type": "application/json"
-    }
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=5)
-        res.raise_for_status()
-        return {"success": True}
-    except Exception as e:
-        if "401" not in str(e) and "400" not in str(e):
-            print(f"[WhatsApp] send_typing_indicator error: {e}")
-        log_outbound_simulation("typing_indicator", to_number, payload)
-        return {"success": True, "fallback": True}
 
 
 def process_incoming_whatsapp_payload(payload: dict) -> dict:
