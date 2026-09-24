@@ -292,6 +292,34 @@ export default function Patient360View({
     const isOP = d.patient_type === 'OP' || d._type === 'OP' || d.care_type === 'OP' || raw.patient_type === 'OP' || String(d.patient_type || '').toUpperCase() === 'OP' || String(d.appointment_type || '').toUpperCase() === 'OPD' || Boolean(d.appointment_number && !rawAdmId);
     const isER = d.patient_type === 'ER' || d._type === 'ER' || d.care_type === 'ER' || raw.patient_type === 'ER' || String(d.patient_type || '').toUpperCase() === 'ER' || Boolean(d.triage_number || d.triage_bay);
 
+    const rawDischargeStatus = String(
+      liveAdmission?.discharge_status ||
+      raw.discharge_status ||
+      d.discharge_status ||
+      d._status ||
+      d._type ||
+      ''
+    ).trim().toLowerCase();
+
+    const summaryApproval = String(
+      dischargeSummary?.approval_status ||
+      d.approval_status ||
+      raw.approval_status ||
+      ''
+    ).trim().toLowerCase();
+
+    const isDischarged = !isOP && !isER && (
+      rawDischargeStatus === 'discharged' ||
+      rawDischargeStatus === 'completed' ||
+      summaryApproval === 'approved' ||
+      summaryApproval === 'signed off' ||
+      summaryApproval === 'completed' ||
+      d._type === 'Discharged' ||
+      d.isCompleted === true
+    );
+
+    const isInpatient = !isOP && !isER && !isDischarged;
+
     // Unpack llm_input_json if available
     let parsedLlm = null;
     if (raw.llm_input_json) {
@@ -419,34 +447,6 @@ export default function Patient360View({
 
     const billStatus = isOP ? 'Paid' : isCleared ? 'Paid' : (rawBillStatus === 'Settled' && !isCleared ? 'Pending' : rawBillStatus);
     const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || 'Pending');
-
-    const rawDischargeStatus = String(
-      liveAdmission?.discharge_status ||
-      raw.discharge_status ||
-      d.discharge_status ||
-      d._status ||
-      d._type ||
-      ''
-    ).trim().toLowerCase();
-
-    const summaryApproval = String(
-      dischargeSummary?.approval_status ||
-      d.approval_status ||
-      raw.approval_status ||
-      ''
-    ).trim().toLowerCase();
-
-    const isDischarged = !isOP && !isER && (
-      rawDischargeStatus === 'discharged' ||
-      rawDischargeStatus === 'completed' ||
-      summaryApproval === 'approved' ||
-      summaryApproval === 'signed off' ||
-      summaryApproval === 'completed' ||
-      d._type === 'Discharged' ||
-      d.isCompleted === true
-    );
-
-    const isInpatient = !isOP && !isER && !isDischarged;
 
     const billingStatusDisplay = isOP
       ? 'Settled · Outpatient Fee'

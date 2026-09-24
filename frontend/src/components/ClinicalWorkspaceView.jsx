@@ -98,6 +98,21 @@ export default function ClinicalWorkspaceView({
            (p.doctor && p.doctor.toLowerCase().includes(s));
   });
 
+  if (loading && patientList.length === 0) {
+    return (
+      <ModuleLoadingScreen
+        title={isDoctor && activeDoctorName ? `Loading Clinical Workspace · ${activeDoctorName}...` : "Loading Clinical Workspace · All Inpatients..."}
+        subtitle="Retrieving real-time patient rosters, telemetry EWS monitoring, active beds, and attending consultants..."
+        badgeText="Live Clinical Sync"
+        showKpis={true}
+        statCount={4}
+        layout="table"
+        tableRows={7}
+        tableColumns={7}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Breadcrumb & heading */}

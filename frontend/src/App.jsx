@@ -202,6 +202,8 @@ export default function App() {
     setActivePage(newPage);
     if (newPatient !== undefined) {
       setSelectedPatient(newPatient);
+    } else if (newPage !== 'patient360' && newPage !== 'soap') {
+      setSelectedPatient(null);
     }
   };
 
@@ -331,9 +333,9 @@ export default function App() {
               </button>
               <span style={{ color: '#94a3b8', fontSize: '11px' }}>·</span>
               <span style={{ color: '#334155', fontSize: '12.5px', fontWeight: 600, textTransform: 'capitalize' }}>
-                {activePage.replace(/-/g, ' ')}
+                {activePage === 'patient360' ? 'Patient 360' : activePage === 'soap' ? 'SOAP Clinical Note' : activePage.replace(/-/g, ' ')}
               </span>
-              {selectedPatient && (selectedPatient.name || selectedPatient.patient_name || selectedPatient.patient) && (
+              {['patient360', 'soap'].includes(activePage) && selectedPatient && (selectedPatient.name || selectedPatient.patient_name || selectedPatient.patient) && (
                 <>
                   <span style={{ color: '#94a3b8', fontSize: '11px' }}>›</span>
                   <span style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>

@@ -307,19 +307,6 @@ export default function BedDemandView({ onSelectPatient }) {
 
           <button
             type="button"
-            onClick={loadAllBedData}
-            style={{
-              height: '30px', padding: '0 12px', borderRadius: '6px',
-              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px',
-              fontWeight: 500, color: '#15181b', display: 'flex', alignItems: 'center', gap: '6px'
-            }}
-          >
-            <span>↻</span>
-            <span>{loading ? 'Syncing...' : 'Sync APIs'}</span>
-          </button>
-
-          <button
-            type="button"
             onClick={handleExportCsv}
             style={{
               height: '30px', padding: '0 12px', borderRadius: '6px',
