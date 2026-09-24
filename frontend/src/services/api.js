@@ -957,10 +957,29 @@ export const apiService = {
   },
 
   async getBloodInventory(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank`, {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/units`, {
       ...options,
       revalidateMs: 2000
     });
+  },
+
+  async getBloodUnits(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/units`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async updateBloodUnit(unitId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/units/${encodeURIComponent(unitId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating blood unit ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/bloodbank/units`, data);
+    return data;
   },
 
   async updateBloodInventory(bloodGroup, payload = {}) {
@@ -1026,6 +1045,18 @@ export const apiService = {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error(`Error creating SBAR handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async updateSbarHandover(handoverId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar/${handoverId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating SBAR handover ${res.status}`);
     const data = await res.json();
     clearAllStorageCache();
     notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);

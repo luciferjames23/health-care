@@ -36,6 +36,7 @@ export const NAV_GROUPS = [
     title: 'DIAGNOSTICS · LIS & IMAGING',
     items: [
       { id: 'lab', label: 'Lab Dashboard' },
+      { id: 'lab-workqueue', label: 'Lab Work Queue' },
       { id: 'criticalvalues', label: 'Results & Critical Values' },
       { id: 'diagnostics', label: 'Diagnostics' },
       { id: 'radiology', label: 'Radiology' },

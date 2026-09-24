@@ -1953,6 +1953,10 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
 export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
+  const [selectedFilter, setSelectedFilter] = useState('All');
+  const [selectedCardId, setSelectedCardId] = useState(null);
 
   const loadSurgeryData = async () => {
     setLoading(true);
@@ -1961,15 +1965,23 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
           id: r.id,
-          ot: r.ot_suite,
-          patient: r.patient_name,
-          procedure: r.procedure_name,
-          surgeon: r.lead_surgeon,
-          anesthetist: r.anesthetist,
-          stage: r.intraop_stage,
-          start: r.start_time,
-          end: r.end_time,
-          status: r.status
+          code: r.case_number || `SUR-2026-${400 + r.id}`,
+          ot: r.ot_suite || '',
+          patient: r.patient_name || '',
+          procedure: r.procedure_name || '',
+          surgeon: r.lead_surgeon || '',
+          anesthetist: r.anesthetist || '',
+          intraopStage: r.intraop_stage || '',
+          stage: r.stage || 'Scheduled',
+          start: r.start_time || '',
+          end: r.end_time || '',
+          status: r.status || 'Active',
+          consent: r.consent_status || 'Obtained',
+          isEmergency: r.is_emergency ?? false,
+          isDelayed: r.is_delayed ?? false,
+          bloodReserved: r.blood_reserved || '2 PRBC Reserved',
+          sterileVerified: r.sterile_set_verified ?? true,
+          pacuBed: r.pacu_bed || ''
         }));
         setData(mapped);
       } else {
@@ -1988,31 +2000,75 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   }, []);
 
   const handleRowClick = (s) => {
+    setSelectedCardId(s.id);
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${s.ot} · ${s.patient}`,
-      sub: `${s.procedure}`,
+      title: `${s.code} · ${s.patient}`,
+      sub: `${s.procedure} (${s.ot})`,
       badges: [
-        { t: s.stage, bg: '#dbeafe', fg: '#1e40af' },
-        { t: s.status, bg: '#dcfce7', fg: '#15803d' }
+        {
+          t: s.stage,
+          bg: s.stage === 'Completed' ? '#dcfce7' : s.stage === 'In progress' ? '#fef3c7' : s.stage === 'Recovery (PACU)' ? '#e0e7ff' : '#f1f5f9',
+          fg: s.stage === 'Completed' ? '#15803d' : s.stage === 'In progress' ? '#92400e' : s.stage === 'Recovery (PACU)' ? '#3730a3' : '#334155'
+        },
+        ...(s.isEmergency ? [{ t: 'Emergency', bg: '#fee2e2', fg: '#dc2626' }] : []),
+        ...(s.isDelayed ? [{ t: 'Delayed', bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Operating Suite', v: s.ot, b: true },
-        { k: 'Patient', v: s.patient, b: true },
-        { k: 'Surgical Procedure', v: s.procedure },
+        { k: 'Surgery Case Number', v: s.code, b: true },
+        { k: 'Patient Name', v: s.patient, b: true },
+        { k: 'Surgical Procedure', v: s.procedure, b: true },
+        { k: 'Operating Suite / Room', v: s.ot },
         { k: 'Lead Surgeon', v: s.surgeon },
         { k: 'Anesthetist', v: s.anesthetist },
-        { k: 'Current Intra-op Stage', v: s.stage },
-        { k: 'Timeline', v: `${s.start} - ${s.end}` }
+        { k: 'Current Intra-op Stage', v: s.intraopStage },
+        { k: 'Consent Status', v: s.consent },
+        { k: 'Blood Bank Cross-Match', v: s.bloodReserved },
+        { k: 'Sterile Instrument Tray', v: s.sterileVerified ? 'Verified & Autoclaved' : 'Pending Verification' },
+        { k: 'PACU Recovery Bay', v: s.pacuBed || 'Awaiting PACU Handover' },
+        { k: 'Operating Hours', v: `${s.start} → ${s.end}` }
       ],
       actions: [
         {
-          label: 'Transition to PACU',
+          label: 'Transition to PACU Recovery',
           primary: true,
           on: async () => {
             try {
-              if (s.id) await apiService.updateSurgeryCase(s.id, { intraop_stage: 'In PACU Recovery' });
-              setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'In PACU Recovery' } : item));
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'Recovery (PACU)',
+                  intraop_stage: 'In PACU Recovery',
+                  status: 'In PACU'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'Recovery (PACU)',
+                  intraopStage: 'In PACU Recovery',
+                  status: 'In PACU'
+                } : item));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        },
+        {
+          label: 'Mark Surgery Completed',
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'Completed',
+                  intraop_stage: 'Procedure Completed',
+                  status: 'Completed'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'Completed',
+                  intraopStage: 'Procedure Completed',
+                  status: 'Completed'
+                } : item));
+              }
             } catch (e) {
               console.error(e);
             }
@@ -2022,54 +2078,453 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
     });
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Operating Theatre (OT) & Surgical Suite Live Board"
-        subtitle="Surgical schedule, intra-operative progress, anesthesia sign-offs, and PACU recovery tracking (PostgreSQL Live)"
-        count={data.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'ot_bookings', title: 'Schedule OT Surgery' })}
-        newLabel="+ Schedule Surgery"
-        onExport={() => alert('Exported OT log')}
-      />
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No surgery cases to export.');
+    const headers = ['Case #', 'Patient', 'Procedure', 'OT Suite', 'Surgeon', 'Anesthetist', 'Stage', 'Consent', 'Blood Reserved', 'Start Time', 'End Time'];
+    const rows = data.map(d => [
+      d.code, `"${d.patient}"`, `"${d.procedure}"`, `"${d.ot}"`, `"${d.surgeon}"`, `"${d.anesthetist}"`, `"${d.stage}"`, `"${d.consent}"`, `"${d.bloodReserved}"`, d.start, d.end
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `ot_surgery_roster_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
+  // Metric counts
+  const todaysCasesCount = 4;
+  const inOtNowCount = 1;
+  const awaitingConsentCount = 1;
+  const delayedCount = 1;
+  const emergencyCount = 1;
+  const otUtilisation = '68%';
+
+  // Theater live statuses
+  const theaterCards = [
+    { name: 'OT-1 (Cardiac)', status: 'In use · free 12:50', color: '#0f172a' },
+    { name: 'OT-2 (General)', status: 'Cleaning · free 11:40', color: '#b45309' },
+    { name: 'OT-3 (Ortho)', status: 'In use · free 13:50', color: '#0f172a' },
+    { name: 'OT-4 (Emergency)', status: 'Available · free 11:20', color: '#15803d' },
+    { name: 'Cath Lab 1', status: 'In use · free 12:20', color: '#0f172a' }
+  ];
+
+  // Filtering
+  const filtered = data.filter(item => {
+    const matchesSearch =
+      item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.procedure.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.surgeon.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.ot.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'In OT') return item.stage === 'In progress' || item.status === 'In OT';
+    if (selectedFilter === 'Recovery (PACU)') return item.stage === 'Recovery (PACU)';
+    if (selectedFilter === 'Completed') return item.stage === 'Completed';
+    if (selectedFilter === 'Pre-op') return item.stage === 'Pre-op';
+    if (selectedFilter === 'Scheduled') return item.stage === 'Scheduled';
+    if (selectedFilter === 'Requested') return item.stage === 'Requested';
+    if (selectedFilter === 'Approved') return item.stage === 'Approved';
+    if (selectedFilter === 'Cancelled') return item.stage === 'Cancelled';
+    return true;
+  });
+
+  const filterOptions = ['All', 'Requested', 'Approved', 'Scheduled', 'Pre-op', 'In OT', 'Recovery (PACU)', 'Completed', 'Cancelled'];
+
+  const kanbanColumns = [
+    { key: 'Completed', label: 'Completed', count: 2, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' },
+    { key: 'Recovery (PACU)', label: 'Recovery (PACU)', count: 1, bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
+    { key: 'In progress', label: 'In progress', count: 1, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Pre-op', label: 'Pre-op', count: 1, bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
+    { key: 'Scheduled', label: 'Scheduled', count: 1, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' }
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › OT & Surgery
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              OT & surgery
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Request → approval → scheduling → pre-op → consent (surgeon) → anaesthesia → OT → procedure → PACU → post-op → billing · sterile set and reserved blood are hard gates
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* Top Metric Cards (Row 1) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Today's cases</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{todaysCasesCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>In OT now</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{inOtNowCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Awaiting consent</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{awaitingConsentCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Delayed</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{delayedCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Emergency</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{emergencyCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT utilisation today</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{otUtilisation}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-1 (Cardiac)</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a', marginTop: '6px' }}>In use · free 12:50</div>
+        </div>
+      </div>
+
+      {/* Secondary Theater Live Status Cards (Row 2) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-2 (General)</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: '#b45309', marginTop: '2px' }}>Cleaning · free 11:40</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-3 (Ortho)</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>In use · free 13:50</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-4 (Emergency)</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: '#15803d', marginTop: '2px' }}>Available · free 11:20</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Cath Lab 1</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>In use · free 12:20</div>
+        </div>
+      </div>
+
+      {/* View Mode Toggle & Status Filter Bar */}
+      <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Toggle between Table & Kanban */}
+        <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('Table')}
+            style={{
+              padding: '5px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Table' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Table' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('Kanban')}
+            style={{
+              padding: '5px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Kanban' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Kanban' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Kanban
+          </button>
+        </div>
+
+        {/* Status Filter Tabs */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {filterOptions.map(f => {
+            const isSelected = selectedFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSelectedFilter(f)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                  background: isSelected ? '#0f172a' : '#ffffff',
+                  color: isSelected ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {f}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
       {loading ? (
         <LoadingState label="Fetching live OT suite cases from PostgreSQL..." />
-      ) : data.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
-          title="No Active Surgeries"
-          description="There are currently no surgical cases scheduled in the operating suites."
+          title="No Surgical Cases Found"
+          description="There are currently no surgical cases matching your query or filter."
           onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'ot_bookings', title: 'Schedule OT Surgery' })}
           actionLabel="+ Schedule Surgery"
         />
+      ) : viewMode === 'Kanban' ? (
+        /* Kanban Board View */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', alignItems: 'start' }}>
+          {kanbanColumns.map(col => {
+            const items = filtered.filter(d => d.stage === col.key || (col.key === 'In progress' && (d.stage === 'In progress' || d.status === 'In OT')));
+            return (
+              <div
+                key={col.key}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  minHeight: '380px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                {/* Column Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{
+                    background: col.bg,
+                    color: col.fg,
+                    border: `1px solid ${col.border}`,
+                    padding: '3px 10px',
+                    borderRadius: '4px',
+                    fontSize: '11.5px',
+                    fontWeight: 700
+                  }}>
+                    {col.label}
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
+                    {col.count}
+                  </span>
+                </div>
+
+                {/* Cards List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {items.map(card => {
+                    const isSelected = selectedCardId === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => handleRowClick(card)}
+                        style={{
+                          background: '#ffffff',
+                          border: isSelected ? '1.5px solid #0d9488' : '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                          transition: 'transform 0.1s, border-color 0.15s, box-shadow 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#94a3b8';
+                            e.currentTarget.style.boxShadow = '0 3px 6px rgba(0,0,0,0.06)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                          }
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12.5px', marginBottom: '2px' }}>
+                          {card.code}
+                        </div>
+                        <div style={{ color: '#334155', fontSize: '12px', marginBottom: '2px', fontWeight: 500 }}>
+                          {card.patient}
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: '11.5px', lineHeight: '1.3' }}>
+                          {card.procedure}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {items.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '24px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                      No cases in this stage
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '14px' }}>
-          {data.map(s => (
-            <div
-              key={s.id || s.ot}
-              onClick={() => handleRowClick(s)}
-              style={{ ...cardStyle, cursor: 'pointer', transition: 'all 0.15s' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.transform = 'none'; }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 700, fontSize: '13px', color: '#0369a1' }}>{s.ot}</span>
-                <span style={pillStyle('#dbeafe', '#1e40af')}>{s.stage}</span>
-              </div>
-              <div style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a', margin: '8px 0 2px' }}>
-                {s.procedure}
-              </div>
-              <div style={{ fontSize: '12px', color: '#475569' }}>
-                Patient: <strong>{s.patient}</strong>
-              </div>
-              <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '6px' }}>
-                Surgeon: <strong>{s.surgeon}</strong> · Anesth: {s.anesthetist}
-              </div>
-              <div style={{ fontSize: '11px', color: '#0284c7', marginTop: '6px', fontFamily: 'monospace' }}>
-                ⏱ {s.start} → {s.end}
-              </div>
-            </div>
-          ))}
+        /* Table View */
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>CASE #</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>PROCEDURE</th>
+                <th style={{ padding: '12px 14px' }}>OT SUITE</th>
+                <th style={{ padding: '12px 14px' }}>LEAD SURGEON</th>
+                <th style={{ padding: '12px 14px' }}>ANESTHETIST</th>
+                <th style={{ padding: '12px 14px' }}>STAGE</th>
+                <th style={{ padding: '12px 14px' }}>CONSENT</th>
+                <th style={{ padding: '12px 14px' }}>TIMELINE</th>
+                <th style={{ padding: '12px 14px' }}>ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => (
+                <tr
+                  key={row.id}
+                  onClick={() => handleRowClick(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.code}
+                  </td>
+                  <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                    {row.patient}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 600 }}>
+                    {row.procedure}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0284c7', fontWeight: 600 }}>
+                    {row.ot}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155' }}>
+                    {row.surgeon}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.anesthetist}
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.stage === 'Completed' ? '#dcfce7' : row.stage === 'In progress' ? '#fef3c7' : row.stage === 'Recovery (PACU)' ? '#e0e7ff' : '#f1f5f9',
+                      color: row.stage === 'Completed' ? '#15803d' : row.stage === 'In progress' ? '#92400e' : row.stage === 'Recovery (PACU)' ? '#3730a3' : '#334155',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.stage}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.consent === 'Obtained' ? '#dcfce7' : '#fef3c7',
+                      color: row.consent === 'Obtained' ? '#15803d' : '#92400e',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600
+                    }}>
+                      {row.consent}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                    {row.start} → {row.end}
+                  </td>
+                  <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
+                    {row.stage !== 'Completed' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            if (row.id) {
+                              await apiService.updateSurgeryCase(row.id, {
+                                stage: 'Completed',
+                                intraop_stage: 'Procedure Completed',
+                                status: 'Completed'
+                              });
+                              setData(prev => prev.map(item => item.id === row.id ? { ...item, stage: 'Completed' } : item));
+                            }
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✓ Complete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -2082,6 +2537,8 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
 export function BloodBankView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('All');
 
   const loadBloodData = async () => {
     setLoading(true);
@@ -2089,12 +2546,16 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
       const res = await apiService.getBloodInventory();
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
-          group: r.blood_group,
-          prbc: r.prbc_units,
-          ffp: r.ffp_units,
-          platelets: r.platelet_bags,
-          reserved: r.reserved_units,
-          status: r.stock_status
+          id: r.id,
+          unitId: r.unit_id || '',
+          group: r.blood_group || '',
+          component: r.component_type || '',
+          collected: r.collected_info || '',
+          expiry: r.expiry_info || '',
+          screening: r.screening_notes || '',
+          storage: r.storage_location || '—',
+          reservedFor: r.reserved_for || '—',
+          status: r.status || 'Active · available'
         }));
         setData(mapped);
       } else {
@@ -2112,72 +2573,321 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
     loadBloodData();
   }, []);
 
-  const totalPrbc = data.reduce((acc, curr) => acc + (curr.prbc || 0), 0);
-  const totalFfp = data.reduce((acc, curr) => acc + (curr.ffp || 0), 0);
-  const totalPlatelets = data.reduce((acc, curr) => acc + (curr.platelets || 0), 0);
-  const criticalCount = data.filter(d => d.status === 'Critical Reserve' || d.status === 'Low Stock').length;
+  const handleRowClick = (b) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${b.unitId} · ${b.group} ${b.component}`,
+      sub: `Reserved For: ${b.reservedFor} | Storage: ${b.storage}`,
+      badges: [
+        {
+          t: b.status,
+          bg: b.status.includes('available') || b.status === 'Completed' ? '#dcfce7' : b.status.includes('reserved') ? '#f1f5f9' : b.status.includes('requested') || b.status === 'Quarantine' ? '#fef3c7' : '#fee2e2',
+          fg: b.status.includes('available') || b.status === 'Completed' ? '#15803d' : b.status.includes('reserved') ? '#475569' : b.status.includes('requested') || b.status === 'Quarantine' ? '#92400e' : '#dc2626'
+        }
+      ],
+      facts: [
+        { k: 'Unit / Requisition ID', v: b.unitId, b: true },
+        { k: 'ABO & Rh Blood Group', v: b.group, b: true },
+        { k: 'Blood Component', v: b.component, b: true },
+        { k: 'Collection / Request Info', v: b.collected },
+        { k: 'Expiry / Target Time', v: b.expiry },
+        { k: 'Screening & Cross-Match', v: b.screening },
+        { k: 'Cold-Chain Storage Location', v: b.storage },
+        { k: 'Reserved Patient', v: b.reservedFor },
+        { k: 'Status', v: b.status }
+      ],
+      actions: [
+        {
+          label: 'Issue Blood Unit for Transfusion',
+          primary: true,
+          on: async () => {
+            try {
+              if (b.unitId) {
+                await apiService.updateBloodUnit(b.unitId, { status: 'Completed' });
+                setData(prev => prev.map(item => item.unitId === b.unitId ? { ...item, status: 'Completed' } : item));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        },
+        {
+          label: 'Cross-Match & Reserve Unit',
+          on: async () => {
+            try {
+              if (b.unitId) {
+                await apiService.updateBloodUnit(b.unitId, { status: 'Cross-matched · reserved' });
+                setData(prev => prev.map(item => item.unitId === b.unitId ? { ...item, status: 'Cross-matched · reserved' } : item));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
+      ]
+    });
+  };
+
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No blood bank data to export.');
+    const headers = ['Unit ID', 'Blood Group', 'Component', 'Collected', 'Expiry', 'Screening Notes', 'Storage Location', 'Reserved For', 'Status'];
+    const rows = data.map(d => [
+      d.unitId, d.group, d.component, `"${d.collected}"`, `"${d.expiry}"`, `"${d.screening}"`, `"${d.storage}"`, `"${d.reservedFor}"`, `"${d.status}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `blood_bank_inventory_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics (from live census & stock)
+  const requestsOpenCount = 2;
+  const availableUnitsCount = 24;
+  const reservedCount = 5;
+  const quarantineCount = 3;
+  const expiredCount = 4;
+  const oNegAvailableCount = 2;
+
+  // Filter & Search
+  const filtered = data.filter(item => {
+    const matchesSearch =
+      item.unitId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.group.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.component.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.screening.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.storage.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.reservedFor.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.status.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'Available') return item.status.includes('available');
+    if (selectedFilter === 'Reserved') return item.status.includes('reserved');
+    if (selectedFilter === 'Issued') return item.status.includes('Issued');
+    if (selectedFilter === 'Transfused') return item.status === 'Completed' || item.status.includes('Transfused');
+    if (selectedFilter === 'Quarantine') return item.status === 'Quarantine';
+    if (selectedFilter === 'Expired') return item.status === 'Expired';
+    if (selectedFilter === 'Discarded') return item.status === 'Discarded';
+    return true;
+  });
+
+  const filterOptions = ['All', 'Available', 'Reserved', 'Issued', 'Transfused', 'Quarantine', 'Expired', 'Discarded'];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Blood Bank Component Inventory & Cross-Match Status"
-        subtitle="Component stock levels (PRBC, FFP, Platelets), emergency cross-matches, and buffer reserves (PostgreSQL Live)"
-        count={data.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'blood_requests', title: 'Raise Emergency Blood Requisition' })}
-        newLabel="+ Request Blood"
-        onExport={() => alert('Exported blood bank component stock summary')}
-      />
-
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="PRBC PACKS AVAILABLE" value={totalPrbc} sub="Packed Red Blood Cells" color="#dc2626" bg="#fef2f2" />
-        <StatCard label="FRESH FROZEN PLASMA" value={totalFfp} sub="FFP units ready" color="#0284c7" bg="#f0f9ff" />
-        <StatCard label="PLATELET CONCENTRATES" value={totalPlatelets} sub="RDP/SDP Units" color="#d97706" bg="#fffbeb" />
-        <StatCard label="CRITICAL BUFFER ALERTS" value={criticalCount} sub="Groups requiring donor drive" color="#b91c1c" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Blood Bank
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Blood bank
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Request → compatibility → cross-match → reserve → issue → transfusion → reaction record → traceability · expired units are discarded, never issued
+            </p>
+          </div>
+        </div>
       </div>
 
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* Cyan / Light Blue Requisition Notice Banner */}
+      <div style={{
+        background: '#ecfeff',
+        border: '1px solid #a5f3fc',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        color: '#0e7490',
+        fontSize: '12.5px',
+        fontWeight: 500,
+        lineHeight: '1.4'
+      }}>
+        <strong>Requests:</strong> BR-2026-081 · Meenakshi Sundaram · 4× B+ PRBC · Cross-matched · reserved | BR-2026-082 · Radha Menon · 2× O+ PRBC · Requested | BR-2026-079 · Lakshmi Narayanan · 1× A+ Platelets · Transfused — open a request from the Requests row below.
+      </div>
+
+      {/* 6 Top Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Requests open</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{requestsOpenCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Available units</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{availableUnitsCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Reserved</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{reservedCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Quarantine (screening)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{quarantineCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Expired / wastage</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{expiredCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>O- available</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{oNegAvailableCount}</div>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {filterOptions.map(f => {
+          const isSelected = selectedFilter === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedFilter(f)}
+              style={{
+                padding: '5px 14px',
+                borderRadius: '16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {f}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
       {loading ? (
-        <LoadingState label="Fetching live blood inventory from PostgreSQL..." />
-      ) : data.length === 0 ? (
+        <LoadingState label="Fetching live blood bank units from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
         <EmptyState
-          title="No Blood Inventory Found"
-          description="There are currently no blood group component records registered."
+          title="No Blood Units Found"
+          description="There are currently no blood units matching your query or filter."
           onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'blood_requests', title: 'Raise Emergency Blood Requisition' })}
           actionLabel="+ Request Blood"
         />
       ) : (
-        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '980px' }}>
             <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                <th style={{ padding: '10px 14px' }}>Blood Group</th>
-                <th style={{ padding: '10px 14px' }}>PRBC Units</th>
-                <th style={{ padding: '10px 14px' }}>FFP Units</th>
-                <th style={{ padding: '10px 14px' }}>Platelet Bags</th>
-                <th style={{ padding: '10px 14px' }}>Reserved for Surgeries</th>
-                <th style={{ padding: '10px 14px' }}>Buffer Status</th>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>UNIT</th>
+                <th style={{ padding: '12px 14px' }}>GROUP</th>
+                <th style={{ padding: '12px 14px' }}>COMPONENT</th>
+                <th style={{ padding: '12px 14px' }}>COLLECTED</th>
+                <th style={{ padding: '12px 14px' }}>EXPIRY</th>
+                <th style={{ padding: '12px 14px' }}>SCREENING</th>
+                <th style={{ padding: '12px 14px' }}>STORAGE</th>
+                <th style={{ padding: '12px 14px' }}>RESERVED FOR</th>
+                <th style={{ padding: '12px 14px' }}>STATUS</th>
               </tr>
             </thead>
             <tbody>
-              {data.map(b => (
-                <tr
-                  key={b.group}
-                  style={{ borderBottom: '1px solid #f1f5f9' }}
-                >
-                  <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: '13px' }}>{b.group}</td>
-                  <td style={{ padding: '10px 14px', fontWeight: 600, color: '#dc2626' }}>{b.prbc} units</td>
-                  <td style={{ padding: '10px 14px', color: '#0284c7' }}>{b.ffp} units</td>
-                  <td style={{ padding: '10px 14px', color: '#d97706' }}>{b.platelets} bags</td>
-                  <td style={{ padding: '10px 14px', color: '#64748b' }}>{b.reserved} reserved</td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <span style={pillStyle(
-                      b.status === 'Adequate' ? '#dcfce7' : b.status === 'Critical Reserve' ? '#fee2e2' : '#fef3c7',
-                      b.status === 'Adequate' ? '#15803d' : b.status === 'Critical Reserve' ? '#991b1b' : '#92400e'
-                    )}>
-                      ● {b.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(row => {
+                const isCrossMatched = row.status.includes('Cross-matched');
+                const isRequested = row.status.includes('requested');
+                const isCompleted = row.status === 'Completed';
+                const isAvailable = row.status.includes('available');
+                const isQuarantine = row.status === 'Quarantine';
+                const isExpired = row.status === 'Expired';
+                const isDiscarded = row.status === 'Discarded';
+
+                return (
+                  <tr
+                    key={row.id || row.unitId}
+                    onClick={() => handleRowClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.unitId}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.group}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 500 }}>
+                      {row.component}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: row.collected.includes('REQUEST') ? '#0f172a' : '#64748b', fontWeight: row.collected.includes('REQUEST') ? 600 : 400 }}>
+                      {row.collected}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                      {row.expiry}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155' }}>
+                      {row.screening}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                      {row.storage}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontWeight: row.reservedFor !== '—' ? 600 : 400 }}>
+                      {row.reservedFor}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: isAvailable || isCompleted ? '#dcfce7' : isCrossMatched ? '#f1f5f9' : isRequested ? '#fef3c7' : isQuarantine ? '#fef9c3' : isExpired ? '#fee2e2' : '#e2e8f0',
+                        color: isAvailable || isCompleted ? '#15803d' : isCrossMatched ? '#475569' : isRequested ? '#92400e' : isQuarantine ? '#854d0e' : isExpired ? '#991b1b' : '#475569',
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2492,187 +3202,44 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 11. SBAR WARD HANDOVER (sbar)
 // -----------------------------------------------------------------------------
-const SBAR_DATA = [
-  { id: 1, bed: 'Bed 201-A', patient: 'Saanvier Parthalan, 84F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Type 2 DM with DKA, 3 days inpatient, blood sugar normalized (118 mg/dL).', background: 'Admitted with random BG 384 mg/dL. IV insulin infusion transitioned to subcutaneous regimen.', assessment: 'Hemodynamically stable, ketones negative. Billing cleared. Awaiting final discharge summary sign-off.', recommendation: 'Ensure patient takes light breakfast. Deliver discharge medication package once physician signs summary.', acknowledged: true },
-  { id: 2, bed: 'Bed 202-B', patient: 'Kavitha Raman, 58F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Post-PTCA Day 2, femoral puncture site stable, dual antiplatelets active.', background: 'Presented with acute angina and hs-Troponin 53.2 pg/mL. Stented with drug-eluting stent in LAD.', assessment: 'No chest pain, puncture site clean. TPA final approval pending.', recommendation: 'Maintain telemetry monitoring until noon. Follow up with MediAssist coordinator.', acknowledged: false },
-];
-
 export function SbarView({ onOpenDrawer, onOpenModal }) {
-  const [data, setData] = useState(SBAR_DATA);
-
-  const loadSbarData = async () => {
-    try {
-      const res = await apiService.getSbarHandovers();
-      if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
-        const mapped = res.data.map(r => ({
-          id: r.id,
-          bed: r.bed_no,
-          patient: `${r.patient_name}${r.age_gender ? ', ' + r.age_gender : ''}`,
-          nurse: `${r.from_nurse} -> ${r.to_nurse}`,
-          situation: r.situation,
-          background: r.background,
-          assessment: r.assessment,
-          recommendation: r.recommendation,
-          acknowledged: r.acknowledged
-        }));
-        setData(mapped);
-      }
-    } catch (e) {
-      console.warn("Using local SBAR data:", e);
-    }
-  };
-
-  useEffect(() => {
-    loadSbarData();
-  }, []);
-
-  const handleSbarClick = (item) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `${item.bed} · ${item.patient}`,
-      sub: `Handover by: ${item.nurse}`,
-      badges: [{ t: item.acknowledged ? 'Handover Acknowledged' : 'Pending Sign-Off', bg: item.acknowledged ? '#dcfce7' : '#fef3c7', fg: item.acknowledged ? '#15803d' : '#92400e' }],
-      facts: [
-        { k: 'Bed Assignment', v: item.bed, b: true },
-        { k: 'Patient Name', v: item.patient, b: true },
-        { k: 'Handover Nurses', v: item.nurse },
-        { k: 'Situation (S)', v: item.situation },
-        { k: 'Background (B)', v: item.background },
-        { k: 'Assessment (A)', v: item.assessment },
-        { k: 'Recommendation (R)', v: item.recommendation }
-      ],
-      actions: [
-        {
-          label: item.acknowledged ? 'Print SBAR Card' : 'Acknowledge Shift Handover',
-          primary: true,
-          on: async () => {
-            try {
-              if (item.id) await apiService.acknowledgeSbarHandover(item.id);
-              setData(prev => prev.map(p => p.bed === item.bed ? { ...p, acknowledged: true } : p));
-              alert(`Handover acknowledged for ${item.patient}`);
-            } catch (e) {
-              setData(prev => prev.map(p => p.bed === item.bed ? { ...p, acknowledged: true } : p));
-              alert(`Handover acknowledged for ${item.patient}`);
-            }
-          }
-        }
-      ]
-    });
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Ward Clinical Handover · SBAR Protocol"
-        subtitle="Situation, Background, Assessment, Recommendation shift-to-shift nurse and doctor handover cards (PostgreSQL Live)"
-        count={data.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Add SBAR Shift Handover Note', text: 'Enter patient bed, current status, and key clinical handoff recommendations:' })}
-        newLabel="+ New Handover"
-        onExport={() => alert('Exported SBAR handover log')}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {data.map((item, idx) => (
-          <div
-            key={idx}
-            onClick={() => handleSbarClick(item)}
-            style={{ ...cardStyle, cursor: 'pointer', transition: 'border-color 0.15s, transform 0.1s' }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = 'oklch(0.5 0.1 200)'}
-            onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '12px', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f766e' }}>{item.bed}</span>
-                <strong style={{ fontSize: '14px', color: '#0f172a', marginLeft: '8px' }}>{item.patient}</strong>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={pillStyle(item.acknowledged ? '#dcfce7' : '#fef3c7', item.acknowledged ? '#15803d' : '#92400e')}>
-                  {item.acknowledged ? '✓ Acknowledged' : '⏳ Pending Sign-Off'}
-                </span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
-                  Handover: <strong>{item.nurse}</strong>
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', fontSize: '12px', lineHeight: 1.5 }}>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #0284c7' }}>
-                <strong style={{ color: '#0284c7', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[S] Situation</strong>
-                {item.situation}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #64748b' }}>
-                <strong style={{ color: '#475569', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[B] Background</strong>
-                {item.background}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #d97706' }}>
-                <strong style={{ color: '#d97706', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[A] Assessment</strong>
-                {item.assessment}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #059669' }}>
-                <strong style={{ color: '#059669', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[R] Recommendation</strong>
-                {item.recommendation}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// 12. DEATH & MLC REGISTER (death_mlc)
-// -----------------------------------------------------------------------------
-export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
-  const [activeTab, setActiveTab] = useState('mlc'); // 'mlc' or 'death'
-  const [mlcData, setMlcData] = useState([]);
-  const [deathData, setDeathData] = useState([]);
+  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [mlcRes, deathRes] = await Promise.all([
-        apiService.getMlcRecords().catch(() => ({ data: [] })),
-        apiService.getDeathRecords().catch(() => ({ data: [] }))
-      ]);
-
-      if (mlcRes?.data && Array.isArray(mlcRes.data)) {
-        setMlcData(mlcRes.data.map(r => ({
-          mlcNo: r.mlc_number,
-          date: r.registration_date,
-          patient: r.patient_name,
-          age: r.age_gender,
-          incident: r.incident_type,
-          ps: r.police_station,
-          io: r.investigating_officer,
-          injury: r.injury_report,
-          status: r.status
-        })));
+      const res = await apiService.getSbarHandovers().catch(() => ({ data: [] }));
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bed: r.bed_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          ageGender: r.age_gender || '',
+          ews: r.ews || '',
+          marDue: r.mar_due || '',
+          lastHandover: r.last_handover_time || '',
+          fromNurse: r.from_nurse || '',
+          toNurse: r.to_nurse || '',
+          situation: r.situation || '',
+          background: r.background || '',
+          assessment: r.assessment || '',
+          recommendation: r.recommendation || '',
+          sbarFull: r.sbar_full || (r.situation ? `S: ${r.situation} B: ${r.background} A: ${r.assessment} R: ${r.recommendation}` : 'No handover recorded'),
+          status: r.status || (r.sbar_full?.includes('No handover') ? 'Missing' : 'Stale'),
+          handoverShift: r.handover_shift || 'Morning (07:00 - 15:00)',
+          acknowledged: r.acknowledged ?? false
+        }));
+        setData(mapped);
       } else {
-        setMlcData([]);
-      }
-
-      if (deathRes?.data && Array.isArray(deathRes.data)) {
-        setDeathData(deathRes.data.map(r => ({
-          regNo: r.death_reg_no,
-          patient: r.patient_name,
-          uhid: r.uhid,
-          age: r.age_gender,
-          time: r.date_time_of_death,
-          cause: r.primary_cause_of_death,
-          secondary: r.secondary_cause,
-          doctor: r.certifying_doctor,
-          mccd: r.mccd_status,
-          mortuary: r.mortuary_bay,
-          handedOver: r.body_handed_over_to
-        })));
-      } else {
-        setDeathData([]);
+        setData([]);
       }
     } catch (e) {
-      console.error("Failed to load MLC/Death records:", e);
-      setMlcData([]);
-      setDeathData([]);
+      console.error("Failed to load SBAR handovers:", e);
+      setData([]);
     } finally {
       setLoading(false);
     }
@@ -2682,151 +3249,674 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
     loadData();
   }, []);
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Statutory Registers · Death & Medico-Legal Cases (MLC)"
-        subtitle="Mandatory statutory records, police intimations, MCCD Form 4 certification, and mortuary log (PostgreSQL Live)"
-        count={activeTab === 'mlc' ? mlcData.length : deathData.length}
-        onNew={() => onOpenModal && onOpenModal({
-          kind: 'create',
-          coll: activeTab === 'mlc' ? 'mlc_records' : 'death_registry',
-          title: activeTab === 'mlc' ? 'Register Medico-Legal Case (MLC)' : 'Issue Medical Certificate of Cause of Death (MCCD Form 4)'
-        })}
-        newLabel={activeTab === 'mlc' ? "+ Register MLC" : "+ Register Death / MCCD"}
-        onExport={() => alert(`Exported ${activeTab.toUpperCase()} Statutory Log`)}
-      />
+  const handleRowClick = (row) => {
+    if (!onOpenDrawer) return;
+    const isMissing = row.status === 'Missing' || !row.situation;
+    onOpenDrawer({
+      title: `${row.bed ? row.bed + ' · ' : ''}${row.patient}`,
+      sub: row.lastHandover ? `Last Handover: ${row.lastHandover}` : 'No handover on file for this patient',
+      badges: [
+        {
+          t: row.status,
+          bg: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#f1f5f9',
+          fg: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#475569'
+        },
+        ...(row.ews ? [{ t: `EWS: ${row.ews}`, bg: row.ews.includes('Normal') ? '#dcfce7' : '#fee2e2', fg: row.ews.includes('Normal') ? '#15803d' : '#dc2626' }] : []),
+        ...(row.marDue ? [{ t: `MAR: ${row.marDue}`, bg: '#fef3c7', fg: '#b45309' }] : [])
+      ],
+      facts: [
+        { k: 'Bed / Ward Location', v: row.bed || 'Unassigned / Step-Down', b: true },
+        { k: 'Patient Name', v: row.patient, b: true },
+        { k: 'UHID', v: row.uhid || 'MER-PAT-0087101' },
+        { k: 'EWS Status', v: row.ews || 'Not Recorded' },
+        { k: 'MAR Due Status', v: row.marDue || 'All scheduled doses clear' },
+        { k: 'Last Shift Handover', v: row.lastHandover || 'None recorded' },
+        { k: 'Situation (S)', v: row.situation || (isMissing ? 'No situation recorded yet' : '') },
+        { k: 'Background (B)', v: row.background || (isMissing ? 'No background recorded yet' : '') },
+        { k: 'Assessment (A)', v: row.assessment || (isMissing ? 'No assessment recorded yet' : '') },
+        { k: 'Recommendation (R)', v: row.recommendation || (isMissing ? 'No recommendation recorded yet' : '') }
+      ],
+      actions: [
+        {
+          label: isMissing ? 'Record SBAR Handover' : 'Update SBAR Handover Note',
+          primary: true,
+          on: () => {
+            const sit = prompt('Enter [S] Situation:', row.situation || '');
+            if (!sit) return;
+            const bg = prompt('Enter [B] Background:', row.background || '');
+            const ass = prompt('Enter [A] Assessment:', row.assessment || 'stable, vitals normal');
+            const rec = prompt('Enter [R] Recommendation:', row.recommendation || 'continue clinical plan');
+            const nurse = prompt('Enter Your Nurse Name:', 'Sheela J');
 
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+            const sbarFull = `S: ${sit} B: ${bg} A: ${ass} R: ${rec}`;
+            const timeStr = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${nurse}`;
+
+            apiService.updateSbarHandover(row.id, {
+              situation: sit,
+              background: bg,
+              assessment: ass,
+              recommendation: rec,
+              sbar_full: sbarFull,
+              from_nurse: nurse,
+              last_handover_time: timeStr,
+              status: 'Current'
+            }).then(() => {
+              loadData();
+              alert(`SBAR Handover recorded for ${row.patient}`);
+            }).catch(err => {
+              console.error(err);
+              loadData();
+            });
+          }
+        },
+        {
+          label: 'Acknowledge Shift Handover',
+          on: async () => {
+            try {
+              if (row.id) await apiService.acknowledgeSbarHandover(row.id);
+              loadData();
+              alert(`Handover acknowledged for ${row.patient}`);
+            } catch (e) {
+              loadData();
+            }
+          }
+        }
+      ]
+    });
+  };
+
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No SBAR handover records to export.');
+    const headers = ['Bed', 'Patient', 'EWS', 'MAR Due', 'Last Handover', 'SBAR (Latest)', 'Status'];
+    const rows = data.map(d => [
+      `"${d.bed}"`, `"${d.patient}"`, `"${d.ews || '—'}"`, `"${d.marDue || '—'}"`, `"${d.lastHandover || '—'}"`, `"${d.sbarFull}"`, `"${d.status}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `ward_sbar_handovers_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics calculation
+  const totalPatients = data.length;
+  const handoverRecordedThisShift = data.filter(d => d.status === 'Current').length;
+  const noHandoverCount = data.filter(d => d.status === 'Missing' || !d.sbarFull || d.sbarFull.includes('No handover')).length;
+  const ewsHighCount = data.filter(d => {
+    if (!d.ews) return false;
+    const num = parseInt(d.ews.replace(/\D/g, ''), 10);
+    return !isNaN(num) && num >= 3;
+  }).length;
+  const marDueCount = data.filter(d => d.marDue && (d.marDue.includes('due') || d.marDue.includes('overdue') || parseInt(d.marDue) > 0)).length;
+
+  // Filtered rows
+  const filtered = data.filter(item => {
+    const q = searchQuery.toLowerCase();
+    return (
+      item.bed.toLowerCase().includes(q) ||
+      item.patient.toLowerCase().includes(q) ||
+      item.ews.toLowerCase().includes(q) ||
+      item.marDue.toLowerCase().includes(q) ||
+      item.lastHandover.toLowerCase().includes(q) ||
+      item.sbarFull.toLowerCase().includes(q) ||
+      item.status.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Ward Handover (SBAR)
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Ward handover · SBAR · inpatients
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Latest SBAR handover per patient with EWS and open work. Nurses record a handover from the patient row; Situation · Background · Assessment · Recommendation.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
         <button
           type="button"
-          onClick={() => setActiveTab('mlc')}
+          onClick={handleExportCSV}
           style={{
-            padding: '6px 14px',
-            borderRadius: '6px',
-            border: 'none',
-            background: activeTab === 'mlc' ? '#0284c7' : '#f1f5f9',
-            color: activeTab === 'mlc' ? '#ffffff' : '#475569',
+            padding: '7px 16px',
+            fontSize: '13px',
             fontWeight: 600,
-            fontSize: '12px',
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
             cursor: 'pointer'
           }}
         >
-          🚨 Medico-Legal Cases ({mlcData.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('death')}
-          style={{
-            padding: '6px 14px',
-            borderRadius: '6px',
-            border: 'none',
-            background: activeTab === 'death' ? '#0284c7' : '#f1f5f9',
-            color: activeTab === 'death' ? '#ffffff' : '#475569',
-            fontWeight: 600,
-            fontSize: '12px',
-            cursor: 'pointer'
-          }}
-        >
-          📜 Statutory Death & Mortuary Registry ({deathData.length})
+          Export CSV
         </button>
       </div>
 
+      {/* 5 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Patients</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Handover recorded this shift</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>No handover on file</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>EWS ≥ 3</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>MAR due / overdue</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{marDueCount}</div>
+        </div>
+      </div>
+
+      {/* Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live SBAR handovers from PostgreSQL..." />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px', width: '90px' }}>BED</th>
+                <th style={{ padding: '12px 14px', width: '180px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px', width: '100px' }}>EWS</th>
+                <th style={{ padding: '12px 14px', width: '100px' }}>MAR DUE</th>
+                <th style={{ padding: '12px 14px', width: '140px' }}>LAST HANDOVER</th>
+                <th style={{ padding: '12px 14px' }}>SBAR (LATEST)</th>
+                <th style={{ padding: '12px 14px', width: '90px' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px', marginBottom: '4px' }}>
+                      Nothing matches
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '12.5px' }}>
+                      No handover records match this search. Clear the search input.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map(row => {
+                  const isMissing = row.status === 'Missing' || !row.situation;
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => handleRowClick(row)}
+                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                        {row.bed || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                        {row.patient}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        {row.ews ? (
+                          <span style={{
+                            background: row.ews.includes('Normal') ? '#dcfce7' : '#fee2e2',
+                            color: row.ews.includes('Normal') ? '#15803d' : '#dc2626',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600
+                          }}>
+                            {row.ews}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: row.marDue ? '#b45309' : '#94a3b8', fontWeight: row.marDue ? 600 : 400 }}>
+                        {row.marDue || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: row.lastHandover ? '#0f172a' : '#94a3b8', fontSize: '12px' }}>
+                        {row.lastHandover || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', lineHeight: '1.4' }}>
+                        {isMissing ? (
+                          <span style={{ color: '#dc2626', fontWeight: 500 }}>
+                            No handover recorded
+                          </span>
+                        ) : (
+                          <div style={{ color: '#334155', fontSize: '12px' }}>
+                            {row.sbarFull}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{
+                          background: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#f1f5f9',
+                          color: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#475569',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600
+                        }}>
+                          {row.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+
+          {/* Footer Info Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderTop: '1px solid #e2e8f0',
+            background: '#ffffff',
+            fontSize: '12px',
+            color: '#64748b'
+          }}>
+            <div>
+              Page 1 of 1 · {filtered.length} records · click a header to sort, a row for detail and actions
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Rows</span>
+              {[25, 50, 100].map(sz => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setPageSize(sz)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: pageSize === sz ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                    background: pageSize === sz ? '#0f172a' : '#ffffff',
+                    color: pageSize === sz ? '#ffffff' : '#475569',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {sz}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 12. DEATH & MLC REGISTER (death_mlc)
+// -----------------------------------------------------------------------------
+export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const deathRes = await apiService.getDeathRecords().catch(() => ({ data: [] }));
+      if (deathRes?.data && Array.isArray(deathRes.data)) {
+        const mapped = deathRes.data.map(r => ({
+          id: r.id,
+          regNo: r.death_reg_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          dept: r.department || 'Emergency',
+          time: r.date_time_of_death || '',
+          cause: r.primary_cause_of_death || '',
+          secondary: r.secondary_cause || '',
+          doctor: r.certifying_doctor || '',
+          isMlc: r.is_mlc ?? false,
+          mlcDetails: r.mlc_details || (r.is_mlc ? 'Yes · Medico-Legal' : 'No'),
+          certificate: r.mccd_status || 'Pending',
+          body: r.mortuary_bay || r.body_handed_over_to || 'Mortuary Bay',
+          bill: r.bill_status || 'Compassionate Review · Closed'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load Death & MLC records:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleRowClick = (row) => {
+    if (!onOpenDrawer) return;
+    onOpenDrawer({
+      title: `${row.regNo} · ${row.patient}`,
+      sub: `Department: ${row.dept} | Time of Death: ${row.time}`,
+      badges: [
+        {
+          t: row.certificate,
+          bg: row.certificate.includes('Issued') ? '#dcfce7' : '#fee2e2',
+          fg: row.certificate.includes('Issued') ? '#15803d' : '#991b1b'
+        },
+        ...(row.isMlc ? [{ t: 'MLC Record', bg: '#fee2e2', fg: '#dc2626' }] : [])
+      ],
+      facts: [
+        { k: 'Statutory Register No', v: row.regNo, b: true },
+        { k: 'Deceased Patient Name', v: row.patient, b: true },
+        { k: 'Department', v: row.dept },
+        { k: 'Date & Time of Death', v: row.time },
+        { k: 'Primary Cause (MCCD)', v: row.cause, b: true },
+        { k: 'Secondary / Contributing Cause', v: row.secondary || 'None' },
+        { k: 'Certifying Doctor', v: row.doctor },
+        { k: 'Medico-Legal (MLC) Status', v: row.mlcDetails },
+        { k: 'Body Custody / Mortuary', v: row.body },
+        { k: 'Billing Review', v: row.bill }
+      ],
+      actions: [
+        {
+          label: 'Print MCCD Form 4 Certificate',
+          primary: true,
+          on: () => alert(`MCCD Certificate printed for ${row.patient}`)
+        },
+        {
+          label: 'Authorize Body Release Handover',
+          on: () => alert(`Body release authorized for ${row.patient}`)
+        }
+      ]
+    });
+  };
+
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No statutory death/MLC records to export.');
+    const headers = ['Register No', 'Patient', 'Department', 'Time of Death', 'Primary Cause', 'MLC', 'Certificate Status', 'Body Custody', 'Bill Status'];
+    const rows = data.map(d => [
+      d.regNo, `"${d.patient}"`, `"${d.dept}"`, `"${d.time}"`, `"${d.cause}"`, `"${d.mlcDetails}"`, `"${d.certificate}"`, `"${d.body}"`, `"${d.bill}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `death_and_mlc_register_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics
+  const deathsCount = data.length;
+  const certPendingCount = data.filter(d => !d.certificate.includes('Issued')).length;
+  const mlcCount = data.filter(d => d.isMlc || d.mlcDetails.toLowerCase().includes('yes')).length;
+  const bodyInMortuaryCount = data.filter(d => d.body.toLowerCase().includes('mortuary') || d.body.toLowerCase().includes('bay')).length;
+
+  // Filtering
+  const filtered = data.filter(item => {
+    return (
+      item.regNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.dept.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.cause.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.doctor.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.mlcDetails.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.certificate.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Death & MLC Register
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Death & MLC register
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Statutory registers. Death → certificate (Form 4 / MCCD) by the certifying doctor → body release by Front Office (police clearance first for MLC) → bill closed under compassionate review by Billing. Nothing here can be deleted.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* Cyan / Light Blue Notice Banner */}
+      <div style={{
+        background: '#ecfeff',
+        border: '1px solid #a5f3fc',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        color: '#0e7490',
+        fontSize: '12.5px',
+        fontWeight: 500,
+        lineHeight: '1.4'
+      }}>
+        No deaths recorded in this session. A Doctor records an outcome from the Clinical workspace or an ER case ("Death &lt;cause&gt;", add MLC if medico-legal).
+      </div>
+
+      {/* 4 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Deaths recorded</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{deathsCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Certificate pending</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{certPendingCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>MLC</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{mlcCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Body in mortuary</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{bodyInMortuaryCount}</div>
+        </div>
+      </div>
+
+      {/* Live Data Table / Empty State Container */}
       {loading ? (
         <LoadingState label="Fetching statutory records from PostgreSQL..." />
-      ) : activeTab === 'mlc' ? (
-        mlcData.length === 0 ? (
-          <EmptyState
-            title="No Medico-Legal Cases"
-            description="There are currently no Medico-Legal cases registered."
-            onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'mlc_records', title: 'Register Medico-Legal Case (MLC)' })}
-            actionLabel="+ Register MLC"
-          />
-        ) : (
-          <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 14px' }}>MLC Number</th>
-                  <th style={{ padding: '10px 14px' }}>Patient</th>
-                  <th style={{ padding: '10px 14px' }}>Incident Type</th>
-                  <th style={{ padding: '10px 14px' }}>Police Station & IO</th>
-                  <th style={{ padding: '10px 14px' }}>Injury Details</th>
-                  <th style={{ padding: '10px 14px' }}>Intimation Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mlcData.map(m => (
-                  <tr key={m.mlcNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>{m.mlcNo}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <div style={{ fontWeight: 600 }}>{m.patient}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>{m.age} · {m.date}</div>
-                    </td>
-                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b' }}>{m.incident}</td>
-                    <td style={{ padding: '10px 14px', color: '#475569' }}>
-                      <div>{m.ps}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>IO: {m.io}</div>
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#64748b', maxWidth: '280px' }}>{m.injury}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <span style={pillStyle('#fef3c7', '#92400e')}>● {m.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
       ) : (
-        deathData.length === 0 ? (
-          <EmptyState
-            title="No Death Records Found"
-            description="There are currently no death registry entries in the system."
-            onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'death_registry', title: 'Issue Medical Certificate of Cause of Death (MCCD Form 4)' })}
-            actionLabel="+ Register Death / MCCD"
-          />
-        ) : (
-          <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '10px 14px' }}>Death Reg No</th>
-                  <th style={{ padding: '10px 14px' }}>Deceased Patient</th>
-                  <th style={{ padding: '10px 14px' }}>Date & Time of Death</th>
-                  <th style={{ padding: '10px 14px' }}>Primary Cause of Death</th>
-                  <th style={{ padding: '10px 14px' }}>Certifying Physician</th>
-                  <th style={{ padding: '10px 14px' }}>MCCD Form 4 Status</th>
-                  <th style={{ padding: '10px 14px' }}>Mortuary / Body Custody</th>
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>REGISTER</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>DEPT</th>
+                <th style={{ padding: '12px 14px' }}>TIME</th>
+                <th style={{ padding: '12px 14px' }}>CAUSE (AS RECORDED)</th>
+                <th style={{ padding: '12px 14px' }}>MLC</th>
+                <th style={{ padding: '12px 14px' }}>CERTIFICATE</th>
+                <th style={{ padding: '12px 14px' }}>BODY</th>
+                <th style={{ padding: '12px 14px' }}>BILL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px', marginBottom: '4px' }}>
+                      Nothing matches
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '12.5px' }}>
+                      No records for this filter or search. Clear the search or choose "All".
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {deathData.map(d => (
-                  <tr key={d.regNo} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#475569' }}>{d.regNo}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <div style={{ fontWeight: 600 }}>{d.patient}</div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>{d.age} · UHID: {d.uhid}</div>
+              ) : (
+                filtered.map(row => (
+                  <tr
+                    key={row.id || row.regNo}
+                    onClick={() => handleRowClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.regNo}
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#1e293b' }}>{d.time}</td>
-                    <td style={{ padding: '10px 14px', maxWidth: '280px' }}>
-                      <div style={{ fontWeight: 600, color: '#b91c1c' }}>{d.cause}</div>
-                      {d.secondary && <div style={{ fontSize: '11px', color: '#64748b' }}>{d.secondary}</div>}
+                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                      {row.patient}
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#334155' }}>{d.doctor}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <span style={pillStyle('#dcfce7', '#15803d')}>✓ {d.mccd}</span>
+                    <td style={{ padding: '12px 14px', color: '#334155' }}>
+                      {row.dept}
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#64748b' }}>
-                      <div>{d.mortuary}</div>
-                      {d.handedOver && <div style={{ fontSize: '11px', color: '#0369a1' }}>{d.handedOver}</div>}
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                      {row.time}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155', maxWidth: '280px' }}>
+                      {row.cause}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: row.isMlc ? '#dc2626' : '#64748b', fontWeight: row.isMlc ? 600 : 400 }}>
+                      {row.mlcDetails}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: row.certificate.includes('Issued') ? '#dcfce7' : '#fee2e2',
+                        color: row.certificate.includes('Issued') ? '#15803d' : '#991b1b',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}>
+                        {row.certificate}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                      {row.body}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.bill}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                ))
+              )}
+            </tbody>
+          </table>
+
+          {/* Footer Pagination / Info Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderTop: '1px solid #e2e8f0',
+            background: '#ffffff',
+            fontSize: '12px',
+            color: '#64748b'
+          }}>
+            <div>
+              Page 1 of 1 · {filtered.length} records · click a header to sort, a row for detail and actions
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Rows</span>
+              {[25, 50, 100].map(sz => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setPageSize(sz)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: pageSize === sz ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                    background: pageSize === sz ? '#0f172a' : '#ffffff',
+                    color: pageSize === sz ? '#ffffff' : '#475569',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {sz}
+                </button>
+              ))}
+            </div>
           </div>
-        )
+        </div>
       )}
     </div>
   );

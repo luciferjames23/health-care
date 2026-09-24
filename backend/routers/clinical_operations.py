@@ -409,20 +409,31 @@ def update_emar_record(record_id: int, body: EmarSignOff):
 # 5. OT & SURGERY SUITE
 # ---------------------------------------------------------------------------
 class SurgeryCreate(BaseModel):
+    case_number: Optional[str] = None
     ot_suite: str
     patient_name: str
     procedure_name: str
     lead_surgeon: str
     anesthetist: Optional[str] = None
     intraop_stage: Optional[str] = "Pre-op Anesthesia Induction"
+    stage: Optional[str] = "Scheduled"
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     status: Optional[str] = "Active"
+    consent_status: Optional[str] = "Obtained"
+    is_emergency: Optional[bool] = False
+    is_delayed: Optional[bool] = False
+    blood_reserved: Optional[str] = "2 PRBC Reserved"
+    sterile_set_verified: Optional[bool] = True
+    pacu_bed: Optional[str] = None
 
 class SurgeryUpdate(BaseModel):
     intraop_stage: Optional[str] = None
+    stage: Optional[str] = None
     status: Optional[str] = None
     end_time: Optional[str] = None
+    consent_status: Optional[str] = None
+    pacu_bed: Optional[str] = None
 
 @router.get("/surgery", summary="List Active Surgery Cases")
 def get_surgery_cases():
@@ -442,10 +453,11 @@ def create_surgery_case(body: SurgeryCreate):
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
+        case_num = body.case_number or f"SUR-2026-{420 + cur.execute('SELECT COUNT(*) FROM ot_surgeries') or 1}"
         cur.execute("""
-            INSERT INTO ot_surgeries (ot_suite, patient_name, procedure_name, lead_surgeon, anesthetist, intraop_stage, start_time, end_time, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
-        """, (body.ot_suite, body.patient_name, body.procedure_name, body.lead_surgeon, body.anesthetist, body.intraop_stage, body.start_time, body.end_time, body.status))
+            INSERT INTO ot_surgeries (case_number, ot_suite, patient_name, procedure_name, lead_surgeon, anesthetist, intraop_stage, stage, start_time, end_time, status, consent_status, is_emergency, is_delayed, blood_reserved, sterile_set_verified, pacu_bed)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
+        """, (case_num, body.ot_suite, body.patient_name, body.procedure_name, body.lead_surgeon, body.anesthetist, body.intraop_stage, body.stage, body.start_time, body.end_time, body.status, body.consent_status, body.is_emergency, body.is_delayed, body.blood_reserved, body.sterile_set_verified, body.pacu_bed))
         new_id = cur.fetchone()[0]
         conn.commit()
         return {"success": True, "id": new_id, "message": "Surgery case scheduled"}
@@ -488,12 +500,25 @@ class BloodStockUpdate(BaseModel):
     reserved_units: Optional[int] = None
     stock_status: Optional[str] = None
 
-@router.get("/bloodbank", summary="Get Blood Bank Inventory")
-def get_blood_inventory():
+class BloodUnitUpdate(BaseModel):
+    status: Optional[str] = None
+    reserved_for: Optional[str] = None
+    storage_location: Optional[str] = None
+
+@router.get("/bloodbank/units", summary="List All Blood Bank Units and Requests")
+def get_blood_units():
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        cur.execute("SELECT * FROM blood_bank_inventory ORDER BY blood_group ASC;")
+        cur.execute("""
+            SELECT * FROM blood_bank_units 
+            ORDER BY 
+                CASE 
+                    WHEN unit_id LIKE 'BR-%' THEN 0 
+                    ELSE 1 
+                END, 
+                id ASC;
+        """)
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
     except Exception as e:
@@ -501,8 +526,8 @@ def get_blood_inventory():
     finally:
         conn.close()
 
-@router.patch("/bloodbank/{blood_group}", summary="Update Blood Group Stock / Reserve")
-def update_blood_inventory(blood_group: str, body: BloodStockUpdate):
+@router.patch("/bloodbank/units/{unit_id}", summary="Update Blood Unit Status / Reserve")
+def update_blood_unit(unit_id: str, body: BloodUnitUpdate):
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
@@ -513,11 +538,10 @@ def update_blood_inventory(blood_group: str, body: BloodStockUpdate):
             vals.append(v)
         if not fields:
             return {"success": True, "message": "No updates"}
-        fields.append("last_updated = CURRENT_TIMESTAMP")
-        vals.append(blood_group)
-        cur.execute(f"UPDATE blood_bank_inventory SET {', '.join(fields)} WHERE blood_group = %s;", vals)
+        vals.append(unit_id)
+        cur.execute(f"UPDATE blood_bank_units SET {', '.join(fields)} WHERE unit_id = %s;", vals)
         conn.commit()
-        return {"success": True, "message": f"Blood group {blood_group} stock updated"}
+        return {"success": True, "message": f"Unit {unit_id} updated"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -596,6 +620,10 @@ class DeathRecordCreate(BaseModel):
     mccd_status: Optional[str] = "Form 4 Issued"
     mortuary_bay: Optional[str] = "Bay 01 (Refrigerated)"
     body_handed_over_to: Optional[str] = None
+    department: Optional[str] = "Emergency"
+    is_mlc: Optional[bool] = False
+    mlc_details: Optional[str] = None
+    bill_status: Optional[str] = "Compassionate Review · Closed"
 
 @router.get("/death-registry", summary="List Death & Mortuary Registry Records")
 def get_death_records():
@@ -617,16 +645,16 @@ def create_death_record(body: DeathRecordCreate):
         cur = conn.cursor()
         if not body.death_reg_no:
             cur.execute("SELECT COUNT(*) FROM death_registry;")
-            c = cur.fetchone()[0] + 19
-            reg_no = f"DTH-2026-{c:03d}"
+            c = cur.fetchone()[0] + 1
+            reg_no = f"DR-2026-{c:03d}"
         else:
             reg_no = body.death_reg_no
 
         cur.execute("""
-            INSERT INTO death_registry (death_reg_no, patient_name, uhid, age_gender, date_time_of_death, primary_cause_of_death, secondary_cause, certifying_doctor, mccd_status, mortuary_bay, body_handed_over_to)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO death_registry (death_reg_no, patient_name, uhid, age_gender, date_time_of_death, primary_cause_of_death, secondary_cause, certifying_doctor, mccd_status, mortuary_bay, body_handed_over_to, department, is_mlc, mlc_details, bill_status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (death_reg_no) DO UPDATE SET mccd_status = EXCLUDED.mccd_status;
-        """, (reg_no, body.patient_name, body.uhid, body.age_gender, body.date_time_of_death, body.primary_cause_of_death, body.secondary_cause, body.certifying_doctor, body.mccd_status, body.mortuary_bay, body.body_handed_over_to))
+        """, (reg_no, body.patient_name, body.uhid, body.age_gender, body.date_time_of_death, body.primary_cause_of_death, body.secondary_cause, body.certifying_doctor, body.mccd_status, body.mortuary_bay, body.body_handed_over_to, body.department, body.is_mlc, body.mlc_details, body.bill_status))
         conn.commit()
         return {"success": True, "death_reg_no": reg_no, "message": "Death record registered and MCCD generated"}
     except Exception as e:
@@ -640,22 +668,43 @@ def create_death_record(body: DeathRecordCreate):
 # 9. WARD HANDOVER (SBAR)
 # ---------------------------------------------------------------------------
 class SbarCreate(BaseModel):
-    bed_no: str
+    bed_no: Optional[str] = None
     patient_name: str
+    uhid: Optional[str] = None
     age_gender: Optional[str] = None
-    from_nurse: str
-    to_nurse: str
-    situation: str
-    background: str
-    assessment: str
-    recommendation: str
+    ews: Optional[str] = None
+    mar_due: Optional[str] = None
+    last_handover_time: Optional[str] = None
+    from_nurse: Optional[str] = None
+    to_nurse: Optional[str] = None
+    situation: Optional[str] = None
+    background: Optional[str] = None
+    assessment: Optional[str] = None
+    recommendation: Optional[str] = None
+    sbar_full: Optional[str] = None
+    status: Optional[str] = 'Stale'
+    handover_shift: Optional[str] = 'Morning (07:00 - 15:00)'
+    acknowledged: Optional[bool] = False
+
+class SbarUpdate(BaseModel):
+    bed_no: Optional[str] = None
+    situation: Optional[str] = None
+    background: Optional[str] = None
+    assessment: Optional[str] = None
+    recommendation: Optional[str] = None
+    sbar_full: Optional[str] = None
+    from_nurse: Optional[str] = None
+    to_nurse: Optional[str] = None
+    last_handover_time: Optional[str] = None
+    status: Optional[str] = None
+    acknowledged: Optional[bool] = None
 
 @router.get("/sbar", summary="List Ward SBAR Handover Cards")
 def get_sbar_handovers():
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        cur.execute("SELECT * FROM ward_sbar_handovers ORDER BY id DESC;")
+        cur.execute("SELECT * FROM ward_sbar_handovers ORDER BY id ASC;")
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
     except Exception as e:
@@ -668,13 +717,78 @@ def create_sbar_handover(body: SbarCreate):
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
+        sbar_full = body.sbar_full or f"S: {body.situation or ''}. B: {body.background or ''}. A: {body.assessment or ''}. R: {body.recommendation or ''}."
         cur.execute("""
-            INSERT INTO ward_sbar_handovers (bed_no, patient_name, age_gender, from_nurse, to_nurse, situation, background, assessment, recommendation)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id;
-        """, (body.bed_no, body.patient_name, body.age_gender, body.from_nurse, body.to_nurse, body.situation, body.background, body.assessment, body.recommendation))
+            INSERT INTO ward_sbar_handovers (
+                bed_no, patient_name, uhid, age_gender, ews, mar_due, last_handover_time,
+                from_nurse, to_nurse, situation, background, assessment, recommendation,
+                sbar_full, status, handover_shift, acknowledged
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (
+            body.bed_no, body.patient_name, body.uhid, body.age_gender, body.ews, body.mar_due,
+            body.last_handover_time, body.from_nurse, body.to_nurse, body.situation, body.background,
+            body.assessment, body.recommendation, sbar_full, body.status or 'Stale',
+            body.handover_shift or 'Morning (07:00 - 15:00)', body.acknowledged or False
+        ))
         new_id = cur.fetchone()[0]
         conn.commit()
         return {"success": True, "id": new_id, "message": "SBAR handover logged"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.patch("/sbar/{handover_id}", summary="Update SBAR Handover Record")
+def update_sbar_handover(handover_id: int, body: SbarUpdate):
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor()
+        updates = []
+        params = []
+        if body.bed_no is not None:
+            updates.append("bed_no = %s")
+            params.append(body.bed_no)
+        if body.situation is not None:
+            updates.append("situation = %s")
+            params.append(body.situation)
+        if body.background is not None:
+            updates.append("background = %s")
+            params.append(body.background)
+        if body.assessment is not None:
+            updates.append("assessment = %s")
+            params.append(body.assessment)
+        if body.recommendation is not None:
+            updates.append("recommendation = %s")
+            params.append(body.recommendation)
+        if body.sbar_full is not None:
+            updates.append("sbar_full = %s")
+            params.append(body.sbar_full)
+        if body.from_nurse is not None:
+            updates.append("from_nurse = %s")
+            params.append(body.from_nurse)
+        if body.to_nurse is not None:
+            updates.append("to_nurse = %s")
+            params.append(body.to_nurse)
+        if body.last_handover_time is not None:
+            updates.append("last_handover_time = %s")
+            params.append(body.last_handover_time)
+        if body.status is not None:
+            updates.append("status = %s")
+            params.append(body.status)
+        if body.acknowledged is not None:
+            updates.append("acknowledged = %s")
+            params.append(body.acknowledged)
+            if body.acknowledged:
+                updates.append("acknowledged_at = CURRENT_TIMESTAMP")
+        
+        if updates:
+            params.append(handover_id)
+            cur.execute(f"UPDATE ward_sbar_handovers SET {', '.join(updates)} WHERE id = %s;", tuple(params))
+            conn.commit()
+        return {"success": True, "message": f"SBAR record {handover_id} updated"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -688,7 +802,7 @@ def acknowledge_sbar_handover(handover_id: int):
         cur = conn.cursor()
         cur.execute("""
             UPDATE ward_sbar_handovers
-            SET acknowledged = TRUE, acknowledged_at = CURRENT_TIMESTAMP
+            SET acknowledged = TRUE, acknowledged_at = CURRENT_TIMESTAMP, status = 'Current'
             WHERE id = %s;
         """, (handover_id,))
         conn.commit()
