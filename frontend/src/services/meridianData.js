@@ -61,7 +61,7 @@ export const ROLE_PAGE_ACCESS = {
     // 8 Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
-    'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
+    'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'deathmlc',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People
@@ -75,7 +75,7 @@ export const ROLE_PAGE_ACCESS = {
     // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent',
     // Operational & Clinical
-    'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'otschedule', 'surgery',
+    'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'surgery',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People
@@ -208,7 +208,7 @@ export const ROLE_PAGE_ACCESS = {
     // Data
     'data-financial', 'data-quality', 'analytics', 'tables', 'explorer',
     // AI Platform & Clinical
-    'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'assistant', 'approvals', 'schedules', 'otschedule', 'deathmlc', 'soap'
+    'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'assistant', 'approvals', 'schedules', 'deathmlc', 'soap'
   ],
   'Patient': [
     'patients', 'appointments', 'billing', 'assistant'

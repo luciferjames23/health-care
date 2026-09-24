@@ -2963,7 +2963,75 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
         { k: 'Operating Hours', v: `${s.start} → ${s.end}` }
       ],
       actions: [
-        {
+        ...(s.stage === 'Requested' ? [{
+          label: 'Approve Surgery Booking',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Approved', status: 'Approved' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Approved', status: 'Approved' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Approved' ? [{
+          label: 'Schedule OT Slot & Allocate Team',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Scheduled', status: 'Scheduled' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Scheduled', status: 'Scheduled' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Scheduled' ? [{
+          label: 'Call Patient to Pre-op Bay',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Pre-op', status: 'Pre-op' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Pre-op', status: 'Pre-op' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.consent !== 'Obtained' ? [{
+          label: 'Sign & Verify Surgical Consent',
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { consent_status: 'Obtained' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, consent: 'Obtained' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Pre-op' ? [{
+          label: 'Transfer Patient to Operating Suite (Start)',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'In progress',
+                  intraop_stage: 'Patient on Table / Under Anesthesia',
+                  status: 'In OT'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'In progress',
+                  intraopStage: 'Patient on Table / Under Anesthesia',
+                  status: 'In OT'
+                } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'In progress' ? [{
           label: 'Transition to PACU Recovery',
           primary: true,
           on: async () => {
@@ -2981,32 +3049,33 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
                   status: 'In PACU'
                 } : item));
               }
-            } catch (e) {
-              console.error(e);
-            }
+            } catch (e) { console.error(e); }
           }
-        },
-        {
-          label: 'Mark Surgery Completed',
+        }] : []),
+        ...(s.stage === 'Recovery (PACU)' ? [{
+          label: 'Discharge PACU to Inpatient Ward / Complete',
+          primary: true,
           on: async () => {
             try {
               if (s.id) {
                 await apiService.updateSurgeryCase(s.id, {
                   stage: 'Completed',
-                  intraop_stage: 'Procedure Completed',
+                  intraop_stage: 'Procedure Completed & Handed Over',
                   status: 'Completed'
                 });
                 setData(prev => prev.map(item => item.id === s.id ? {
                   ...item,
                   stage: 'Completed',
-                  intraopStage: 'Procedure Completed',
+                  intraopStage: 'Procedure Completed & Handed Over',
                   status: 'Completed'
                 } : item));
               }
-            } catch (e) {
-              console.error(e);
-            }
+            } catch (e) { console.error(e); }
           }
+        }] : []),
+        {
+          label: 'Refresh Status from Database',
+          on: loadSurgeryData
         }
       ]
     });
@@ -3028,22 +3097,74 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
-  // Metric counts
-  const todaysCasesCount = 4;
-  const inOtNowCount = 1;
-  const awaitingConsentCount = 1;
-  const delayedCount = 1;
-  const emergencyCount = 1;
-  const otUtilisation = '68%';
+  // Dynamic Metric counts derived directly from live database records
+  const todaysCasesCount = data.length;
+  const inOtNowCount = data.filter(d => d.stage === 'In progress' || d.status === 'In OT').length;
+  const awaitingConsentCount = data.filter(d => (d.consent || '').toLowerCase().includes('awaiting') || (d.consent || '').toLowerCase().includes('pending')).length;
+  const delayedCount = data.filter(d => Boolean(d.isDelayed)).length;
+  const emergencyCount = data.filter(d => Boolean(d.isEmergency)).length;
 
-  // Theater live statuses
-  const theaterCards = [
-    { name: 'OT-1 (Cardiac)', status: 'In use · free 12:50', color: '#0f172a' },
-    { name: 'OT-2 (General)', status: 'Cleaning · free 11:40', color: '#b45309' },
-    { name: 'OT-3 (Ortho)', status: 'In use · free 13:50', color: '#0f172a' },
-    { name: 'OT-4 (Emergency)', status: 'Available · free 11:20', color: '#15803d' },
-    { name: 'Cath Lab 1', status: 'In use · free 12:20', color: '#0f172a' }
-  ];
+  // 5 Operational Theaters & Cath Labs
+  const theaterRooms = useMemo(() => [
+    { name: 'OT-1 (Cardiac)', suiteKey: 'OT-1' },
+    { name: 'OT-2 (General)', suiteKey: 'OT-2' },
+    { name: 'OT-3 (Ortho)', suiteKey: 'OT-3' },
+    { name: 'OT-4 (Emergency)', suiteKey: 'OT-4' },
+    { name: 'Cath Lab 1', suiteKey: 'Cath Lab' }
+  ], []);
+
+  // Theater live statuses dynamically computed from live database records
+  const theaterCards = useMemo(() => {
+    return theaterRooms.map(room => {
+      const suiteCases = data.filter(d => d.ot && (d.ot.includes(room.suiteKey) || room.suiteKey.includes(d.ot)));
+      const activeCase = suiteCases.find(d => d.stage === 'In progress' || d.status === 'In OT');
+      const pacuCase = suiteCases.find(d => d.stage === 'Recovery (PACU)');
+      const preopCase = suiteCases.find(d => d.stage === 'Pre-op');
+      const scheduledCase = suiteCases.find(d => d.stage === 'Scheduled');
+
+      if (activeCase) {
+        return {
+          name: room.name,
+          status: `In use · free ${activeCase.end || 'soon'}`,
+          sub: `${activeCase.procedure} (${activeCase.patient})`,
+          color: '#0f172a'
+        };
+      }
+      if (pacuCase) {
+        return {
+          name: room.name,
+          status: `Cleaning · free ${pacuCase.end || 'soon'}`,
+          sub: `Turnover after PACU transfer`,
+          color: '#b45309'
+        };
+      }
+      if (preopCase) {
+        return {
+          name: room.name,
+          status: `Pre-op · start ${preopCase.start || 'soon'}`,
+          sub: `${preopCase.procedure} (${preopCase.patient})`,
+          color: '#2563eb'
+        };
+      }
+      if (scheduledCase) {
+        return {
+          name: room.name,
+          status: `Scheduled · ${scheduledCase.start || 'today'}`,
+          sub: `${scheduledCase.procedure} (${scheduledCase.patient})`,
+          color: '#475569'
+        };
+      }
+      return {
+        name: room.name,
+        status: `Available · Standby`,
+        sub: `Ready for booking`,
+        color: '#15803d'
+      };
+    });
+  }, [data, theaterRooms]);
+
+  const activeTheatersCount = theaterCards.filter(c => c.status.startsWith('In use') || c.status.startsWith('Cleaning') || c.status.startsWith('Pre-op')).length;
+  const otUtilisation = `${Math.round((activeTheatersCount / (theaterRooms.length || 1)) * 100)}%`;
 
   // Filtering
   const filtered = data.filter(item => {
@@ -3070,13 +3191,15 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
 
   const filterOptions = ['All', 'Requested', 'Approved', 'Scheduled', 'Pre-op', 'In OT', 'Recovery (PACU)', 'Completed', 'Cancelled'];
 
-  const kanbanColumns = [
-    { key: 'Completed', label: 'Completed', count: 2, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' },
-    { key: 'Recovery (PACU)', label: 'Recovery (PACU)', count: 1, bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
-    { key: 'In progress', label: 'In progress', count: 1, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
-    { key: 'Pre-op', label: 'Pre-op', count: 1, bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' },
-    { key: 'Scheduled', label: 'Scheduled', count: 1, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' }
-  ];
+  const kanbanColumns = useMemo(() => [
+    { key: 'Requested', label: 'Requested', count: data.filter(d => d.stage === 'Requested').length, bg: '#faf5ff', fg: '#6b21a8', border: '#e9d5ff' },
+    { key: 'Approved', label: 'Approved', count: data.filter(d => d.stage === 'Approved').length, bg: '#eff6ff', fg: '#1e40af', border: '#bfdbfe' },
+    { key: 'Scheduled', label: 'Scheduled', count: data.filter(d => d.stage === 'Scheduled').length, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Pre-op', label: 'Pre-op', count: data.filter(d => d.stage === 'Pre-op').length, bg: '#e0e7ff', fg: '#3730a3', border: '#c7d2fe' },
+    { key: 'In progress', label: 'In progress', count: data.filter(d => d.stage === 'In progress' || d.status === 'In OT').length, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Recovery (PACU)', label: 'Recovery (PACU)', count: data.filter(d => d.stage === 'Recovery (PACU)').length, bg: '#e0f2fe', fg: '#0369a1', border: '#bae6fd' },
+    { key: 'Completed', label: 'Completed', count: data.filter(d => d.stage === 'Completed').length, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' }
+  ], [data]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -3160,30 +3283,21 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
           <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT utilisation today</div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{otUtilisation}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-1 (Cardiac)</div>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a', marginTop: '6px' }}>In use · free 12:50</div>
-        </div>
       </div>
 
       {/* Secondary Theater Live Status Cards (Row 2) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-2 (General)</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, color: '#b45309', marginTop: '2px' }}>Cleaning · free 11:40</div>
-        </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-3 (Ortho)</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>In use · free 13:50</div>
-        </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT-4 (Emergency)</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, color: '#15803d', marginTop: '2px' }}>Available · free 11:20</div>
-        </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Cath Lab 1</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>In use · free 12:20</div>
-        </div>
+        {theaterCards.map((card, idx) => (
+          <div key={idx} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+            <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>{card.name}</div>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: card.color, marginTop: '2px' }}>{card.status}</div>
+            {card.sub && (
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {card.sub}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* View Mode Toggle & Status Filter Bar */}
@@ -3465,6 +3579,110 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   );
 }
 
+function printBloodRequisitionSlip(b) {
+  const printWindow = window.open('', '_blank', 'width=800,height=850');
+  if (!printWindow) {
+    alert('Popup blocker prevented print window from opening. Please allow popups.');
+    return;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Blood Requisition - ${b.unitId}</title>
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 36px; color: #1e293b; line-height: 1.5; }
+        .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 14px; margin-bottom: 20px; }
+        .title { font-size: 17px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin: 0 0 6px; letter-spacing: 0.04em; }
+        .sub { font-size: 12px; color: #475569; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; }
+        th { background: #f8fafc; color: #475569; width: 35%; font-weight: 600; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 12px; }
+        .sign { display: flex; justify-content: space-between; margin-top: 50px; }
+        .sign-b { text-align: center; width: 220px; }
+        .line { border-top: 1px solid #475569; margin-bottom: 6px; }
+        .btn { background: #0f172a; color: #fff; border: none; padding: 8px 18px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; margin-bottom: 16px; }
+        @media print { .no-print { display: none !important; } body { margin: 20px; } }
+      </style>
+    </head>
+    <body>
+      <div class="no-print" style="text-align: right;">
+        <button class="btn" onclick="window.print()">🖨️ Print Requisition Slip</button>
+      </div>
+      <div class="header">
+        <div class="title">Blood Component Transfusion & Compatibility Requisition</div>
+        <div class="sub">Department of Transfusion Medicine & Blood Center</div>
+      </div>
+      <table>
+        <tr>
+          <th>Requisition / Unit ID</th>
+          <td><strong>${b.unitId}</strong></td>
+        </tr>
+        <tr>
+          <th>Patient Name</th>
+          <td><strong>${b.reservedFor || 'Unassigned / General Stock'}</strong></td>
+        </tr>
+        <tr>
+          <th>Blood Group & Rh</th>
+          <td><span style="font-size: 16px; font-weight: 800; color: #b91c1c;">${b.group}</span></td>
+        </tr>
+        <tr>
+          <th>Component Type</th>
+          <td><strong>${b.component}</strong></td>
+        </tr>
+        <tr>
+          <th>Indication / Procedure</th>
+          <td>${b.screening}</td>
+        </tr>
+        <tr>
+          <th>Requisition Info</th>
+          <td>${b.collected}</td>
+        </tr>
+        <tr>
+          <th>Expiry / Target Hour</th>
+          <td>${b.expiry}</td>
+        </tr>
+        <tr>
+          <th>Storage Location</th>
+          <td>${b.storage}</td>
+        </tr>
+        <tr>
+          <th>Compatibility & Status</th>
+          <td><span class="badge" style="background: #dcfce7; color: #15803d;">${b.status}</span></td>
+        </tr>
+      </table>
+      <div class="sign">
+        <div class="sign-b">
+          <div class="line"></div>
+          <div><strong>Blood Bank Medical Officer</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Transfusion Medicine Service</div>
+        </div>
+        <div class="sign-b" style="border: 2px dashed #cbd5e1; padding: 10px; border-radius: 4px;">
+          <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Transfusion Medicine Division</div>
+          <div style="font-size: 10px; color: #64748b;">Authenticated Official Seal</div>
+        </div>
+        <div class="sign-b">
+          <div class="line"></div>
+          <div><strong>Transfusion Nurse / Ward Incharge</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Bedside Verification Sign-off</div>
+        </div>
+      </div>
+      <script>
+        window.onload = function() {
+          setTimeout(function() { window.print(); }, 400);
+        };
+      </script>
+    </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
 // -----------------------------------------------------------------------------
 // 7. BLOOD BANK (bloodbank)
 // -----------------------------------------------------------------------------
@@ -3537,11 +3755,14 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
           on: async () => {
             try {
               if (b.unitId) {
-                await apiService.updateBloodUnit(b.unitId, { status: 'Completed' });
-                setData(prev => prev.map(item => item.unitId === b.unitId ? { ...item, status: 'Completed' } : item));
+                await apiService.updateBloodUnit(b.unitId, { status: 'Transfused · Completed' });
+                const updated = { ...b, status: 'Transfused · Completed' };
+                setData(prev => prev.map(item => item.unitId === b.unitId ? updated : item));
+                handleRowClick(updated);
               }
             } catch (e) {
               console.error(e);
+              alert('Error updating blood unit in database');
             }
           }
         },
@@ -3551,12 +3772,19 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
             try {
               if (b.unitId) {
                 await apiService.updateBloodUnit(b.unitId, { status: 'Cross-matched · reserved' });
-                setData(prev => prev.map(item => item.unitId === b.unitId ? { ...item, status: 'Cross-matched · reserved' } : item));
+                const updated = { ...b, status: 'Cross-matched · reserved' };
+                setData(prev => prev.map(item => item.unitId === b.unitId ? updated : item));
+                handleRowClick(updated);
               }
             } catch (e) {
               console.error(e);
+              alert('Error updating blood unit in database');
             }
           }
+        },
+        {
+          label: '🖨️ Print Transfusion Requisition Slip',
+          on: () => printBloodRequisitionSlip(b)
         }
       ]
     });
@@ -3578,13 +3806,20 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
-  // Metrics (from live census & stock)
-  const requestsOpenCount = 2;
-  const availableUnitsCount = 24;
-  const reservedCount = 5;
-  const quarantineCount = 3;
-  const expiredCount = 4;
-  const oNegAvailableCount = 2;
+  // Dynamic Metrics derived directly from live database records
+  const requestsOpenCount = data.filter(d => d.unitId.startsWith('BR-') && !d.status.includes('Completed') && !d.status.includes('Transfused')).length;
+  const availableUnitsCount = data.filter(d => d.status.includes('available')).length;
+  const reservedCount = data.filter(d => d.status.includes('reserved')).length;
+  const quarantineCount = data.filter(d => d.status.includes('Quarantine')).length;
+  const expiredCount = data.filter(d => d.status.includes('Expired') || d.status.includes('Discarded')).length;
+  const oNegAvailableCount = data.filter(d => d.group === 'O-' && d.status.includes('available')).length;
+
+  // Dynamic Requisition Notice Banner
+  const activeRequestsBanner = useMemo(() => {
+    const reqs = data.filter(d => d.unitId.startsWith('BR-'));
+    if (reqs.length === 0) return 'No active requisitions pending.';
+    return reqs.slice(0, 4).map(r => `${r.unitId} · ${r.reservedFor} · ${r.group} ${r.component} · ${r.status}`).join(' | ');
+  }, [data]);
 
   // Filter & Search
   const filtered = data.filter(item => {
@@ -3679,7 +3914,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
         fontWeight: 500,
         lineHeight: '1.4'
       }}>
-        <strong>Requests:</strong> BR-2026-081 · Meenakshi Sundaram · 4× B+ PRBC · Cross-matched · reserved | BR-2026-082 · Radha Menon · 2× O+ PRBC · Requested | BR-2026-079 · Lakshmi Narayanan · 1× A+ Platelets · Transfused — open a request from the Requests row below.
+        <strong>Requests:</strong> {activeRequestsBanner} — click any request in the table below to cross-match or issue for transfusion.
       </div>
 
       {/* 6 Top Metric Cards */}
@@ -4141,6 +4376,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(1);
 
   const loadData = async () => {
     setLoading(true);
@@ -4286,7 +4522,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
   }).length;
   const marDueCount = data.filter(d => d.marDue && (d.marDue.includes('due') || d.marDue.includes('overdue') || parseInt(d.marDue) > 0)).length;
 
-  // Filtered rows
+  // Filtered rows & pagination
   const filtered = data.filter(item => {
     const q = searchQuery.toLowerCase();
     return (
@@ -4299,6 +4535,10 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
       item.status.toLowerCase().includes(q)
     );
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -4324,9 +4564,9 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         <div style={{ position: 'relative', minWidth: '260px' }}>
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search by patient, bed, EWS, diagnosis..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             style={{
               width: '100%',
               padding: '7px 14px',
@@ -4410,7 +4650,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
                   </td>
                 </tr>
               ) : (
-                filtered.map(row => {
+                paginatedRows.map(row => {
                   const isMissing = row.status === 'Missing' || !row.situation;
                   return (
                     <tr
@@ -4487,18 +4727,56 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
             borderTop: '1px solid #e2e8f0',
             background: '#ffffff',
             fontSize: '12px',
-            color: '#64748b'
+            color: '#64748b',
+            flexWrap: 'wrap',
+            gap: '12px'
           }}>
-            <div>
-              Page 1 of 1 · {filtered.length} records · click a header to sort, a row for detail and actions
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span>Page {currentPage} of {totalPages} · {filtered.length} live inpatient records</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: currentPage <= 1 ? '#cbd5e1' : '#334155',
+                    cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600
+                  }}
+                >
+                  ◀ Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: currentPage >= totalPages ? '#cbd5e1' : '#334155',
+                    cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600
+                  }}
+                >
+                  Next ▶
+                </button>
+              </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Rows</span>
+              <span>Rows per page</span>
               {[25, 50, 100].map(sz => (
                 <button
                   key={sz}
                   type="button"
-                  onClick={() => setPageSize(sz)}
+                  onClick={() => { setPageSize(sz); setPage(1); }}
                   style={{
                     padding: '2px 8px',
                     borderRadius: '4px',
@@ -4519,6 +4797,233 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
       )}
     </div>
   );
+}
+
+function printMccdCertificate(row) {
+  const printWindow = window.open('', '_blank', 'width=860,height=900');
+  if (!printWindow) {
+    alert('Popup blocker prevented print window from opening. Please allow popups.');
+    return;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>MCCD Form 4 - ${row.patient}</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          margin: 40px;
+          color: #1e293b;
+          line-height: 1.5;
+        }
+        .header {
+          text-align: center;
+          border-bottom: 2px solid #0f172a;
+          padding-bottom: 16px;
+          margin-bottom: 24px;
+        }
+        .cert-title {
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 6px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .cert-act {
+          font-size: 12px;
+          color: #475569;
+          font-style: italic;
+          margin: 0;
+        }
+        .reg-badge {
+          display: inline-block;
+          background: #f1f5f9;
+          border: 1px solid #cbd5e1;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-weight: 700;
+          font-size: 13px;
+          margin-top: 10px;
+        }
+        .grid-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+          font-size: 13px;
+        }
+        .grid-table th, .grid-table td {
+          border: 1px solid #cbd5e1;
+          padding: 10px 14px;
+          text-align: left;
+        }
+        .grid-table th {
+          background: #f8fafc;
+          width: 32%;
+          color: #475569;
+          font-weight: 600;
+        }
+        .cause-box {
+          background: #f8fafc;
+          border: 1.5px solid #cbd5e1;
+          border-radius: 6px;
+          padding: 16px;
+          margin: 20px 0;
+        }
+        .cause-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0f172a;
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+        }
+        .cause-item {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 8px;
+          font-size: 13px;
+        }
+        .cause-label {
+          font-weight: 700;
+          color: #334155;
+          min-width: 170px;
+        }
+        .declaration {
+          font-size: 12px;
+          color: #334155;
+          font-style: italic;
+          margin: 24px 0 36px;
+          padding: 12px 16px;
+          border-left: 3px solid #0284c7;
+          background: #f0f9ff;
+        }
+        .sign-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          margin-top: 48px;
+          padding-top: 16px;
+        }
+        .sign-block {
+          text-align: center;
+          min-width: 200px;
+        }
+        .sign-line {
+          border-top: 1px solid #475569;
+          margin-bottom: 6px;
+        }
+        .print-btn {
+          background: #0f172a;
+          color: #fff;
+          border: none;
+          padding: 10px 24px;
+          font-size: 14px;
+          font-weight: 600;
+          border-radius: 6px;
+          cursor: pointer;
+          margin-bottom: 20px;
+        }
+        @media print {
+          .no-print { display: none !important; }
+          body { margin: 20px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="no-print" style="text-align: right;">
+        <button class="print-btn" onclick="window.print()">🖨️ Print Certificate</button>
+      </div>
+
+      <div class="header">
+        <div class="cert-title">FORM NO. 4 / 4A: MEDICAL CERTIFICATE OF CAUSE OF DEATH (MCCD)</div>
+        <div class="cert-act">(Issued in accordance with the Registration of Births & Deaths Act, 1969 - Section 10/17)</div>
+        <div class="reg-badge">Statutory Register No: ${row.regNo}</div>
+      </div>
+
+      <table class="grid-table">
+        <tr>
+          <th>Deceased Patient Name</th>
+          <td><strong>${row.patient}</strong></td>
+          <th>Patient UHID / MRN</th>
+          <td><code>${row.uhid || 'PAT-RECORD'}</code></td>
+        </tr>
+        <tr>
+          <th>Department / Unit</th>
+          <td>${row.dept}</td>
+          <th>Date & Time of Death</th>
+          <td><strong>${row.time}</strong></td>
+        </tr>
+        <tr>
+          <th>MCCD Certificate Status</th>
+          <td><span style="color: #15803d; font-weight: 700;">✓ Form 4 & 4A Certified</span></td>
+          <th>Medico-Legal (MLC)</th>
+          <td>${row.isMlc ? '<strong style="color: #dc2626;">Yes · MLC Inquest Requisitioned</strong>' : 'No (Natural Medical Event)'}</td>
+        </tr>
+        <tr>
+          <th>Body Custody / Location</th>
+          <td colspan="3">${row.body}</td>
+        </tr>
+      </table>
+
+      <div class="cause-box">
+        <div class="cause-title">Medical Cause of Death Statement</div>
+        <div class="cause-item">
+          <div class="cause-label">I. Immediate Cause (Line A):</div>
+          <div><strong>${row.cause}</strong></div>
+        </div>
+        <div class="cause-item">
+          <div class="cause-label">II. Antecedent Cause (Line B):</div>
+          <div>${row.secondary || 'Pre-existing chronic sequelae leading to primary illness'}</div>
+        </div>
+        <div class="cause-item">
+          <div class="cause-label">III. Contributing Condition:</div>
+          <div>Cardiopulmonary compromise during critical inpatient management</div>
+        </div>
+      </div>
+
+      <div class="declaration">
+        "I hereby certify that I attended the deceased during his/her last illness and that the death took place on the date and hour stated above. To the best of my knowledge and medical opinion, the cause of death stated above is true."
+      </div>
+
+      <div class="sign-row">
+        <div class="sign-block">
+          <div class="sign-line"></div>
+          <div><strong>${row.doctor}</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Certifying Consultant / Medical Officer</div>
+          <div style="font-size: 11px; color: #64748b;">Reg No: TN-MC-54819</div>
+        </div>
+
+        <div class="sign-block" style="border: 2px dashed #94a3b8; padding: 12px; border-radius: 6px;">
+          <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Medical Records Division</div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 4px;">Institutional Registry & Vital Statistics</div>
+          <div style="font-size: 10px; color: #64748b;">Authenticated Copy</div>
+        </div>
+
+        <div class="sign-block">
+          <div class="sign-line"></div>
+          <div><strong>Medical Superintendent</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Authorized Signatory</div>
+          <div style="font-size: 11px; color: #64748b;">Date: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+        </div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          setTimeout(function() {
+            window.print();
+          }, 400);
+        };
+      </script>
+    </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
 }
 
 // -----------------------------------------------------------------------------
@@ -4594,13 +5099,29 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
       ],
       actions: [
         {
-          label: 'Print MCCD Form 4 Certificate',
+          label: '🖨️ Print MCCD Form 4 Certificate',
           primary: true,
-          on: () => alert(`MCCD Certificate printed for ${row.patient}`)
+          on: () => {
+            printMccdCertificate(row);
+          }
         },
         {
           label: 'Authorize Body Release Handover',
-          on: () => alert(`Body release authorized for ${row.patient}`)
+          on: async () => {
+            try {
+              const nextCustody = row.isMlc ? 'Released to Police Escort (MLC)' : 'Released to Family';
+              await apiService.updateDeathRecord(row.regNo, {
+                mortuary_bay: nextCustody,
+                body_handed_over_to: row.isMlc ? 'Police Sub-Inspector / Inquest Team' : 'Authorized Next of Kin / Nominee'
+              });
+              const updatedRow = { ...row, body: nextCustody };
+              setData(prev => prev.map(item => item.regNo === row.regNo ? updatedRow : item));
+              handleRowClick(updatedRow);
+            } catch (e) {
+              console.error(e);
+              alert('Error updating body release status in database');
+            }
+          }
         }
       ]
     });

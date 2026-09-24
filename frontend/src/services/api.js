@@ -1042,6 +1042,18 @@ export const apiService = {
     return data;
   },
 
+  async updateDeathRecord(deathRegNo, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/death-registry/${encodeURIComponent(deathRegNo)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error updating death record ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/death-registry`, data);
+    return data;
+  },
+
   async getSbarHandovers(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, {
       ...options,

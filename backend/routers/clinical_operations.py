@@ -674,6 +674,34 @@ def create_death_record(body: DeathRecordCreate):
     finally:
         conn.close()
 
+class DeathRecordUpdate(BaseModel):
+    mccd_status: Optional[str] = None
+    mortuary_bay: Optional[str] = None
+    body_handed_over_to: Optional[str] = None
+    bill_status: Optional[str] = None
+
+@router.patch("/death-registry/{death_reg_no}", summary="Update Death Record / Authorize Body Handover")
+def update_death_record(death_reg_no: str, body: DeathRecordUpdate):
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor()
+        fields = []
+        vals = []
+        for k, v in body.dict(exclude_unset=True).items():
+            fields.append(f"{k} = %s")
+            vals.append(v)
+        if not fields:
+            return {"success": True, "message": "No updates"}
+        vals.append(death_reg_no)
+        cur.execute(f"UPDATE death_registry SET {', '.join(fields)} WHERE death_reg_no = %s;", vals)
+        conn.commit()
+        return {"success": True, "message": f"Death record {death_reg_no} updated"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 
 # ---------------------------------------------------------------------------
 # 9. WARD HANDOVER (SBAR)

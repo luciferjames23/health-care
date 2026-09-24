@@ -28,7 +28,6 @@ export const NAV_GROUPS = [
       { id: 'bloodbank', label: 'Blood Bank' },
       { id: 'discharge', label: 'Discharge', badge: '4', badgeColor: 'oklch(0.5 0.18 25)' },
       { id: 'deathmlc', label: 'Death & MLC Register' },
-      { id: 'otschedule', label: 'OT Schedule' },
       { id: 'sbar', label: 'Ward Handover (SBAR)' },
     ]
   },
