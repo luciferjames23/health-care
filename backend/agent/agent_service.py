@@ -1760,11 +1760,12 @@ def handle_profile_update_flow(conversation_code: str, state: dict, message_text
 
 def is_appointment_already_paid(state: dict, appointment_id_val=None, booking_id_val=None):
     """
-    Idempotency check for Bug #1: Determines if a specific appointment has already been paid (payment_status = 'SUCCESS').
-    Verification is strictly appointment-specific:
-      payment.appointment_id == current_appointment_id AND payment.payment_status == 'SUCCESS'
+    Idempotency check: Determines if a specific appointment has already been paid (payment_status = 'SUCCESS').
     Returns (is_paid: bool, booking_id: str, payment_reference: str)
     """
+    if state.get("is_balance_payment") or state.get("modifying_booking_id"):
+        return False, None, None
+
     target_booking_id = booking_id_val or appointment_id_val
     if not target_booking_id:
         c_stage = state.get("conversation_state")
@@ -3331,6 +3332,71 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": pay_prompt_buttons}
 
         elif btn_id == "btn_pay_exec":
+            if state.get("is_balance_payment"):
+                modifying_b_id = state.get("modifying_booking_id")
+                balance_amt = float(state.get("payment_amount", 0.0))
+                doc_id = state.get("pending_modified_doctor_id") or state.get("selected_doctor_id") or state["entities"].get("doctor_id")
+                appt_date = state.get("pending_modified_date") or state["entities"].get("appointment_date")
+                appt_time = state.get("pending_modified_time") or state["entities"].get("appointment_time")
+                pay_id = state.get("payment_id")
+                pay_ref = state.get("payment_reference") or f"PAYBAL{datetime.datetime.now().strftime('%Y%m%d')}{random.randint(1000, 9999)}"
+                txn_ref = f"MOCKTXN{random.randint(100000, 999999)}"
+
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    if pay_id:
+                        cur.execute("UPDATE payments SET payment_status = 'SUCCESS', transaction_reference = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (txn_ref, pay_id))
+                        conn.commit()
+                except Exception as e:
+                    print(f"[BALANCE_PAYMENT_SUCCESS_ERR] {e}")
+                    conn.rollback()
+                finally:
+                    cur.close()
+                    conn.close()
+
+                res_mod = tool_registry.tool_reschedule_appointment(
+                    conversation_code=conversation_code,
+                    booking_id=modifying_b_id,
+                    new_date_str=appt_date,
+                    new_time_str=appt_time,
+                    reason="Modified with balance payment via WhatsApp",
+                    new_doctor_id=doc_id
+                )
+
+                doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine"}
+                pat_name = state["entities"].get("patient_name_override") or state.get("dependent_name") or "Patient"
+
+                state["is_balance_payment"] = False
+                state["modifying_booking_id"] = None
+                state["original_paid_amount"] = None
+                state["pending_modified_doctor_id"] = None
+                state["pending_modified_date"] = None
+                state["pending_modified_time"] = None
+                state["conversation_state"] = None
+
+                fee_str = f"₹{int(balance_amt)}"
+                resp = (
+                    f"✅ *Balance Payment Successful!*\n\n"
+                    f"Balance Paid: {fee_str}\n"
+                    f"Payment Reference: {pay_ref}\n"
+                    f"Transaction Reference: {txn_ref}\n\n"
+                    f"Your appointment {modifying_b_id} has been updated successfully!\n\n"
+                    f"Patient: {pat_name}\n"
+                    f"Doctor: {doc_info['name']}\n"
+                    f"Department: {doc_info['department']}\n"
+                    f"Date: {appt_date}\n"
+                    f"Time: {format_time_12h(appt_time)}"
+                )
+                buttons = [
+                    {"id": "btn_my_appts", "title": "My Appointments"},
+                    {"id": "btn_hosp_info", "title": "Main Menu"}
+                ]
+                state["interactive_buttons"] = buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
+
             is_paid, paid_b_id, paid_p_ref = is_appointment_already_paid(state)
             if is_paid:
                 resp = (
@@ -3651,8 +3717,155 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "section_title": "Select Method"
             }
 
-        elif btn_id in ["btn_confirm_appt", "btn_confirm"]:
+        elif btn_id in ["btn_confirm_appt", "btn_confirm", "btn_confirm_modification"]:
             state["payment_status"] = None
+            modifying_b_id = state.get("modifying_booking_id")
+            if modifying_b_id:
+                doc_id = state["entities"].get("doctor_id") or state.get("selected_doctor_id")
+                appt_date = state["entities"].get("appointment_date")
+                appt_time = state["entities"].get("appointment_time")
+                doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
+                new_fee = float(doc_info.get("consultation_fee") or 800)
+                orig_paid = float(state.get("original_paid_amount", 0.0))
+
+                # Revalidate slot before modification
+                if doc_id and appt_date and appt_time:
+                    res_slots = tool_registry.tool_get_available_slots(conversation_code, doc_id, appt_date)
+                    avail = res_slots.get("slots", []) if res_slots.get("success") else []
+                    if appt_time not in avail:
+                        state["entities"]["appointment_time"] = None
+                        formatted_slots = [format_time_12h(s) for s in avail] if avail else []
+                        alt_slots_text = "\n• ".join(formatted_slots) if formatted_slots else "No available slots"
+                        response_text = (
+                            f"Sorry, *{format_time_12h(appt_time)}* is no longer available on *{appt_date}*.\n\n"
+                            f"📅 Available slots for *{doc_info['name']}* on *{appt_date}*:\n• {alt_slots_text}\n\n"
+                            f"Please select a new time slot."
+                        )
+                        alt_buttons = [{"id": f"btn_slot_{s}", "title": format_time_12h(s)} for s in avail]
+                        state["interactive_buttons"] = alt_buttons
+                        state_manager.save_conversation_state(conversation_code, state)
+                        log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                        return {
+                            "response": response_text,
+                            "intent": "RESCHEDULE_APPOINTMENT",
+                            "language": current_lang,
+                            "interactive_buttons": alt_buttons
+                        }
+
+                pat_id = state.get("dependent_patient_id") or state.get("patient_id")
+                pat_name = state["entities"].get("patient_name_override") or state.get("dependent_name") or "Patient"
+
+                # CASE C: NEW FEE > ORIGINAL PAID (Balance Due)
+                if new_fee > orig_paid:
+                    balance = new_fee - orig_paid
+                    pay_ref = f"PAYBAL{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
+                    pay_db_id = None
+                    if pat_id:
+                        conn = db_config.get_db_connection()
+                        cur = conn.cursor()
+                        try:
+                            cur.execute("""
+                                INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                                VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                RETURNING id;
+                            """, (pay_ref, pat_id, pat_id, balance))
+                            pay_db_id = cur.fetchone()[0]
+                            conn.commit()
+                        except Exception as e:
+                            print(f"[BALANCE_PAYMENT_DB_ERR] Error: {e}")
+                            conn.rollback()
+                        finally:
+                            cur.close()
+                            conn.close()
+
+                    state["is_balance_payment"] = True
+                    state["payment_id"] = pay_db_id
+                    state["payment_reference"] = pay_ref
+                    state["payment_amount"] = balance
+                    state["pending_modified_doctor_id"] = doc_id
+                    state["pending_modified_date"] = appt_date
+                    state["pending_modified_time"] = appt_time
+                    state["conversation_state"] = "PAYMENT_METHOD_REQUIRED"
+
+                    pay_method_buttons = [
+                        {"id": "btn_pay_gpay", "title": "Google Pay"},
+                        {"id": "btn_pay_phonepe", "title": "PhonePe"},
+                        {"id": "btn_pay_paytm", "title": "Paytm"},
+                        {"id": "btn_pay_upi", "title": "UPI"},
+                        {"id": "btn_pay_netbanking", "title": "Net Banking"}
+                    ]
+                    resp = (
+                        f"💳 *Balance Payment Required*\n\n"
+                        f"Original Doctor Fee: ₹{int(orig_paid)} (Paid)\n"
+                        f"New Doctor Fee: ₹{int(new_fee)}\n"
+                        f"**Balance Due: ₹{int(balance)}**\n\n"
+                        f"Please select a payment method to pay the balance of ₹{int(balance)}:"
+                    )
+                    state["interactive_buttons"] = pay_method_buttons
+                    state_manager.save_conversation_state(conversation_code, state)
+                    log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                    return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": pay_method_buttons}
+
+                # CASE B: NEW FEE < ORIGINAL PAID (Refund)
+                refund = 0.0
+                refund_msg = ""
+                if new_fee < orig_paid:
+                    refund = orig_paid - new_fee
+                    ref_pay_ref = f"REF{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
+                    conn = db_config.get_db_connection()
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("""
+                            INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                            VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'MOCK_REFUND', 'REFUNDED', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+                        """, (ref_pay_ref, pat_id, modifying_b_id, pat_id, refund))
+                        conn.commit()
+                    except Exception as e:
+                        print(f"[REFUND_DB_ERR] Error inserting refund: {e}")
+                        conn.rollback()
+                    finally:
+                        cur.close()
+                        conn.close()
+                    refund_msg = f"\n\n💳 *Mock Refund Successful*\nRefund Amount: ₹{int(refund)}\nNew Fee: ₹{int(new_fee)} (Originally Paid: ₹{int(orig_paid)})"
+
+                # Commit modification to appointment table
+                res_mod = tool_registry.tool_reschedule_appointment(
+                    conversation_code=conversation_code,
+                    booking_id=modifying_b_id,
+                    new_date_str=appt_date,
+                    new_time_str=appt_time,
+                    reason="Modified by patient via WhatsApp",
+                    new_doctor_id=doc_id
+                )
+
+                state["modifying_booking_id"] = None
+                state["original_paid_amount"] = None
+                state["is_balance_payment"] = False
+                state["confirmation_pending"] = False
+
+                if res_mod.get("success"):
+                    resp = (
+                        f"✅ *Appointment updated successfully!*{refund_msg}\n\n"
+                        f"Appointment ID: {modifying_b_id}\n"
+                        f"Patient: {pat_name}\n"
+                        f"Doctor: {doc_info['name']}\n"
+                        f"Department: {doc_info['department']}\n"
+                        f"Date: {appt_date}\n"
+                        f"Time: {format_time_12h(appt_time)}"
+                    )
+                    buttons = [
+                        {"id": "btn_my_appts", "title": "My Appointments"},
+                        {"id": "btn_hosp_info", "title": "Main Menu"}
+                    ]
+                else:
+                    resp = f"⚠️ *Modification Failed*: {res_mod.get('error', 'Could not update appointment.')}"
+                    buttons = [{"id": "btn_my_appts", "title": "My Appointments"}]
+
+                state["interactive_buttons"] = buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
+
             if True:
                 doc_id = state["entities"].get("doctor_id")
                 doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
@@ -3752,6 +3965,27 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 finally:
                     cur.close()
                     conn.close()
+
+            if state.get("is_balance_payment") or state.get("modifying_booking_id"):
+                b_id = state.get("modifying_booking_id") or "your appointment"
+                state["is_balance_payment"] = False
+                state["modifying_booking_id"] = None
+                state["original_paid_amount"] = None
+                state["pending_modified_doctor_id"] = None
+                state["pending_modified_date"] = None
+                state["pending_modified_time"] = None
+                state["confirmation_pending"] = False
+                state["conversation_state"] = None
+                resp = f"Modification cancelled. Your original appointment *{b_id}* remains safely unchanged."
+                buttons = [
+                    {"id": "btn_my_appts", "title": "My Appointments"},
+                    {"id": "btn_hosp_info", "title": "Main Menu"}
+                ]
+                state["interactive_buttons"] = buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
+
             state["payment_status"] = "CANCELLED"
             state["confirmation_pending"] = False
             state["conversation_state"] = "AWAITING_INTENT"
@@ -3970,23 +4204,72 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if appt_db_id:
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
-                b_id, doc_id = None, None
+                b_id, doc_id, dept_id, a_date, a_time, p_name, doc_n, dept_n, fee_val, paid_val = None, None, None, None, None, None, None, None, 0.0, 0.0
                 try:
-                    cur.execute("SELECT booking_id, doctor_id FROM appointments WHERE id = %s AND patient_id = %s;", (appt_db_id, pat_id))
+                    cur.execute("""
+                        SELECT a.booking_id, a.doctor_id, a.department_id, a.appointment_date, a.appointment_time,
+                               p.first_name || ' ' || COALESCE(p.last_name, ''),
+                               d.display_name, dept.department_name, d.consultation_fee
+                        FROM appointments a
+                        JOIN patients p ON a.patient_id = p.id
+                        JOIN doctors d ON a.doctor_id = d.id
+                        JOIN departments dept ON a.department_id = dept.id
+                        WHERE a.id = %s;
+                    """, (appt_db_id,))
                     r = cur.fetchone()
                     if r:
-                        b_id, doc_id = r[0], r[1]
+                        b_id, doc_id, dept_id, a_date, a_time, p_name, doc_n, dept_n, fee_val = r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], (float(r[8]) if r[8] else 800.0)
+                        
+                        cur.execute("""
+                            SELECT COALESCE(SUM(amount), 0) FROM payments
+                            WHERE appointment_id = %s AND payment_status = 'SUCCESS';
+                        """, (appt_db_id,))
+                        pay_r = cur.fetchone()
+                        if pay_r and pay_r[0] > 0:
+                            paid_val = float(pay_r[0])
+                        else:
+                            paid_val = fee_val
                 finally:
                     cur.close()
                     conn.close()
+
                 if b_id and doc_id:
+                    state["modifying_booking_id"] = b_id
+                    state["selected_booking_id"] = b_id
+                    state["original_paid_amount"] = paid_val
+                    state["selected_doctor_id"] = doc_id
+                    state["selected_department_id"] = dept_id
                     state["entities"]["booking_id"] = b_id
                     state["entities"]["doctor_id"] = doc_id
-                    state["selected_doctor_id"] = doc_id
+                    state["entities"]["department_id"] = dept_id
+                    state["entities"]["appointment_date"] = str(a_date)
+                    state["entities"]["appointment_time"] = str(a_time)[:5]
                     sync_selected_doctor_state(state, doc_id)
-                    doc_info = resolve_doctor_details(doc_id)
+
+                    d_str = a_date.strftime("%d %b %Y") if hasattr(a_date, "strftime") else str(a_date)
+                    t_str = format_time_12h(str(a_time)[:5])
+                    resp = (
+                        f"📅 *Modify / Reschedule Appointment {b_id}*\n\n"
+                        f"Current Appointment Details:\n"
+                        f"• *Patient*: {p_name or 'Patient'}\n"
+                        f"• *Doctor*: {doc_n}\n"
+                        f"• *Department*: {dept_n}\n"
+                        f"• *Date*: {d_str}\n"
+                        f"• *Time*: {t_str}\n"
+                        f"• *Amount Paid*: ₹{int(paid_val)}\n\n"
+                        f"What detail would you like to change?"
+                    )
+                    buttons = [
+                        {"id": "btn_chg_date",   "title": "Change Date"},
+                        {"id": "btn_chg_time",   "title": "Change Time"},
+                        {"id": "btn_chg_doctor", "title": "Change Doctor"},
+                        {"id": "btn_my_appts",   "title": "My Appointments"}
+                    ]
+                    state["interactive_buttons"] = buttons
                     state["intent"] = "RESCHEDULE_APPOINTMENT"
-                    return build_verified_date_selection_response(conversation_code, state, doc_id, doc_info, current_lang=current_lang, intent="RESCHEDULE_APPOINTMENT")
+                    state_manager.save_conversation_state(conversation_code, state)
+                    log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "RESCHEDULE_APPOINTMENT", state)
+                    return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
 
     # ── NEW: Dynamic button fast-path handlers ──────────────────────────────────
     # These handle btn_doc_{id}, btn_dep_{id}, btn_slot_{HH:MM}, btn_date_*, btn_chg_*
@@ -4236,8 +4519,26 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 pat_gender_val = str(pat_gender_raw).capitalize() if pat_gender_raw and str(pat_gender_raw) != "-" else "-"
                 reason = state["entities"].get("reason") or "General Consultation"
 
+                modifying_b_id = state.get("modifying_booking_id")
+                orig_paid = float(state.get("original_paid_amount", 0.0))
+                new_fee = float(doc_info.get("consultation_fee") or 800)
+
+                fee_line = ""
+                if modifying_b_id:
+                    if new_fee == orig_paid:
+                        fee_line = f"\nConsultation Fee: ₹{int(new_fee)} (Already Paid — No Extra Charge)"
+                    elif new_fee < orig_paid:
+                        refund_val = orig_paid - new_fee
+                        fee_line = f"\nNew Fee: ₹{int(new_fee)} | Originally Paid: ₹{int(orig_paid)}\n💰 *Mock Refund: ₹{int(refund_val)}*"
+                    else:
+                        bal_val = new_fee - orig_paid
+                        fee_line = f"\nNew Fee: ₹{int(new_fee)} | Originally Paid: ₹{int(orig_paid)}\n💳 *Balance Due: ₹{int(bal_val)}*"
+
+                header_text = f"Please confirm your appointment modification ({modifying_b_id}):" if modifying_b_id else "Please confirm your appointment details:"
+                confirm_title = "Confirm Modification" if modifying_b_id else "Confirm Appointment"
+
                 resp = (
-                    f"Please confirm your appointment details:\n\n"
+                    f"{header_text}\n\n"
                     f"Patient: {pat_name or 'Patient'}\n"
                     f"{pat_code_line}"
                     f"DOB: {pat_dob_val}\n"
@@ -4247,9 +4548,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     f"Doctor: {doc_info['name']}\n"
                     f"Date: {appt_date}\n"
                     f"Time: {format_time_12h(pressed_time)}"
+                    f"{fee_line}"
                 )
                 confirm_buttons = [
-                    {"id": "btn_confirm_appt", "title": "Confirm Appointment"},
+                    {"id": "btn_confirm_appt", "title": confirm_title},
                     {"id": "btn_change_appt", "title": "Change Details"},
                     {"id": "btn_cancel_appt", "title": "Cancel"}
                 ]
@@ -4436,12 +4738,66 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             resp = "Please choose your updated preferred appointment time:"
             state["interactive_buttons"] = slot_buttons
         elif chosen_field == "doctor":
-            state["entities"]["doctor_id"] = None
-            state["entities"]["department_id"] = None
-            state["entities"]["appointment_date"] = None
-            state["entities"]["appointment_time"] = None
-            resp = "Which doctor or department would you like to switch to?"
-            state["interactive_buttons"] = []
+            dept_id = state.get("selected_department_id") or state.get("entities", {}).get("department_id")
+            doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+            if not dept_id and doc_id:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    cur.execute("SELECT department_id FROM doctors WHERE id = %s;", (doc_id,))
+                    r_dep = cur.fetchone()
+                    if r_dep:
+                        dept_id = r_dep[0]
+                finally:
+                    cur.close()
+                    conn.close()
+
+            if dept_id:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                docs, dept_name = [], "Department"
+                try:
+                    cur.execute("SELECT department_name FROM departments WHERE id = %s;", (dept_id,))
+                    d_row = cur.fetchone()
+                    if d_row:
+                        dept_name = d_row[0]
+                    cur.execute("""
+                        SELECT id, display_name, specialization, experience_years, consultation_fee, qualification
+                        FROM doctors
+                        WHERE department_id = %s AND status = 'ACTIVE'
+                        ORDER BY display_name ASC;
+                    """, (dept_id,))
+                    docs = cur.fetchall()
+                finally:
+                    cur.close()
+                    conn.close()
+
+                if docs:
+                    doc_lines = []
+                    buttons = []
+                    for d in docs:
+                        d_id, d_name, d_spec, d_exp, d_fee, d_qual = d[0], d[1], d[2], d[3], d[4], d[5]
+                        clean_n = d_name.replace("Dr. Dr.", "Dr.").strip() if d_name else "Doctor"
+                        qual_str = f" · {d_qual}" if d_qual else ""
+                        exp_str = f" ({d_exp} yrs exp)" if d_exp else ""
+                        fee_str = f" · ₹{int(d_fee)}" if d_fee else ""
+                        doc_lines.append(f"• *{clean_n}*{qual_str}{exp_str}{fee_str}")
+                        buttons.append({"id": f"btn_doc_{d_id}", "title": clean_n[:20]})
+
+                    doc_block = "\n".join(doc_lines)
+                    resp = (
+                        f"👨‍⚕️ *{dept_name} Department Specialists*\n\n"
+                        f"Here are the active specialists in *{dept_name}*:\n\n"
+                        f"{doc_block}\n\n"
+                        f"Please tap a doctor to switch your appointment:"
+                    )
+                    state["interactive_buttons"] = buttons[:3]
+                else:
+                    resp = f"No active doctors found in *{dept_name}*."
+                    state["interactive_buttons"] = [language_service.get_translated_button("btn_main_menu", current_lang)]
+            else:
+                resp = "Which doctor or department would you like to switch to?"
+                state["interactive_buttons"] = []
         else:  # reason
             resp = "Please enter your updated reason for visit:"
             state["interactive_buttons"] = []

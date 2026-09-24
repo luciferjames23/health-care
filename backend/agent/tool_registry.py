@@ -124,15 +124,16 @@ def tool_cancel_appointment(conversation_code: str, booking_id: str, reason: str
         log_agent_action(conversation_code, "CANCEL_APPOINTMENT", "CANCEL_APPOINTMENT", input_data, {}, "FAILED", err_msg)
         return {"success": False, "error_code": "UNKNOWN_ERROR", "error": err_msg}
 
-def tool_reschedule_appointment(conversation_code: str, booking_id: str, new_date_str: str, new_time_str: str, reason: str, user_id: int = None) -> dict:
+def tool_reschedule_appointment(conversation_code: str, booking_id: str, new_date_str: str, new_time_str: str, reason: str, user_id: int = None, new_doctor_id: int = None) -> dict:
     input_data = {
         "booking_id": booking_id, "new_date_str": new_date_str, 
-        "new_time_str": new_time_str, "reason": reason, "rescheduled_by_user_id": user_id
+        "new_time_str": new_time_str, "reason": reason, "rescheduled_by_user_id": user_id,
+        "new_doctor_id": new_doctor_id
     }
     try:
         res = appointment_service.reschedule_appointment(
             booking_id=booking_id, new_date_str=new_date_str, new_time_str=new_time_str,
-            reason=reason, rescheduled_by_user_id=user_id
+            reason=reason, rescheduled_by_user_id=user_id, new_doctor_id=new_doctor_id
         )
         log_agent_action(conversation_code, "RESCHEDULE_APPOINTMENT", "RESCHEDULE_APPOINTMENT", input_data, res, "SUCCESS")
         return {"success": True, "data": res}

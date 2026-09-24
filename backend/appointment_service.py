@@ -570,9 +570,9 @@ def cancel_appointment(booking_id, reason, cancelled_by_user_id=None):
         cur.close()
         conn.close()
 
-def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, rescheduled_by_user_id=None):
+def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, rescheduled_by_user_id=None, new_doctor_id=None):
     """
-    Reschedules an active appointment to a new date/time slot.
+    Reschedules an active appointment to a new date/time slot (and optionally a new doctor/department).
     Checks availability and locks the new slot transactionally.
     """
     if not reason or not reason.strip():
@@ -596,6 +596,15 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
             
         appt_id, patient_id, doctor_id, department_id, old_date, old_time, status = row
         
+        target_doctor_id = int(new_doctor_id) if new_doctor_id is not None else doctor_id
+        target_department_id = department_id
+        if target_doctor_id != doctor_id:
+            cur.execute("SELECT department_id FROM doctors WHERE id = %s AND status = 'ACTIVE';", (target_doctor_id,))
+            d_row = cur.fetchone()
+            if not d_row:
+                raise EntityNotFoundError(f"Doctor with ID {target_doctor_id} not found or inactive.", "DOCTOR_NOT_FOUND")
+            target_department_id = d_row[0]
+
         # Validate rescheduled_by_user_id exists
         if rescheduled_by_user_id:
             cur.execute("SELECT 1 FROM users WHERE id = %s AND is_active = true;", (rescheduled_by_user_id,))
@@ -631,11 +640,11 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
         validate_past_datetime(new_date_obj, new_time_obj)
         
         # Verify doctor is active
-        doc_info = validate_doctor(cur, doctor_id)
+        doc_info = validate_doctor(cur, target_doctor_id)
         pat_info = validate_patient(cur, patient_id)
         
         # 2. Check schedule working hours for new date
-        schedule = get_doctor_schedule_for_date(cur, doctor_id, new_date_obj)
+        schedule = get_doctor_schedule_for_date(cur, target_doctor_id, new_date_obj)
         if not schedule:
             raise InvalidScheduleError("Doctor is not scheduled to work on the selected reschedule date.", "DOCTOR_NOT_AVAILABLE")
             
@@ -652,7 +661,7 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
               AND status NOT IN ('CANCELLED', 'RESCHEDULED')
               AND id <> %s
             FOR UPDATE;
-        """, (doctor_id, new_date_obj, new_time_obj, appt_id))
+        """, (target_doctor_id, new_date_obj, new_time_obj, appt_id))
         if cur.fetchone():
             raise SlotUnavailableError("The selected appointment slot is no longer available.", "APPOINTMENT_SLOT_UNAVAILABLE")
             
@@ -661,11 +670,14 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
             UPDATE appointments
             SET appointment_date = %s,
                 appointment_time = %s,
+                doctor_id = %s,
+                department_id = %s,
                 reschedule_reason = %s,
                 rescheduled_by_user_id = %s,
-                rescheduled_at = CURRENT_TIMESTAMP
+                rescheduled_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
-        """, (new_date_obj, new_time_obj, reason, rescheduled_by_user_id, appt_id))
+        """, (new_date_obj, new_time_obj, target_doctor_id, target_department_id, reason, rescheduled_by_user_id, appt_id))
         
         # 5. Write Audit Log
         old_vals = {
