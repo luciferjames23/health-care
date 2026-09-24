@@ -23,12 +23,40 @@ def _record(row):
             record[key] = value.isoformat() if isinstance(value, datetime) else value
     if row.get('scan_report'):
         record['radiologist_report'] = row['scan_report']
+    record['requested_by'] = row.get('requested_by')
+    record['requested_by_name'] = row.get('requested_by_name')
+    record['attending_doctor_name'] = row.get('attending_doctor_name')
+    record['doctor_name'] = row.get('attending_doctor_name') or row.get('requested_by_name')
     return record
 
 
-_SELECT = """SELECT rs.*,o.accession_number,concat_ws(' ',p.first_name,p.last_name) AS patient_name
-FROM radiology_scan rs JOIN radiology_orders o ON o.order_id=rs.order_id
-JOIN patients p ON p.id=o.patient_id WHERE o.status='Uploaded'"""
+_SELECT = """SELECT rs.*, o.accession_number, concat_ws(' ', p.first_name, p.last_name) AS patient_name,
+       o.requested_by,
+       COALESCE(d_req.display_name, u_req.staff_name, u_req.username) AS requested_by_name,
+       a.doctor_id AS admission_doctor_id,
+       COALESCE(split_part(ds.primary_consultant, ',', 1), adm_llm.attending_doctor, d_adm.display_name, d_req.display_name) AS attending_doctor_name
+FROM radiology_scan rs
+JOIN radiology_orders o ON o.order_id = rs.order_id
+JOIN patients p ON p.id = o.patient_id
+LEFT JOIN users u_req ON u_req.id = o.requested_by
+LEFT JOIN doctors d_req ON d_req.user_id = u_req.id
+LEFT JOIN (
+    SELECT DISTINCT ON (patient_id) patient_id, doctor_id
+    FROM admissions
+    ORDER BY patient_id, admission_date DESC NULLS LAST
+) a ON a.patient_id = rs.patient_id
+LEFT JOIN doctors d_adm ON d_adm.id = a.doctor_id
+LEFT JOIN (
+    SELECT DISTINCT ON (patient_id) patient_id, primary_consultant
+    FROM dim_generated_discharge_summaries
+    ORDER BY patient_id, summary_id DESC
+) ds ON ds.patient_id = rs.patient_id
+LEFT JOIN (
+    SELECT DISTINCT ON (patient_id) patient_id, attending_doctor
+    FROM dim_admission_inputs
+    ORDER BY patient_id, admission_id DESC
+) adm_llm ON adm_llm.patient_id = rs.patient_id
+WHERE o.status = 'Uploaded'"""
 
 _TABLES_OK = None  # cached: True once radiology_orders is confirmed to exist
 
@@ -97,13 +125,41 @@ def get_study(study_id):
         return None
 
 
-def list_studies():
+def list_studies(doctor_user_id=None, doctor_id=None, doctor_name=None):
     try:
         with get_connection() as conn:
             if not _tables_exist(conn):
                 return []
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(_SELECT + ' ORDER BY rs.scan_id')
+                if doctor_user_id or doctor_id or doctor_name:
+                    name_clean = f"%{doctor_name.replace('Dr.', '').replace('Dr', '').strip()}%" if doctor_name else ""
+                    sql = _SELECT + """ AND (
+                        o.requested_by = %s
+                        OR rs.patient_id IN (
+                            SELECT patient_id FROM dim_admission_inputs WHERE %s <> '' AND attending_doctor ILIKE %s
+                            UNION
+                            SELECT patient_id FROM dim_generated_discharge_summaries WHERE %s <> '' AND primary_consultant ILIKE %s
+                            UNION
+                            SELECT a.patient_id FROM admissions a
+                            WHERE (a.doctor_id = %s OR a.doctor_id = %s)
+                              AND a.patient_id NOT IN (SELECT patient_id FROM dim_admission_inputs)
+                              AND a.patient_id NOT IN (SELECT patient_id FROM dim_generated_discharge_summaries)
+                            UNION
+                            SELECT patient_id FROM appointments WHERE doctor_id = %s OR doctor_id = %s
+                            UNION
+                            SELECT patient_id FROM pre_admissions WHERE doctor_id = %s OR doctor_id = %s
+                        )
+                    ) ORDER BY rs.scan_id"""
+                    cur.execute(sql, (
+                        doctor_user_id or 0,
+                        name_clean, name_clean,
+                        name_clean, name_clean,
+                        doctor_id or 0, doctor_user_id or 0,
+                        doctor_id or 0, doctor_user_id or 0,
+                        doctor_id or 0, doctor_user_id or 0
+                    ))
+                else:
+                    cur.execute(_SELECT + ' ORDER BY rs.scan_id')
                 return [record for row in cur.fetchall() if (record := _record(row))]
     except Exception:
         return []

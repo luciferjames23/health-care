@@ -286,3 +286,5 @@ def get_gold_summary():
 
 from routers.imaging_orders import router as imaging_orders_router
 app.include_router(imaging_orders_router)
+from routers.radiology_clarifications import router as clarification_router
+app.include_router(clarification_router)

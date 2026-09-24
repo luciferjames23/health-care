@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
+import { ClarificationButton } from './RadiologyClarifications';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
@@ -1522,6 +1523,7 @@ export default function Patient360View({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Top Breadcrumb */}
+      {['doctor', 'radiologist'].includes(currentUser?.role?.toLowerCase()) && <div><ClarificationButton inbox label="My X-ray discussions" /></div>}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
         <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{p.uhid}</span>
@@ -2410,7 +2412,7 @@ export default function Patient360View({
                             </div>
 
                             {studyUid && (
-                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
                                 <button
                                   type="button"
                                   onClick={() => setOhifViewerModal(getOhifViewerUrl(studyUid))}
@@ -2432,6 +2434,7 @@ export default function Patient360View({
                                 >
                                   <span>🖼️</span> Open in OHIF Viewer →
                                 </button>
+                                <ClarificationButton orderId={xo.order_id} />
 
                                 {matchingScan && (
                                   <button

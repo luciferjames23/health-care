@@ -4,7 +4,7 @@ export const OHIF_BASE_URL =
   import.meta.env?.VITE_OHIF_URL ||
   'http://localhost:3000';
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const token = sessionStorage.getItem('hc_auth_token');
   const res = await fetch(`${RADIOLOGY_API_BASE_URL}${path}`, {
     ...options, headers: { ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },

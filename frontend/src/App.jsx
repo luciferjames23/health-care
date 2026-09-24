@@ -346,7 +346,7 @@ export default function App() {
             </div>
           )}
 
-          {['lab', 'criticalvalues', 'diagnostics', 'radiology'].includes(activePage) && !auth.canAccessRadiology ? (
+          {activePage === 'radiology' && !auth?.canAccessRadiology && role !== 'Doctor' && role !== 'Hospital Management' && role !== 'Admin' ? (
             <section role="alert"><h2>No access</h2><p>This workspace requires an active Radiologist account. Sign in with an authorized account.</p></section>
           ) : <>
           {activePage === 'command' && (
@@ -470,6 +470,10 @@ export default function App() {
 
           {activePage === 'criticalvalues' && (
             <ResultsCriticalValuesView
+              currentUser={auth}
+              userRole={role}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              doctorId={auth?.doctorId}
               onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
               onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
             />

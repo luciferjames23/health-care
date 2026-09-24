@@ -52,7 +52,7 @@ from radiology_ai.schemas.inference import (
 )
 
 logger = logging.getLogger("meridian.radiology.integration")
-router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"], dependencies=[Depends(require_radiologist)])
+router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"])
 pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"], dependencies=[Depends(require_radiologist)])
 # Scan-viewing endpoints are open to Doctors AND Radiologists; no router-level guard here.
 scans_router = APIRouter(prefix="/api/radiology", tags=["Radiology Scans"])
@@ -155,13 +155,18 @@ def model_info():
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(file: UploadFile = File(...)):
+async def analyze(file: UploadFile = File(...), _user: dict = Depends(require_radiologist)):
     raise HTTPException(409, 'Select the patient request in X-ray Orders and upload there. Analysis starts after the order upload completes.')
 
 
 @router.get("/worklist", response_model=WorklistResponse)
-def worklist():
-    records = list_studies()
+def worklist(user: dict = Depends(require_radiologist_or_doctor)):
+    role = str(user.get("role", "")).lower()
+    is_doctor = role == "doctor"
+    doctor_user_id = user.get("user_id") if is_doctor else None
+    doctor_id = user.get("doctor_id") if is_doctor else None
+    doctor_name = user.get("name") if is_doctor else None
+    records = list_studies(doctor_user_id=doctor_user_id, doctor_id=doctor_id, doctor_name=doctor_name)
     raw_ids = [
         r.get("original_patient_id") or r.get("metadata", {}).get("patient_id") or r.get("study_id")
         for r in records
@@ -172,7 +177,7 @@ def worklist():
 
 
 @router.get("/studies/{study_id}", response_model=StudyDetailResponse)
-def study_detail(study_id: str):
+def study_detail(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
@@ -181,7 +186,7 @@ def study_detail(study_id: str):
 
 
 @router.post("/studies/{study_id}/ohif-localized")
-def localized_ohif(study_id: str):
+def localized_ohif(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
@@ -192,7 +197,7 @@ def localized_ohif(study_id: str):
 
 
 @router.post("/studies/{study_id}/viewed", response_model=ViewedStatusResponse)
-def viewed(study_id: str):
+def viewed(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
     stamp = datetime.now(timezone.utc).isoformat()
     record = mark_study_viewed(study_id, stamp)
     if record is None:
@@ -337,7 +342,7 @@ def get_scan_endpoint(scan_id: int, _user: dict = Depends(require_radiologist_or
 
 
 @router.put("/scans/{scan_id}")
-def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest):
+def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest, _user: dict = Depends(require_radiologist)):
     """Update empty image data and/or scan report text for a radiology scan."""
     updated = radiology_db.update_scan_image_and_report(
         scan_id=scan_id,

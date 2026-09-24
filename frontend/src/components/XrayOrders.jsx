@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
+import { ClarificationButton } from './RadiologyClarifications';
 import { OHIF_BASE_URL } from '../services/radiologyApi';
 import { Card, btn, primaryBtn } from './RadiologyShared';
 
@@ -175,6 +176,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
                 </td>
                 <td>{order.status}</td>
                 <td>
+                  {order.status === 'Uploaded' && <ClarificationButton orderId={order.order_id} />}
                   {radiologist && order.status !== 'Uploaded' && (
                     <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setFile(null); setError(''); }}>
                       Upload X-ray

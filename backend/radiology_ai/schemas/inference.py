@@ -152,6 +152,10 @@ class WorklistItemResponse(BaseModel):
     localization_summary: LocalizationSummaryResponse
     combined_assessment: CombinedAssessmentResponse
     thumbnail: str  # base64 PNG, reuses the existing original display image
+    requested_by: Optional[int] = None
+    requested_by_name: Optional[str] = None
+    attending_doctor_name: Optional[str] = None
+    doctor_name: Optional[str] = None
 
 
 class WorklistCountsResponse(BaseModel):

@@ -1,4 +1,5 @@
 import XrayOrders from './XrayOrders';
+import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime } from './RadiologyShared';
@@ -156,7 +157,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     return rows;
   }, [data, filter, query, sort]);
 
-  const tabs = [['orders', 'X-ray Orders'], ['worklist', 'AI Worklist'], ['analyze', 'Analyze Study'], ['pacs', 'Demo PACS Studies']];
+  const tabs = [['orders', 'X-ray Orders'], ['worklist', 'AI Worklist'], ['analyze', 'Analyze Study'], ['pacs', 'Demo PACS Studies'], ['clarifications', 'Clarifications']];
 
   return <div>
     <PageHeading
@@ -179,6 +180,9 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     {error && <div style={{ marginBottom: 10 }}><ErrorBox error={error} /></div>}
 
     {tab === 'orders' && <XrayOrders radiologist />}
+    {tab === 'clarifications' && <RadiologyClarifications />}
+    {tab !== 'clarifications' && <div style={{ marginBottom: 12 }}><ClarificationButton inbox label="Clarification inbox" /></div>}
+    {tab === 'analysis' && detail?.order_id && <div style={{ marginBottom: 12 }}><ClarificationButton orderId={detail.order_id} label="Discuss this report" /></div>}
     {tab === 'worklist' && (!data ? <Loading /> : <>
       <SummaryCards counts={data.counts} />
       <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />
