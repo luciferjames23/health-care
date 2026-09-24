@@ -1,4 +1,5 @@
 import XrayOrders from './XrayOrders';
+import { ImagingHistoryButton } from './ImagingHistory';
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
@@ -183,6 +184,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     {tab === 'clarifications' && <RadiologyClarifications />}
     {tab !== 'clarifications' && <div style={{ marginBottom: 12 }}><ClarificationButton inbox label="Clarification inbox" /></div>}
     {tab === 'analysis' && detail?.order_id && <div style={{ marginBottom: 12 }}><ClarificationButton orderId={detail.order_id} label="Discuss this report" /></div>}
+    {tab === 'analysis' && detail?.order_id && <div style={{ marginBottom: 12 }}><ImagingHistoryButton orderId={detail.order_id} label="Compare with prior X-ray" /></div>}
     {tab === 'worklist' && (!data ? <Loading /> : <>
       <SummaryCards counts={data.counts} />
       <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />

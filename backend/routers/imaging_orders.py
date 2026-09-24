@@ -36,6 +36,8 @@ class NewOrder(BaseModel):
     indication: str = Field(min_length=3, max_length=2000)
     priority: Literal['Routine', 'Urgent'] = 'Routine'
     request_id: uuid.UUID
+    follow_up_of: uuid.UUID | None = None
+    clinical_problem: str | None = Field(default=None, min_length=3, max_length=2000)
 
 
 ORDER_SELECT = """
@@ -75,6 +77,10 @@ def create_order(body: NewOrder, user=Depends(order_user)):
         raise HTTPException(403, 'Only a signed-in doctor can request an X-ray.')
     if len(body.indication.strip()) < 3:
         raise HTTPException(422, 'Enter a clinical indication.')
+    if body.clinical_problem is not None and len(body.clinical_problem.strip()) < 3:
+        raise HTTPException(422, 'Enter a clinical problem of at least three characters.')
+    if body.follow_up_of and body.clinical_problem:
+        raise HTTPException(422, 'A follow-up inherits its clinical problem from the prior study.')
     order_id = str(body.request_id)
     accession = 'XR' + body.request_id.hex[:14].upper()
     with db_config.get_db_connection() as conn:
@@ -86,13 +92,28 @@ def create_order(body: NewOrder, user=Depends(order_user)):
             cur.execute('SELECT id FROM patients WHERE id=%s', (body.patient_id,))
             if not cur.fetchone():
                 raise HTTPException(404, 'Patient not found.')
-            cur.execute('''INSERT INTO radiology_orders(order_id,accession_number,patient_id,requested_by,examination,indication,priority)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (order_id) DO NOTHING''',
-                (order_id, accession, body.patient_id, user['user_id'], body.examination, body.indication.strip(), body.priority))
+            from routers.imaging_history import lock_patient, followup_fields, audit_link
+            lock_patient(cur, body.patient_id)
+            cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
+            existing = cur.fetchone()
+            root_id, version = None, 1
+            problem = (body.clinical_problem or body.indication).strip()
+            if not existing:
+                if body.follow_up_of:
+                    root_id, version, problem = followup_fields(cur, body.follow_up_of, body.patient_id, user)
+                cur.execute('''INSERT INTO radiology_orders(order_id,accession_number,patient_id,requested_by,examination,indication,priority,
+                    root_order_id,follow_up_of,study_version,clinical_problem)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (order_id) DO NOTHING''',
+                    (order_id, accession, body.patient_id, user['user_id'], body.examination, body.indication.strip(), body.priority,
+                     root_id,str(body.follow_up_of) if body.follow_up_of else None,version,problem))
+                if cur.rowcount == 1 and body.follow_up_of:
+                    audit_link(cur, order_id, body.follow_up_of, user, 'Requested follow-up study', body.indication.strip())
             cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
             row = dict(cur.fetchone())
             if row['requested_by'] != user['user_id'] or row['patient_id'] != body.patient_id or row['examination'] != body.examination or row['indication'] != body.indication.strip() or row['priority'] != body.priority:
                 raise HTTPException(409, 'This request identifier is already used. Start a new order.')
+            if str(row.get('follow_up_of')) != str(body.follow_up_of) or (not body.follow_up_of and (row.get('clinical_problem') or row['indication']) != problem):
+                raise HTTPException(409, 'This request identifier has different clinical problem details. Start a new order.')
             conn.commit()
             return row
 

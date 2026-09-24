@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
-import { ClarificationButton } from './RadiologyClarifications';
+import { ImagingHistoryButton } from './ImagingHistory';
+import { groupImagingOrders, studyVersion } from '../services/imagingHistory';
+import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
+import { clarificationApi } from '../services/clarificationApi';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
@@ -18,6 +21,20 @@ export default function Patient360View({
   onOpenRadiologyStudy,
 }) {
   const [activeTab, setActiveTab] = useState('Overview');
+  const canDiscussXrays = ['doctor', 'radiologist'].includes(currentUser?.role?.toLowerCase());
+  const [discussionUnread, setDiscussionUnread] = useState(0);
+  useEffect(() => {
+    if (!canDiscussXrays) return undefined;
+    let alive = true;
+    const refreshUnread = () => clarificationApi.list()
+      .then(result => {
+        if (alive) setDiscussionUnread(result.threads.reduce((total, thread) => total + Number(thread.unread), 0));
+      })
+      .catch(() => { if (alive) setDiscussionUnread(0); });
+    refreshUnread();
+    const timer = setInterval(refreshUnread, 15000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [canDiscussXrays, currentUser?.username, activeTab]);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanAlert, setScanAlert] = useState(null);
   const [scanModalOpen, setScanModalOpen] = useState(false);
@@ -775,6 +792,7 @@ export default function Patient360View({
     'Consent',
     'AI Activity',
     'Audit',
+    ...(canDiscussXrays ? ['My X-ray discussions'] : []),
   ];
 
   // Dynamic calculations for itemized billing: Pharmacy, Lab, and Hospital Base/Bed charges
@@ -1523,7 +1541,6 @@ export default function Patient360View({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Top Breadcrumb */}
-      {['doctor', 'radiologist'].includes(currentUser?.role?.toLowerCase()) && <div><ClarificationButton inbox label="My X-ray discussions" /></div>}
       <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
         <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
         <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{p.uhid}</span>
@@ -1789,7 +1806,7 @@ export default function Patient360View({
           </div>
         </div>
 
-        {/* 16 Tabs Row */}
+        {/* Patient modules */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', marginTop: '14px', fontWeight: 500, fontSize: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '4px' }}>
           {TABS.map((t) => (
             <span
@@ -1806,10 +1823,22 @@ export default function Patient360View({
               }}
             >
               {t}
+              {t === 'My X-ray discussions' && discussionUnread > 0 && (
+                <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#e0f2f1', color: '#087e8b', fontSize: '10px' }}>
+                  {discussionUnread} unread
+                </span>
+              )}
             </span>
           ))}
         </div>
       </div>
+
+      {activeTab === 'My X-ray discussions' && canDiscussXrays && (
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
+          <h2 style={{ margin: '0 0 12px', fontSize: '16px' }}>My X-ray discussions</h2>
+          <RadiologyClarifications key={currentUser?.username || currentUser?.user_id || 'discussions'} />
+        </div>
+      )}
 
       {/* Tab 1: Overview */}
       {activeTab === 'Overview' && (
@@ -2350,8 +2379,14 @@ export default function Patient360View({
                       </button>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '10px' }}>
-                      {patientXrayOrders.map((xo) => {
+                    {groupImagingOrders(patientXrayOrders).map(group => (
+                    <section key={group.id} style={{ border: '1px solid #dbe4ec', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                        <div><b>Clinical problem: {group.problem}</b><div style={{ fontSize: '11px', color: '#64748b' }}>{group.studies.length} linked {group.studies.length === 1 ? 'study' : 'studies'} · baseline and follow-ups</div></div>
+                        <ImagingHistoryButton orderId={group.studies.at(-1).order_id} />
+                      </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+                      {group.studies.map((xo) => {
                         const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
                         const isUploaded = xo.status === 'Uploaded' || xo.status === 'Completed';
                         const matchingScan = diagScans.find(s => s.order_id === xo.order_id || s.study_instance_uid === xo.study_instance_uid);
@@ -2371,6 +2406,7 @@ export default function Patient360View({
                               boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
                             }}
                           >
+                            <b style={{ fontSize: '12px', color: '#087e8b' }}>{studyVersion(xo)}</b>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
@@ -2468,6 +2504,8 @@ export default function Patient360View({
                         );
                       })}
                     </div>
+                    </section>
+                    ))}
                   </div>
                 )}
               </div>
@@ -2496,6 +2534,7 @@ export default function Patient360View({
                   </div>
                   <span style={{ fontSize: '11.5px', color: '#687076' }}>
                     Scan #{sc.scan_id} · {sc.review_status || 'Pending Sign-off'}
+                    {sc.order_id && <ImagingHistoryButton orderId={sc.order_id} />}
                   </span>
                 </div>
 
@@ -2620,7 +2659,7 @@ export default function Patient360View({
                           color: diagScanIdx === idx ? '#fff' : '#475569'
                         }}
                       >
-                        Scan #{idx + 1} {s.target === 1 ? '· Opacity' : '· Normal'}
+                        {patientXrayOrders.find(o => o.order_id === s.order_id)?.accession_number || `Scan #${s.scan_id}`} · V{patientXrayOrders.find(o => o.order_id === s.order_id)?.study_version || 1} {s.target === 1 ? '· Opacity' : '· Normal'}
                       </button>
                     ))}
                   </div>
