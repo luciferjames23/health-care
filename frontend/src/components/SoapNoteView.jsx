@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 
 function getPatientDiagnosis(p) {
-  if (!p) return 'Clinical Inpatient Evaluation';
+  if (!p) return 'Clinical Evaluation';
   return resolveClinicalDiagnosis(
-    p.primaryDiagnosis || p.diagnosis || p.primary_diagnosis || p.procedure,
+    p.primaryDiagnosis || p.diagnosis || p.primary_diagnosis || p.chief_complaint || p.reason_for_visit || p.complaint || p.procedure,
     p.reason_for_admission || p.admission_reason
   );
 }

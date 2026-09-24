@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
 export default function AdmissionsView({
   onSelectPatient,
@@ -277,9 +278,8 @@ export default function AdmissionsView({
       {/* Admissions Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading && admissions.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Inpatient Admissions...</div>
-            <div style={{ fontSize: '12px' }}>Fetching admission records from clinical data system…</div>
+          <div style={{ padding: '12px' }}>
+            <TableSkeleton rows={7} columns={8} />
           </div>
         ) : filteredAdmissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>

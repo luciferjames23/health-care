@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
 export default function ClinicalWorkspaceView({
   doctorName = 'Dr. Priya Patel',
@@ -215,9 +216,8 @@ export default function ClinicalWorkspaceView({
       {/* Patient Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading && patientList.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Currently Admitted Patients...</div>
-            <div style={{ fontSize: '12px' }}>Fetching currently admitted patients from clinical data system…</div>
+          <div style={{ padding: '12px' }}>
+            <TableSkeleton rows={7} columns={10} />
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>

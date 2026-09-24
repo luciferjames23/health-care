@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { apiService } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -93,12 +94,17 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
 }
 
 
-function LoadingState({ label = "Loading live data from PostgreSQL..." }) {
+function LoadingState({ label = "Loading live records...", columns = 7, rows = 7 }) {
   return (
-    <div style={{ ...cardStyle, padding: '36px 20px', textAlign: 'center', color: '#64748b' }}>
-      <div style={{ display: 'inline-block', width: '24px', height: '24px', border: '3px solid #cbd5e1', borderTopColor: '#0284c7', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: '10px' }} />
-      <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-      <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>{label}</div>
+    <div style={{ marginTop: '8px' }}>
+      <ModuleLoadingScreen
+        title={label.replace(/ from PostgreSQL\.\.\./g, '...')}
+        subtitle="Retrieving real-time clinical and operational records..."
+        badgeText="Live Sync"
+        showKpis={false}
+        tableRows={rows}
+        tableColumns={columns}
+      />
     </div>
   );
 }
@@ -479,7 +485,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
       <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
         <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
         <span>·</span>
-        <span>Command Centre</span>
+        <span>Executive Dashboard</span>
         <span>›</span>
         <span style={{ color: '#1e293b', fontWeight: 600 }}>Emergency</span>
       </div>
@@ -838,7 +844,7 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
       <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
         <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
         <span>·</span>
-        <span>Command Centre</span>
+        <span>Executive Dashboard</span>
         <span>›</span>
         <span style={{ color: '#1e293b', fontWeight: 600 }}>Consultant Schedules</span>
       </div>
@@ -1211,7 +1217,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
       {/* Header section */}
       <div>
         <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
-          ← Back · Command Centre › Nursing Workspace
+          ← Back · Executive Dashboard › Nursing Workspace
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
           <div>
@@ -1616,7 +1622,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
       {/* Header section */}
       <div>
         <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
-          – Back · Command Centre › Medication Administration
+          – Back · Executive Dashboard › Medication Administration
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
           <div>

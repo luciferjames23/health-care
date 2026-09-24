@@ -6,7 +6,7 @@ export const NAV_GROUPS = [
   {
     title: 'FRONT OFFICE & PATIENTS',
     items: [
-      { id: 'command', label: 'Command Centre' },
+      { id: 'command', label: 'Executive Dashboard' },
       { id: 'patients', label: 'Patients' },
       { id: 'appointments', label: 'Appointments' },
       { id: 'pre-admission', label: 'Pre-Admission Desk' },

@@ -91,7 +91,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
           ],
           actions: [
             { label: 'Open Bed Demand Analytics', target: 'beds' },
-            { label: 'View Command Centre', target: 'command' }
+            { label: 'View Executive Dashboard', target: 'command' }
           ]
         };
       } else if (lowerQ.includes('bill') || lowerQ.includes('claim')) {

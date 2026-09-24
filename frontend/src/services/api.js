@@ -1114,6 +1114,18 @@ export const apiService = {
     clearAllStorageCache();
     notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/vitals`, data);
     return data;
+  },
+
+  async getAllPatientsDirectory(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.category) query.append('category', params.category);
+    if (params.search) query.append('search', params.search);
+    if (params.limit) query.append('limit', params.limit);
+    if (params.offset) query.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/all-patients?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
   }
 };
 

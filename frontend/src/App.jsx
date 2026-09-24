@@ -617,7 +617,7 @@ export default function App() {
                     cursor: 'pointer', fontSize: '12px'
                   }}
                 >
-                  Return to Command Centre
+                  Return to Executive Dashboard
                 </button>
               </div>
             </div>

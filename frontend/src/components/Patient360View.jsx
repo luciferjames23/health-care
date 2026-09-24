@@ -139,6 +139,14 @@ export default function Patient360View({
       const m = str.match(/\d+/);
       return m ? m[0].replace(/^0+/, '') || '0' : str;
     };
+    const isOpPatient = patient?.patient_type === 'OP' || patient?._type === 'OP' || patient?.care_type === 'OP' || Boolean(patient?.appointment_number);
+    const isErPatient = patient?.patient_type === 'ER' || patient?._type === 'ER' || patient?.care_type === 'ER' || Boolean(patient?.triage_number);
+
+    if (isOpPatient || isErPatient) {
+      setLiveAdmission(null);
+      return;
+    }
+
     const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn);
     const aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter);
     const pnum = patient?.patient_number || patient?.patient_code || patient?.uhid || patient?.mrn;
@@ -280,6 +288,10 @@ export default function Patient360View({
     const rawPid = d.patient_id || raw.patient_id || d.id;
     const rawAdmId = d.admission_id || raw.admission_id;
 
+    // Detect care stream types
+    const isOP = d.patient_type === 'OP' || d._type === 'OP' || d.care_type === 'OP' || raw.patient_type === 'OP' || String(d.patient_type || '').toUpperCase() === 'OP' || String(d.appointment_type || '').toUpperCase() === 'OPD' || Boolean(d.appointment_number && !rawAdmId);
+    const isER = d.patient_type === 'ER' || d._type === 'ER' || d.care_type === 'ER' || raw.patient_type === 'ER' || String(d.patient_type || '').toUpperCase() === 'ER' || Boolean(d.triage_number || d.triage_bay);
+
     // Unpack llm_input_json if available
     let parsedLlm = null;
     if (raw.llm_input_json) {
@@ -301,7 +313,7 @@ export default function Patient360View({
 
     const firstName = demo.first_name || raw.first_name || '';
     const lastName = demo.last_name || raw.last_name || '';
-    const name = d.name || d.patient || d.patient_name || (firstName ? `${firstName} ${lastName}`.trim() : (raw.patient_name || (rawPid ? `Patient #${rawPid}` : 'Inpatient')));
+    const name = d.name || d.patient || d.patient_name || (firstName ? `${firstName} ${lastName}`.trim() : (raw.patient_name || (rawPid ? `Patient #${rawPid}` : (isOP ? 'Outpatient' : isER ? 'Emergency Patient' : 'Inpatient'))));
 
     const uhid = d.mrn || d.uhid || raw.patient_code || demo.patient_number || (rawPid ? `MER-PAT-${String(rawPid).padStart(7, '0')}` : 'MER-PAT-0000000');
     const age = d.age || raw.age_at_admission || demo.age_at_admission || raw.age || '—';
@@ -313,24 +325,55 @@ export default function Patient360View({
     const email = demo.email || raw.email || (rawPid ? `patient.${rawPid}@hospital.com` : 'patient@hospital.com');
     const address = [demo.address, demo.city, demo.state].filter(Boolean).join(', ') || raw.address || 'Chennai, Tamil Nadu';
 
-    const rawAdmNum = adm.admission_number || raw.admission_number || d.admission_number || (rawAdmId ? `MER-ADM-${String(rawAdmId).padStart(7, '0')}` : 'ENC-000000');
-    const encounter = d.encounter || (rawAdmNum.startsWith('ENC-') ? rawAdmNum : `ENC-${rawAdmNum}`);
+    const rawAdmNum = adm.admission_number || raw.admission_number || d.admission_number || (rawAdmId ? `MER-ADM-${String(rawAdmId).padStart(7, '0')}` : (isOP ? (d.appointment_number || `APT-2026-${String(rawPid || '661').slice(-4)}`) : isER ? (d.triage_number || `ER-2026-${String(rawPid || '4421').slice(-4)}`) : 'ENC-000000'));
+    
+    let encounter = d.encounter;
+    if (!encounter) {
+      if (isOP) {
+        encounter = d.appointment_number || (rawAdmNum.startsWith('APT-') ? rawAdmNum : `APT-${rawAdmNum}`);
+      } else if (isER) {
+        encounter = d.triage_number || (rawAdmNum.startsWith('ER-') ? rawAdmNum : `ER-${rawAdmNum}`);
+      } else {
+        encounter = rawAdmNum.startsWith('ENC-') ? rawAdmNum : `ENC-${rawAdmNum}`;
+      }
+    }
+
     const isSyntheticBed = (val) => typeof val === 'string' && /^bed \d+$/i.test(val.trim());
     const validCandidate = [assignedBed?.bed_number, liveAdmission?.bed_number, raw.bed_number, adm.bed_number, d.bed_number, d.bed]
       .find(cand => cand && !isSyntheticBed(cand));
-    const bed = validCandidate || 'BED-0193';
-    const room = assignedBed?.room_number || liveAdmission?.room_number || raw.room_number || 'RM-044';
-    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || 'Clinical Services';
-    const ward = assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept;
-    const doctor = d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || 'Dr. Sneha Das';
-    const insurer = d.insurer || d.insurance || (billing.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate');
+    
+    let bed = d.bed;
+    if (isOP) {
+      bed = '— (Outpatient Desk)';
+    } else if (isER) {
+      bed = d.bed || (d.triage_bay ? `Bay ${d.triage_bay}` : 'Emergency Bay 14');
+    } else if (isDischarged) {
+      bed = validCandidate || 'BED-0193';
+    } else {
+      bed = validCandidate || 'BED-0193';
+    }
+
+    let room = d.room;
+    if (isOP) {
+      room = 'OPD-Desk';
+    } else if (isER) {
+      room = 'ER-Triage';
+    } else {
+      room = assignedBed?.room_number || liveAdmission?.room_number || raw.room_number || 'RM-044';
+    }
+
+    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || (isER ? 'Emergency Medicine' : 'Clinical Services');
+    const ward = isOP ? 'Outpatient Services' : isER ? 'Emergency Department' : (assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept);
+    const doctor = d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || (isER ? 'Emergency Physician' : 'Dr. Sneha Das');
+    const insurer = d.insurer || d.insurance || (isOP ? 'Direct / Outpatient' : isER ? 'Emergency Direct' : (billing.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate'));
     const risk = d.risk || (vitals.latest_heart_rate > 100 || vitals.latest_oxygen_saturation < 95 ? 'Moderate' : 'None');
     const attendant = d.attendant || (demo.emergency_contact_name ? `${demo.emergency_contact_name} · ${lang}` : 'Family Member · ' + lang);
 
     // Dynamic database billing information
-    const billNumber = liveBill?.bill_number || raw.bill_number || d.bill_number || billing.bill_number || (rawAdmId ? `MER-BIL-${String(rawAdmId).padStart(7, '0')}` : 'MER-BIL-0000000');
-    const billGrossAmount = Number(liveBill?.gross_amount ?? billing.bill_gross_amount ?? raw.gross_amount ?? raw.bill_gross_amount ?? 246000);
-    const rawBillNet = liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? billGrossAmount;
+    const defaultBillAmount = isOP ? (Number(d.bill_amount) || 800) : isER ? (Number(d.bill_amount) || 2500) : 246000;
+    const billNumber = liveBill?.bill_number || raw.bill_number || d.bill_number || billing.bill_number || (isOP ? `OP-BIL-${String(rawPid || '101').padStart(6, '0')}` : isER ? `ER-BIL-${String(rawPid || '101').padStart(6, '0')}` : (rawAdmId ? `MER-BIL-${String(rawAdmId).padStart(7, '0')}` : 'MER-BIL-0000000'));
+    const billGrossAmount = Number(liveBill?.gross_amount ?? billing.bill_gross_amount ?? raw.gross_amount ?? raw.bill_gross_amount ?? d.bill_amount ?? defaultBillAmount);
+    const rawBillNet = liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? d.bill_amount ?? billGrossAmount;
     const billNetAmount = Number(rawBillNet);
     const discountAmount = Number(liveBill?.discount_amount ?? billing.bill_discount_amount ?? 0);
     const taxAmount = Number(liveBill?.tax_amount ?? billing.bill_tax_amount ?? 0);
@@ -357,18 +400,16 @@ export default function Patient360View({
     );
 
     // Determine if bill is genuinely cleared:
-    // It is cleared only if NOT explicitly pending, AND either marked cleared/paid/settled OR balance is 0
-    const isCleared = !isExplicitlyPending && (
+    const isCleared = isOP || (!isExplicitlyPending && (
       rawClearance.toLowerCase() === 'cleared' ||
       ['PAID', 'SETTLED'].includes(String(raw.bill_status || '').toUpperCase()) ||
       ['PAID', 'SETTLED'].includes(String(liveBill?.bill_status || '').toUpperCase()) ||
       (rawAdmOutstanding !== null && rawAdmOutstanding <= 0) ||
       (successfulPaymentsTotal >= billNetAmount && billNetAmount > 0)
-    );
+    ));
 
-    // If cleared, outstanding balance is strictly 0.
-    // If pending, use rawAdmOutstanding or liveBill patient liability minus payments.
-    const calculatedOutstanding = isCleared
+    // Outstanding balance
+    const calculatedOutstanding = (isOP || isCleared)
       ? 0
       : (rawAdmOutstanding !== null
           ? rawAdmOutstanding
@@ -376,8 +417,8 @@ export default function Patient360View({
         );
     const outstandingBalance = Math.max(0, calculatedOutstanding);
 
-    const billStatus = isCleared ? 'Paid' : (rawBillStatus === 'Settled' && !isCleared ? 'Pending' : rawBillStatus);
-    const clearanceStatus = isCleared ? 'Cleared' : (rawClearance || 'Pending');
+    const billStatus = isOP ? 'Paid' : isCleared ? 'Paid' : (rawBillStatus === 'Settled' && !isCleared ? 'Pending' : rawBillStatus);
+    const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || 'Pending');
 
     const rawDischargeStatus = String(
       liveAdmission?.discharge_status ||
@@ -395,7 +436,7 @@ export default function Patient360View({
       ''
     ).trim().toLowerCase();
 
-    const isDischarged = (
+    const isDischarged = !isOP && !isER && (
       rawDischargeStatus === 'discharged' ||
       rawDischargeStatus === 'completed' ||
       summaryApproval === 'approved' ||
@@ -405,20 +446,89 @@ export default function Patient360View({
       d.isCompleted === true
     );
 
-    const billingStatusDisplay = isDischarged
-      ? 'Discharged · Settled'
-      : (isCleared
-          ? 'Cleared · Paid'
-          : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Pending Clearance'));
+    const isInpatient = !isOP && !isER && !isDischarged;
 
-    const status = isDischarged
-      ? 'Discharged'
-      : (d.status || d._status || (isCleared ? 'Cleared for Discharge' : 'Admitted · Pending Clearance'));
+    const billingStatusDisplay = isOP
+      ? 'Settled · Outpatient Fee'
+      : isER
+        ? 'Emergency Active · Covered'
+        : isDischarged
+          ? 'Discharged · Settled'
+          : (isCleared
+              ? 'Cleared · Paid'
+              : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Pending Clearance'));
+
+    const status = isOP
+      ? 'Outpatient Consultation'
+      : isER
+        ? 'Emergency Triage Active'
+        : isDischarged
+          ? 'Discharged'
+          : (d.status || d._status || (isCleared ? 'Cleared for Discharge' : 'Admitted · Pending Clearance'));
+
+    let statusBadge = {
+      text: isCleared ? 'Bill Cleared · Admitted' : 'Admitted · Pending Clearance',
+      bg: isCleared ? '#dcfce7' : '#fee2e2',
+      color: isCleared ? '#15803d' : '#991b1b',
+      border: isCleared ? '#bbf7d0' : '#fecaca',
+    };
+    if (isOP) {
+      statusBadge = {
+        text: 'Outpatient Consultation · Active',
+        bg: '#e0f2fe',
+        color: '#0369a1',
+        border: '#bae6fd',
+      };
+    } else if (isER) {
+      statusBadge = {
+        text: 'Emergency Triage · Active',
+        bg: '#fef3c7',
+        color: '#92400e',
+        border: '#fde68a',
+      };
+    } else if (isDischarged) {
+      statusBadge = {
+        text: isCleared ? 'Bill Cleared · Discharged' : 'Discharged',
+        bg: '#e0f2fe',
+        color: '#0369a1',
+        border: '#bae6fd',
+      };
+    } else if (isCleared) {
+      statusBadge = {
+        text: 'Bill Cleared · Admitted',
+        bg: '#dcfce7',
+        color: '#15803d',
+        border: '#bbf7d0',
+      };
+    } else if (outstandingBalance > 0) {
+      statusBadge = {
+        text: `Pending Clearance · ₹${outstandingBalance.toLocaleString('en-IN')}`,
+        bg: '#fee2e2',
+        color: '#991b1b',
+        border: '#fecaca',
+      };
+    }
     
     // Clinical diagnoses & procedures
-    const rawPrimary = diag.primary_diagnosis || (diag.diagnoses_list?.[0]?.diagnosis_name) || raw.primary_diagnosis || d.primaryDiagnosis || d.procedure;
+    const rawPrimary = diag.primary_diagnosis 
+      || (diag.diagnoses_list?.[0]?.diagnosis_name) 
+      || raw.primary_diagnosis 
+      || d.primary_diagnosis 
+      || d.primaryDiagnosis 
+      || d.diagnosis 
+      || d.chief_complaint 
+      || d.reason_for_visit 
+      || d.complaint 
+      || raw.diagnosis 
+      || raw.chief_complaint 
+      || raw.reason_for_visit 
+      || raw.reason_for_admission 
+      || d.reason_for_admission 
+      || d.procedure 
+      || (isOP ? 'Routine Outpatient Follow-up' : isER ? 'Emergency Evaluation' : 'Clinical Care Evaluation');
+
     const reasonAdm = raw.reason_for_admission || adm.reason_for_admission || d.reason_for_admission || d.admission_reason;
-    const primaryDiagnosis = resolveClinicalDiagnosis(rawPrimary, reasonAdm);
+    const primaryDiagnosis = resolveClinicalDiagnosis(rawPrimary, '');
 
     // Extract genuine secondary diagnoses only (if any exist in database)
     const rawSecList = Array.isArray(diag.secondary_diagnoses)
@@ -431,7 +541,7 @@ export default function Patient360View({
     if (Array.isArray(diag.diagnoses_list)) {
       diag.diagnoses_list.forEach(item => {
         if (!item.is_primary && item.diagnosis_type?.toLowerCase() !== 'primary') {
-          const resSec = resolveClinicalDiagnosis(item.diagnosis_name);
+          const resSec = resolveClinicalDiagnosis(item.diagnosis_name, '');
           if (resSec && resSec !== primaryDiagnosis && !secondaryDiagnosesList.includes(resSec)) {
             secondaryDiagnosesList.push(resSec);
           }
@@ -439,25 +549,32 @@ export default function Patient360View({
       });
     }
     rawSecList.forEach(item => {
-      const resSec = resolveClinicalDiagnosis(item);
+      const resSec = resolveClinicalDiagnosis(item, '');
       if (resSec && resSec !== primaryDiagnosis && !secondaryDiagnosesList.includes(resSec)) {
         secondaryDiagnosesList.push(resSec);
       }
     });
 
     const secondaryDiagnoses = secondaryDiagnosesList.join(', ') || 'None recorded';
-    const procedure = d.procedure || procs?.[0]?.procedure_name || raw.procedure_name || reasonAdm || primaryDiagnosis;
+    const procedure = d.procedure || (isOP ? (primaryDiagnosis || 'Outpatient Consultation') : isER ? (primaryDiagnosis || 'Emergency Triage & Assessment') : (procs?.[0]?.procedure_name || raw.procedure_name || reasonAdm || primaryDiagnosis));
     
-    const rawDate = raw.admission_date || adm.admission_date || d.admission_date;
-    const admittedDate = rawDate ? new Date(rawDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '17 May 2025';
-    const admittedTime = rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '12:00 pm';
+    const rawDate = isOP 
+      ? (d.appointment_date || raw.admission_date || adm.admission_date)
+      : isER
+        ? (d.admission_date || d.triage_time || raw.admission_date)
+        : (raw.admission_date || adm.admission_date || d.admission_date);
+
+    const admittedDate = rawDate ? new Date(rawDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (isOP || isER ? '24 Sep 2026' : '17 May 2025');
+    const admittedTime = isOP 
+      ? (d.appointment_time || (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '10:30 am'))
+      : (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '12:00 pm');
 
     // Build comprehensive, deduplicated list of clinical diagnoses for Diagnoses view
     const diagnosesList = [];
     const seenDxNames = new Set();
 
     // 1. Primary Diagnosis (always first, exactly one)
-    const primaryCode = (diag.diagnoses_list && diag.diagnoses_list[0]?.diagnosis_code) || raw.diagnosis_code || (typeof rawPrimary === 'string' && rawPrimary.match(/D-\d+/i) ? rawPrimary.match(/D-\d+/i)[0] : 'D-0');
+    const primaryCode = (diag.diagnoses_list && diag.diagnoses_list[0]?.diagnosis_code) || raw.diagnosis_code || (typeof rawPrimary === 'string' && rawPrimary.match(/D-\d+/i) ? rawPrimary.match(/D-\d+/i)[0] : (isOP ? 'OPD-DX-01' : isER ? 'ER-DX-01' : 'D-0'));
     const primaryDate = (diag.diagnoses_list && diag.diagnoses_list[0]?.diagnosis_date)
       ? new Date(diag.diagnoses_list[0].diagnosis_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       : admittedDate;
@@ -469,7 +586,7 @@ export default function Patient360View({
       date: primaryDate,
       doctor: doctor,
       status: 'Active',
-      indication: reasonAdm || 'Inpatient Admission'
+      indication: reasonAdm || (isOP ? 'Outpatient Consultation' : isER ? 'Emergency Triage' : 'Inpatient Admission')
     });
     seenDxNames.add(primaryDiagnosis.toLowerCase());
 
@@ -490,27 +607,40 @@ export default function Patient360View({
     });
     const admitted = d.admitted || `${admittedDate}, ${admittedTime}`;
     const condition = d.condition || `Clinically stable (${doctor})`;
-    const dischargeInfo = d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}`);
+    const dischargeInfo = isOP
+      ? 'Completed same-day outpatient visit'
+      : isER
+        ? 'Active emergency observation in Bay'
+        : (d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}`));
 
     // Vitals summary
     const latestVitalRec = patientVitalsHistory[0];
-    const sbp = latestVitalRec?.systolic_bp || Number(vitals.latest_systolic_bp ?? raw.latest_systolic_bp ?? raw.systolic_bp ?? raw.sbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[0] : null)) || (rawPid ? 110 + (Number(String(rawPid).replace(/\D/g, '')) % 40) : 148);
-    const dbp = latestVitalRec?.diastolic_bp || Number(vitals.latest_diastolic_bp ?? raw.latest_diastolic_bp ?? raw.diastolic_bp ?? raw.dbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[1] : null)) || (rawPid ? 70 + (Number(String(rawPid).replace(/\D/g, '')) % 20) : 86);
-    const hr = latestVitalRec?.heart_rate || Number(vitals.latest_heart_rate ?? raw.latest_heart_rate ?? raw.heart_rate ?? raw.hr ?? d.vitals?.hr) || (rawPid ? 65 + (Number(String(rawPid).replace(/\D/g, '')) % 45) : 104);
+    const sbp = latestVitalRec?.systolic_bp || Number(vitals.latest_systolic_bp ?? raw.latest_systolic_bp ?? raw.systolic_bp ?? raw.sbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[0] : null)) || (rawPid ? 110 + (Number(String(rawPid).replace(/\D/g, '')) % 40) : 120);
+    const dbp = latestVitalRec?.diastolic_bp || Number(vitals.latest_diastolic_bp ?? raw.latest_diastolic_bp ?? raw.diastolic_bp ?? raw.dbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[1] : null)) || (rawPid ? 70 + (Number(String(rawPid).replace(/\D/g, '')) % 20) : 80);
+    const hr = latestVitalRec?.heart_rate || Number(vitals.latest_heart_rate ?? raw.latest_heart_rate ?? raw.heart_rate ?? raw.hr ?? d.vitals?.hr) || (rawPid ? 65 + (Number(String(rawPid).replace(/\D/g, '')) % 35) : 78);
     
     const rawSpo2 = latestVitalRec?.oxygen_saturation ?? vitals.latest_oxygen_saturation ?? raw.latest_oxygen_saturation ?? raw.oxygen_saturation ?? raw.spo2 ?? d.vitals?.spo2;
-    const spo2 = rawSpo2 != null ? (Number(rawSpo2) > 100 ? (Number(rawSpo2)/10).toFixed(2) : Number(rawSpo2).toFixed(2).replace(/\.00$/, '')) : (rawPid ? (95 + (Number(String(rawPid).replace(/\D/g, '')) % 4) + 0.03).toFixed(2) : '97.03');
+    const spo2 = rawSpo2 != null ? (Number(rawSpo2) > 100 ? (Number(rawSpo2)/10).toFixed(2) : Number(rawSpo2).toFixed(2).replace(/\.00$/, '')) : (rawPid ? (96 + (Number(String(rawPid).replace(/\D/g, '')) % 3) + 0.5).toFixed(2) : '98.5');
     
     const rawTemp = latestVitalRec?.temperature ?? vitals.latest_temperature ?? raw.latest_temperature ?? raw.temperature ?? raw.temp ?? d.vitals?.temp;
-    const temp = rawTemp != null ? Number(rawTemp).toFixed(2).replace(/\.00$/, '') : (rawPid ? (98 + (Number(String(rawPid).replace(/\D/g, '')) % 2) + 0.64).toFixed(2) : '98.64');
+    const temp = rawTemp != null ? Number(rawTemp).toFixed(2).replace(/\.00$/, '') : (rawPid ? (98 + (Number(String(rawPid).replace(/\D/g, '')) % 2) + 0.4).toFixed(2) : '98.6');
     
     const rr = latestVitalRec?.respiratory_rate || Number(vitals.latest_respiratory_rate ?? raw.respiratory_rate ?? raw.rr ?? 18);
+    
     // Strict clinical temporal synchronization
     let dischargeFormattedDate;
     let dischargeFormattedTime = '01:38 PM';
     let dischargeDateTime;
 
-    if (isDischarged) {
+    if (isOP) {
+      dischargeFormattedDate = 'N/A (OP Visit)';
+      dischargeFormattedTime = 'Same-day Exit';
+      dischargeDateTime = 'Outpatient Consultation (No IP Stay)';
+    } else if (isER) {
+      dischargeFormattedDate = 'Pending Triage';
+      dischargeFormattedTime = 'Active Observation';
+      dischargeDateTime = 'Emergency Observation';
+    } else if (isDischarged) {
       // Completed discharge: discharged on 23 Sept 2026 (or discharge_date)
       const rawDisDate = dischargeSummary?.discharge_date || liveAdmission?.discharge_date || raw.discharge_date || d.discharge_date || adm.discharge_date;
       dischargeFormattedDate = rawDisDate
@@ -537,21 +667,26 @@ export default function Patient360View({
     let vitalsTakenTime;
     if (latestVitalRec?.recorded_at) {
       vitalsTakenTime = new Date(latestVitalRec.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } else if (isOP) {
+      vitalsTakenTime = `${admittedDate}, ${admittedTime}`;
+    } else if (isER) {
+      vitalsTakenTime = '24 Sept 2026, 09:45 AM';
     } else if (isDischarged) {
-      // Discharged patient: vitals check taken on the same day prior to sign-off
       vitalsTakenTime = `${dischargeFormattedDate}, 10:00 AM`;
     } else if (isCleared) {
-      // Ready patient: vitals check taken today during morning shift
       vitalsTakenTime = '24 Sept 2026, 09:30 AM';
     } else {
-      // Active inpatient: morning rounds
       vitalsTakenTime = '24 Sept 2026, 07:30 AM';
     }
 
     const latestBp = `BP ${sbp}/${dbp} · HR ${hr} bpm · SpO2 ${spo2}% · Temp ${temp}°F`;
-    const stayDays = adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24))) : (rawPid ? ((Number(String(rawPid).replace(/\D/g, '')) % 14) + 1) : 14));
+    const stayDays = (isOP || isER) ? 1 : (adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24))) : (rawPid ? ((Number(String(rawPid).replace(/\D/g, '')) % 14) + 1) : 14)));
 
     return {
+      isOP,
+      isER,
+      isInpatient,
+      statusBadge,
       patient_id: rawPid,
       admission_id: rawAdmId,
       uhid,
@@ -669,6 +804,56 @@ export default function Patient360View({
     const todayDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     const currentActivityDate = (p.current_stay_days && p.current_stay_days > 1) ? todayDate : p.admittedDate;
     
+    if (p.isOP) {
+      list.push({
+        t: `${p.admittedDate} 11:30`,
+        ts: 100,
+        c: '#0284c7',
+        e: `Prescription issued · ${p.procedure || p.primaryDiagnosis}`
+      });
+      list.push({
+        t: `${p.admittedDate} 10:45`,
+        ts: 90,
+        c: 'oklch(0.5 0.1 200)',
+        e: `OPD Consultation encounter · ${p.doctor} (${p.dept})`
+      });
+      list.push({
+        t: `${p.admittedDate} 10:15`,
+        ts: 80,
+        c: '#64748b',
+        e: `Vitals & Clinical Check-in · Outpatient Desk`
+      });
+      list.push({
+        t: `${p.admittedDate} 09:30`,
+        ts: 70,
+        c: 'oklch(0.5 0.13 70)',
+        e: `Appointment Checked In · Token ${p.encounter}`
+      });
+      return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    }
+
+    if (p.isER) {
+      list.push({
+        t: `${p.admittedDate} 10:45`,
+        ts: 100,
+        c: '#b45309',
+        e: `Trauma & Emergency Evaluation · ${p.doctor}`
+      });
+      list.push({
+        t: `${p.admittedDate} 10:15`,
+        ts: 90,
+        c: '#ef4444',
+        e: `Emergency Intake & Triage · Assigned to ${p.bed}`
+      });
+      list.push({
+        t: `${p.admittedDate} 09:50`,
+        ts: 80,
+        c: '#64748b',
+        e: `STAT Vitals & Clinical Assessment · Stabilized`
+      });
+      return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    }
+
     // 1. Recent Patient Communications & Care Updates (Current / Active Day)
     list.push({
       t: `${currentActivityDate} 12:47`,
@@ -1444,18 +1629,12 @@ export default function Patient360View({
                   borderRadius: '4px',
                   fontSize: '11px',
                   fontWeight: 600,
-                  background: p.isDischarged
-                    ? '#e0f2fe'
-                    : (p.isCleared ? '#dcfce7' : '#fee2e2'),
-                  color: p.isDischarged
-                    ? '#0369a1'
-                    : (p.isCleared ? '#15803d' : '#991b1b'),
-                  border: `1px solid ${p.isDischarged ? '#bae6fd' : (p.isCleared ? '#bbf7d0' : '#fecaca')}`,
+                  background: p.statusBadge.bg,
+                  color: p.statusBadge.color,
+                  border: `1px solid ${p.statusBadge.border}`,
                 }}
               >
-                {p.isDischarged
-                  ? (p.isCleared ? 'Bill Cleared · Discharged' : 'Discharged')
-                  : (p.isCleared ? 'Bill Cleared · Admitted' : (p.outstandingBalance > 0 ? `Pending Clearance · ₹${p.outstandingBalance.toLocaleString('en-IN')}` : 'Pending Bill Clearance'))}
+                {p.statusBadge.text}
               </span>
             </div>
 
@@ -1540,29 +1719,71 @@ export default function Patient360View({
             >
               Message patient
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (onOpenDischarge) {
-                  onOpenDischarge();
-                } else if (onNavigate) {
-                  onNavigate('discharge');
-                }
-              }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                border: 0,
-                background: p.isDischarged ? '#0d5244' : 'oklch(0.5 0.1 200)',
-                color: '#fff',
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
-              {p.isDischarged ? '✓ Discharge Summary (Signed Off)' : 'Open discharge case'}
-            </button>
+            {p.isOP ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigate) onNavigate('doctor-portal');
+                }}
+                style={{
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: 0,
+                  background: '#0284c7',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                OPD Consultation · Active
+              </button>
+            ) : p.isER ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigate) onNavigate('emergency');
+                }}
+                style={{
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: 0,
+                  background: '#b45309',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                Emergency Triage · Active
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenDischarge) {
+                    onOpenDischarge();
+                  } else if (onNavigate) {
+                    onNavigate('discharge');
+                  }
+                }}
+                style={{
+                  height: '30px',
+                  padding: '0 12px',
+                  borderRadius: '6px',
+                  border: 0,
+                  background: p.isDischarged ? '#0d5244' : 'oklch(0.5 0.1 200)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                {p.isDischarged ? '✓ Discharge Summary (Signed Off)' : 'Open discharge case'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1736,10 +1957,18 @@ export default function Patient360View({
         <TableContainer
           cols={['ID', 'Doctor', 'Time', 'Type', 'Channel', 'Status']}
           grid="120px minmax(180px, 1fr) 140px 180px 140px 100px"
-          rows={[
-            [`APT-${p.patient_id || p.admission_id || '01'}-01`, p.doctor, p.admittedDate || '17 May 2025', `${p.dept} Inpatient Admission`, 'Clinical Referral', 'Completed'],
-            [`APT-${p.patient_id || p.admission_id || '01'}-02`, p.doctor, 'Daily Round 10:00 AM', 'Inpatient Ward Review', 'Ward Workstation', 'Completed'],
-          ]}
+          rows={
+            p.isOP ? [
+              [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, `${p.dept} Outpatient Consultation`, 'OPD Desk', 'Confirmed'],
+              [`APT-FOLLOWUP-${p.patient_id || '01'}`, p.doctor, 'Next Week 10:00 AM', 'Outpatient Follow-up Review', 'OPD Portal', 'Scheduled'],
+            ] : p.isER ? [
+              [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Emergency Triage & Assessment', 'Emergency Desk', 'Active'],
+              [`ER-OBS-${p.patient_id || '01'}`, p.doctor, 'Observation Bay Review', 'Clinical Trauma Monitoring', 'ER Station', 'In Progress'],
+            ] : [
+              [`APT-${p.patient_id || p.admission_id || '01'}-01`, p.doctor, p.admittedDate || '17 May 2025', `${p.dept} Inpatient Admission`, 'Clinical Referral', 'Completed'],
+              [`APT-${p.patient_id || p.admission_id || '01'}-02`, p.doctor, 'Daily Round 10:00 AM', 'Inpatient Ward Review', 'Ward Workstation', 'Completed'],
+            ]
+          }
           onRowClick={(row) => {
             if (onOpenDrawer) {
               onOpenDrawer({
@@ -1765,11 +1994,21 @@ export default function Patient360View({
         <TableContainer
           cols={['ID', 'Type', 'Doctor', 'Time', 'Status']}
           grid="160px 180px minmax(180px, 1fr) 160px 100px"
-          rows={[
-            [p.encounter || `ENC-${p.admission_number || p.admission_id}`, `${p.admission_type || 'Inpatient'} Admission`, p.doctor, p.admitted, p.status || 'Active'],
-            [`ENC-TRIAGE-${p.patient_id || '01'}`, 'Initial Emergency & Clinical Triage', p.doctor, p.admittedDate, 'Completed'],
-            [`ENC-WORKUP-${p.patient_id || '01'}`, 'Diagnostic Lab & Imaging Workup', p.doctor, p.admittedDate, 'Completed'],
-          ]}
+          rows={
+            p.isOP ? [
+              [p.encounter, 'Outpatient Consultation', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Confirmed'],
+              [`ENC-OPD-VITALS-${p.patient_id || '01'}`, 'OPD Baseline Vitals & Check-in', p.doctor, p.admittedDate, 'Completed'],
+              [`ENC-OPD-RX-${p.patient_id || '01'}`, 'Prescription & Consultation Note', p.doctor, p.admittedDate, 'Completed'],
+            ] : p.isER ? [
+              [p.encounter, 'Emergency Room Intake & Triage', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Active Triage'],
+              [`ENC-ER-TRAUMA-${p.patient_id || '01'}`, 'Emergency Bay Assessment', p.doctor, p.admittedDate, 'Active'],
+              [`ENC-ER-WORKUP-${p.patient_id || '01'}`, 'STAT Emergency Lab & Imaging', p.doctor, p.admittedDate, 'In Progress'],
+            ] : [
+              [p.encounter || `ENC-${p.admission_number || p.admission_id}`, `${p.admission_type || 'Inpatient'} Admission`, p.doctor, p.admitted, p.isDischarged ? 'Discharged' : (p.status || 'Active')],
+              [`ENC-TRIAGE-${p.patient_id || '01'}`, 'Initial Emergency & Clinical Triage', p.doctor, p.admittedDate, 'Completed'],
+              [`ENC-WORKUP-${p.patient_id || '01'}`, 'Diagnostic Lab & Imaging Workup', p.doctor, p.admittedDate, 'Completed'],
+            ]
+          }
         />
       )}
 
@@ -1800,7 +2039,13 @@ export default function Patient360View({
 
               <span style={{ fontWeight: 600, color: '#15181b' }}>Clinical Progress Note</span>
               <span style={{ lineHeight: 1.5, background: '#f8fafc', padding: '10px 12px', borderRadius: '6px' }}>
-                Day {p.current_stay_days || 1} of inpatient admission for {p.primaryDiagnosis}. {p.condition}. Vitals: {p.latestBp || 'Stable'}. {p.isCleared ? 'Patient cleared for discharge with home regimen.' : 'Awaiting final billing clearance and discharge sign-off.'}
+                {p.isOP ? (
+                  `Outpatient consultation on ${p.admittedDate} for ${p.primaryDiagnosis}. ${p.condition}. Vitals: ${p.latestBp || 'Stable'}. Follow-up advice and outpatient prescription provided.`
+                ) : p.isER ? (
+                  `Emergency trauma & triage assessment on ${p.admittedDate} for ${p.primaryDiagnosis}. Bay assignment: ${p.bed}. Vitals: ${p.latestBp || 'Monitored'}.`
+                ) : (
+                  `Day ${p.current_stay_days || 1} of inpatient admission for ${p.primaryDiagnosis}. ${p.condition}. Vitals: ${p.latestBp || 'Stable'}. ${p.isCleared ? 'Patient cleared for discharge with home regimen.' : 'Awaiting final billing clearance and discharge sign-off.'}`
+                )}
               </span>
             </div>
           </div>
@@ -1940,19 +2185,14 @@ export default function Patient360View({
               <TableContainer
                 cols={['Code', 'Diagnosis Name', 'Classification', 'Diagnosed Date', 'Attending Clinician', 'Status']}
                 grid="90px minmax(240px, 1.4fr) 140px 120px minmax(160px, 1fr) 110px"
-                rows={(p.diagnoses_list || []).map(dx => {
-                  const showInd = dx.indication && 
-                    dx.indication !== dx.name && 
-                    !dx.name.toLowerCase().includes(dx.indication.toLowerCase());
-                  return [
-                    dx.code,
-                    showInd ? `${dx.name} (${dx.indication})` : dx.name,
-                    dx.type,
-                    dx.date,
-                    dx.doctor,
-                    dx.status
-                  ];
-                })}
+                rows={(p.diagnoses_list || []).map(dx => [
+                  dx.code,
+                  dx.name,
+                  dx.type,
+                  dx.date,
+                  dx.doctor,
+                  dx.status
+                ])}
               />
             </div>
           )}
@@ -2526,11 +2766,17 @@ export default function Patient360View({
       {/* Tab 7: Admissions */}
       {activeTab === 'Admissions' && (
         <TableContainer
-          cols={['Admission', 'Bed', 'Admitted', 'Estimate', 'Status']}
-          grid="140px minmax(180px, 1fr) 160px 140px 140px"
-          rows={[
-            [p.encounter || `IP-${p.admission_id}`, p.isDischarged ? `${p.bed} (Released)` : p.bed, p.admitted, `₹${p.billNetAmount.toLocaleString('en-IN')}`, p.isDischarged ? 'Discharged' : (p.status || 'Active Inpatient')],
-          ]}
+          cols={['Admission / Encounter', 'Bed / Location', 'Date & Time', 'Estimate / Fee', 'Status']}
+          grid="160px minmax(180px, 1fr) 160px 140px 180px"
+          rows={
+            p.isOP ? [
+              [p.encounter, '— (Outpatient Desk)', `${p.admittedDate}, ${p.admittedTime}`, `₹${(p.billGrossAmount || 800).toLocaleString('en-IN')}`, 'Outpatient Consultation (No IP Stay)'],
+            ] : p.isER ? [
+              [p.encounter, p.bed, `${p.admittedDate}, ${p.admittedTime}`, `₹${(p.billGrossAmount || 2500).toLocaleString('en-IN')}`, 'Emergency Observation (Bay Triage)'],
+            ] : [
+              [p.encounter || `IP-${p.admission_id}`, p.isDischarged ? `${p.bed} (Released)` : p.bed, p.admitted, `₹${p.billNetAmount.toLocaleString('en-IN')}`, p.isDischarged ? 'Discharged' : (p.status || 'Active Inpatient')],
+            ]
+          }
         />
       )}
 
@@ -2789,17 +3035,58 @@ export default function Patient360View({
         <TableContainer
           cols={['Case', 'Intent', 'Predicted', 'Discharge Date & Time', 'Owner', 'Status']}
           grid="130px 130px 130px minmax(190px, 1.3fr) minmax(160px, 1fr) 180px"
-          rows={[
-            [
-              `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
-              p.admittedDate || '17 May 2025',
-              p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
-              p.dischargeDateTime,
-              p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
-              p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Blocked · Pending Bill Clearance')
-            ],
-          ]}
+          rows={
+            p.isOP ? [
+              [
+                `OPD-${p.encounter}`,
+                p.admittedDate,
+                'N/A (OP Visit)',
+                'Same-Day Outpatient Exit',
+                `Doctor: ${p.doctor}`,
+                'Outpatient Visit · No IP Stay Required'
+              ]
+            ] : p.isER ? [
+              [
+                `ER-${p.encounter}`,
+                p.admittedDate,
+                'Pending Triage',
+                'Observation / Pending Admission',
+                `ER Physician: ${p.doctor}`,
+                'Active Emergency Observation'
+              ]
+            ] : [
+              [
+                `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
+                p.admittedDate || '17 May 2025',
+                p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
+                p.dischargeDateTime,
+                p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
+                p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Blocked · Pending Bill Clearance')
+              ],
+            ]
+          }
           onRowClick={(row) => {
+            if (p.isOP || p.isER) {
+              if (onOpenDrawer) {
+                onOpenDrawer({
+                  title: `${row[0]} · ${p.name}`,
+                  sub: `Status: ${row[5]} | Date: ${row[1]}`,
+                  badges: [
+                    { t: p.isOP ? 'Outpatient Consultation' : 'Emergency Observation', bg: p.isOP ? '#e0f2fe' : '#fef3c7', fg: p.isOP ? '#0369a1' : '#92400e' }
+                  ],
+                  facts: [
+                    { k: 'Record ID', v: row[0], b: true },
+                    { k: 'Patient Name', v: p.name, b: true },
+                    { k: 'Visit Date', v: row[1] },
+                    { k: 'Attending Physician', v: row[4] },
+                    { k: 'Status', v: row[5] },
+                    { k: 'Billing Settlement', v: p.billingStatusDisplay }
+                  ]
+                });
+              }
+              return;
+            }
+
             if (onOpenDrawer) {
               onOpenDrawer({
                 title: `${row[0]} · ${p.name}`,

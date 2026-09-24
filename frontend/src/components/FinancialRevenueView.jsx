@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { financialApi } from "../services/financialApi";
+import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
@@ -834,8 +835,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
           {/* Loading Indicator */}
           {loadingBills && bills.length === 0 && (
-            <div style={{ padding: "30px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
-              Loading live billing records from PostgreSQL…
+            <div style={{ padding: "12px" }}>
+              <TableSkeleton rows={6} columns={7} />
             </div>
           )}
 
@@ -1352,8 +1353,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
 
             {loadingDashboard && (
-              <div style={{ padding: "24px", textAlign: "center", color: PALETTE.muted, fontSize: "12px" }}>
-                Loading live payments & collections…
+              <div style={{ padding: "12px" }}>
+                <TableSkeleton rows={5} columns={6} />
               </div>
             )}
 

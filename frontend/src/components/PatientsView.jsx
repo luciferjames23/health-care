@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
+import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -9,13 +10,15 @@ function getStatusPill(status) {
   if (s.includes("discharge planning")) return { bg: "oklch(0.95 0.03 200)", fg: "oklch(0.4 0.1 200)", label: "Discharge planning" };
   if (s.includes("post-op") || s.includes("postop")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.45 0.13 70)", label: "Post-operative" };
   if (s.includes("fit for discharge")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Fit for discharge" };
-  if (s.includes("awaiting")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.5 0.13 70)", label: "Awaiting results" };
+  if (s.includes("awaiting")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.5 0.13 70)", label: status };
+  if (s.includes("confirmed") || s.includes("booked")) return { bg: "#e0f2fe", fg: "#0369a1", label: "Confirmed" };
+  if (s.includes("resuscitation") || s.includes("critical") || s.includes("icu") || s.includes("stroke")) return { bg: "#fee2e2", fg: "#b91c1c", label: status };
+  if (s.includes("triage") || s.includes("workup") || s.includes("stabilization") || s.includes("nebulization") || s.includes("resuscitation") || s.includes("treatment")) return { bg: "#fef3c7", fg: "#92400e", label: status };
   if (s.includes("stable")) return { bg: "#f6f7f8", fg: "#52585e", label: "Stable" };
   if (s.includes("signed off")) return { bg: "#f2f3f4", fg: "#8a9096", label: "Signed off" };
   if (s.includes("long stay")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.5 0.18 25)", label: "Long stay" };
   if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: "Discharged" };
-  if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Admitted" };
-  if (s.includes("critical") || s.includes("icu")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.45 0.17 25)", label: status };
+  if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: status.length > 20 ? "Admitted" : status };
   return { bg: "#f6f7f8", fg: "#52585e", label: status };
 }
 
@@ -39,6 +42,8 @@ export default function PatientsView({
   const [error, setError] = useState(null);
   const [admitted, setAdmitted] = useState([]);
   const [discharged, setDischarged] = useState([]);
+  const [opPatients, setOpPatients] = useState([]);
+  const [erPatients, setErPatients] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
@@ -51,14 +56,16 @@ export default function PatientsView({
   useEffect(() => {
     let alive = true;
     const loadPatients = async (isSilent = false) => {
-      if (!isSilent && admitted.length === 0 && discharged.length === 0) {
+      if (!isSilent && admitted.length === 0 && discharged.length === 0 && opPatients.length === 0 && erPatients.length === 0) {
         setLoading(true);
       }
       setError(null);
       try {
-        const [ar, dr] = await Promise.all([
+        const [ar, dr, opRes, erRes] = await Promise.all([
           apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
 
@@ -136,8 +143,57 @@ export default function PatientsView({
           });
         });
 
+        // 3. Outpatient (OP) Records from Live Directory API
+        const parsedOp = (opRes?.data || []).map(r => ({
+          patient_id: r.patient_id,
+          id: r.patient_id,
+          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          age: r.age || 40,
+          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+          gender: r.gender || 'Male',
+          language: r.preferred_language || 'English',
+          department: r.department || 'Outpatient Clinic',
+          doctor: r.doctor || 'Consultant Doctor',
+          insurer: r.insurer || 'Direct / Outpatient',
+          status: r.status || 'CONFIRMED',
+          _status: r.status || 'CONFIRMED',
+          diagnosis: cleanDiagnosis(r.diagnosis || 'Outpatient Consultation'),
+          _type: "OP",
+          appointment_date: r.admission_date,
+          appointment_time: r.appointment_time
+        }));
+
+        // 4. Emergency (ER) Records from Live Directory API
+        const parsedEr = (erRes?.data || []).map(r => ({
+          patient_id: r.patient_id,
+          id: r.patient_id,
+          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          age: r.age || 40,
+          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+          gender: r.gender || 'Male',
+          language: r.preferred_language || 'English',
+          department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
+          doctor: r.doctor || 'Dr. Divya Verma',
+          insurer: r.insurer || 'Emergency Cover',
+          status: r.status || 'Active Triage',
+          _status: r.status || 'Active Triage',
+          diagnosis: cleanDiagnosis(r.diagnosis || 'Emergency Care'),
+          _type: "ER",
+          triage_level: r.discharge_status
+        }));
+
         setAdmitted(actualAdmitted);
         setDischarged(parsedDischargedList);
+        setOpPatients(parsedOp);
+        setErPatients(parsedEr);
       } catch (e) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     };
@@ -159,10 +215,12 @@ export default function PatientsView({
   }, []);
 
   const rows = useMemo(() => {
-    let list = filter === "All" ? [...admitted, ...discharged]
+    let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients, ...discharged]
       : filter === "IP" ? admitted
-        : filter === "Discharged" ? discharged
-          : admitted.filter(p => p._type === filter);
+        : filter === "OP" ? opPatients
+          : filter === "ER" ? erPatients
+            : filter === "Discharged" ? discharged
+              : [...admitted, ...opPatients, ...erPatients, ...discharged].filter(p => p._type === filter);
 
     if (activeDoctorName) {
       list = list.filter(p =>
@@ -208,7 +266,7 @@ export default function PatientsView({
     });
   }, [admitted, discharged, filter, search, activeDoctorName]);
 
-  const total = admitted.length + discharged.length;
+  const total = admitted.length + opPatients.length + erPatients.length + discharged.length;
   const totalRows = rows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -241,7 +299,7 @@ export default function PatientsView({
               ? "Loading patients…"
               : isDoctor && activeDoctorName
                 ? `Doctor Scope: ${activeDoctorName} · Showing ${rows.length} patient${rows.length === 1 ? '' : 's'} under your care`
-                : `${total} patients · shared Patient 360 across every module`}
+                : `${total} active patients · shared Patient 360 across every module`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -286,9 +344,16 @@ export default function PatientsView({
 
       {/* table */}
       <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
-        {loading && admitted.length === 0 && discharged.length === 0 ? (
-          <div style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {[80, 60, 70, 55, 65].map((w, i) => <div key={i} style={{ height: "14px", borderRadius: "6px", background: "#eef0f1", animation: "mpulse 1s infinite", width: w + "%" }} />)}
+        {loading && rows.length === 0 ? (
+          <div style={{ padding: "16px" }}>
+            <ModuleLoadingScreen
+              title="Loading Patient Directory..."
+              subtitle="Retrieving real-time IP, OP, ER, and Discharged patient records..."
+              badgeText="Live Directory Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: "40px", textAlign: "center", color: "#8a9096" }}>

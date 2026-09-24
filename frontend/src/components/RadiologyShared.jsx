@@ -1,4 +1,5 @@
 import React from 'react';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export const statusRank = { 'HIGH PRIORITY': 0, 'REVIEW FLAG': 1, 'ROUTINE': 2 };
 
@@ -26,8 +27,17 @@ export function Card({ children, style = {} }) {
 
 export function StatusBadge({ status = 'ROUTINE' }) { return <span style={statusStyle(status)}>{status}</span>; }
 
-export function Loading({ text = 'Loading radiology data…' }) {
-  return <Card><div style={{ fontSize: 12, color: '#697077' }}>{text}</div></Card>;
+export function Loading({ text = 'Loading radiology & PACS DICOM studies…' }) {
+  return (
+    <ModuleLoadingScreen
+      title={text}
+      subtitle="Connecting to Orthanc PACS and clinical imaging intelligence lake..."
+      badgeText="PACS Live Sync"
+      statCount={4}
+      tableRows={6}
+      tableColumns={7}
+    />
+  );
 }
 
 export function ErrorBox({ error }) {

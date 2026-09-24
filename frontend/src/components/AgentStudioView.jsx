@@ -831,7 +831,7 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
             onClick={() => onNavigate && onNavigate('command')}
             style={{ cursor: 'pointer', color: '#8a9096' }}
           >
-            Command Centre
+            Executive Dashboard
           </span>
           <span style={{ color: '#8a9096' }}>›</span>
           <span
@@ -1171,7 +1171,7 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '2px' }}>
-            <span>Command Centre</span> › <span>Agents</span>
+            <span>Executive Dashboard</span> › <span>Agents</span>
           </div>
           <div style={{ fontSize: '22px', fontWeight: 700, color: '#15181b' }}>
             Agents

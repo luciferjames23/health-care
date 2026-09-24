@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 const Spinner = () => (
   <span style={{
@@ -263,15 +264,28 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
   const exceptions = liveExceptions;
   const approvals = liveApprovals;
 
+  if (loading && !liveKpis && !apiError) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Executive Dashboard..."
+        subtitle="Synthesizing hospital census, ward occupancy, and operational exceptions..."
+        badgeText="Live Operations Sync"
+        statCount={5}
+        tableRows={6}
+        tableColumns={6}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top breadcrumb & actions */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Clinical Workspace</span> › <span>Command Centre</span>
+            <span>Clinical Workspace</span> › <span>Executive Dashboard</span>
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 600 }}>Command Centre</div>
+          <div style={{ fontSize: '20px', fontWeight: 600 }}>Executive Dashboard</div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
             {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Clinical Operational Intelligence
           </div>

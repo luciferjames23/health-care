@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor, synthesizeClinicalDetails } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
 const STATUS_STYLES = {
@@ -2477,6 +2478,18 @@ export default function DischargeCommandCentre({
   // ─────────────────────────────────────────────────────────────
   // VIEW 2: KANBAN BOARD & TABLE VIEW (Matches User Screenshot)
   // ─────────────────────────────────────────────────────────────
+  if (loading && enrichedCases.length === 0 && !error) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Discharge Command Centre..."
+        subtitle="Tracking multi-disciplinary readiness, blockers, insurance clearances, and auto-drafts..."
+        badgeText="Discharge Workflow Engine"
+        statCount={5}
+        layout="cards"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
       {/* Floating Toast Notification Container */}

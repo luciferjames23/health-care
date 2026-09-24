@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, extractDischargedPatientIds } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function BedDemandView({ onSelectPatient }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
@@ -245,6 +246,18 @@ export default function BedDemandView({ onSelectPatient }) {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (loading && !bedManagement) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Hospital Ward & Bed Management..."
+        subtitle="Connecting live telemetry for Ward → Room → Bed → Patient..."
+        badgeText="Live Bed Matrix"
+        statCount={5}
+        layout="cards"
+      />
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

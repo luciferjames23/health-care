@@ -11,6 +11,7 @@ import {
   Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -545,10 +546,8 @@ const PreAdmissionPage: React.FC = () => {
       {/* Pre-Admission Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading ? (
-          <div style={{ padding: '36px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[80, 60, 70, 55, 65].map((w, i) => (
-              <div key={i} style={{ height: '14px', borderRadius: '4px', background: '#eef0f1', animation: 'mpulse 1s infinite', width: `${w}%` }} />
-            ))}
+          <div style={{ padding: '12px' }}>
+            <TableSkeleton rows={6} columns={8} />
           </div>
         ) : preAdmissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
@@ -571,9 +570,9 @@ const PreAdmissionPage: React.FC = () => {
             </thead>
             <tbody>
               {preAdmissions.map(pa => {
-                const sBadge = getStatusBadge(pa.status);
-                const nBadge = getNotificationBadge(pa.notification_status);
-                const tBadge = getTypeBadge(pa.admission_type);
+                const sBadge = getStatusBadge(pa.status || 'Pending');
+                const nBadge = getNotificationBadge(pa.notification_status || 'Pending');
+                const tBadge = getTypeBadge(pa.admission_type || 'Elective');
 
                 return (
                   <tr
