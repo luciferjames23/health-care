@@ -337,6 +337,8 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchEmergencyData = async () => {
     setLoading(true);
@@ -377,6 +379,10 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
     fetchEmergencyData();
   }, []);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, pageSize]);
+
   const filtered = useMemo(() => {
     if (!query) return data;
     const q = query.toLowerCase();
@@ -392,8 +398,17 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
 
   const untriagedCount = data.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
   const awaitingBedCount = data.filter(d => d.status === 'Awaiting bed').length;
-  const criticalCount = data.filter(d => Boolean(d.critical)).length;
+  const criticalCount = data.filter(d => Boolean(d.critical && d.critical !== '—')).length;
   const erBedsFree = Math.max(0, 22 - data.length);
+
+  // Pagination calculations
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = useMemo(() => {
+    return filtered.slice(startIndex, startIndex + pageSize);
+  }, [filtered, startIndex, pageSize]);
 
   const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
@@ -479,60 +494,48 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
+  if (loading && data.length === 0) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Emergency & Trauma Board..."
+        subtitle="Retrieving real-time triage acuity, emergency bay allocations, attending clinicians, and telemetry monitoring..."
+        badgeText="Live Emergency Triage Sync"
+        showKpis={true}
+        statCount={4}
+        layout="table"
+        tableRows={6}
+        tableColumns={9}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
-      {/* Breadcrumb */}
-      <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
-        <span>·</span>
-        <span>Executive Dashboard</span>
-        <span>›</span>
-        <span style={{ color: '#1e293b', fontWeight: 600 }}>Emergency</span>
-      </div>
-
-      {/* Title & Subtitle */}
-      <div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0f172a', letterSpacing: '-0.02em' }}>
-          Emergency
-        </h1>
-        <div style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.4' }}>
-          Board is ordered by triage acuity (ESI 1 → 5); untriaged arrivals sit on top. Triage is a human action on the case (Doctor / Nurse). MLC flag drives police intimation.
+      {/* Title & Subtitle Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+        <div>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>Emergency Triage & Trauma Board</span>
+          </div>
+          <h1 style={{ fontSize: '20px', fontWeight: 600, margin: '0 0 2px', color: '#15181b' }}>
+            Emergency & Trauma Board
+          </h1>
+          <div style={{ color: '#8a9096', fontSize: '11.5px' }}>
+            Ordered by clinical triage acuity (ESI 1 → 5); active emergency bay telemetry, clinician assignment, and MLC tracking.
+          </div>
         </div>
-      </div>
 
-      {/* Action / Search Bar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px' }}>
-        <div style={{ position: 'relative', width: '240px' }}>
-          <input
-            type="text"
-            placeholder="Search..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{
-              width: '100%',
-              height: '34px',
-              padding: '0 12px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '12.5px',
-              color: '#1e293b',
-              background: '#ffffff',
-              outline: 'none',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
         <button
           type="button"
           onClick={exportCSV}
           style={{
-            height: '34px',
-            padding: '0 16px',
+            height: '32px',
+            padding: '0 14px',
             borderRadius: '6px',
             border: '1px solid #cbd5e1',
             background: '#ffffff',
             color: '#334155',
-            fontSize: '12.5px',
+            fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
@@ -542,6 +545,58 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
         </button>
       </div>
 
+      {/* 4 Stat Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>Active ER Cases</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
+            {data.length}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>Awaiting Inpatient Bed</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#0284c7', marginTop: '2px' }}>
+            {awaitingBedCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>Critical / Resuscitation</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#dc2626', marginTop: '2px' }}>
+            {criticalCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>ER Bays Ready</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15803d', marginTop: '2px' }}>
+            {erBedsFree}
+          </div>
+        </div>
+      </div>
+
+      {/* Action / Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '280px' }}>
+          <input
+            type="text"
+            placeholder="Search patient, complaint, doctor, bay..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '32px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '12px',
+              color: '#1e293b',
+              background: '#ffffff',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+      </div>
+
       {/* Alert Banner for untriaged cases */}
       {untriagedCount > 0 && (
         <div
@@ -549,9 +604,9 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
             background: '#fee2e2',
             border: '1px solid #fecaca',
             borderRadius: '6px',
-            padding: '12px 16px',
+            padding: '10px 14px',
             color: '#b91c1c',
-            fontSize: '13px',
+            fontSize: '12.5px',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
@@ -559,130 +614,298 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
           }}
         >
           <div>
-            {untriagedCount} arrivals awaiting triage. Open the case — Triage.
+            ⚠️ {untriagedCount} arrival{untriagedCount === 1 ? '' : 's'} awaiting triage. Open case to triage & assign clinician.
           </div>
         </div>
       )}
 
-      {/* 4 Stat Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-        <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Active</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
-            {data.length}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Awaiting bed</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
-            {awaitingBedCount}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Critical unacked</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626', marginTop: '4px' }}>
-            {criticalCount}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>ER beds free</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
-            {erBedsFree}
-          </div>
-        </div>
-      </div>
-
       {/* Live Table */}
-      {loading ? (
-        <LoadingState label="Fetching live ER board from PostgreSQL..." />
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <EmptyState
           title="No Emergency Cases Found"
-          description="There are currently no active emergency patients matching the criteria."
+          description="There are currently no active emergency patients matching the search."
           onAction={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
           actionLabel="+ Triage & Admit Patient"
         />
       ) : (
-        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
-            <thead>
-              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
-                <th style={{ padding: '12px 16px' }}>CASE</th>
-                <th style={{ padding: '12px 16px' }}>PATIENT</th>
-                <th style={{ padding: '12px 16px' }}>ARRIVAL</th>
-                <th style={{ padding: '12px 16px' }}>WAITING</th>
-                <th style={{ padding: '12px 16px' }}>COMPLAINT</th>
-                <th style={{ padding: '12px 16px' }}>CLINICIAN</th>
-                <th style={{ padding: '12px 16px' }}>ACUITY</th>
-                <th style={{ padding: '12px 16px' }}>CRITICAL</th>
-                <th style={{ padding: '12px 16px' }}>STATUS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(row => (
-                <tr
-                  key={row.id}
-                  onClick={() => handleRowClick(row)}
-                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <td style={{ padding: '12px 16px', fontFamily: 'monospace, sans-serif', color: '#334155', fontWeight: 600 }}>
-                    {row.id}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>
-                    {row.patient}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#334155' }}>
-                    {row.arrival}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#334155' }}>
-                    {row.waiting}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#0f172a' }}>
-                    {row.complaint}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#334155' }}>
-                    {row.doctor}
-                  </td>
-                  <td style={{ padding: '12px 16px', color: row.acuity === 'Not triaged' ? '#64748b' : '#1e293b' }}>
-                    {row.acuity}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    {row.critical ? (
-                      <span style={{
-                        background: '#fee2e2',
-                        color: '#dc2626',
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {row.critical}
-                      </span>
-                    ) : (
-                      <span style={{ color: '#94a3b8' }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span style={{
-                      background: '#fef3c7',
-                      color: '#92400e',
-                      padding: '3px 10px',
-                      borderRadius: '4px',
-                      fontSize: '11.5px',
-                      fontWeight: 600,
-                      display: 'inline-block',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {row.status}
-                    </span>
-                  </td>
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#ffffff', borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>CASE</th>
+                  <th style={{ padding: '10px 14px' }}>PATIENT</th>
+                  <th style={{ padding: '10px 14px' }}>LOCATION</th>
+                  <th style={{ padding: '10px 14px' }}>ARRIVAL & WAIT</th>
+                  <th style={{ padding: '10px 14px', minWidth: '220px' }}>CHIEF COMPLAINT</th>
+                  <th style={{ padding: '10px 14px' }}>CLINICIAN</th>
+                  <th style={{ padding: '10px 14px' }}>ACUITY</th>
+                  <th style={{ padding: '10px 14px' }}>CRITICAL ALERT</th>
+                  <th style={{ padding: '10px 14px' }}>STATUS</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {paginatedRows.map(row => {
+                  const isRed = row.triage === 'Red' || (row.acuity && row.acuity.toLowerCase().includes('resuscitation'));
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => handleRowClick(row)}
+                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace, sans-serif', color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
+                        {row.id}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
+                        <div>{row.patient}</div>
+                        {row.mlc && (
+                          <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 700, background: '#fee2e2', padding: '1px 5px', borderRadius: '3px' }}>
+                            MLC POLICE
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#334155', fontWeight: 500 }}>
+                        {row.bay}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>
+                        <div>{row.arrival}</div>
+                        <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>{row.waiting}</div>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#0f172a' }}>
+                        <span style={{ display: 'inline-block', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.complaint}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#334155', fontWeight: 500 }}>
+                        {row.doctor}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: isRed ? '#fee2e2' : '#fef3c7',
+                          color: isRed ? '#991b1b' : '#92400e',
+                          border: isRed ? '1px solid #fecaca' : '1px solid #fde68a'
+                        }}>
+                          {row.acuity}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {row.critical && row.critical !== '—' ? (
+                          <span style={{
+                            background: '#fee2e2',
+                            color: '#dc2626',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            border: '1px solid #fecaca'
+                          }}>
+                            {row.critical}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          background: '#f1f5f9',
+                          color: '#334155',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          display: 'inline-block',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {row.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Footer */}
+          {filtered.length > 0 && (
+            <div style={{
+              padding: '10px 14px',
+              background: '#fafbfc',
+              borderTop: '1px solid #eef0f1',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> emergency cases
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[10, 15, 25, 50].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -697,29 +920,13 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('All');
-
-  const DEPARTMENTS = [
-    'All',
-    'Cardiology',
-    'Cardiac Surgery',
-    'Orthopaedics',
-    'General Surgery',
-    'Nephrology',
-    'Oncology',
-    'Neurology',
-    'Obstetrics',
-    'Pulmonology',
-    'Paediatrics',
-    'Gastroenterology',
-    'Emergency',
-    'Urology',
-    'ENT'
-  ];
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const loadSchedules = async () => {
     setLoading(true);
     try {
-      const res = await apiService.getConsultantSchedules();
+      const res = await apiService.getConsultantSchedules({ forceRefresh: true });
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
           id: r.id,
@@ -753,6 +960,16 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
     loadSchedules();
   }, []);
 
+  const departments = useMemo(() => {
+    const depts = new Set();
+    data.forEach(d => {
+      if (d.dept && d.dept.trim()) {
+        depts.add(d.dept.trim());
+      }
+    });
+    return ['All', ...Array.from(depts).sort()];
+  }, [data]);
+
   const filtered = useMemo(() => {
     return data.filter(d => {
       const matchDept = selectedDept === 'All' || d.dept.toLowerCase() === selectedDept.toLowerCase();
@@ -766,6 +983,16 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
       return matchDept && matchQuery;
     });
   }, [data, selectedDept, query]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDept, query, pageSize]);
+
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
 
   const consultingTodayCount = data.filter(d => d.isConsultingToday && d.status === 'Active').length;
   const onLeaveCount = data.filter(d => d.status === 'On Leave' || d.status === 'Inactive').length;
@@ -838,17 +1065,23 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Consultant Schedules"
+          subtitle="Synchronizing 160+ physician slot templates, OPD clinic hours, and on-call assignments..."
+          badgeText="Live Sync"
+          showKpis={false}
+          tableRows={8}
+          tableColumns={9}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
-      {/* Breadcrumb */}
-      <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: '#0284c7', cursor: 'pointer', fontWeight: 600 }}>← Back</span>
-        <span>·</span>
-        <span>Executive Dashboard</span>
-        <span>›</span>
-        <span style={{ color: '#1e293b', fontWeight: 600 }}>Consultant Schedules</span>
-      </div>
-
       {/* Title & Subtitle */}
       <div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0f172a', letterSpacing: '-0.02em' }}>
@@ -864,7 +1097,7 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
         <div style={{ position: 'relative', width: '240px' }}>
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search doctor, dept, room..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{
@@ -910,13 +1143,13 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
           </div>
         </div>
         <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consulting today (Fri)</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consulting today</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#16a34a', marginTop: '4px' }}>
             {consultingTodayCount}
           </div>
         </div>
         <div style={{ ...cardStyle, padding: '14px 18px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>On leave (3 days)</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>On leave</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309', marginTop: '4px' }}>
             {onLeaveCount}
           </div>
@@ -937,8 +1170,9 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
 
       {/* Specialty Filter Pills */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '2px' }}>
-        {DEPARTMENTS.map(dept => {
+        {departments.map(dept => {
           const isSelected = selectedDept.toLowerCase() === dept.toLowerCase();
+          const count = dept === 'All' ? data.length : data.filter(d => d.dept.toLowerCase() === dept.toLowerCase()).length;
           return (
             <button
               key={dept}
@@ -953,10 +1187,23 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
                 background: isSelected ? '#0f172a' : '#ffffff',
                 color: isSelected ? '#ffffff' : '#334155',
                 cursor: 'pointer',
-                transition: 'all 0.15s'
+                transition: 'all 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
               }}
             >
-              {dept}
+              <span>{dept}</span>
+              <span style={{
+                fontSize: '10.5px',
+                opacity: 0.85,
+                background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#64748b',
+                padding: '1px 6px',
+                borderRadius: '10px'
+              }}>
+                {count}
+              </span>
             </button>
           );
         })}
@@ -964,7 +1211,7 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
 
       {/* Live Data Table */}
       {loading ? (
-        <LoadingState label="Fetching live consultant schedules from PostgreSQL..." />
+        <LoadingState label="Fetching live consultant schedules from PostgreSQL..." columns={9} rows={8} />
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No Consultant Schedules Found"
@@ -989,7 +1236,7 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => (
+              {paginatedRows.map(row => (
                 <tr
                   key={row.id || row.doctor}
                   onClick={() => handleDoctorClick(row)}
@@ -1039,6 +1286,179 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
               ))}
             </tbody>
           </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> consultant schedules
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1053,11 +1473,14 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [selectedWard, setSelectedWard] = useState('All Wards');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const loadNursingData = async () => {
     setLoading(true);
     try {
-      const res = await apiService.getNursingTasks();
+      const res = await apiService.getNursingTasks({ forceRefresh: true });
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
           id: r.id,
@@ -1078,9 +1501,9 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
           ews: r.ews_score ?? 0,
           fall: r.fall_risk || 'Low / Low',
           diet: r.diet_type || 'Standard',
-          overdueMeds: r.overdue_meds || '-',
+          overdueMeds: r.overdue_meds || '—',
           flag: r.flag_status || 'Normal',
-          ward: r.ward_name || 'Cardiac & medical wards'
+          ward: r.ward_name || 'General Multi-Specialty Ward'
         }));
         setData(mapped);
       } else {
@@ -1097,6 +1520,14 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
   useEffect(() => {
     loadNursingData();
   }, []);
+
+  const wards = useMemo(() => {
+    const wSet = new Set();
+    data.forEach(d => {
+      if (d.ward && d.ward.trim()) wSet.add(d.ward.trim());
+    });
+    return ['All Wards', ...Array.from(wSet).sort()];
+  }, [data]);
 
   const handleTaskClick = (t) => {
     if (!onOpenDrawer) return;
@@ -1119,6 +1550,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
         { k: 'Bed Number', v: t.bed, b: true },
         { k: 'Patient Name', v: t.patient, b: true },
         { k: 'UHID', v: t.uhid },
+        { k: 'Ward / Unit', v: t.ward },
         { k: 'Assigned Nurse', v: t.nurse },
         { k: 'Latest Vitals Time', v: t.lastVitals },
         { k: 'Heart Rate (HR)', v: `${t.hr} bpm` },
@@ -1164,9 +1596,9 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
 
   const handleExportCSV = () => {
     if (data.length === 0) return alert('No nursing data to export.');
-    const headers = ['Bed', 'Patient', 'UHID', 'Last Vitals', 'HR', 'BP', 'SpO2', 'Temp', 'RR', 'Pain', 'EWS', 'Fall/Pressure', 'Diet', 'Overdue Meds', 'Flag', 'Task', 'Nurse'];
-    const rows = data.map(d => [
-      d.bed, `"${d.patient}"`, d.uhid, d.lastVitals, d.hr, d.bp, `${d.spo2}%`, d.temp, d.rr, d.pain, d.ews, `"${d.fall}"`, `"${d.diet}"`, `"${d.overdueMeds}"`, `"${d.flag}"`, `"${d.task}"`, `"${d.nurse}"`
+    const headers = ['Bed', 'Patient', 'UHID', 'Ward', 'Last Vitals', 'HR', 'BP', 'SpO2', 'Temp', 'RR', 'Pain', 'EWS', 'Fall/Pressure', 'Diet', 'Overdue Meds', 'Flag', 'Task', 'Nurse'];
+    const rows = filtered.map(d => [
+      d.bed, `"${d.patient}"`, d.uhid, `"${d.ward}"`, d.lastVitals, d.hr, d.bp, `${d.spo2}%`, d.temp, d.rr, d.pain, d.ews, `"${d.fall}"`, `"${d.diet}"`, `"${d.overdueMeds}"`, `"${d.flag}"`, `"${d.task}"`, `"${d.nurse}"`
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -1178,75 +1610,103 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
-  // Metrics
+  // Metrics across whole live dataset
   const censusCount = data.length;
   const ewsEscalateCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('escalate') || d.flag.toLowerCase().includes('critical'))) || Number(d.ews) >= 3).length;
   const watchCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('watch') || d.flag.toLowerCase().includes('pending'))) || Number(d.ews) === 2).length;
-  const overdueMedsCount = 20; // Census indicator
-  const dueNowCount = data.filter(d => d.status === 'Due Now').length;
+  const overdueMedsCount = data.filter(d => d.overdueMeds && d.overdueMeds !== '—' && d.overdueMeds !== '-').length;
+  const dueNowCount = data.filter(d => d.status === 'Due Now' || (d.overdueMeds && d.overdueMeds !== '—' && d.overdueMeds !== '-')).length;
   const highFallRiskCount = data.filter(d => d.fall && d.fall.toLowerCase().includes('high')).length;
 
   // Filter & Search Logic
-  const filtered = data.filter(item => {
-    const matchesSearch = 
-      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.bed.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.uhid.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.nurse.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.diet.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.flag.toLowerCase().includes(searchQuery.toLowerCase());
+  const filtered = useMemo(() => {
+    return data.filter(item => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q ||
+        item.patient.toLowerCase().includes(q) ||
+        item.bed.toLowerCase().includes(q) ||
+        item.uhid.toLowerCase().includes(q) ||
+        item.ward.toLowerCase().includes(q) ||
+        item.nurse.toLowerCase().includes(q) ||
+        item.diet.toLowerCase().includes(q) ||
+        item.flag.toLowerCase().includes(q);
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (selectedFilter === 'Escalate') {
-      return (item.flag && (item.flag.toLowerCase().includes('escalate') || item.flag.toLowerCase().includes('critical'))) || Number(item.ews) >= 3;
-    }
-    if (selectedFilter === 'Watch') {
-      return (item.flag && (item.flag.toLowerCase().includes('watch') || item.flag.toLowerCase().includes('pending'))) || Number(item.ews) === 2;
-    }
-    if (selectedFilter === 'Normal') {
-      return item.flag && item.flag.toLowerCase().includes('normal');
-    }
-    return true;
-  });
+      const matchesWard = selectedWard === 'All Wards' || item.ward.toLowerCase() === selectedWard.toLowerCase();
+      if (!matchesWard) return false;
+
+      if (selectedFilter === 'Escalate') {
+        return (item.flag && (item.flag.toLowerCase().includes('escalate') || item.flag.toLowerCase().includes('critical'))) || Number(item.ews) >= 3;
+      }
+      if (selectedFilter === 'Watch') {
+        return (item.flag && (item.flag.toLowerCase().includes('watch') || item.flag.toLowerCase().includes('pending'))) || Number(item.ews) === 2;
+      }
+      if (selectedFilter === 'Normal') {
+        return item.flag && item.flag.toLowerCase().includes('normal');
+      }
+      return true;
+    });
+  }, [data, searchQuery, selectedWard, selectedFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedWard, selectedFilter, pageSize]);
+
+  // Pagination calculations
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
 
   const filterOptions = ['All', 'Escalate', 'Watch', 'Normal'];
 
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Nursing Workspace"
+          subtitle="Retrieving real-time ward census, vitals, EWS deterioration alerts, and medication schedules..."
+          badgeText="Live Sync"
+          showKpis={false}
+          tableRows={8}
+          tableColumns={14}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header section */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle */}
       <div>
-        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
-          ← Back · Executive Dashboard › Nursing Workspace
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
-              Nursing workspace · Cardiac & medical wards
-            </h1>
-            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-              Census, latest vitals with early-warning score, care plan risks, overdue medication and handover. Escalation is a nurse decision; AI drafts handover only.
-            </p>
-          </div>
-        </div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', letterSpacing: '-0.02em' }}>
+          Nursing workspace · Inpatient wards
+        </h1>
+        <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.4' }}>
+          Real-time census across all inpatient units, latest vitals with Early Warning Score (EWS), care plan risks, overdue medications, and clinical handovers.
+        </p>
       </div>
 
       {/* Search & Export bar */}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', minWidth: '260px' }}>
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '280px' }}>
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search patient, bed, UHID, ward, nurse..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '7px 14px',
-              fontSize: '13px',
+              height: '34px',
+              padding: '0 12px',
+              fontSize: '12.5px',
               border: '1px solid #cbd5e1',
               borderRadius: '6px',
               outline: 'none',
-              background: '#ffffff'
+              background: '#ffffff',
+              boxSizing: 'border-box'
             }}
           />
         </div>
@@ -1254,14 +1714,16 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
           type="button"
           onClick={handleExportCSV}
           style={{
-            padding: '7px 16px',
-            fontSize: '13px',
+            height: '34px',
+            padding: '0 16px',
+            fontSize: '12.5px',
             fontWeight: 600,
             border: '1px solid #cbd5e1',
             borderRadius: '6px',
             background: '#ffffff',
             color: '#334155',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
           }}
         >
           Export CSV
@@ -1270,38 +1732,81 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
 
       {/* 7 Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Census (IP)</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Census (IP)</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{censusCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>EWS escalate</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>EWS escalate</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{ewsEscalateCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Watch</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Watch</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{watchCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Medications overdue</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Medications overdue</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueMedsCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Due now</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Due now</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>High fall risk</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>High fall risk</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{highFallRiskCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Handover</div>
-          <div style={{ fontSize: '15px', fontWeight: 600, color: '#0f172a', lineHeight: '1.4', marginTop: '4px' }}>AI draft · nurse verifies</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Handover</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a', lineHeight: '1.4', marginTop: '4px' }}>AI draft · nurse verifies</div>
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Ward Filter Pills */}
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Ward:</span>
+        {wards.map(w => {
+          const isSelected = selectedWard === w;
+          const count = w === 'All Wards' ? data.length : data.filter(d => d.ward.toLowerCase() === w.toLowerCase()).length;
+          return (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setSelectedWard(w)}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '16px',
+                fontSize: '11.5px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <span>{w}</span>
+              <span style={{
+                fontSize: '10.5px',
+                opacity: 0.85,
+                background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#64748b',
+                padding: '1px 5px',
+                borderRadius: '10px'
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Acuity Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Acuity:</span>
         {filterOptions.map(f => {
           const isSelected = selectedFilter === f;
           return (
@@ -1310,13 +1815,13 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
               type="button"
               onClick={() => setSelectedFilter(f)}
               style={{
-                padding: '5px 14px',
+                padding: '4px 14px',
                 borderRadius: '16px',
-                fontSize: '12px',
-                fontWeight: 600,
-                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
-                background: isSelected ? '#0f172a' : '#ffffff',
-                color: isSelected ? '#ffffff' : '#475569',
+                fontSize: '11.5px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0284c7' : '1px solid #e2e8f0',
+                background: isSelected ? '#e0f2fe' : '#ffffff',
+                color: isSelected ? '#0369a1' : '#475569',
                 cursor: 'pointer',
                 transition: 'all 0.15s'
               }}
@@ -1329,7 +1834,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
 
       {/* Live Data Table */}
       {loading ? (
-        <LoadingState label="Fetching live nursing tasks from PostgreSQL..." />
+        <LoadingState label="Fetching live nursing tasks from PostgreSQL..." columns={14} rows={8} />
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No Inpatients Found"
@@ -1344,6 +1849,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
               <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
                 <th style={{ padding: '12px 14px' }}>BED</th>
                 <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>WARD</th>
                 <th style={{ padding: '12px 14px' }}>LAST VITALS</th>
                 <th style={{ padding: '12px 14px' }}>HR</th>
                 <th style={{ padding: '12px 14px' }}>BP</th>
@@ -1359,7 +1865,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => {
+              {paginatedRows.map(row => {
                 const isHrAlert = Number(row.hr) > 100 || Number(row.hr) < 60;
                 const isSpo2Alert = Number(row.spo2) < 95;
                 const isEwsCritical = Number(row.ews) >= 3;
@@ -1376,26 +1882,29 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
                     onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                   >
-                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#334155' }}>
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
                       {row.bed}
                     </td>
                     <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
                       {row.patient}
                     </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b', fontSize: '11.5px' }}>
+                      {row.ward}
+                    </td>
                     <td style={{ padding: '12px 14px', color: '#475569' }}>
                       {row.lastVitals}
                     </td>
-                    <td style={{ padding: '12px 14px', color: isHrAlert ? '#dc2626' : '#0f172a', fontWeight: isHrAlert ? 600 : 400 }}>
+                    <td style={{ padding: '12px 14px', color: isHrAlert ? '#dc2626' : '#0f172a', fontWeight: isHrAlert ? 700 : 400 }}>
                       {row.hr}
                     </td>
-                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace, sans-serif' }}>
                       {row.bp}
                     </td>
-                    <td style={{ padding: '12px 14px', color: isSpo2Alert ? '#dc2626' : '#0f172a', fontWeight: isSpo2Alert ? 600 : 400 }}>
+                    <td style={{ padding: '12px 14px', color: isSpo2Alert ? '#dc2626' : '#0f172a', fontWeight: isSpo2Alert ? 700 : 400 }}>
                       {row.spo2}%
                     </td>
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
-                      {row.temp}
+                      {row.temp}°C
                     </td>
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
                       {row.rr}
@@ -1403,7 +1912,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
                       {row.pain}
                     </td>
-                    <td style={{ padding: '12px 14px', color: isEwsCritical ? '#dc2626' : isEwsWatch ? '#b45309' : '#0f172a', fontWeight: (isEwsCritical || isEwsWatch) ? 600 : 400 }}>
+                    <td style={{ padding: '12px 14px', color: isEwsCritical ? '#dc2626' : isEwsWatch ? '#b45309' : '#0f172a', fontWeight: (isEwsCritical || isEwsWatch) ? 700 : 400 }}>
                       {row.ews}
                     </td>
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
@@ -1412,7 +1921,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
                       {row.diet}
                     </td>
-                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    <td style={{ padding: '12px 14px', color: row.overdueMeds !== '—' && row.overdueMeds !== '-' ? '#dc2626' : '#94a3b8', fontWeight: row.overdueMeds !== '—' && row.overdueMeds !== '-' ? 600 : 400 }}>
                       {row.overdueMeds}
                     </td>
                     <td style={{ padding: '12px 14px' }}>
@@ -1435,6 +1944,179 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
               })}
             </tbody>
           </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> inpatients
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1451,11 +2133,13 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
   const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
   const [selectedFilter, setSelectedFilter] = useState('All'); // 'All' | 'Overdue' | 'Due' | 'Scheduled' | 'Given'
   const [selectedCardId, setSelectedCardId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const loadEmarData = async () => {
     setLoading(true);
     try {
-      const res = await apiService.getEmarRecords();
+      const res = await apiService.getEmarRecords({ forceRefresh: true });
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
           id: r.id,
@@ -1468,7 +2152,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
           stage: r.stage || 'Scheduled',
           isHighAlert: r.is_high_alert ?? false,
           isOverdue: r.is_overdue ?? false,
-          prescriber: r.prescribed_by || 'Dr. Arjun Menon',
+          prescriber: r.prescribed_by || 'Dr. Amit Sharma',
           verification: r.verification_status || 'Verified',
           nurse: r.administered_by || '',
           signedAt: r.signed_at || ''
@@ -1565,7 +2249,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
   const handleExportCSV = () => {
     if (data.length === 0) return alert('No eMAR data to export.');
     const headers = ['Bed', 'Patient', 'Medication', 'Dosage & Route', 'Scheduled Time', 'Status', 'Stage', 'High Alert', 'Prescriber', 'Administered By', 'Signed At'];
-    const rows = data.map(d => [
+    const rows = filtered.map(d => [
       d.bed, `"${d.patient}"`, `"${d.drug}"`, `"${d.route}"`, d.time, d.status, d.stage, d.isHighAlert ? 'Yes' : 'No', `"${d.prescriber}"`, `"${d.nurse}"`, d.signedAt
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -1578,80 +2262,133 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
     document.body.removeChild(link);
   };
 
-  // Metrics
-  const overdueCount = 20; // from census
-  const dueNowCount = data.filter(d => d.status === 'Due Now').length;
-  const givenTodayCount = 176; // from census
-  const highAlertCount = 71; // from census
+  // Dynamic Metrics calculated directly from live database records
+  const overdueCount = data.filter(d => d.isOverdue || d.status === 'Overdue' || d.stage === 'Critical').length;
+  const dueNowCount = data.filter(d => d.status === 'Due Now' || (d.stage === 'Scheduled' && (d.time.includes('12:') || d.time.includes('01:')))).length;
+  const givenTodayCount = data.filter(d => d.status === 'Given' || d.stage === 'Completed').length;
+  const highAlertCount = data.filter(d => d.isHighAlert).length;
 
-  // Filter & Search
-  const filtered = data.filter(item => {
-    const matchesSearch =
-      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.bed.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.drug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.route.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.prescriber.toLowerCase().includes(searchQuery.toLowerCase());
+  // Filter & Search Logic
+  const filtered = useMemo(() => {
+    return data.filter(item => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q ||
+        item.patient.toLowerCase().includes(q) ||
+        item.bed.toLowerCase().includes(q) ||
+        item.drug.toLowerCase().includes(q) ||
+        item.route.toLowerCase().includes(q) ||
+        item.prescriber.toLowerCase().includes(q);
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (selectedFilter === 'Overdue') {
-      return item.stage === 'Critical' || item.status === 'Overdue' || item.isOverdue;
-    }
-    if (selectedFilter === 'Due') {
-      return item.status === 'Due Now';
-    }
-    if (selectedFilter === 'Scheduled') {
-      return item.stage === 'Scheduled' || item.status === 'Scheduled';
-    }
-    if (selectedFilter === 'Given') {
-      return item.stage === 'Completed' || item.status === 'Given';
-    }
-    return true;
-  });
+      if (selectedFilter === 'Overdue') {
+        return item.stage === 'Critical' || item.status === 'Overdue' || item.isOverdue;
+      }
+      if (selectedFilter === 'Due') {
+        return item.status === 'Due Now' || (item.stage === 'Scheduled' && (item.time.includes('12:') || item.time.includes('01:')));
+      }
+      if (selectedFilter === 'Scheduled') {
+        return item.stage === 'Scheduled';
+      }
+      if (selectedFilter === 'Given') {
+        return item.stage === 'Completed' || item.status === 'Given';
+      }
+      return true;
+    });
+  }, [data, searchQuery, selectedFilter]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedFilter, pageSize]);
+
+  // Pagination for Table view
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
+
+  // Dynamic Kanban columns with live counts
   const columns = [
-    { key: 'Scheduled', label: 'Scheduled', count: 201, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
-    { key: 'Completed', label: 'Completed', count: 176, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' },
-    { key: 'Critical', label: 'Critical', count: 20, bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
-    { key: 'Awaiting pharmacy', label: 'Awaiting pharmacy', count: 18, bg: '#ffedd5', fg: '#9a3412', border: '#fed7aa' }
+    {
+      key: 'Scheduled',
+      label: 'Scheduled',
+      count: data.filter(d => d.stage === 'Scheduled').length,
+      bg: '#fef3c7',
+      fg: '#92400e',
+      border: '#fde68a'
+    },
+    {
+      key: 'Completed',
+      label: 'Completed',
+      count: data.filter(d => d.stage === 'Completed' || d.status === 'Given').length,
+      bg: '#dcfce7',
+      fg: '#15803d',
+      border: '#bbf7d0'
+    },
+    {
+      key: 'Critical',
+      label: 'Critical / Overdue',
+      count: data.filter(d => d.stage === 'Critical' || d.status === 'Overdue' || d.isOverdue).length,
+      bg: '#fee2e2',
+      fg: '#991b1b',
+      border: '#fca5a5'
+    },
+    {
+      key: 'Awaiting pharmacy',
+      label: 'Awaiting pharmacy',
+      count: data.filter(d => d.stage === 'Awaiting pharmacy').length,
+      bg: '#ffedd5',
+      fg: '#9a3412',
+      border: '#fed7aa'
+    }
   ];
 
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Medication Administration Record (eMAR)"
+          subtitle="Loading live electronic MAR, scheduled medication doses, and high-alert drug validations..."
+          badgeText="Live Sync"
+          showKpis={false}
+          tableRows={8}
+          tableColumns={9}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Header section */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle */}
       <div>
-        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
-          – Back · Executive Dashboard › Medication Administration
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
-              Medication administration record
-            </h1>
-            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-              Prescription → pharmacy verification → dispensing → MAR → administration → record → audit · high-alert IV drugs need a nurse and a double-check
-            </p>
-          </div>
-        </div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', letterSpacing: '-0.02em' }}>
+          Medication administration record (eMAR)
+        </h1>
+        <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.4' }}>
+          Prescription → pharmacy verification → dispensing → eMAR → nurse administration → clinical audit. High-alert IV drugs require independent two-nurse double-check.
+        </p>
       </div>
 
       {/* Search & Export bar */}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', minWidth: '260px' }}>
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '280px' }}>
           <input
             type="text"
-            placeholder="Search..."
+            placeholder="Search patient, bed, drug, route, doctor..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               width: '100%',
-              padding: '7px 14px',
-              fontSize: '13px',
+              height: '34px',
+              padding: '0 12px',
+              fontSize: '12.5px',
               border: '1px solid #cbd5e1',
               borderRadius: '6px',
               outline: 'none',
-              background: '#ffffff'
+              background: '#ffffff',
+              boxSizing: 'border-box'
             }}
           />
         </div>
@@ -1659,14 +2396,16 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
           type="button"
           onClick={handleExportCSV}
           style={{
-            padding: '7px 16px',
-            fontSize: '13px',
+            height: '34px',
+            padding: '0 16px',
+            fontSize: '12.5px',
             fontWeight: 600,
             border: '1px solid #cbd5e1',
             borderRadius: '6px',
             background: '#ffffff',
             color: '#334155',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
           }}
         >
           Export CSV
@@ -1675,20 +2414,20 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
 
       {/* 4 Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Overdue</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Overdue</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Due now</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Due now</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Given today</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Given today</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{givenTodayCount}</div>
         </div>
-        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>High-alert pending</div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>High-alert pending</div>
           <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{highAlertCount}</div>
         </div>
       </div>
@@ -1739,9 +2478,9 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
                 type="button"
                 onClick={() => setSelectedFilter(f)}
                 style={{
-                  padding: '5px 14px',
+                  padding: '4px 14px',
                   borderRadius: '16px',
-                  fontSize: '12px',
+                  fontSize: '11.5px',
                   fontWeight: 600,
                   border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
                   background: isSelected ? '#0f172a' : '#ffffff',
@@ -1759,7 +2498,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Content Area */}
       {loading ? (
-        <LoadingState label="Fetching live medication administration records from PostgreSQL..." />
+        <LoadingState label="Fetching live medication administration records from PostgreSQL..." columns={9} rows={8} />
       ) : filtered.length === 0 ? (
         <EmptyState
           title="No Medication Doses Found"
@@ -1769,9 +2508,15 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
         />
       ) : viewMode === 'Kanban' ? (
         /* Kanban Board View */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px', alignItems: 'start' }}>
           {columns.map(col => {
-            const items = filtered.filter(d => d.stage === col.key || (col.key === 'Scheduled' && d.stage === 'Scheduled') || (col.key === 'Completed' && (d.stage === 'Completed' || d.status === 'Given')) || (col.key === 'Critical' && (d.stage === 'Critical' || d.status === 'Overdue')) || (col.key === 'Awaiting pharmacy' && d.stage === 'Awaiting pharmacy'));
+            const items = filtered.filter(d => {
+              if (col.key === 'Scheduled') return d.stage === 'Scheduled';
+              if (col.key === 'Completed') return d.stage === 'Completed' || d.status === 'Given';
+              if (col.key === 'Critical') return d.stage === 'Critical' || d.status === 'Overdue' || d.isOverdue;
+              if (col.key === 'Awaiting pharmacy') return d.stage === 'Awaiting pharmacy';
+              return false;
+            });
             return (
               <div
                 key={col.key}
@@ -1799,15 +2544,15 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
                   }}>
                     {col.label}
                   </span>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
-                    {col.count}
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>
+                    {items.length} of {col.count}
                   </span>
                 </div>
 
                 {/* Cards List */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
                   {items.map(card => {
-                    const isCardSelected = selectedCardId === card.id || (card.bed === 'NR-03' && card.stage === 'Completed' && !selectedCardId);
+                    const isCardSelected = selectedCardId === card.id;
                     return (
                       <div
                         key={card.id}
@@ -1834,15 +2579,25 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
                           }
                         }}
                       >
-                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12.5px', marginBottom: '2px' }}>
-                          {card.bed}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                          <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px' }}>
+                            {card.bed}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
+                            {card.time}
+                          </span>
                         </div>
-                        <div style={{ color: '#334155', fontSize: '12px', marginBottom: '2px', fontWeight: 500 }}>
+                        <div style={{ color: '#1e293b', fontSize: '12.5px', marginBottom: '3px', fontWeight: 600 }}>
                           {card.patient}
                         </div>
-                        <div style={{ color: '#64748b', fontSize: '11.5px', lineHeight: '1.3' }}>
-                          {card.drug} {card.route}
+                        <div style={{ color: '#475569', fontSize: '11.5px', lineHeight: '1.3', marginBottom: '4px' }}>
+                          {card.drug} · {card.route}
                         </div>
+                        {card.isHighAlert && (
+                          <span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: '3px', fontSize: '10.5px', fontWeight: 700 }}>
+                            High-Alert IV
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -1874,7 +2629,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => (
+              {paginatedRows.map(row => (
                 <tr
                   key={row.id}
                   onClick={() => handleOpenDrawer(row)}
@@ -1947,6 +2702,179 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
               ))}
             </tbody>
           </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> medication doses
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

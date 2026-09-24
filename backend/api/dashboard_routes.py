@@ -853,7 +853,7 @@ def get_appointments(
             params.append(status_str.upper())
 
         if dept_str:
-            conditions.append("LOWER(dept.department_name) = LOWER(%s)")
+            conditions.append("(LOWER(COALESCE(dept.department_name, d.specialization, '')) = LOWER(%s))")
             params.append(dept_str)
 
         if source_str:
@@ -883,7 +883,7 @@ def get_appointments(
             FROM appointments a
             LEFT JOIN patients p ON a.patient_id = p.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
-            LEFT JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             {where};
             """,
             params,
@@ -918,12 +918,12 @@ def get_appointments(
                    COALESCE(d.id, a.doctor_id) as doctor_id,
                    COALESCE(d.display_name, 'Doctor #' || a.doctor_id) as doctor_name,
                    COALESCE(d.specialization, 'General Medicine') as specialization,
-                   COALESCE(dept.id, a.department_id) as department_id,
-                   COALESCE(dept.department_name, 'General Medicine') as department_name
+                   COALESCE(d.department_id, a.department_id, dept.id) as department_id,
+                   COALESCE(dept.department_name, d.specialization, 'General Medicine') as department_name
             FROM appointments a
             LEFT JOIN patients p ON a.patient_id = p.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
-            LEFT JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             LEFT JOIN LATERAL (
                 SELECT slot_duration_minutes
                 FROM doctor_schedules

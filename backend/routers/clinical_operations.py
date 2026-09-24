@@ -358,7 +358,18 @@ def get_emar_records():
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        cur.execute("SELECT * FROM emar_records ORDER BY id ASC;")
+        cur.execute("""
+            SELECT * FROM emar_records 
+            ORDER BY 
+                CASE 
+                    WHEN is_overdue = true OR stage = 'Critical' THEN 1
+                    WHEN is_high_alert = true THEN 2
+                    WHEN stage = 'Scheduled' THEN 3
+                    WHEN stage = 'Awaiting pharmacy' THEN 4
+                    ELSE 5
+                END,
+                id ASC;
+        """)
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
     except Exception as e:

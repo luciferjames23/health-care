@@ -839,6 +839,14 @@ export const apiService = {
     });
   },
 
+  async getConsultantSchedules(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
+      forceRefresh: true,
+      ...options,
+      revalidateMs: 0
+    });
+  },
+
   async createConsultantSchedule(payload = {}) {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/schedules`, {
       method: 'POST',
@@ -865,8 +873,9 @@ export const apiService = {
 
   async getNursingTasks(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/nursing`, {
+      forceRefresh: true,
       ...options,
-      revalidateMs: 2000
+      revalidateMs: 0
     });
   },
 
@@ -896,8 +905,9 @@ export const apiService = {
 
   async getEmarRecords(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+      forceRefresh: true,
       ...options,
-      revalidateMs: 2000
+      revalidateMs: 0
     });
   },
 

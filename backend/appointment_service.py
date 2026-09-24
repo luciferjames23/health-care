@@ -441,7 +441,7 @@ def get_patient_appointments(patient_id: int, time_filter: str = "ALL"):
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
             JOIN doctors d ON a.doctor_id = d.id
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             WHERE a.patient_id = %s
         """
         params = [patient_id]
