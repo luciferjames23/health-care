@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import { ClarificationButton } from './RadiologyClarifications';
+import { ImagingHistoryButton } from './ImagingHistory';
+import { studyVersion } from '../services/imagingHistory';
 import { OHIF_BASE_URL } from '../services/radiologyApi';
 import { Card, btn, primaryBtn } from './RadiologyShared';
 
@@ -18,6 +20,8 @@ export default function XrayOrders({ patient, radiologist = false }) {
   const [examination, setExamination] = useState('Chest X-ray PA');
   const [priority, setPriority] = useState('Routine');
   const [indication, setIndication] = useState('');
+  const [followUpOf, setFollowUpOf] = useState('');
+  const [clinicalProblem, setClinicalProblem] = useState('');
   const requestId = useRef(null);
   const patientId = patient?.patient_id || patient?.id || patient?.raw?.patient_id;
   const refresh = useCallback(async () => {
@@ -27,7 +31,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
     finally { setLoading(false); }
   }, [patientId, radiologist]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 10000); return () => clearInterval(timer); }, [refresh]);
-  useEffect(() => { requestId.current = null; setIndication(''); setMessage(''); setSelected(null); setFile(null); }, [patientId]);
+  useEffect(() => { requestId.current = null; setIndication(''); setFollowUpOf(''); setClinicalProblem(''); setMessage(''); setSelected(null); setFile(null); }, [patientId]);
 
   useEffect(() => { setPatientReview(null); setConfirmed(false); }, [file, selected?.order_id]);
 
@@ -35,9 +39,9 @@ export default function XrayOrders({ patient, radiologist = false }) {
     e.preventDefault(); setBusy(true); setError(''); setMessage('');
     requestId.current ||= crypto.randomUUID();
     try {
-      const order = await imagingOrdersApi.create({ patient_id: Number(patientId), examination, priority, indication, request_id: requestId.current });
-      setMessage(`Order ${order.accession_number} sent to Radiology.`);
-      setIndication(''); requestId.current = null;
+      const order = await imagingOrdersApi.create({ patient_id: Number(patientId), examination, priority, indication, request_id: requestId.current, follow_up_of: followUpOf || null, clinical_problem: followUpOf ? null : clinicalProblem.trim() || null });
+      setMessage(`Order ${order.accession_number} sent to Radiology · ${studyVersion(order)}.`);
+      setIndication(''); setFollowUpOf(''); setClinicalProblem(''); requestId.current = null;
       await refresh();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
@@ -77,6 +81,11 @@ export default function XrayOrders({ patient, radiologist = false }) {
     {error && <p role="alert" style={{ color: '#b42318' }}>{error}</p>}
     {message && <p role="status" style={{ color: '#047857' }}>{message}</p>}
     {!radiologist && patientId && <form onSubmit={create} style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+      <label>Clinical problem / follow-up <select style={{ ...input, maxWidth: '100%' }} value={followUpOf} disabled={busy} onChange={e => { setFollowUpOf(e.target.value); requestId.current = null; }}>
+        <option value="">New problem / new baseline</option>
+        {orders.map(order => <option key={order.order_id} value={order.order_id}>Follow-up: {order.clinical_problem || order.indication} · {order.accession_number} · V{order.study_version || 1}</option>)}
+      </select></label>
+      {followUpOf ? <p style={{ margin: 0 }}>This request joins the selected study's clinical problem. It will receive the next study number and retain its own image and report.</p> : <label>Problem name (optional)<input style={{ ...input, marginLeft: 8 }} maxLength={2000} minLength={3} value={clinicalProblem} disabled={busy} placeholder="For example: follow-up of chest symptoms" onChange={e => { setClinicalProblem(e.target.value); requestId.current = null; }} /><small style={{ display: 'block' }}>If blank, the clinical indication identifies this problem.</small></label>}
       <label>Examination <select style={input} value={examination} disabled={busy} onChange={e => { setExamination(e.target.value); requestId.current = null; }}>{['Chest X-ray PA', 'Chest X-ray AP'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Priority <select style={input} value={priority} disabled={busy} onChange={e => { setPriority(e.target.value); requestId.current = null; }}><option>Routine</option><option>Urgent</option></select></label>
       <label>Clinical indication<textarea style={{ ...input, display: 'block', width: '100%', boxSizing: 'border-box' }} required minLength={3} maxLength={2000} value={indication} disabled={busy} onChange={e => { setIndication(e.target.value); requestId.current = null; }} /></label>
@@ -157,7 +166,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
               <tr key={order.order_id}>
                 <td style={{ padding: 8 }}>{order.accession_number}<br />{new Date(order.created_at).toLocaleString()}</td>
                 <td>{order.patient_name}<br />{order.patient_code}</td>
-                <td>{order.examination}<br />{order.indication}</td>
+                <td>{order.examination}<br /><b>{studyVersion(order)}</b><br />{order.clinical_problem || order.indication}<br /><small>{order.indication}</small></td>
                 <td>{order.requested_by_name}</td>
                 <td>
                   <span style={{
@@ -176,6 +185,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
                 </td>
                 <td>{order.status}</td>
                 <td>
+                  <ImagingHistoryButton orderId={order.order_id} onChanged={refresh} />
                   {order.status === 'Uploaded' && <ClarificationButton orderId={order.order_id} />}
                   {radiologist && order.status !== 'Uploaded' && (
                     <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setFile(null); setError(''); }}>
