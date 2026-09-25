@@ -72,6 +72,13 @@ export default function PatientsView({
         const rawDischarges = dr?.data || [];
         const rawAdmissions = ar?.data || [];
 
+        const dischargeMapByPid = {};
+        const dischargeMapByAid = {};
+        rawDischarges.forEach(d => {
+          if (d.patient_id) dischargeMapByPid[String(d.patient_id)] = d;
+          if (d.admission_id) dischargeMapByAid[String(d.admission_id)] = d;
+        });
+
         const dischargedTracker = extractDischargedPatientIds(rawDischarges);
 
         const seenDischargedPids = new Set();
@@ -81,11 +88,14 @@ export default function PatientsView({
         rawAdmissions.forEach(r => {
           const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
           const pid = String(r.patient_id || r.id || '').trim();
+          const aid = String(r.admission_id || '').trim();
 
           const isDischarged = st === 'discharged' || dischargedTracker.has(r);
+          const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
 
           const parsed = parseAdmissionLlmRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+          const docName = matchedSummary?.primary_consultant || matchedSummary?.doctor_name || r.attending_doctor || parsed.doctor || 'Attending Physician';
 
           if (isDischarged) {
             if (pid) seenDischargedPids.add(pid);
@@ -97,8 +107,8 @@ export default function PatientsView({
               age: r.age_at_admission || parsed.age || 45,
               sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
               gender: r.gender || parsed.gender || 'Unknown',
-              doctor: r.attending_doctor || parsed.doctor || 'Attending Physician',
-              diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
+              doctor: docName,
+              diagnosis: cleanDiagnosis(matchedSummary?.diagnoses || r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "Discharged",
               _status: "Discharged"
             });
@@ -108,6 +118,7 @@ export default function PatientsView({
               ...parsed,
               name: pName,
               patient_name: pName,
+              doctor: docName,
               diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "IP",
               _status: isReady ? "Fit for discharge" : (parsed.status || "Admitted")
@@ -126,6 +137,7 @@ export default function PatientsView({
 
           const d = parseDischargeSummaryRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
+          const docName = r.primary_consultant || r.doctor_name || d.doctor || 'Attending Physician';
 
           if (pid) seenDischargedPids.add(pid);
           parsedDischargedList.push({
@@ -136,7 +148,7 @@ export default function PatientsView({
             age: d.age || r.age_at_admission || r.age || 45,
             sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
             gender: d.gender || r.gender || 'Unknown',
-            doctor: d.doctor || r.primary_consultant || r.doctor_name || 'Attending Physician',
+            doctor: docName,
             diagnosis: cleanDiagnosis(d.diagnosis || d.diagnoses || r.diagnoses || ''),
             _type: "Discharged",
             _status: "Discharged"
@@ -214,6 +226,28 @@ export default function PatientsView({
     };
   }, []);
 
+  const counts = useMemo(() => {
+    let baseAdmitted = admitted;
+    let baseOp = opPatients;
+    let baseEr = erPatients;
+    let baseDischarged = discharged;
+
+    if (activeDoctorName) {
+      baseAdmitted = baseAdmitted.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseOp = baseOp.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseEr = baseEr.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseDischarged = baseDischarged.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+    }
+
+    return {
+      All: baseAdmitted.length + baseOp.length + baseEr.length + baseDischarged.length,
+      IP: baseAdmitted.length,
+      OP: baseOp.length,
+      ER: baseEr.length,
+      Discharged: baseDischarged.length,
+    };
+  }, [admitted, opPatients, erPatients, discharged, activeDoctorName]);
+
   const rows = useMemo(() => {
     let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients, ...discharged]
       : filter === "IP" ? admitted
@@ -264,7 +298,7 @@ export default function PatientsView({
         phone.includes(s)
       );
     });
-  }, [admitted, discharged, filter, search, activeDoctorName]);
+  }, [admitted, opPatients, erPatients, discharged, filter, search, activeDoctorName]);
 
   const total = admitted.length + opPatients.length + erPatients.length + discharged.length;
   const totalRows = rows.length;
@@ -298,7 +332,7 @@ export default function PatientsView({
             {loading
               ? "Loading patients…"
               : isDoctor && activeDoctorName
-                ? `Doctor Scope: ${activeDoctorName} · Showing ${rows.length} patient${rows.length === 1 ? '' : 's'} under your care`
+                ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
                 : `${total} active patients · shared Patient 360 across every module`}
           </div>
         </div>
@@ -320,15 +354,23 @@ export default function PatientsView({
 
       {/* filter pills + pagination summary */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ display: "flex", gap: "4px" }}>
+        <div style={{ display: "flex", gap: "6px" }}>
           {["All", "IP", "OP", "ER", "Discharged"].map(f => (
             <button key={f} type="button" onClick={() => setFilter(f)}
               style={{
-                height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
+                height: "28px", padding: "0 12px", borderRadius: "14px", border: "1px solid #e3e6e8",
                 background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
-                fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer"
+                fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: "6px"
               }}>
-              {f}
+              <span>{f}</span>
+              <span style={{
+                background: filter === f ? "rgba(255,255,255,0.2)" : "#f1f5f9",
+                color: filter === f ? "#fff" : "#64748b",
+                padding: "1px 6px", borderRadius: "10px", fontSize: "10.5px", fontWeight: 600
+              }}>
+                {counts[f] !== undefined ? counts[f] : 0}
+              </span>
             </button>
           ))}
         </div>

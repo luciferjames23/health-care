@@ -1105,7 +1105,7 @@ def get_all_patients_directory(
         # 4. Discharged Patients
         if cat in ("ALL", "DISCHARGED"):
             cur.execute("""
-                SELECT 
+                SELECT DISTINCT ON (p.id)
                     p.id AS patient_id,
                     p.patient_code,
                     p.first_name,
@@ -1131,11 +1131,11 @@ def get_all_patients_directory(
                     'Settled' AS insurer
                 FROM admissions a
                 JOIN patients p ON p.id = a.patient_id
-                LEFT JOIN discharge_summaries ds ON ds.admission_id = a.admission_id
-                LEFT JOIN doctors d ON d.id = a.doctor_id
+                LEFT JOIN dim_generated_discharge_summaries ds ON ds.admission_id = a.admission_id OR ds.patient_id = a.patient_id
+                LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
                 LEFT JOIN wards w ON w.ward_id = a.ward_id
-                WHERE a.discharge_status = 'Discharged' OR ds.summary_id IS NOT NULL
-                ORDER BY a.discharge_date DESC, a.admission_id DESC;
+                WHERE a.discharge_status = 'Discharged' OR ds.approval_status = 'Approved'
+                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC;
             """)
             patients.extend(cur.fetchall())
 
