@@ -8,6 +8,7 @@ import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function Patient360View({
   patient,
@@ -57,52 +58,15 @@ export default function Patient360View({
     return `${base}?${params.toString()}`;
   };
   const [patientXrayOrders, setPatientXrayOrders] = useState([]);
+  const [patientVitalsHistory, setPatientVitalsHistory] = useState([]);
+  const [dischargeSummary, setDischargeSummary] = useState(null);
+  const [loadingPatient360, setLoadingPatient360] = useState(true);
 
-  // Live polling for patient X-ray / imaging orders
+  // Unified synchronized data fetch for Patient 360 to eliminate screen refreshing/flickering
   useEffect(() => {
     let alive = true;
-    const cleanNum = (val) => {
-      if (!val) return null;
-      const str = String(val).trim();
-      const m = str.match(/\d+/);
-      return m ? m[0].replace(/^0+/, '') || '0' : str;
-    };
-    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || patient?.raw?.patient_id);
-    if (!pid) return;
+    setLoadingPatient360(true);
 
-    const loadOrders = () => {
-      imagingOrdersApi.list(pid)
-        .then(res => {
-          if (alive && res?.orders) {
-            setPatientXrayOrders(res.orders);
-          }
-        })
-        .catch(() => {});
-    };
-
-    loadOrders();
-    const timer = setInterval(loadOrders, 8000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [patient?.patient_id, patient?.id, patient?.uhid, patient?.mrn]);
-
-  // Silently pre-fetch radiology scans for inline Diagnoses X-ray card
-  useEffect(() => {
-    let alive = true;
-    const pid = patient?.patient_id || patient?.id;
-    const pcode = patient?.mrn || patient?.uhid || patient?.patient_code;
-    if (!pid && !pcode) return;
-    radiologyApi.getPatientScans({ patient_id: pid || undefined, patient_code: pcode || undefined, limit: 5 })
-      .then(res => { if (alive && res?.data?.length) { setDiagScans(res.data); setDiagScanIdx(0); } })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [patient?.patient_id, patient?.id, patient?.mrn, patient?.uhid]);
-
-  // Fetch real-time bed assignment directly from Bed Management API (matching Bed Board)
-  useEffect(() => {
-    let alive = true;
     const cleanNum = (val) => {
       if (!val) return null;
       const str = String(val).trim();
@@ -110,183 +74,211 @@ export default function Patient360View({
       return m ? m[0].replace(/^0+/, '') || '0' : str;
     };
 
-    const targetAid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter);
-    const targetPid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn);
-    const targetName = (patient?.name || patient?.patient || patient?.patient_name || '').trim().toLowerCase();
-
-    apiService.getBedManagementData()
-      .then(res => {
-        if (!alive || !res?.wards) return;
-        for (const w of res.wards) {
-          for (const r of (w.rooms || [])) {
-            for (const b of (r.beds || [])) {
-              const p = b.assigned_patient || b.patient;
-              const bPid = cleanNum(b.patient_id || p?.patient_id || p?.id);
-              const bAid = cleanNum(b.admission_id || p?.admission_id || p?.admission_number);
-              const bName = (p?.patient_name || p?.name || '').trim().toLowerCase();
-
-              const matchesAid = targetAid && bAid && targetAid === bAid;
-              const matchesPid = targetPid && bPid && targetPid === bPid;
-              const matchesName = targetName && bName && (targetName === bName || bName.includes(targetName) || targetName.includes(bName));
-
-              if (matchesAid || matchesPid || matchesName) {
-                setAssignedBed({
-                  bed_id: b.bed_id,
-                  bed_number: b.bed_number,
-                  room_number: r.room_number,
-                  room_type: r.room_type,
-                  ward_id: w.ward_id,
-                  ward_name: w.ward_name
-                });
-                return;
-              }
-            }
-          }
-        }
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [patient]);
-
-  // Fetch live admission details from dim_admission_inputs so all clinical & billing facts are 100% dynamic
-  useEffect(() => {
-    let alive = true;
-    const cleanNum = (val) => {
-      if (!val) return null;
-      const str = String(val).trim();
-      const m = str.match(/\d+/);
-      return m ? m[0].replace(/^0+/, '') || '0' : str;
-    };
     const isOpPatient = patient?.patient_type === 'OP' || patient?._type === 'OP' || patient?.care_type === 'OP' || Boolean(patient?.appointment_number);
     const isErPatient = patient?.patient_type === 'ER' || patient?._type === 'ER' || patient?.care_type === 'ER' || Boolean(patient?.triage_number);
 
-    if (isOpPatient || isErPatient) {
-      setLiveAdmission(null);
-      return;
-    }
-
-    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn);
-    const aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter);
+    let pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || patient?.raw?.patient_id);
+    let aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter || patient?.raw?.admission_id);
     const pnum = patient?.patient_number || patient?.patient_code || patient?.uhid || patient?.mrn;
     const anum = patient?.admission_number;
+    const pcode = patient?.mrn || patient?.uhid || patient?.patient_code;
+    const targetName = (patient?.name || patient?.patient || patient?.patient_name || '').trim().toLowerCase();
 
-    const fetchParams = {};
-    if (aid) fetchParams.admission_id = aid;
-    else if (pid) fetchParams.patient_id = pid;
-    else if (pnum) fetchParams.patient_number = pnum;
-    else if (anum) fetchParams.admission_number = anum;
+    const withTimeout = (p, ms = 6000) =>
+      Promise.race([
+        p,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms))
+      ]);
 
-    if (Object.keys(fetchParams).length > 0) {
-      fetchParams.limit = 1;
-      apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true })
-        .then(res => {
-          if (alive && res?.data && res.data.length > 0) {
-            const fetched = res.data[0];
-            const fetchedAid = cleanNum(fetched.admission_id);
-            const fetchedPid = cleanNum(fetched.patient_id);
-            const matches = (
-              (!aid || fetchedAid === aid) &&
-              (!pid || fetchedPid === pid)
-            );
-            if (matches) {
-              setLiveAdmission(fetched);
+    const loadAllPatientData = async () => {
+      try {
+        let resolvedAdmission = null;
+
+        // 1. Fetch live admission if inpatient
+        if (!isOpPatient && !isErPatient) {
+          const fetchParams = {};
+          if (aid) fetchParams.admission_id = aid;
+          else if (pid) fetchParams.patient_id = pid;
+          else if (pnum) fetchParams.patient_number = pnum;
+          else if (anum) fetchParams.admission_number = anum;
+
+          if (Object.keys(fetchParams).length > 0) {
+            fetchParams.limit = 1;
+            try {
+              const res = await withTimeout(apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true }), 4000);
+              if (res?.data && res.data.length > 0) {
+                const fetched = res.data[0];
+                const fetchedAid = cleanNum(fetched.admission_id);
+                const fetchedPid = cleanNum(fetched.patient_id);
+                const matches = (!aid || fetchedAid === aid) && (!pid || fetchedPid === pid);
+                if (matches) {
+                  resolvedAdmission = fetched;
+                  if (!aid) aid = fetchedAid;
+                  if (!pid) pid = fetchedPid;
+                }
+              }
+            } catch (e) {
+              console.warn("Admission fetch skipped or timed out:", e);
             }
           }
-        })
-        .catch(() => {});
-    }
-    return () => { alive = false; };
-  }, [patient]);
-
-  // Fetch real-time vitals history from PostgreSQL vital_signs table
-  const [patientVitalsHistory, setPatientVitalsHistory] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    const cleanNum = (val) => {
-      if (!val) return null;
-      const str = String(val).trim();
-      const m = str.match(/\d+/);
-      return m ? m[0].replace(/^0+/, '') || '0' : str;
-    };
-    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || liveAdmission?.patient_id);
-    const aid = cleanNum(patient?.admission_id || patient?.admission_number || liveAdmission?.admission_id);
-    if (!pid && !aid) return;
-
-    apiService.getPatientVitals({ patient_id: pid || undefined, admission_id: aid || undefined, limit: 10 })
-      .then(res => {
-        if (alive && res?.data && Array.isArray(res.data) && res.data.length > 0) {
-          setPatientVitalsHistory(res.data);
         }
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [patient?.patient_id, patient?.id, patient?.admission_id, liveAdmission?.patient_id, liveAdmission?.admission_id]);
 
-  // Fetch deep dynamic bill breakdown (including bed charges, pharmacy sales, lab tests, and payments)
-  useEffect(() => {
-    let alive = true;
-    const aid = patient?.admission_id || liveAdmission?.admission_id;
-    const pid = patient?.patient_id || patient?.id || liveAdmission?.patient_id;
-    const bid = patient?.bill_id || liveAdmission?.bill_id;
+        const effectiveAid = aid || cleanNum(resolvedAdmission?.admission_id);
+        const effectivePid = pid || cleanNum(resolvedAdmission?.patient_id);
+        const effectiveBid = patient?.bill_id || resolvedAdmission?.bill_id;
 
-    if (!aid && !pid && !bid) return;
+        // 2. Concurrently fetch all secondary datasets in parallel
+        const [bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes] = await Promise.allSettled([
+          // Bed Management
+          withTimeout(apiService.getBedManagementData(), 5000),
+          // Vitals telemetry
+          (effectivePid || effectiveAid)
+            ? withTimeout(apiService.getPatientVitals({ patient_id: effectivePid || undefined, admission_id: effectiveAid || undefined, limit: 10 }), 5000)
+            : Promise.resolve(null),
+          // Dynamic Bill
+          (async () => {
+            let res = null;
+            if (effectiveAid) res = await financialApi.getBillByAdmission(effectiveAid).catch(() => null);
+            if (!res?.bill && effectiveBid) res = await financialApi.getBillDetail(effectiveBid).catch(() => null);
+            if (!res?.bill && effectivePid) res = await financialApi.getBillByPatient(effectivePid).catch(() => null);
+            return res;
+          })(),
+          // Discharge Summary
+          (async () => {
+            const fetchSummariesFn = apiService.getDischargeSummaries || apiService.getGeneratedDischargeSummaries || apiService.getDischargedPatients;
+            if (typeof fetchSummariesFn === 'function' && (effectiveAid || effectivePid)) {
+              return withTimeout(fetchSummariesFn.call(apiService, { limit: 100 }, { forceRefresh: true }), 5000);
+            }
+            return null;
+          })(),
+          // Imaging Orders
+          effectivePid ? withTimeout(imagingOrdersApi.list(effectivePid), 5000) : Promise.resolve(null),
+          // Radiology Scans
+          (effectivePid || pcode)
+            ? withTimeout(radiologyApi.getPatientScans({ patient_id: effectivePid || undefined, patient_code: pcode || undefined, limit: 5 }), 5000)
+            : Promise.resolve(null)
+        ]);
 
-    const fetchBill = async () => {
-      try {
-        let res = null;
-        if (aid) {
-          res = await financialApi.getBillByAdmission(aid).catch(() => null);
+        if (!alive) return;
+
+        // Apply all data atomically in a single state update batch
+        setLiveAdmission(resolvedAdmission);
+
+        // Bed assignment
+        if (bedRes.status === 'fulfilled' && bedRes.value?.wards) {
+          let matchedBed = null;
+          for (const w of bedRes.value.wards) {
+            for (const r of (w.rooms || [])) {
+              for (const b of (r.beds || [])) {
+                const bp = b.assigned_patient || b.patient;
+                const bPid = cleanNum(b.patient_id || bp?.patient_id || bp?.id);
+                const bAid = cleanNum(b.admission_id || bp?.admission_id || bp?.admission_number);
+                const bName = (bp?.patient_name || bp?.name || '').trim().toLowerCase();
+
+                const matchesAid = effectiveAid && bAid && effectiveAid === bAid;
+                const matchesPid = effectivePid && bPid && effectivePid === bPid;
+                const matchesName = targetName && bName && (targetName === bName || bName.includes(targetName) || targetName.includes(bName));
+
+                if (matchesAid || matchesPid || matchesName) {
+                  matchedBed = {
+                    bed_id: b.bed_id,
+                    bed_number: b.bed_number,
+                    room_number: r.room_number,
+                    room_type: r.room_type,
+                    ward_id: w.ward_id,
+                    ward_name: w.ward_name
+                  };
+                  break;
+                }
+              }
+              if (matchedBed) break;
+            }
+            if (matchedBed) break;
+          }
+          setAssignedBed(matchedBed);
+        } else {
+          setAssignedBed(null);
         }
-        if (!res?.bill && bid) {
-          res = await financialApi.getBillDetail(bid).catch(() => null);
+
+        // Vitals
+        if (vitalsRes.status === 'fulfilled' && vitalsRes.value?.data && Array.isArray(vitalsRes.value.data) && vitalsRes.value.data.length > 0) {
+          setPatientVitalsHistory(vitalsRes.value.data);
+        } else {
+          setPatientVitalsHistory([]);
         }
-        if (!res?.bill && pid) {
-          res = await financialApi.getBillByPatient(pid).catch(() => null);
+
+        // Bill
+        if (billRes.status === 'fulfilled' && billRes.value?.bill) {
+          setLiveBill(billRes.value.bill);
+        } else {
+          setLiveBill(null);
         }
-        if (alive && res?.bill) {
-          setLiveBill(res.bill);
+
+        // Discharge
+        if (dischargeRes.status === 'fulfilled' && dischargeRes.value?.data) {
+          const matched = dischargeRes.value.data.find(r => {
+            const rAid = cleanNum(r.admission_id);
+            const rPid = cleanNum(r.patient_id);
+            return (effectiveAid && rAid === effectiveAid) || (effectivePid && rPid === effectivePid);
+          });
+          setDischargeSummary(matched || null);
+        } else {
+          setDischargeSummary(null);
+        }
+
+        // Imaging orders
+        if (ordersRes.status === 'fulfilled' && ordersRes.value?.orders) {
+          setPatientXrayOrders(ordersRes.value.orders);
+        } else {
+          setPatientXrayOrders([]);
+        }
+
+        // Scans
+        if (scansRes.status === 'fulfilled' && scansRes.value?.data?.length) {
+          setDiagScans(scansRes.value.data);
+          setDiagScanIdx(0);
+        } else {
+          setDiagScans([]);
         }
       } catch (err) {
-        console.warn("Failed to load live bill details:", err);
+        console.error("Patient 360 data load error:", err);
+      } finally {
+        if (alive) {
+          setLoadingPatient360(false);
+        }
       }
     };
 
-    fetchBill();
-    return () => { alive = false; };
-  }, [patient?.admission_id, patient?.patient_id, patient?.id, liveAdmission?.admission_id, liveAdmission?.patient_id]);
+    loadAllPatientData();
 
-  // Fetch discharge summary to track if patient was signed off / approved
-  const [dischargeSummary, setDischargeSummary] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    const cleanNum = (val) => {
-      if (!val) return null;
-      const str = String(val).trim();
-      const m = str.match(/\d+/);
-      return m ? m[0].replace(/^0+/, '') || '0' : str;
-    };
-    const aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter || liveAdmission?.admission_id);
-    const pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || liveAdmission?.patient_id);
-    if (!aid && !pid) return;
-
-    const fetchSummariesFn = apiService.getDischargeSummaries || apiService.getGeneratedDischargeSummaries || apiService.getDischargedPatients;
-    if (typeof fetchSummariesFn === 'function') {
-      fetchSummariesFn.call(apiService, { limit: 100 }, { forceRefresh: true })
-        .then(res => {
-          if (!alive || !res?.data) return;
-          const matched = res.data.find(r => {
-            const rAid = cleanNum(r.admission_id);
-            const rPid = cleanNum(r.patient_id);
-            return (aid && rAid === aid) || (pid && rPid === pid);
-          });
-          if (matched) {
-            setDischargeSummary(matched);
-          }
-        })
-        .catch(() => {});
+    // Silent background poller for X-ray orders every 10s
+    let pollerTimer = null;
+    if (pid) {
+      pollerTimer = setInterval(() => {
+        imagingOrdersApi.list(pid)
+          .then(res => {
+            if (alive && res?.orders) {
+              setPatientXrayOrders(res.orders);
+            }
+          })
+          .catch(() => {});
+      }, 10000);
     }
-    return () => { alive = false; };
-  }, [patient?.admission_id, patient?.patient_id, patient?.id, liveAdmission?.admission_id, liveAdmission?.patient_id]);
+
+    return () => {
+      alive = false;
+      if (pollerTimer) clearInterval(pollerTimer);
+    };
+  }, [
+    patient?.patient_id,
+    patient?.id,
+    patient?.admission_id,
+    patient?.admission_number,
+    patient?.uhid,
+    patient?.mrn,
+    patient?.patient_code,
+    patient?.patient_number
+  ]);
 
   // Auto-dismiss scan notification after 8 seconds
   useEffect(() => {
@@ -1537,6 +1529,56 @@ export default function Patient360View({
   };
 
   const currentScan = patientScans.length > 0 ? (patientScans[activeScanIdx] || patientScans[0]) : null;
+
+  if (loadingPatient360) {
+    const patientDisplayName = patient?.name || patient?.patient_name || patient?.patient || p.name || 'Patient Record';
+    const patientUhid = p.uhid || patient?.uhid || patient?.patient_code || patient?.mrn || (patient?.patient_id ? `UHID-${String(patient.patient_id).padStart(6, '0')}` : '');
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
+        <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+          <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
+          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{patientUhid || 'Loading Profile...'}</span>
+        </div>
+        <ModuleLoadingScreen
+          title={`Loading Patient 360 · ${patientDisplayName}${patientUhid ? ` (${patientUhid})` : ''}...`}
+          subtitle="Synchronizing electronic health record, bed allocation, vitals telemetry, diagnostics, and financial ledger..."
+          badgeText="Live Clinical 360 Sync"
+          showKpis={true}
+          statCount={5}
+          layout="table"
+          tableRows={7}
+          tableColumns={8}
+        />
+      </div>
+    );
+  }
+
+  if (!patient) {
+    return (
+      <div style={{ padding: '32px 24px', textAlign: 'center', background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+        <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px' }}>No Patient Selected</h3>
+        <p style={{ margin: 0, fontSize: '13px' }}>Please select a patient from Admissions, Patients, or Bed Board to view their 360 profile.</p>
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              marginTop: '16px',
+              padding: '8px 18px',
+              borderRadius: '6px',
+              background: '#0284c7',
+              color: '#fff',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '13px'
+            }}
+          >
+            ← Return to Previous View
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>

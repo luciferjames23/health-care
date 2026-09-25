@@ -17,6 +17,7 @@ const Spinner = () => (
 
 export default function CommandCentreView({ onNavigate, onAskAi }) {
   const [liveKpis, setLiveKpis] = useState(null);
+  const [execMetrics, setExecMetrics] = useState(null);
   const [liveWards, setLiveWards] = useState([]);
   const [liveExceptions, setLiveExceptions] = useState([]);
   const [liveApprovals, setLiveApprovals] = useState([]);
@@ -35,12 +36,17 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         const results = await Promise.allSettled([
           apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }),
           apiService.getDischargedPatients({}, { forceRefresh: true }),
-          apiService.getBedManagementData({}, { forceRefresh: true })
+          apiService.getBedManagementData({}, { forceRefresh: true }),
+          apiService.getExecutiveKpis({}, { forceRefresh: true })
         ]);
 
         if (!isMounted) return;
 
-        const [admSettled, disSettled, bmSettled] = results;
+        const [admSettled, disSettled, bmSettled, execSettled] = results;
+
+        if (execSettled && execSettled.status === 'fulfilled' && execSettled.value?.success) {
+          setExecMetrics(execSettled.value);
+        }
 
         const isAdmRejected = admSettled.status === 'rejected';
         const isDisRejected = disSettled.status === 'rejected';
@@ -250,6 +256,71 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       sub: apiError ? 'API Offline · Intake capacity unknown' : 'Immediate intake capacity', 
       c: 'oklch(0.4 0.12 150)', 
       target: 'beds' 
+    },
+    // Live Database Cards with Real Operational Data
+    { 
+      id: 'appts', 
+      t: 'Appointments Recorded', 
+      v: execMetrics ? execMetrics.appointments.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'All scheduled clinical encounters in PostgreSQL', 
+      c: '#15181b', 
+      target: 'appointments' 
+    },
+    { 
+      id: 'er', 
+      t: 'Emergency Load', 
+      v: execMetrics ? execMetrics.emergency_load.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Active emergency triage & critical admissions', 
+      c: 'oklch(0.5 0.18 25)', 
+      target: 'emergency' 
+    },
+    { 
+      id: 'lab', 
+      t: 'Lab Tests & Diagnostics', 
+      v: execMetrics ? execMetrics.lab_orders.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Validated pathology orders & diagnostic results', 
+      c: '#15181b', 
+      target: 'lab' 
+    },
+    { 
+      id: 'revenue', 
+      t: 'Total Invoiced Revenue', 
+      v: execMetrics ? (execMetrics.bills.total_revenue >= 10000000 ? `₹${(execMetrics.bills.total_revenue / 10000000).toFixed(2)} Cr` : `₹${execMetrics.bills.total_revenue.toLocaleString()}`) : (apiError ? '—' : null), 
+      sub: execMetrics ? `${execMetrics.bills.count.toLocaleString()} bills · ₹${(execMetrics.bills.total_collected / 100000).toFixed(2)} L collected` : 'Bills generated in Revenue Cycle', 
+      c: 'oklch(0.5 0.1 200)', 
+      target: 'finance' 
+    },
+    { 
+      id: 'claims', 
+      t: 'Insurance Claims', 
+      v: execMetrics ? execMetrics.claims.count.toLocaleString() : (apiError ? '—' : null), 
+      sub: execMetrics ? `₹${(execMetrics.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due` : 'Claims processed with TPAs', 
+      c: '#15181b', 
+      target: 'insurance' 
+    },
+    { 
+      id: 'inventory', 
+      t: 'Pharmacy Inventory Value', 
+      v: execMetrics ? (execMetrics.inventory.valuation >= 10000000 ? `₹${(execMetrics.inventory.valuation / 10000000).toFixed(2)} Cr` : `₹${execMetrics.inventory.valuation.toLocaleString()}`) : (apiError ? '—' : null), 
+      sub: execMetrics ? `${execMetrics.inventory.count} catalog items · ${execMetrics.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation', 
+      c: '#15181b', 
+      target: 'pharmacy' 
+    },
+    { 
+      id: 'doctors', 
+      t: 'Medical Specialists', 
+      v: execMetrics ? execMetrics.doctors.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Attending doctors across 22 departments', 
+      c: '#15181b', 
+      target: 'doctors' 
+    },
+    { 
+      id: 'surgeries', 
+      t: 'OT Surgeries Scheduled', 
+      v: execMetrics ? execMetrics.surgeries.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Operating theatre procedures & cases', 
+      c: '#15181b', 
+      target: 'ot' 
     },
   ];
 
@@ -542,28 +613,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
             )}
           </div>
 
-          {/* Platform health */}
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '14px' }}>
-            <div style={{ fontWeight: 600, fontSize: '12.5px', marginBottom: '8px' }}>Platform health</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '5px 12px', color: '#52585e', fontSize: '11.5px' }}>
-              <span>Backend API</span>
-              <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? 'Offline (Port 8000)' : 'Online · Port 8000'}
-              </span>
-              <span>Clinical Records Database</span>
-              <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? 'Unreachable' : 'Connected · Online'}
-              </span>
-              <span>Bed Tracker</span>
-              <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? '—' : `${liveKpis?.total_beds ?? 0} beds dynamic`}
-              </span>
-              <span>Active Inpatients</span>
-              <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? '—' : `${liveKpis?.active_admissions ?? 0} admitted`}
-              </span>
-            </div>
-          </div>
+
         </div>
       </div>
     </div>

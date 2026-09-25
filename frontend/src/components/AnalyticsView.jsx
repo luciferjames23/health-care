@@ -11,6 +11,7 @@ import {
   Database
 } from 'lucide-react';
 import { apiService, extractDischargedPatientIds } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 const DEFAULT_ANALYTICS = {
   metrics: {
@@ -60,17 +61,21 @@ export default function AnalyticsView() {
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const [pgRes, admRes, dcRes, patRes, docRes] = await Promise.all([
-        apiService.getExecutiveAnalytics().catch(() => null),
-        apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-        apiService.getDischargedPatients().catch(() => ({ data: [] })),
-        apiService.getPatients({ limit: 500 }).catch(() => ({ data: [], total_rows: 0 })),
-        apiService.getDoctors({ limit: 100 }).catch(() => ({ data: [], total_rows: 0 }))
-      ]);
-
-      if (pgRes && pgRes.metrics) {
-        setData(pgRes);
+      const res = await apiService.getLiveAnalytics().catch(() => null);
+      if (res && res.metrics) {
+        setData(res);
       } else {
+        const [pgRes, admRes, dcRes, patRes, docRes] = await Promise.all([
+          apiService.getExecutiveAnalytics().catch(() => null),
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getPatients({ limit: 500 }).catch(() => ({ data: [], total_rows: 0 })),
+          apiService.getDoctors({ limit: 100 }).catch(() => ({ data: [], total_rows: 0 }))
+        ]);
+
+        if (pgRes && pgRes.metrics) {
+          setData(pgRes);
+        } else {
         const rawAdm = admRes?.data || [];
         const rawDc = dcRes?.data || [];
         const dischargedTracker = extractDischargedPatientIds(rawDc);
@@ -124,6 +129,7 @@ export default function AnalyticsView() {
           ],
           top_diagnoses: topDiags.length > 0 ? topDiags : DEFAULT_ANALYTICS.top_diagnoses
         });
+        }
       }
     } catch (err) {
       console.warn('Analytics loading error, using local fallback:', err);
@@ -182,12 +188,12 @@ export default function AnalyticsView() {
             <span>Refresh</span>
           </button>
           <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px', background: '#f1f5f9',
-            border: '1px solid #e2e8f0', padding: '5px 12px', borderRadius: '6px',
-            fontSize: '11.5px', color: '#334155', fontFamily: 'monospace'
+            display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4',
+            border: '1px solid #bbf7d0', padding: '5px 12px', borderRadius: '6px',
+            fontSize: '11.5px', color: '#166534', fontWeight: 600
           }}>
-            <Database style={{ width: '13px', height: '13px', color: '#10b981' }} />
-            <span>PostgreSQL: 68 tables</span>
+            <Database style={{ width: '13px', height: '13px', color: '#16a34a' }} />
+            <span>Clinical Records: Live Sync</span>
           </div>
         </div>
       </div>

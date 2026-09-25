@@ -339,7 +339,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
             }}
           >
-            <span>Discharge Command Centre</span> →
+            <span>Discharge Management Desk</span> →
           </button>
         </div>
       </div>
@@ -494,7 +494,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                 ✓ {flowRunResult.message}
               </div>
               <div style={{ fontSize: '11.5px', color: '#334155' }}>
-                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now saved to clinical records and available in the Discharge Command Centre.
+                Generated discharge summaries for {flowRunResult.summary?.step_3_notebook_executed_count} patients. Records are now saved to clinical records and available in the Discharge Management Desk.
               </div>
             </div>
           )}
@@ -605,7 +605,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               }}>
                 ✓ All eligible inpatient discharge summaries have been written and generated.
                 <div style={{ marginTop: '6px', fontSize: '11px', color: '#8a9096' }}>
-                  Patients with written summaries are managed in the <strong>Discharge Command Centre</strong> for Attending Physician Sign-off and Bed Release.
+                  Patients with written summaries are managed in the <strong>Discharge Management Desk</strong> for Attending Physician Sign-off and Bed Release.
                 </div>
               </div>
             ) : (

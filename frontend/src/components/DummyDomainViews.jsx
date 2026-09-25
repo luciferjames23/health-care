@@ -5857,17 +5857,7 @@ export function DataDomainView({ domain = 'Patient', onOpenDrawer, onOpenModal }
     isBeforeAfter ? 'Pre vs Post AI Intervention Outcomes & SLA Impact' :
     `${domain} Data View`;
 
-  const subtitle = `Direct query view of health_care.gold.${
-    isPatient ? 'dim_patients' :
-    isOps ? 'fact_hospital_operations' :
-    isClinical ? 'fact_clinical_observations' :
-    isFinancial ? 'fact_financial_ledger' :
-    isQuality ? 'dq_rules_evaluator' :
-    isForecasting ? 'pred_census_forecast' :
-    isScenario ? 'sim_capacity_scenarios' :
-    isBeforeAfter ? 'outcomes_sla_benchmark' :
-    'gold_table'
-  }`;
+  const subtitle = 'Live operational view of hospital enterprise clinical and administrative records.';
 
   const rows = isPatient ? [
     { c1: 'MER-PAT-0087221', c2: 'Kavitha Raman', c3: '58 / Female', c4: 'AB Positive', c5: 'Cardiology', c6: '98401-22910', c7: 'Active IP' },

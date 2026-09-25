@@ -215,6 +215,10 @@ export const apiService = {
     return await this.getBedManagementData(options);
   },
 
+  async getExecutiveKpis(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/executive-kpis`, { ...options, forceRefresh: true });
+  },
+
   async getClinicalPatients(params = {}, options = {}) {
     return await this.getCurrentAdmissions(params, options);
   },
@@ -248,7 +252,27 @@ export const apiService = {
   },
 
   async getExecutiveAnalytics(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/summary`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, options);
+  },
+
+  async getLiveAnalytics(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, options);
+  },
+
+  async getLiveForecasting(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-forecasting`, options);
+  },
+
+  async getLiveScenarioBaseline(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-scenario-baseline`, options);
+  },
+
+  async getLiveBeforeAfter(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-before-after`, options);
+  },
+
+  async getLiveDataQuality(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-data-quality`, options);
   },
 
   // Gold Summary

@@ -29,6 +29,10 @@ import DataExplorerView from './components/DataExplorerView';
 import SqlSandboxView from './components/SqlSandboxView';
 import AnalyticsView from './components/AnalyticsView';
 import SettingsView from './components/SettingsView';
+import LiveForecastingView from './components/LiveForecastingView';
+import LiveScenarioSimulatorView from './components/LiveScenarioSimulatorView';
+import LiveBeforeAfterView from './components/LiveBeforeAfterView';
+import LiveDataQualityView from './components/LiveDataQualityView';
 
 // Enterprise AI & Agents Views
 import AgentStudioView from './components/AgentStudioView';
@@ -566,10 +570,10 @@ export default function App() {
           {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'data-quality' && <DataDomainView domain="Automated Data Quality & Rules" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'forecasting' && <DataDomainView domain="Predictive Inpatient Census & Demand" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'scenario' && <DataDomainView domain="Hospital Capacity & Surge Simulator" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'beforeafter' && <DataDomainView domain="Pre vs Post AI Intervention Outcomes" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'data-quality' && <LiveDataQualityView />}
+          {activePage === 'forecasting' && <LiveForecastingView />}
+          {activePage === 'scenario' && <LiveScenarioSimulatorView />}
+          {activePage === 'beforeafter' && <LiveBeforeAfterView />}
 
           {/* Standard Workspace Template for Other Domain Pages */}
           {![

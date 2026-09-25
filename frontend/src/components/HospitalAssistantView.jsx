@@ -24,7 +24,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
             { label: 'Inpatient Discharge SOP §4.2', v: '3.1', eff: '2026' }
           ],
           actions: [
-            { label: 'Open Discharge Command Centre', target: 'discharge' }
+            { label: 'Open Discharge Management Desk', target: 'discharge' }
           ]
         }
       ]
@@ -72,7 +72,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
               { label: 'Gold: dim_generated_discharge_summaries', v: 'current', eff: 'Real-time' }
             ],
             actions: [
-              { label: 'Open Discharge Command Centre', target: 'discharge' }
+              { label: 'Open Discharge Management Desk', target: 'discharge' }
             ]
           };
         }

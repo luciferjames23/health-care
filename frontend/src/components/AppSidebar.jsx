@@ -26,7 +26,7 @@ export const NAV_GROUPS = [
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },
       { id: 'bloodbank', label: 'Blood Bank' },
-      { id: 'discharge', label: 'Discharge', badge: '4', badgeColor: 'oklch(0.5 0.18 25)' },
+      { id: 'discharge', label: 'Discharge Desk', badge: '4', badgeColor: 'oklch(0.5 0.18 25)' },
       { id: 'deathmlc', label: 'Death & MLC Register' },
       { id: 'sbar', label: 'Ward Handover (SBAR)' },
     ]
@@ -122,19 +122,11 @@ export const NAV_GROUPS = [
   {
     title: 'DATA',
     items: [
-      { id: 'data-patient', label: 'Patient Data' },
-      { id: 'data-ops', label: 'Operational Data' },
-      { id: 'data-clinical', label: 'Clinical Data' },
-      { id: 'data-financial', label: 'Financial Data' },
       { id: 'analytics', label: 'Analytics' },
       { id: 'forecasting', label: 'Forecasting' },
       { id: 'scenario', label: 'Scenario Simulator' },
       { id: 'beforeafter', label: 'Before vs After' },
       { id: 'data-quality', label: 'Data Quality' },
-      { id: 'tables', label: 'Schema Explorer' },
-      { id: 'explorer', label: 'Data Grid Viewer' },
-      { id: 'sql', label: 'SQL Sandbox' },
-      { id: 'settings', label: 'System Settings' },
     ]
   }
 ];

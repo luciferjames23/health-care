@@ -665,6 +665,24 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   const [playRunning, setPlayRunning] = useState(false);
   const [playResult, setPlayResult] = useState(null);
 
+  // Model Tab editable state
+  const DEFAULT_MODEL_CONFIG = {
+    primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
+    llmProvider: 'Groq Inference API & Google Gemini Engine',
+    fallbackModel: 'gemini-3.5-flash-lite (Google Gemini)',
+    temperature: 0.10,
+    tokenLimit: '4,096 tokens (Max context: 128k)',
+    latencyTarget: '< 1,800 ms (Groq accelerated)',
+    executionProtocol: 'Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)',
+    governanceGate: 'Mandatory Physician Review & Digital Sign-off'
+  };
+
+  const [agentModelConfigs, setAgentModelConfigs] = useState({
+    'AG-19': { ...DEFAULT_MODEL_CONFIG }
+  });
+  const [modelSavedNotice, setModelSavedNotice] = useState(null);
+  const [modelDeploying, setModelDeploying] = useState(false);
+
   const selectedAgent = ALL_21_AGENTS.find(a => a.id === selectedAgentId) || (selectedAgentId ? ALL_21_AGENTS.find(a => a.id === 'AG-19') : null);
 
   const filteredAgents = ALL_21_AGENTS.filter(a => {
@@ -751,7 +769,7 @@ PROCESSED ELIGIBLE PATIENTS:
 ${patientLines}
 
 GOVERNANCE GATE:
-All ${totalPending} active summaries are persisted in the PostgreSQL lakehouse and queued in the Human Approval Centre & Discharge Command Centre for Attending Physician review and bed release.`;
+All ${totalPending} active summaries are persisted in the PostgreSQL lakehouse and queued in the Human Approval Centre & Discharge Management Desk for Attending Physician review and bed release.`;
 
       setPlayResult({
         executionId,
@@ -805,7 +823,7 @@ PROCESSED ELIGIBLE PATIENTS:
 7. Rohitya Parthalan (UHID: PAT-87316) · Diagnosis 5 · Dr. Priya Patel · Bill Cleared · Vitals Stable
 
 GOVERNANCE GATE:
-All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in the Human Approval Centre & Discharge Command Centre for Attending Physician review and bed release.`
+All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in the Human Approval Centre & Discharge Management Desk for Attending Physician review and bed release.`
       });
     } finally {
       setPlayRunning(false);
@@ -867,8 +885,13 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
                 Risk tier {selectedAgent.tier}
               </span>
             </div>
-            <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '6px', marginBottom: '14px' }}>
-              {selectedAgent.id} · {selectedAgent.type} · v{selectedAgent.v} · {selectedAgent.owner} · Read-only · configuration requires AI Administrator
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8a9096', fontSize: '11.5px', marginTop: '6px', marginBottom: '14px', flexWrap: 'wrap' }}>
+              <span>{selectedAgent.id} · {selectedAgent.type} · v{selectedAgent.v} · {selectedAgent.owner}</span>
+              <span style={{ color: '#cbd5e1' }}>•</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                Configurable · AI Administrator Access
+              </span>
             </div>
           </div>
 
@@ -1049,26 +1072,426 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
           </div>
         )}
 
-        {/* Tab 7: Model */}
-        {activeTab === 'Model' && (
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', maxWidth: '720px' }}>
-            {[
-              ['Primary Model', 'openai/gpt-oss-120b (Groq LPU Inference)'],
-              ['LLM Provider', 'Groq Inference API & Google Gemini Engine'],
-              ['Fallback Model', 'gemini-3.5-flash-lite (Google Gemini)'],
-              ['Temperature', '0.10 (Deterministic clinical synthesis)'],
-              ['Token Limit', '4,096 tokens (Max context: 128k)'],
-              ['Latency Target', '< 1,800 ms (Groq accelerated)'],
-              ['Execution Protocol', 'Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)'],
-              ['Governance Gate', 'Mandatory Physician Review & Digital Sign-off'],
-            ].map(([k, v], idx, arr) => (
-              <div key={k} style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: '8px', padding: '8px 0', borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4', fontSize: '12px' }}>
-                <span style={{ color: '#8a9096' }}>{k}</span>
-                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#15181b' }}>{v}</span>
+        {/* Tab 7: Model - Fully Editable */}
+        {activeTab === 'Model' && (() => {
+          const currentAgentId = selectedAgent?.id || 'AG-19';
+          const currentModelConfig = agentModelConfigs[currentAgentId] || DEFAULT_MODEL_CONFIG;
+
+          const handleUpdateModelField = (key, value) => {
+            setAgentModelConfigs(prev => ({
+              ...prev,
+              [currentAgentId]: {
+                ...(prev[currentAgentId] || DEFAULT_MODEL_CONFIG),
+                [key]: value
+              }
+            }));
+          };
+
+          const handleSaveModelConfig = () => {
+            setModelDeploying(true);
+            setTimeout(() => {
+              setModelDeploying(false);
+              setModelSavedNotice(`Configuration for ${selectedAgent?.name || 'Agent'} (${currentAgentId}) successfully updated & deployed to active inference runtime.`);
+              setTimeout(() => setModelSavedNotice(null), 4000);
+            }, 400);
+          };
+
+          const handleResetModelConfig = () => {
+            setAgentModelConfigs(prev => ({
+              ...prev,
+              [currentAgentId]: { ...DEFAULT_MODEL_CONFIG }
+            }));
+            setModelSavedNotice(`Model configuration reset to baseline defaults.`);
+            setTimeout(() => setModelSavedNotice(null), 3000);
+          };
+
+          return (
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '20px', maxWidth: '780px' }}>
+              {/* Top Toolbar / Mode Indicator */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', paddingBottom: '14px', borderBottom: '1px solid #edf0f2', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    Model & Inference Engine Parameters
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
+                      Live Editable
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
+                    Adjust foundation model routing, failover, inference parameters, and clinical governance gates for {selectedAgent?.name || 'this agent'}.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={handleResetModelConfig}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      borderRadius: '6px',
+                      border: '1px solid #d1d5db',
+                      background: '#fff',
+                      color: '#4b5563',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset Defaults
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveModelConfig}
+                    disabled={modelDeploying}
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: '#0f766e',
+                      color: '#fff',
+                      cursor: modelDeploying ? 'wait' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
+                    }}
+                  >
+                    {modelDeploying ? 'Deploying...' : 'Save Configuration'}
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Success Save Banner */}
+              {modelSavedNotice && (
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  background: '#ecfdf5',
+                  border: '1px solid #a7f3d0',
+                  color: '#065f46',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <span style={{ fontSize: '14px' }}>✓</span>
+                  <span>{modelSavedNotice}</span>
+                </div>
+              )}
+
+              {/* Editable Parameter Rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Primary Model */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Primary Model</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Active synthesis model</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.primaryModel}
+                      onChange={e => handleUpdateModelField('primaryModel', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        fontFamily: 'ui-monospace, Menlo, monospace',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="openai/gpt-oss-120b (Groq LPU Inference)">openai/gpt-oss-120b (Groq LPU Inference)</option>
+                      <option value="meta-llama/llama-3.3-70b-versatile (Groq LPU)">meta-llama/llama-3.3-70b-versatile (Groq LPU)</option>
+                      <option value="google/gemini-2.5-pro (Google DeepMind)">google/gemini-2.5-pro (Google DeepMind)</option>
+                      <option value="anthropic/claude-3-5-sonnet (Anthropic API)">anthropic/claude-3-5-sonnet (Anthropic API)</option>
+                      <option value="deepseek-ai/deepseek-r1 (Groq accelerated)">deepseek-ai/deepseek-r1 (Groq accelerated)</option>
+                      <option value="mistralai/mixtral-8x22b-instruct (Fast Engine)">mistralai/mixtral-8x22b-instruct (Fast Engine)</option>
+                      <option value="meta-llama/llama-3.1-8b-instant (Groq LPU)">meta-llama/llama-3.1-8b-instant (Groq LPU)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* LLM Provider */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>LLM Provider</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Compute & hosting cluster</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.llmProvider}
+                      onChange={e => handleUpdateModelField('llmProvider', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="Groq Inference API & Google Gemini Engine">Groq Inference API & Google Gemini Engine</option>
+                      <option value="Groq Ultra-Fast LPU Cloud (Dedicated Sub-second Cluster)">Groq Ultra-Fast LPU Cloud (Dedicated Sub-second Cluster)</option>
+                      <option value="Google Vertex AI & Gemini Studio (HIPAA Enterprise)">Google Vertex AI & Gemini Studio (HIPAA Enterprise)</option>
+                      <option value="Hybrid Multi-Cloud Failover (Groq + Gemini + Azure)">Hybrid Multi-Cloud Failover (Groq + Gemini + Azure)</option>
+                      <option value="On-Premise Private Hospital LLM Appliance">On-Premise Private Hospital LLM Appliance</option>
+                      <option value="Microsoft Azure OpenAI Service (Private VNet)">Microsoft Azure OpenAI Service (Private VNet)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Fallback Model */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Fallback Model</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Secondary backup route</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.fallbackModel}
+                      onChange={e => handleUpdateModelField('fallbackModel', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        fontFamily: 'ui-monospace, Menlo, monospace',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="gemini-3.5-flash-lite (Google Gemini)">gemini-3.5-flash-lite (Google Gemini)</option>
+                      <option value="meta-llama/llama-3.1-8b-instant (Groq)">meta-llama/llama-3.1-8b-instant (Groq)</option>
+                      <option value="google/gemini-2.5-flash">google/gemini-2.5-flash</option>
+                      <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
+                      <option value="anthropic/claude-3-haiku">anthropic/claude-3-haiku</option>
+                      <option value="Disabled (No fallback)">Disabled (No fallback)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Temperature */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Temperature</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Variance & deterministic control</div>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <input
+                        type="range"
+                        min="0.0"
+                        max="1.0"
+                        step="0.01"
+                        value={currentModelConfig.temperature}
+                        onChange={e => handleUpdateModelField('temperature', parseFloat(e.target.value))}
+                        style={{ flex: 1, accentColor: '#0f766e', cursor: 'pointer' }}
+                      />
+                      <input
+                        type="number"
+                        min="0.0"
+                        max="1.0"
+                        step="0.01"
+                        value={currentModelConfig.temperature}
+                        onChange={e => handleUpdateModelField('temperature', Math.min(1, Math.max(0, parseFloat(e.target.value) || 0)))}
+                        style={{
+                          width: '65px',
+                          height: '30px',
+                          textAlign: 'center',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '12px',
+                          fontFamily: 'ui-monospace, Menlo, monospace',
+                          fontWeight: 600
+                        }}
+                      />
+                    </div>
+                    <div style={{ fontSize: '11px', color: currentModelConfig.temperature <= 0.2 ? '#047857' : currentModelConfig.temperature <= 0.5 ? '#b45309' : '#b91c1c', marginTop: '4px', fontWeight: 500 }}>
+                      {Number(currentModelConfig.temperature).toFixed(2)} ({currentModelConfig.temperature <= 0.2 ? 'Deterministic clinical synthesis — Zero hallucination recommended' : currentModelConfig.temperature <= 0.5 ? 'Balanced clinical reasoning' : 'Creative formulation — Higher variance'})
+                    </div>
+                  </div>
+                </div>
+
+                {/* Token Limit */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Token Limit</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Max output token quota</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.tokenLimit}
+                      onChange={e => handleUpdateModelField('tokenLimit', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="4,096 tokens (Max context: 128k)">4,096 tokens (Max context: 128k)</option>
+                      <option value="2,048 tokens (Max context: 64k)">2,048 tokens (Max context: 64k)</option>
+                      <option value="8,192 tokens (Max context: 128k)">8,192 tokens (Max context: 128k)</option>
+                      <option value="16,384 tokens (Max context: 256k)">16,384 tokens (Max context: 256k)</option>
+                      <option value="32,768 tokens (Max context: 512k)">32,768 tokens (Max context: 512k)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Latency Target */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Latency Target</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>SLA response threshold</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.latencyTarget}
+                      onChange={e => handleUpdateModelField('latencyTarget', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="< 1,800 ms (Groq accelerated)">&lt; 1,800 ms (Groq accelerated)</option>
+                      <option value="< 1,000 ms (Ultra low-latency priority)">&lt; 1,000 ms (Ultra low-latency priority)</option>
+                      <option value="< 2,500 ms (Standard clinical synthesis)">&lt; 2,500 ms (Standard clinical synthesis)</option>
+                      <option value="< 5,000 ms (Batch processing SLA)">&lt; 5,000 ms (Batch processing SLA)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Execution Protocol */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Execution Protocol</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Multi-step pipeline flow</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.executionProtocol}
+                      onChange={e => handleUpdateModelField('executionProtocol', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)">Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)</option>
+                      <option value="Strict 3-Step Verification Protocol (Insurance → Vitals → Peer Review)">Strict 3-Step Verification Protocol (Insurance → Vitals → Peer Review)</option>
+                      <option value="Parallel Synthesis Protocol (Concurrent Multi-Specialty Extraction)">Parallel Synthesis Protocol (Concurrent Multi-Specialty Extraction)</option>
+                      <option value="Autonomous Inpatient Batch Pipeline (Continuous Telemetry)">Autonomous Inpatient Batch Pipeline (Continuous Telemetry)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Governance Gate */}
+                <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>Governance Gate</div>
+                    <div style={{ fontSize: '11px', color: '#9ca3af' }}>Clinical approval barrier</div>
+                  </div>
+                  <div>
+                    <select
+                      value={currentModelConfig.governanceGate}
+                      onChange={e => handleUpdateModelField('governanceGate', e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        fontSize: '12px',
+                        color: '#0f172a',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="Mandatory Physician Review & Digital Sign-off">Mandatory Physician Review & Digital Sign-off</option>
+                      <option value="Dual Sign-off (Attending Physician & Chief Pharmacist)">Dual Sign-off (Attending Physician & Chief Pharmacist)</option>
+                      <option value="Autonomous Release with Post-Discharge Clinical Audit">Autonomous Release with Post-Discharge Clinical Audit</option>
+                      <option value="Department Head Escalation Gate">Department Head Escalation Gate</option>
+                      <option value="Automated Discharge with EMR Validation Check">Automated Discharge with EMR Validation Check</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Save Action Bar */}
+              <div style={{ marginTop: '22px', paddingTop: '16px', borderTop: '1px solid #edf0f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ fontSize: '11.5px', color: '#6b7280' }}>
+                  Status: <span style={{ color: '#059669', fontWeight: 600 }}>Active & Synced</span> with runtime orchestrator
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={handleResetModelConfig}
+                    style={{
+                      padding: '7px 14px',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      borderRadius: '6px',
+                      border: '1px solid #d1d5db',
+                      background: '#fff',
+                      color: '#374151',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset Defaults
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveModelConfig}
+                    disabled={modelDeploying}
+                    style={{
+                      padding: '7px 18px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: '#0f766e',
+                      color: '#fff',
+                      cursor: modelDeploying ? 'wait' : 'pointer',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                    }}
+                  >
+                    {modelDeploying ? 'Deploying Changes...' : 'Save & Deploy Configuration'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tab 8: Playground */}
         {activeTab === 'Playground' && (

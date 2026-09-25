@@ -54,6 +54,7 @@ const ICON_CONFIG = {
 // Dependency label mapping
 const DEPL = {
   clinical: 'Clinical clearance',
+  vitals: 'Vital signs',
   investigations: 'Pending investigations',
   pharmacy: 'Pharmacy clearance',
   billing: 'Unbilled charges / final bill',
@@ -113,6 +114,13 @@ function createCaseInitialState(base) {
       clinical: {
         status: 'done',
         note: `Clinical clearance by ${base.doctor || 'Attending Physician'}`,
+        time: formatTime12(base.intentAt || '09:00 AM')
+      },
+      vitals: {
+        status: blocker.includes('vital') ? 'blocked' : 'done',
+        note: blocker.includes('vital')
+          ? 'Vital signs observation pending (BP/SpO2 check)'
+          : 'Vital signs stable (BP 120/80, SpO2 98%, HR 72, Afebrile)',
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       investigations: {
@@ -863,7 +871,7 @@ export default function DischargeCommandCentre({
 
   const checkAndAdvanceCase = useCallback((caseId, updatedState) => {
     const d = updatedState.deps;
-    const openNonAuto = ['clinical', 'investigations', 'pharmacy', 'billing', 'insurance']
+    const openNonAuto = ['clinical', 'vitals', 'investigations', 'pharmacy', 'billing', 'insurance']
       .some(k => d[k] && d[k].status !== 'done');
 
     if (!openNonAuto && !updatedState.paused && !updatedState.completed) {
@@ -984,7 +992,7 @@ export default function DischargeCommandCentre({
         admission_id: aId,
         amount: targetCase.billDetails?.actual || targetCase.billDetails?.patient || 0,
         payment_method: 'UPI',
-        remarks: 'Released via Discharge Command Centre'
+        remarks: 'Released via Discharge Management Desk'
       });
       loadDischargeCandidates(true);
     } catch (err) {
@@ -1326,6 +1334,7 @@ export default function DischargeCommandCentre({
 
     const orderedDepKeys = [
       'clinical',
+      'vitals',
       'investigations',
       'pharmacy',
       'billing',
@@ -2481,7 +2490,7 @@ export default function DischargeCommandCentre({
   if (loading && enrichedCases.length === 0 && !error) {
     return (
       <ModuleLoadingScreen
-        title="Loading Discharge Command Centre..."
+        title="Loading Discharge Management Desk..."
         subtitle="Tracking multi-disciplinary readiness, blockers, insurance clearances, and auto-drafts..."
         badgeText="Discharge Workflow Engine"
         statCount={5}
@@ -2538,10 +2547,10 @@ export default function DischargeCommandCentre({
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span>Clinical Workspace</span>
             <span>›</span>
-            <span>Discharge</span>
+            <span>Discharge Management</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b', lineHeight: 1.2 }}>
-            Discharge command centre {isDoctor && activeDoctorName ? `· ${activeDoctorName}` : ''}
+            Discharge Management Desk {isDoctor && activeDoctorName ? `· ${activeDoctorName}` : ''}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
