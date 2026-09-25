@@ -306,6 +306,10 @@ const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 function getAuthHeaders(): Record<string, string> {
   try {
+    const token = sessionStorage.getItem('hc_auth_token');
+    if (token) {
+      return { 'Authorization': `Bearer ${token}` };
+    }
     const userStr = sessionStorage.getItem('meridian_user');
     if (userStr) {
       const user = JSON.parse(userStr);
@@ -313,10 +317,16 @@ function getAuthHeaders(): Record<string, string> {
         return { 'Authorization': `Bearer ${user.token}` };
       }
     }
+    const hxAuthStr = sessionStorage.getItem('hx_auth');
+    if (hxAuthStr) {
+      const hxAuth = JSON.parse(hxAuthStr);
+      if (hxAuth && hxAuth.token) {
+        return { 'Authorization': `Bearer ${hxAuth.token}` };
+      }
+    }
   } catch (e) {
-    console.error('Error parsing meridian_user for auth headers:', e);
+    console.error('Error parsing auth token for dashboard headers:', e);
   }
-  // Default bearer token for unified portal session
   return { 'Authorization': 'Bearer demo-session-token' };
 }
 
@@ -590,6 +600,29 @@ export async function createSchedule(payload: {
 export async function deleteSchedule(scheduleId: number): Promise<boolean> {
   const data = await apiFetch<{ success: boolean }>(`/api/dashboard/schedules/${scheduleId}`, {
     method: 'DELETE',
+  });
+  return data?.success ?? false;
+}
+
+export async function updateSchedule(scheduleId: number, payload: {
+  doctor_id: number;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  slot_duration_minutes?: number;
+  status?: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const data = await apiFetch<{ success: boolean; message?: string; error?: string }>(`/api/dashboard/schedules/${scheduleId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return data ?? { success: false, error: 'Failed to update schedule' };
+}
+
+export async function updateScheduleStatus(scheduleId: number, status: string): Promise<boolean> {
+  const data = await apiFetch<{ success: boolean }>(`/api/dashboard/schedules/${scheduleId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
   });
   return data?.success ?? false;
 }

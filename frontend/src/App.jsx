@@ -48,6 +48,7 @@ import PreAdmissionPage from './pages/admin/PreAdmissionPage';
 import DoctorManagement from './pages/admin/DoctorManagement';
 import EscalationPage from './pages/admin/EscalationPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
+import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
 
 import {
@@ -505,10 +506,15 @@ export default function App() {
           {activePage === 'pre-admission' && <PreAdmissionPage />}
           {activePage === 'doctor-management' && <DoctorManagement />}
           {activePage === 'escalations' && <EscalationPage />}
-          {activePage === 'doctor-portal' && <DoctorDashboard />}
+          {activePage === 'doctor-portal' && (
+            <DoctorDashboard
+              onNavigate={(p, pat) => handleNavigate(p, pat)}
+              onSelectPatient={handleSelectPatient}
+            />
+          )}
           {activePage === 'patient-chat' && <PatientChat />}
           {activePage === 'emergency' && <EmergencyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'schedules' && <SchedulesView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'schedules' && <DoctorSchedules />}
           {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {(activePage === 'surgery' || activePage === 'otschedule') && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

@@ -71,26 +71,44 @@ def get_default_state():
         "last_bot_message": None,
     }
 
-def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_number: str = None) -> int:
+def resolve_valid_patient_id(cur, candidate_patient_id = None, whatsapp_number: str = None) -> int:
     """
     Validates candidate_patient_id against the patients table.
-    If valid, returns candidate_patient_id.
-    If invalid/stale or None, attempts to resolve an ACTIVE patient by phone or whatsapp_number using 10-digit normalization.
-    Returns valid patient_id (int) or None if no matching patient exists.
+    Supports integer IDs (9989) and string patient codes ('P9989', 'PAT-9989').
+    If valid, returns canonical integer patient_id.
+    If candidate_patient_id is None/invalid, resolves ACTIVE patient by phone or whatsapp_number.
     """
-    if candidate_patient_id is not None:
+    if candidate_patient_id is not None and str(candidate_patient_id).strip() != "":
         try:
-            cur.execute("SELECT id FROM patients WHERE id = %s;", (candidate_patient_id,))
-            if cur.fetchone():
-                return candidate_patient_id
-        except Exception:
-            pass
+            cand_str = str(candidate_patient_id).strip()
+            clean_id = None
+            if cand_str.isdigit():
+                clean_id = int(cand_str)
+            elif cand_str.upper().startswith("P") and cand_str[1:].isdigit():
+                clean_id = int(cand_str[1:])
+            elif cand_str.upper().startswith("PAT-") and cand_str[4:].isdigit():
+                clean_id = int(cand_str[4:])
+            elif cand_str.upper().startswith("PAT") and cand_str[3:].isdigit():
+                clean_id = int(cand_str[3:])
+            
+            if clean_id is not None:
+                cur.execute("SELECT id FROM patients WHERE id = %s OR patient_code = %s OR patient_code = %s;", (clean_id, cand_str, f"P{clean_id}"))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+            else:
+                cur.execute("SELECT id FROM patients WHERE patient_code = %s OR id::text = %s;", (cand_str, cand_str))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+        except Exception as e:
+            print(f"[resolve_valid_patient_id ERR] {e}")
 
     if whatsapp_number:
         try:
             cond = get_phone_query_condition()
             params = get_phone_query_params(whatsapp_number)
-            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' LIMIT 1;"
+            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;"
             cur.execute(query, params)
             row = cur.fetchone()
             if row:

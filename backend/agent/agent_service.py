@@ -818,6 +818,110 @@ def resolve_doctor_details(doctor_id: int) -> dict:
         cur.close()
         conn.close()
 
+def resolve_patient_info(patient_id=None, booking_id=None, state=None, conversation_code=None) -> dict:
+    """
+    Helper to query and resolve real patient name, patient_code / patient_id from the database.
+    Checks booking_id, patient_id, state overrides, and conversation history.
+    Returns: {"name": str, "patient_code": str, "patient_id": int/None}
+    """
+    p_name = ""
+    p_code = ""
+    resolved_pat_id = patient_id
+
+    # 1. Try to resolve patient_id & patient_name & patient_code from booking_id via appointments + patients JOIN
+    b_id = booking_id or (state and state.get("modifying_booking_id")) or (state and state.get("selected_booking_id"))
+    if b_id:
+        try:
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT a.patient_id, p.first_name, p.last_name, p.patient_code
+                FROM appointments a
+                JOIN patients p ON a.patient_id = p.id
+                WHERE a.booking_id = %s OR a.id::text = %s 
+                LIMIT 1;
+            """, (str(b_id), str(b_id)))
+            row = cur.fetchone()
+            if row:
+                resolved_pat_id = row[0]
+                full_name = f"{row[1]} {row[2] or ''}".strip()
+                if full_name and full_name != "Patient":
+                    p_name = full_name
+                if row[3]:
+                    p_code = row[3]
+                elif resolved_pat_id:
+                    p_code = f"PAT-{resolved_pat_id}"
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+    # 2. Try to resolve patient_id from state (selected_patient_id takes highest priority)
+    if not resolved_pat_id and state:
+        resolved_pat_id = state.get("selected_patient_id") or state.get("dependent_patient_id") or state.get("booking_patient_id") or state.get("patient_id")
+
+    # 3. Query patients table if patient_id is known
+    if resolved_pat_id:
+        try:
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT first_name, last_name, patient_code FROM patients WHERE id = %s;", (resolved_pat_id,))
+            row = cur.fetchone()
+            if row:
+                full_name = f"{row[0]} {row[1] or ''}".strip()
+                if full_name and full_name != "Patient":
+                    p_name = full_name
+                if row[2]:
+                    p_code = row[2]
+                else:
+                    p_code = f"PAT-{resolved_pat_id}"
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+    # 4. Check state overrides for patient name
+    if (not p_name or p_name == "Patient") and state:
+        state_name = state.get("entities", {}).get("patient_name_override") or state.get("dependent_name") or state.get("patient_name") or state.get("full_name") or state.get("actual_patient_name")
+        if state_name and state_name.strip() and state_name.strip() != "Patient":
+            p_name = state_name.strip()
+
+    if not p_code and state:
+        p_code = state.get("patient_code") or state.get("dependent_patient_code") or ""
+
+    # 5. Query conversation table if conversation_code is present
+    conv_code = conversation_code or (state and state.get("conversation_code"))
+    if (not p_name or p_name == "Patient" or not p_code) and conv_code:
+        try:
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT p.first_name, p.last_name, p.patient_code, p.id
+                FROM conversations c
+                JOIN patients p ON c.patient_id = p.id
+                WHERE c.conversation_code = %s;
+            """, (str(conv_code),))
+            row = cur.fetchone()
+            if row:
+                if not p_name or p_name == "Patient":
+                    p_name = f"{row[0]} {row[1] or ''}".strip()
+                if not p_code:
+                    p_code = row[2] or f"PAT-{row[3]}"
+                if not resolved_pat_id:
+                    resolved_pat_id = row[3]
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+    p_name = p_name.strip() if p_name and p_name.strip() else "Patient"
+
+    return {
+        "name": p_name,
+        "patient_code": p_code,
+        "patient_id": resolved_pat_id
+    }
+
 def get_doctors_by_department(department_id: int) -> list:
     """Returns list of active doctors in a department: [{id, name, department}]"""
     conn = db_config.get_db_connection()
@@ -1855,6 +1959,144 @@ def is_appointment_already_paid(state: dict, appointment_id_val=None, booking_id
     return False, None, None
 
 
+def get_appointment_paid_amount(booking_id: str = None, appt_db_id: int = None, state: dict = None) -> float:
+    """
+    Retrieves total valid successful payment amount for an appointment from the payments database table.
+    Only payment_status IN ('SUCCESS', 'PAID', 'COMPLETED') are counted. PENDING, FAILED, CANCELLED are excluded.
+    """
+    if not booking_id and not appt_db_id and state:
+        booking_id = state.get("modifying_booking_id") or state.get("booking_id") or state.get("selected_booking_id")
+
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    total_paid = 0.0
+    try:
+        if appt_db_id:
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0.0) FROM payments
+                WHERE appointment_id = %s AND UPPER(payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
+            """, (appt_db_id,))
+            r = cur.fetchone()
+            if r and r[0] is not None:
+                total_paid = float(r[0])
+        elif booking_id:
+            cur.execute("""
+                SELECT COALESCE(SUM(p.amount), 0.0)
+                FROM payments p
+                JOIN appointments a ON p.appointment_id = a.id
+                WHERE (a.booking_id = %s OR CAST(a.id AS VARCHAR) = %s)
+                  AND UPPER(p.payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
+            """, (str(booking_id), str(booking_id)))
+            r = cur.fetchone()
+            if r and r[0] is not None and float(r[0]) > 0:
+                total_paid = float(r[0])
+            else:
+                if state and state.get("original_paid_amount") is not None:
+                    total_paid = float(state.get("original_paid_amount", 0.0))
+    except Exception as e:
+        print(f"[GET_PAID_AMT_ERR] Error fetching paid amount from DB: {e}")
+        if state and state.get("original_paid_amount") is not None:
+            total_paid = float(state.get("original_paid_amount", 0.0))
+    finally:
+        cur.close()
+        conn.close()
+
+    return total_paid
+
+
+def calculate_appointment_balance(booking_id: str = None, doctor_id: int = None, state: dict = None) -> tuple:
+    """
+    Computes business calculation for balance due:
+    new_total_fee = consultation fee of new doctor
+    amount_already_paid = SUM of valid successful payments from DB for this appointment
+    balance_due = MAX(new_total_fee - amount_already_paid, 0.0)
+
+    Returns tuple (new_total_fee: float, amount_already_paid: float, balance_due: float)
+    """
+    if not doctor_id and state:
+        doctor_id = state.get("pending_modified_doctor_id") or state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+
+    doc_info = resolve_doctor_details(doctor_id) if doctor_id else None
+    if doc_info and doc_info.get("consultation_fee"):
+        new_total_fee = float(doc_info["consultation_fee"])
+    else:
+        new_total_fee = 800.0
+
+    target_b_id = booking_id or (state.get("modifying_booking_id") if state else None)
+    amount_already_paid = 0.0
+    if target_b_id:
+        amount_already_paid = get_appointment_paid_amount(booking_id=target_b_id, state=state)
+    elif state and state.get("original_paid_amount") is not None:
+        amount_already_paid = float(state.get("original_paid_amount", 0.0))
+
+    balance_due = max(new_total_fee - amount_already_paid, 0.0)
+    return new_total_fee, amount_already_paid, balance_due
+
+
+def get_or_create_patient_bill(patient_id: int, bill_number: str = "INV-2026-8841", default_amount: float = 4850.0) -> tuple:
+    """
+    Ensures a bill record exists for the given patient or bill_number.
+    Returns tuple (bill_id: int, bill_number: str, patient_amount: float, bill_status: str).
+    """
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT bill_id, bill_number, patient_amount, net_amount, bill_status
+            FROM bills
+            WHERE bill_number = %s OR (patient_id = %s AND patient_id IS NOT NULL)
+            ORDER BY CASE WHEN bill_number = %s THEN 0 ELSE 1 END, bill_id DESC
+            LIMIT 1;
+        """, (bill_number, patient_id, bill_number))
+        row = cur.fetchone()
+        if row:
+            b_id, b_num, p_amt, n_amt, b_stat = row
+            amt = float(p_amt if p_amt is not None else (n_amt or default_amount))
+            return b_id, b_num or bill_number, amt, b_stat or "Unpaid"
+        else:
+            p_id_val = patient_id if patient_id else None
+            cur.execute("""
+                INSERT INTO bills (bill_number, patient_id, visit_id, bill_date, gross_amount, discount_amount, tax_amount, net_amount, insurance_amount, patient_amount, bill_status)
+                VALUES (%s, %s, COALESCE((SELECT visit_id FROM patient_visits WHERE patient_id = %s LIMIT 1), (SELECT visit_id FROM bills LIMIT 1), 1), CURRENT_DATE, %s, 0.0, 0.0, %s, 0.0, %s, 'Unpaid')
+                RETURNING bill_id, bill_number, patient_amount, bill_status;
+            """, (bill_number, p_id_val, p_id_val, default_amount, default_amount, default_amount))
+            inserted = cur.fetchone()
+            conn.commit()
+            return inserted[0], inserted[1], float(inserted[2]), inserted[3]
+    except Exception as e:
+        print(f"[GET_OR_CREATE_BILL_ERR] {e}")
+        conn.rollback()
+        return 1, bill_number, default_amount, "Unpaid"
+    finally:
+        cur.close()
+        conn.close()
+
+
+def calculate_bill_payments(bill_id: int, patient_id: int = None) -> float:
+    """
+    Retrieves total valid successful payments for a hospital bill from payments table.
+    Only payment_status IN ('SUCCESS', 'PAID', 'COMPLETED') are counted.
+    """
+    if not bill_id:
+        return 0.0
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT COALESCE(SUM(amount), 0.0) FROM payments
+            WHERE bill_id = %s AND UPPER(payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
+        """, (bill_id,))
+        r = cur.fetchone()
+        if r and r[0] is not None:
+            return float(r[0])
+    except Exception as e:
+        print(f"[CALC_BILL_PAYMENTS_ERR] {e}")
+    finally:
+        cur.close()
+        conn.close()
+    return 0.0
+
+
 def process_agent_message(conversation_code: str, patient_code: str, message_text: str, language_override: str = None, interactive_id: str = None) -> dict:
     """
     Core NLP Orchestration:
@@ -1888,6 +2130,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_my_appts"
         elif any(kw in m_strip for kw in ["my report", "show my report", "get report", "view report", "lab report", "test report", "download report", "medical report"]) or m_strip in ["reports", "my reports"]:
             btn_id = "btn_my_reports"
+        elif any(kw in m_strip for kw in ["view bill", "show bill", "show my bill", "my bill", "pay bill", "hospital bill", "check bill"]):
+            btn_id = "btn_view_bill"
+        elif any(kw in m_strip for kw in ["billing & payments", "billing and payments", "billing"]):
+            btn_id = "btn_cat_billing"
         elif m_strip in ["gpay", "google pay"]:
             btn_id = "btn_pay_gpay"
         elif m_strip in ["phonepe"]:
@@ -2290,9 +2536,20 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             }
 
         elif btn_id == "btn_cat_billing":
+            state["payment_context"] = "BILL_PAYMENT"
+            state["is_balance_payment"] = False
+            state["modifying_booking_id"] = None
+            pat_id = state.get("selected_patient_id") or state.get("patient_id")
+            out_str = "₹4,850"
+            if pat_id:
+                b_id, b_num, total_amt, b_stat = get_or_create_patient_bill(pat_id, "INV-2026-8841", 4850.0)
+                paid_amt = calculate_bill_payments(b_id, pat_id)
+                outstanding = max(0.0, total_amt - paid_amt)
+                out_str = f"₹{int(outstanding):,}" if outstanding.is_integer() else f"₹{outstanding:,.2f}"
+
             resp = (
                 "💳 *Billing & Payments*\n\n"
-                "Outstanding Balance: ₹4,850\n"
+                f"Outstanding Balance: {out_str}\n"
                 "Account Status: Active\n\n"
                 "Select an option below to view or manage billing:"
             )
@@ -2386,6 +2643,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             }
 
         elif btn_id == "btn_view_bill":
+            state["payment_context"] = "BILL_PAYMENT"
+            state["is_balance_payment"] = False
+            state["modifying_booking_id"] = None
             is_sel, p_res = ensure_patient_selected(conversation_code, state, current_lang, action_intent="BILLING_AND_PAYMENTS")
             if not is_sel:
                 return p_res
@@ -2404,23 +2664,62 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     cur.close()
                     conn.close()
 
-            resp = (
-                f"💳 *Itemized Hospital Bill*\n\n"
-                f"Patient: {p_name} ({p_code})\n"
-                f"Bill Reference: INV-2026-8841\n"
-                f"Bill Date: 10-Sep-2026\n\n"
-                f"• OPD Consultation Fee: ₹800\n"
-                f"• Diagnostic Lab Tests: ₹2,450\n"
-                f"• Pharmacy Charges: ₹1,600\n"
-                f"----------------------------------------\n"
-                f"Total Amount Due: ₹4,850\n\n"
-                f"Select a payment method below to clear outstanding balance:"
-            )
-            state["interactive_buttons"] = [
-                {"id": "btn_pay_gpay", "title": "Google Pay"},
-                {"id": "btn_pay_upi", "title": "UPI / PhonePe"},
-                language_service.get_translated_button("btn_main_menu", current_lang)
-            ]
+            b_id, b_num, total_amt, b_stat = get_or_create_patient_bill(pat_id, "INV-2026-8841", 4850.0)
+            paid_amt = calculate_bill_payments(b_id, pat_id)
+            outstanding = max(0.0, total_amt - paid_amt)
+
+            state["bill_id"] = b_id
+            state["bill_reference"] = b_num
+            state["bill_total_amount"] = total_amt
+            state["bill_paid_amount"] = paid_amt
+            state["bill_outstanding_amount"] = outstanding
+            state["bill_patient_id"] = pat_id
+            state["bill_patient_name"] = p_name
+            state["bill_patient_code"] = p_code
+
+            tot_str = f"₹{int(total_amt):,}" if total_amt.is_integer() else f"₹{total_amt:,.2f}"
+            paid_str = f"₹{int(paid_amt):,}" if paid_amt.is_integer() else f"₹{paid_amt:,.2f}"
+            out_str = f"₹{int(outstanding):,}" if outstanding.is_integer() else f"₹{outstanding:,.2f}"
+
+            if outstanding <= 0:
+                resp = (
+                    f"💳 *Itemized Hospital Bill*\n\n"
+                    f"Patient: {p_name} ({p_code})\n"
+                    f"Bill Reference: {b_num}\n"
+                    f"Bill Date: 10-Sep-2026\n\n"
+                    f"• OPD Consultation Fee: ₹800\n"
+                    f"• Diagnostic Lab Tests: ₹2,450\n"
+                    f"• Pharmacy Charges: ₹1,600\n"
+                    f"----------------------------------------\n"
+                    f"Total Amount Due: {tot_str}\n"
+                    f"Paid Amount: {paid_str}\n"
+                    f"Outstanding Balance: ₹0\n\n"
+                    f"✅ *This bill has already been paid in full.*"
+                )
+                state["interactive_buttons"] = [
+                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                    language_service.get_translated_button("btn_main_menu", current_lang)
+                ]
+            else:
+                resp = (
+                    f"💳 *Itemized Hospital Bill*\n\n"
+                    f"Patient: {p_name} ({p_code})\n"
+                    f"Bill Reference: {b_num}\n"
+                    f"Bill Date: 10-Sep-2026\n\n"
+                    f"• OPD Consultation Fee: ₹800\n"
+                    f"• Diagnostic Lab Tests: ₹2,450\n"
+                    f"• Pharmacy Charges: ₹1,600\n"
+                    f"----------------------------------------\n"
+                    f"Total Amount Due: {tot_str}\n"
+                    f"Paid Amount: {paid_str}\n"
+                    f"Outstanding Balance: {out_str}\n\n"
+                    f"Select a payment method below to clear outstanding balance:"
+                )
+                state["interactive_buttons"] = [
+                    {"id": "btn_pay_gpay", "title": "Google Pay"},
+                    {"id": "btn_pay_upi", "title": "UPI / PhonePe"},
+                    language_service.get_translated_button("btn_main_menu", current_lang)
+                ]
             state["intent"] = "BILLING_AND_PAYMENTS"
             state_manager.save_conversation_state(conversation_code, state)
             log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
@@ -2747,6 +3046,23 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
             linked_pats = patient_id_service.get_all_patients_by_phone(w_num)
             valid_ids = [p["id"] for p in linked_pats] + [p.get("patient_code") for p in linked_pats if p.get("patient_code")]
+            
+            # Check DB directly if not found in cache/list due to phone formatting
+            if target_pid not in valid_ids and str(target_pid) not in [str(x) for x in valid_ids]:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    p_cond = get_phone_query_condition()
+                    p_params = get_phone_query_params(w_num)
+                    cur.execute(f"SELECT id FROM patients WHERE (id = %s OR patient_code = %s) AND ({p_cond});", (target_pid if isinstance(target_pid, int) else 0, str(target_pid), *p_params))
+                    if cur.fetchone():
+                        valid_ids.append(target_pid)
+                except Exception:
+                    pass
+                finally:
+                    cur.close()
+                    conn.close()
+
             if target_pid not in valid_ids and str(target_pid) not in [str(x) for x in valid_ids]:
                 resp = "Access denied. Selected patient profile is not associated with this WhatsApp number."
                 buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
@@ -2763,13 +3079,34 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["patient_identification_stage"] = "COMPLETED"
             state["pending_stage"] = None
 
+            # Reset downstream patient-specific context when selecting a profile
+            state["payment_context"] = None
+            state["bill_id"] = None
+            state["bill_patient_id"] = None
+            state["bill_patient_name"] = None
+            state["bill_patient_code"] = None
+            state["bill_reference"] = None
+            state["bill_total_amount"] = None
+            state["bill_paid_amount"] = None
+            state["bill_outstanding_amount"] = None
+            state["dependent_patient_id"] = None
+            state["dependent_name"] = None
+            state["booking_patient_id"] = None
+            state["modifying_booking_id"] = None
+            if isinstance(state.get("entities"), dict):
+                state["entities"]["patient_id"] = target_pid
+                state["entities"]["patient_name_override"] = None
+
             conn = db_config.get_db_connection()
             cur = conn.cursor()
             p_info = None
             try:
-                cur.execute("SELECT id, patient_code, first_name, last_name FROM patients WHERE id = %s;", (target_pid,))
+                cur.execute("SELECT id, patient_code, first_name, last_name FROM patients WHERE id = %s OR patient_code = %s;", (target_pid, str(target_pid)))
                 r = cur.fetchone()
                 if r:
+                    target_pid = r[0]
+                    state["selected_patient_id"] = r[0]
+                    state["patient_id"] = r[0]
                     p_info = {
                         "id": r[0],
                         "patient_code": r[1],
@@ -2800,6 +3137,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["conversation_state"] = "BOOKING_REASON_REQUIRED"
                 state["active_workflow"] = "BOOKING"
                 state["intent"] = "BOOK_APPOINTMENT"
+                state["payment_context"] = "APPOINTMENT_PAYMENT"
                 state["interactive_buttons"] = [
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
@@ -2834,6 +3172,22 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         elif btn_id == "btn_switch_patient" or (message_text and message_text.lower().strip() in ["switch patient", "switch profile", "change active patient"]):
             state["selected_patient_id"] = None
             state["patient_id"] = None
+            state["payment_context"] = None
+            state["bill_id"] = None
+            state["bill_patient_id"] = None
+            state["bill_patient_name"] = None
+            state["bill_patient_code"] = None
+            state["bill_reference"] = None
+            state["bill_total_amount"] = None
+            state["bill_paid_amount"] = None
+            state["bill_outstanding_amount"] = None
+            state["dependent_patient_id"] = None
+            state["dependent_name"] = None
+            state["booking_patient_id"] = None
+            state["modifying_booking_id"] = None
+            if isinstance(state.get("entities"), dict):
+                state["entities"]["patient_id"] = None
+                state["entities"]["patient_name_override"] = None
             state_manager.save_conversation_state(conversation_code, state)
             return prompt_patient_selection(conversation_code, state, current_lang, action_intent="PATIENT_PROFILE")
 
@@ -3326,6 +3680,127 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     return {"response": resp, "intent": "PATIENT_REPORTS", "language": current_lang, "interactive_buttons": buttons}
 
         elif btn_id in ["btn_pay_gpay", "btn_pay_phonepe", "btn_pay_paytm", "btn_pay_upi", "btn_pay_netbanking"]:
+            p_context = state.get("payment_context")
+            method_map = {
+                "btn_pay_gpay": ("GPAY", "GPay"),
+                "btn_pay_phonepe": ("PHONEPE", "PhonePe"),
+                "btn_pay_paytm": ("PAYTM", "Paytm"),
+                "btn_pay_upi": ("UPI", "UPI"),
+                "btn_pay_netbanking": ("NETBANKING", "NetBanking"),
+                "btn_pay_desk": ("PAY_AT_DESK", "Pay at Hospital Desk")
+            }
+            method_code, display_name = method_map.get(btn_id, ("GPAY", "GPay"))
+
+            # --- BRANCH A: BILL PAYMENT CONTEXT ---
+            if p_context == "BILL_PAYMENT":
+                pat_id = state.get("selected_patient_id") or state.get("bill_patient_id") or state.get("patient_id")
+                pat_info = resolve_patient_info(patient_id=pat_id, state=state, conversation_code=conversation_code)
+                pat_id = pat_info.get("patient_id") or pat_id
+                p_name = pat_info["name"]
+                p_code = pat_info["patient_code"]
+                bill_ref = state.get("bill_reference") or "INV-2026-8841"
+
+                b_id, b_num, total_amt, b_stat = get_or_create_patient_bill(pat_id, bill_ref, float(state.get("bill_total_amount", 4850.0)))
+                paid_so_far = calculate_bill_payments(b_id, pat_id)
+                outstanding = max(0.0, total_amt - paid_so_far)
+
+                state["bill_id"] = b_id
+                state["bill_reference"] = b_num
+                state["bill_total_amount"] = total_amt
+                state["bill_paid_amount"] = paid_so_far
+                state["bill_outstanding_amount"] = outstanding
+                state["bill_patient_id"] = pat_id
+                state["bill_patient_name"] = p_name
+                state["bill_patient_code"] = p_code
+
+                if outstanding <= 0:
+                    tot_str = f"₹{total_amt:.0f}" if total_amt.is_integer() else f"₹{total_amt}"
+                    resp = (
+                        f"✅ *This bill ({b_num}) has already been paid in full.*\n\n"
+                        f"Patient: {p_name} ({p_code})\n"
+                        f"Bill Reference: {b_num}\n"
+                        f"Total Amount: {tot_str}\n"
+                        f"Outstanding Balance: ₹0"
+                    )
+                    buttons = [
+                        {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                        language_service.get_translated_button("btn_main_menu", current_lang)
+                    ]
+                    state["interactive_buttons"] = buttons
+                    state["conversation_state"] = None
+                    state_manager.save_conversation_state(conversation_code, state)
+                    log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+                    return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
+
+                fee_val = outstanding
+                fee_str = f"₹{int(fee_val):,}" if (isinstance(fee_val, float) and fee_val.is_integer()) or isinstance(fee_val, int) else f"₹{fee_val:,.2f}"
+                pay_ref = state.get("payment_reference") or f"PAYBILL{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
+                pay_db_id = state.get("payment_id")
+
+                if pay_db_id:
+                    conn = db_config.get_db_connection()
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("""
+                            UPDATE payments
+                            SET amount = %s, payment_method = %s, payment_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s;
+                        """, (fee_val, method_code, pay_db_id))
+                        conn.commit()
+                    except Exception as e:
+                        print(f"[BILL_PAYMENT_DB_ERR] Error updating pending payment: {e}")
+                        conn.rollback()
+                    finally:
+                        cur.close()
+                        conn.close()
+                elif pat_id:
+                    conn = db_config.get_db_connection()
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("""
+                            INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                            VALUES (%s, %s, NULL, %s, %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            RETURNING id;
+                        """, (pay_ref, pat_id, b_id, fee_val, method_code))
+                        pay_db_id = cur.fetchone()[0]
+                        conn.commit()
+                    except Exception as e:
+                        print(f"[BILL_PAYMENT_DB_ERR] Error creating pending payment: {e}")
+                        conn.rollback()
+                    finally:
+                        cur.close()
+                        conn.close()
+
+                state["payment_id"] = pay_db_id
+                state["payment_reference"] = pay_ref
+                state["payment_method"] = method_code
+                state["payment_status"] = "PENDING"
+                state["payment_amount"] = fee_val
+                state["conversation_state"] = "MOCK_PAYMENT_PROMPT"
+
+                resp = (
+                    f"💳 *Mock Payment*\n\n"
+                    f"Patient: {p_name}\n"
+                    f"Patient ID: {p_code}\n\n"
+                    f"Bill Reference:\n{b_num}\n\n"
+                    f"Payment Type:\nHospital Bill\n\n"
+                    f"Outstanding Amount:\n{fee_str}\n\n"
+                    f"Amount:\n{fee_str}\n\n"
+                    f"Payment Method:\n{display_name}\n\n"
+                    f"This is a demo payment for the Meridian Hospital Patient Desk.\n"
+                    f"No real payment will be processed."
+                )
+                pay_prompt_buttons = [
+                    {"id": "btn_pay_exec", "title": f"Pay {fee_str}"},
+                    {"id": "btn_pay_change", "title": "Change Payment Method"},
+                    {"id": "btn_pay_cancel", "title": "Cancel"}
+                ]
+                state["interactive_buttons"] = pay_prompt_buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+                return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": pay_prompt_buttons}
+
+            # --- BRANCH B: APPOINTMENT / BALANCE PAYMENT CONTEXT ---
             is_paid, paid_b_id, paid_p_ref = is_appointment_already_paid(state)
             if is_paid:
                 resp = (
@@ -3341,37 +3816,56 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BOOK_APPOINTMENT", state)
                 return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": clean_buttons}
 
-            method_map = {
-                "btn_pay_gpay": ("GPAY", "GPay"),
-                "btn_pay_phonepe": ("PHONEPE", "PhonePe"),
-                "btn_pay_paytm": ("PAYTM", "Paytm"),
-                "btn_pay_upi": ("UPI", "UPI"),
-                "btn_pay_netbanking": ("NETBANKING", "NetBanking"),
-                "btn_pay_desk": ("PAY_AT_DESK", "Pay at Hospital Desk")
-            }
-            method_code, display_name = method_map.get(btn_id, ("GPAY", "GPay"))
-            doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
-            if doc_id:
-                state["selected_doctor_id"] = int(doc_id)
-                state.setdefault("entities", {})["doctor_id"] = int(doc_id)
-            appt_date = state["entities"].get("appointment_date")
-            appt_time = state["entities"].get("appointment_time")
-            doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
-            fee_val = doc_info.get("consultation_fee") or 800
+            modifying_b_id = state.get("modifying_booking_id")
+            if state.get("is_balance_payment") or modifying_b_id:
+                doc_id = state.get("pending_modified_doctor_id") or state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+                appt_date = state.get("pending_modified_date") or state.get("entities", {}).get("appointment_date")
+                appt_time = state.get("pending_modified_time") or state.get("entities", {}).get("appointment_time")
+                doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
+                new_fee, orig_paid, balance_due = calculate_appointment_balance(modifying_b_id, doc_id, state)
+                fee_val = balance_due
+                state["is_balance_payment"] = True
+            else:
+                doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
+                if doc_id:
+                    state["selected_doctor_id"] = int(doc_id)
+                    state.setdefault("entities", {})["doctor_id"] = int(doc_id)
+                appt_date = state.get("entities", {}).get("appointment_date")
+                appt_time = state.get("entities", {}).get("appointment_time")
+                doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
+                fee_val = doc_info.get("consultation_fee") or 800
+
             fee_str = f"₹{fee_val:.0f}" if (isinstance(fee_val, float) and fee_val.is_integer()) or isinstance(fee_val, int) else f"₹{fee_val}"
 
-            pat_id = state.get("dependent_patient_id") or state.get("patient_id")
-            pay_ref = f"PAY{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
-            pay_db_id = None
-            if pat_id:
+            pat_id = state.get("selected_patient_id") or state.get("dependent_patient_id") or state.get("patient_id")
+            pay_ref = state.get("payment_reference") or f"PAY{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
+            pay_db_id = state.get("payment_id")
+
+            if pay_db_id:
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 try:
                     cur.execute("""
-                        INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                        VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        UPDATE payments
+                        SET amount = %s, payment_method = %s, payment_status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s;
+                    """, (fee_val, method_code, pay_db_id))
+                    conn.commit()
+                except Exception as e:
+                    print(f"[PAYMENT_DB_ERR] Error updating pending payment: {e}")
+                    conn.rollback()
+                finally:
+                    cur.close()
+                    conn.close()
+            elif pat_id:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    cur.execute("""
+                        INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                        VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         RETURNING id;
-                    """, (pay_ref, pat_id, pat_id, fee_val, method_code))
+                    """, (pay_ref, pat_id, modifying_b_id, pat_id, fee_val, method_code))
                     pay_db_id = cur.fetchone()[0]
                     conn.commit()
                 except Exception as e:
@@ -3410,6 +3904,75 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": pay_prompt_buttons}
 
         elif btn_id in ["btn_pay_exec", "btn_pay_desk"]:
+            p_context = state.get("payment_context")
+
+            if p_context == "BILL_PAYMENT":
+                pay_id = state.get("payment_id")
+                pay_ref = state.get("payment_reference") or f"PAYBILL{datetime.datetime.now().strftime('%Y%m%d')}{random.randint(1000, 9999)}"
+                b_id = state.get("bill_id") or 1
+                b_num = state.get("bill_reference") or "INV-2026-8841"
+                pat_id = state.get("bill_patient_id") or state.get("selected_patient_id") or state.get("patient_id")
+                p_name = state.get("bill_patient_name") or "Patient"
+                p_code = state.get("bill_patient_code") or (f"P{pat_id}" if pat_id else "P1000061")
+                fee_val = float(state.get("payment_amount", 4850.0))
+                total_amt = float(state.get("bill_total_amount", 4850.0))
+                txn_ref = f"MOCKTXN{random.randint(100000, 999999)}"
+
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    if pay_id:
+                        cur.execute("UPDATE payments SET payment_status = 'SUCCESS', transaction_reference = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (txn_ref, pay_id))
+                        conn.commit()
+                except Exception as e:
+                    print(f"[BILL_PAYMENT_SUCCESS_ERR] {e}")
+                    conn.rollback()
+                finally:
+                    cur.close()
+                    conn.close()
+
+                paid_so_far = calculate_bill_payments(b_id, pat_id)
+                remaining_balance = max(0.0, total_amt - paid_so_far)
+                new_status = 'Settled' if remaining_balance == 0 else 'Partially Paid'
+
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    cur.execute("UPDATE bills SET bill_status = %s WHERE bill_id = %s;", (new_status, b_id))
+                    conn.commit()
+                except Exception as e:
+                    print(f"[UPDATE_BILL_STATUS_ERR] {e}")
+                    conn.rollback()
+                finally:
+                    cur.close()
+                    conn.close()
+
+                state["payment_context"] = None
+                state["conversation_state"] = None
+                state["payment_status"] = "SUCCESS"
+                state["bill_outstanding_amount"] = remaining_balance
+
+                fee_str = f"₹{int(fee_val):,}" if fee_val.is_integer() else f"₹{fee_val:,.2f}"
+                rem_str = f"₹{int(remaining_balance):,}" if remaining_balance.is_integer() else f"₹{remaining_balance:,.2f}"
+
+                resp = (
+                    f"✅ *Bill Payment Successful!*\n\n"
+                    f"Bill Reference: {b_num}\n"
+                    f"Patient: {p_name} ({p_code})\n"
+                    f"Amount Paid: {fee_str}\n"
+                    f"Remaining Balance: {rem_str}\n"
+                    f"Payment Reference: {pay_ref}\n"
+                    f"Transaction Reference: {txn_ref}\n\n"
+                    f"Your hospital bill has been cleared successfully."
+                )
+                buttons = [
+                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                    language_service.get_translated_button("btn_main_menu", current_lang)
+                ]
+                state["interactive_buttons"] = buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+                return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
             if state.get("is_balance_payment"):
                 modifying_b_id = state.get("modifying_booking_id")
                 balance_amt = float(state.get("payment_amount", 0.0))
@@ -3443,7 +4006,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 )
 
                 doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine"}
-                pat_name = state["entities"].get("patient_name_override") or state.get("dependent_name") or "Patient"
+                pat_info = resolve_patient_info(booking_id=modifying_b_id, state=state, conversation_code=conversation_code)
+                pat_name = pat_info["name"]
+                pat_code = pat_info["patient_code"]
 
                 state["is_balance_payment"] = False
                 state["modifying_booking_id"] = None
@@ -3454,6 +4019,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["conversation_state"] = None
 
                 fee_str = f"₹{int(balance_amt)}"
+                pat_code_line = f"Patient ID: {pat_code}\n" if pat_code else ""
                 resp = (
                     f"✅ *Balance Payment Successful!*\n\n"
                     f"Balance Paid: {fee_str}\n"
@@ -3461,6 +4027,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     f"Transaction Reference: {txn_ref}\n\n"
                     f"Your appointment {modifying_b_id} has been updated successfully!\n\n"
                     f"Patient: {pat_name}\n"
+                    f"{pat_code_line}"
                     f"Doctor: {doc_info['name']}\n"
                     f"Department: {doc_info['department']}\n"
                     f"Date: {appt_date}\n"
@@ -3673,7 +4240,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         cur.execute("SELECT first_name, last_name, date_of_birth, gender, patient_code FROM patients WHERE id = %s;", (booking_pat_id,))
                         p_row = cur.fetchone()
                         if p_row:
-                            if not pat_name:
+                            if not pat_name or pat_name == "Patient":
                                 pat_name = f"{p_row[0]} {p_row[1] or ''}".strip()
                             db_dob = p_row[2]
                             db_gender = p_row[3]
@@ -3743,6 +4310,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
 
         elif btn_id == "btn_pay_change":
+            p_context = state.get("payment_context")
             pay_id = state.get("payment_id")
             if pay_id:
                 conn = db_config.get_db_connection()
@@ -3755,12 +4323,57 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     conn.close()
             state["payment_status"] = "CANCELLED"
             state["conversation_state"] = "PAYMENT_METHOD_REQUIRED"
+
+            if p_context == "BILL_PAYMENT":
+                pat_id = state.get("bill_patient_id") or state.get("selected_patient_id") or state.get("patient_id")
+                p_name = state.get("bill_patient_name") or "Patient"
+                p_code = state.get("bill_patient_code") or (f"P{pat_id}" if pat_id else "P1000061")
+                bill_ref = state.get("bill_reference") or "INV-2026-8841"
+                fee_val = state.get("bill_outstanding_amount", 4850.0)
+                fee_str = f"₹{fee_val:.0f}" if (isinstance(fee_val, float) and fee_val.is_integer()) or isinstance(fee_val, int) else f"₹{fee_val}"
+
+                pay_method_buttons = [
+                    {"id": "btn_pay_gpay", "title": "GPay"},
+                    {"id": "btn_pay_phonepe", "title": "PhonePe"},
+                    {"id": "btn_pay_paytm", "title": "Paytm"},
+                    {"id": "btn_pay_upi", "title": "UPI"},
+                    {"id": "btn_pay_netbanking", "title": "NetBanking"},
+                    {"id": "btn_pay_cancel", "title": "Cancel"}
+                ]
+                resp = (
+                    f"💳 *Select Payment Method*\n\n"
+                    f"Patient: {p_name} ({p_code})\n"
+                    f"Bill Reference: {bill_ref}\n"
+                    f"Outstanding Amount: {fee_str}\n\n"
+                    f"Please select your preferred payment method:"
+                )
+                state["interactive_buttons"] = pay_method_buttons
+                state["list_button_title"] = "Payment Method"
+                state["section_title"] = "Select Method"
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+                return {
+                    "response": resp,
+                    "intent": "BILLING_AND_PAYMENTS",
+                    "language": current_lang,
+                    "interactive_buttons": pay_method_buttons,
+                    "list_button_title": "Payment Method",
+                    "section_title": "Select Method"
+                }
+
             doc_id = state.get("selected_doctor_id") or state.get("entities", {}).get("doctor_id")
             if doc_id:
                 state["selected_doctor_id"] = int(doc_id)
                 state.setdefault("entities", {})["doctor_id"] = int(doc_id)
             doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
-            fee_val = state.get("payment_amount") or doc_info.get("consultation_fee") or 800
+            
+            modifying_b_id = state.get("modifying_booking_id")
+            if state.get("is_balance_payment") or modifying_b_id:
+                new_fee, orig_paid, balance_due = calculate_appointment_balance(modifying_b_id, doc_id, state)
+                fee_val = balance_due
+            else:
+                fee_val = state.get("payment_amount") or doc_info.get("consultation_fee") or 800
+
             fee_str = f"₹{fee_val:.0f}" if (isinstance(fee_val, float) and fee_val.is_integer()) or isinstance(fee_val, int) else f"₹{fee_val}"
 
             pay_method_buttons = [
@@ -3779,7 +4392,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 f"Please select your preferred payment method:"
             )
             state["interactive_buttons"] = pay_method_buttons
-            state["list_button_title"] = "Payment Methods"
+            state["list_button_title"] = "Payment Method"
             state["section_title"] = "Select Method"
             state_manager.save_conversation_state(conversation_code, state)
             log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BOOK_APPOINTMENT", state)
@@ -3788,7 +4401,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "intent": "BOOK_APPOINTMENT",
                 "language": current_lang,
                 "interactive_buttons": pay_method_buttons,
-                "list_button_title": "Payment Methods",
+                "list_button_title": "Payment Method",
                 "section_title": "Select Method"
             }
 
@@ -3800,8 +4413,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 appt_date = state["entities"].get("appointment_date")
                 appt_time = state["entities"].get("appointment_time")
                 doc_info = resolve_doctor_details(doc_id) if doc_id else {"name": "Doctor", "department": "General Medicine", "consultation_fee": 800}
-                new_fee = float(doc_info.get("consultation_fee") or 800)
-                orig_paid = float(state.get("original_paid_amount", 0.0))
+                new_fee, orig_paid, balance = calculate_appointment_balance(modifying_b_id, doc_id, state)
 
                 # Revalidate slot before modification
                 if doc_id and appt_date and appt_time:
@@ -3827,23 +4439,24 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                             "interactive_buttons": alt_buttons
                         }
 
-                pat_id = state.get("dependent_patient_id") or state.get("patient_id")
-                pat_name = state["entities"].get("patient_name_override") or state.get("dependent_name") or "Patient"
+                pat_info = resolve_patient_info(booking_id=modifying_b_id, state=state, conversation_code=conversation_code)
+                pat_name = pat_info["name"]
+                pat_code = pat_info["patient_code"]
 
                 # CASE C: NEW FEE > ORIGINAL PAID (Balance Due)
-                if new_fee > orig_paid:
-                    balance = new_fee - orig_paid
+                if balance > 0:
                     pay_ref = f"PAYBAL{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
                     pay_db_id = None
-                    if pat_id:
+                    if pat_info.get("patient_id"):
+                        pat_id = pat_info["patient_id"]
                         conn = db_config.get_db_connection()
                         cur = conn.cursor()
                         try:
                             cur.execute("""
-                                INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                                VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
+                                VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 RETURNING id;
-                            """, (pay_ref, pat_id, pat_id, balance))
+                            """, (pay_ref, pat_id, modifying_b_id, pat_id, balance))
                             pay_db_id = cur.fetchone()[0]
                             conn.commit()
                         except Exception as e:
@@ -3890,10 +4503,11 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     conn = db_config.get_db_connection()
                     cur = conn.cursor()
                     try:
+                        pat_id_ref = pat_info.get("patient_id") or state.get("patient_id")
                         cur.execute("""
                             INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
                             VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'MOCK_REFUND', 'REFUNDED', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
-                        """, (ref_pay_ref, pat_id, modifying_b_id, pat_id, refund))
+                        """, (ref_pay_ref, pat_id_ref, modifying_b_id, pat_id_ref, refund))
                         conn.commit()
                     except Exception as e:
                         print(f"[REFUND_DB_ERR] Error inserting refund: {e}")
@@ -3919,10 +4533,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["confirmation_pending"] = False
 
                 if res_mod.get("success"):
+                    pat_code_line = f"Patient ID: {pat_code}\n" if pat_code else ""
                     resp = (
                         f"✅ *Appointment updated successfully!*{refund_msg}\n\n"
                         f"Appointment ID: {modifying_b_id}\n"
                         f"Patient: {pat_name}\n"
+                        f"{pat_code_line}"
                         f"Doctor: {doc_info['name']}\n"
                         f"Department: {doc_info['department']}\n"
                         f"Date: {appt_date}\n"
@@ -3975,7 +4591,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         }
 
                 # Create PENDING payment entry in PostgreSQL payments table
-                pat_id = state.get("dependent_patient_id") or state.get("patient_id")
+                pat_id = state.get("selected_patient_id") or state.get("dependent_patient_id") or state.get("patient_id")
                 pay_ref = f"PAY{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
                 pay_db_id = None
                 if pat_id:
@@ -3999,6 +4615,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["payment_id"] = pay_db_id
                 state["payment_reference"] = pay_ref
                 state["payment_amount"] = fee_val
+                state["payment_context"] = "APPOINTMENT_PAYMENT"
                 state["conversation_state"] = "PAYMENT_METHOD_REQUIRED"
                 state["confirmation_pending"] = False
 
@@ -4029,6 +4646,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 }
 
         elif btn_id == "btn_pay_cancel":
+            p_context = state.get("payment_context")
             pay_id = state.get("payment_id")
             if pay_id:
                 conn = db_config.get_db_connection()
@@ -4039,6 +4657,23 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 finally:
                     cur.close()
                     conn.close()
+
+            if p_context == "BILL_PAYMENT":
+                state["payment_context"] = None
+                state["payment_status"] = None
+                state["conversation_state"] = None
+                resp = (
+                    "❌ *Bill Payment Cancelled*\n\n"
+                    "You can complete your hospital bill payment anytime from the Billing & Payments menu."
+                )
+                buttons = [
+                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                    language_service.get_translated_button("btn_main_menu", current_lang)
+                ]
+                state["interactive_buttons"] = buttons
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+                return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
 
             if state.get("is_balance_payment") or state.get("modifying_booking_id"):
                 b_id = state.get("modifying_booking_id") or "your appointment"

@@ -229,8 +229,10 @@ const AdminDashboard: React.FC = () => {
               }}
             >
               <option value="">All Booking Sources</option>
-              <option value="WHATSAPP_TEXT">WhatsApp Text</option>
-              <option value="WHATSAPP_VOICE">WhatsApp Voice</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="WEB_PORTAL">Web Portal</option>
+              <option value="PHONE">Phone</option>
+              <option value="WALK_IN">Walk-in</option>
               <option value="ADMIN">Admin</option>
               <option value="DOCTOR">Doctor</option>
             </select>

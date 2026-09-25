@@ -61,7 +61,7 @@ export const ROLE_PAGE_ACCESS = {
     // 8 Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
-    'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
+    'appointments', 'emergency', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People

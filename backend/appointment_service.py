@@ -205,8 +205,8 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
     and utilizes row-level locking + unique index validation.
     """
     # Standard source validation
-    valid_sources = {"WHATSAPP_TEXT", "WHATSAPP_VOICE", "ADMIN", "DOCTOR"}
-    if booking_source not in valid_sources:
+    valid_sources = {"WHATSAPP", "WHATSAPP_TEXT", "WHATSAPP_VOICE", "WHATSAPP_AI", "ADMIN", "DOCTOR", "PHONE", "WALK_IN", "WALK-IN", "WEB_PORTAL", "WEB PORTAL"}
+    if booking_source and booking_source.upper() not in valid_sources and not booking_source.upper().startswith("WHATSAPP"):
         raise AppointmentError(f"Invalid booking source. Must be one of {valid_sources}", "INVALID_BOOKING_SOURCE")
 
     conn = db_config.get_db_connection()

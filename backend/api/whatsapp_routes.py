@@ -211,7 +211,7 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
         elif any(k in btn_ids_str for k in ["btn_doc_"]) or "doctor" in comb_str or "dr." in btn_titles_str:
             list_title = "Select Doctor"
         elif any(k in btn_ids_str for k in ["btn_pay_"]) or "pay" in comb_str or "upi" in btn_titles_str or "card" in btn_titles_str:
-            list_title = "Select Payment Method"
+            list_title = "Payment Method"
         elif any(k in btn_ids_str for k in ["btn_update_", "btn_change_profile", "btn_edit_profile"]):
             list_title = "Select Field"
         elif any(k in btn_ids_str for k in ["btn_my_reports", "btn_my_documents", "btn_preadmission"]):
@@ -227,7 +227,10 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
         else:
             list_title = "Main Menu"
 
-    list_title = list_title[:20]
+    if list_title == "Select Payment Method":
+        list_title = "Payment Method"
+    else:
+        list_title = list_title[:20]
 
     # 2. Resolve section_title (max 24 chars per Meta WhatsApp spec)
     sec_title = explicit_sec_title
@@ -242,7 +245,7 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             sec_title = "Hospital Departments"
         elif list_title == "Select Doctor":
             sec_title = "Available Doctors"
-        elif list_title == "Select Payment Method":
+        elif list_title in ["Select Payment Method", "Payment Method"]:
             sec_title = "Payment Gateways"
         elif list_title == "Select Field":
             sec_title = "Profile Attributes"

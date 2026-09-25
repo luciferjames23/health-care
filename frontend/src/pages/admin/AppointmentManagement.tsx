@@ -48,6 +48,18 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
 };
 
+const formatSourceLabel = (source?: string) => {
+  if (!source) return 'Web Portal';
+  const s = source.toUpperCase();
+  if (s.includes('WHATSAPP')) return 'WhatsApp';
+  if (s === 'ADMIN' || s === 'PORTAL_ADMIN') return 'Admin';
+  if (s === 'DOCTOR' || s === 'DOCTOR_PORTAL') return 'Doctor';
+  if (s === 'PHONE') return 'Phone';
+  if (s === 'WALK_IN' || s === 'WALK-IN') return 'Walk-in';
+  if (s === 'WEB_PORTAL' || s === 'WEB PORTAL' || s === 'PORTAL') return 'Web Portal';
+  return source;
+};
+
 const selectStyle: React.CSSProperties = {
   ...inputStyle,
   padding: '0 8px',
@@ -474,8 +486,10 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             style={selectStyle}
           >
             <option value="">All Sources</option>
-            <option value="WHATSAPP_TEXT">WhatsApp Text</option>
-            <option value="WHATSAPP_VOICE">WhatsApp Voice</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="WEB_PORTAL">Web Portal</option>
+            <option value="PHONE">Phone</option>
+            <option value="WALK_IN">Walk-in</option>
             <option value="ADMIN">Admin</option>
             <option value="DOCTOR">Doctor</option>
           </select>
@@ -593,7 +607,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '4px', padding: '2px 7px', fontSize: '10.5px', color: '#52585e', whiteSpace: 'nowrap', display: 'inline-block' }}>
-                        {a.booking_source}
+                        {formatSourceLabel(a.booking_source)}
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>

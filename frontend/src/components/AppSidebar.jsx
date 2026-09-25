@@ -198,8 +198,17 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  // Keep module names, grouping and order identical for every account.
-  const visibleGroups = NAV_GROUPS;
+  // Filter menu items based on role (Admin vs Doctor)
+  const visibleGroups = NAV_GROUPS.map(group => ({
+    ...group,
+    items: group.items.filter(item => {
+      const normalizedRole = (userRole || '').toString().trim().toLowerCase();
+      const isDoctor = normalizedRole === 'doctor';
+      if (isDoctor && (item.id === 'schedules' || item.id === 'doctor-management')) return false;
+      if (!isDoctor && item.id === 'doctor-portal') return false;
+      return true;
+    })
+  })).filter(group => group.items.length > 0);
 
   return (
     <nav style={{

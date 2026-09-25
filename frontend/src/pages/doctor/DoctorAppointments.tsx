@@ -15,11 +15,24 @@ const STATUS_CLASS: Record<string, string> = {
   RESCHEDULED: 'rescheduled',
 };
 
+const formatSourceLabel = (source?: string) => {
+  if (!source) return 'Web Portal';
+  const s = source.toUpperCase();
+  if (s.includes('WHATSAPP')) return 'WhatsApp';
+  if (s === 'ADMIN' || s === 'PORTAL_ADMIN') return 'Admin';
+  if (s === 'DOCTOR' || s === 'DOCTOR_PORTAL') return 'Doctor';
+  if (s === 'PHONE') return 'Phone';
+  if (s === 'WALK_IN' || s === 'WALK-IN') return 'Walk-in';
+  if (s === 'WEB_PORTAL' || s === 'WEB PORTAL' || s === 'PORTAL') return 'Web Portal';
+  return source;
+};
+
 const DoctorAppointments: React.FC = () => {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
     dateTo: toYMD(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
@@ -41,6 +54,7 @@ const DoctorAppointments: React.FC = () => {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
+        booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
         per_page: 50,
@@ -50,7 +64,7 @@ const DoctorAppointments: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, dateRange]);
+  }, [search, statusFilter, sourceFilter, dateRange]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -131,6 +145,27 @@ const DoctorAppointments: React.FC = () => {
               <option value="RESCHEDULED">Rescheduled</option>
               <option value="NO_SHOW">No Show</option>
             </select>
+
+            <select
+              value={sourceFilter}
+              onChange={e => setSourceFilter(e.target.value)}
+              style={{
+                padding: '6px 12px',
+                border: '1.5px solid var(--border)',
+                borderRadius: 'var(--radius-sm, 6px)',
+                fontSize: 13,
+                fontFamily: 'inherit',
+                background: 'var(--bg-primary)',
+              }}
+            >
+              <option value="">All Sources</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="WEB_PORTAL">Web Portal</option>
+              <option value="PHONE">Phone</option>
+              <option value="WALK_IN">Walk-in</option>
+              <option value="ADMIN">Admin</option>
+              <option value="DOCTOR">Doctor</option>
+            </select>
           </div>
         </div>
       </div>
@@ -176,7 +211,7 @@ const DoctorAppointments: React.FC = () => {
                         {a.appointment_end_time && ` (– ${format12HourTime(a.appointment_end_time)})`}
                       </div>
                     </td>
-                    <td><span className="intent-badge">{a.booking_source}</span></td>
+                    <td><span className="intent-badge">{formatSourceLabel(a.booking_source)}</span></td>
                     <td>
                       <span className={`status-badge ${STATUS_CLASS[a.status] || ''}`}>{a.status}</span>
                     </td>
