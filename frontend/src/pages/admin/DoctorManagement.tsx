@@ -70,15 +70,23 @@ const DoctorManagement: React.FC = () => {
         department: deptFilter || undefined,
         status: statusFilter || undefined,
       });
-      setDoctors(res.doctors);
+      setDoctors(Array.isArray(res?.doctors) ? res.doctors : []);
+    } catch (e) {
+      console.error('Error fetching doctors:', e);
+      setDoctors([]);
     } finally {
       setLoading(false);
     }
   }, [search, deptFilter, statusFilter]);
 
   const loadDepartments = useCallback(async () => {
-    const res = await fetchDepartments();
-    setDepartments(res.departments);
+    try {
+      const res = await fetchDepartments();
+      setDepartments(Array.isArray(res?.departments) ? res.departments : []);
+    } catch (e) {
+      console.error('Error fetching departments:', e);
+      setDepartments([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -91,7 +99,8 @@ const DoctorManagement: React.FC = () => {
   }, [loadDoctors]);
 
   const toggleDoctorStatus = async (doctor: Doctor) => {
-    const next = doctor.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const isCurrentlyActive = (doctor.status || '').toUpperCase() === 'ACTIVE';
+    const next = isCurrentlyActive ? 'INACTIVE' : 'ACTIVE';
     const ok = await updateDoctorStatus(doctor.id, next);
     if (ok) {
       showToast(`Dr. ${doctor.display_name} → ${next}`);
@@ -426,7 +435,7 @@ const DoctorManagement: React.FC = () => {
                     <td style={{ fontSize: 13, fontWeight: 500 }}>₹{Number(d.consultation_fee).toLocaleString()}</td>
                     <td style={{ fontWeight: 700, textAlign: 'center', color: 'var(--primary)' }}>{d.today_appts}</td>
                     <td>
-                      <span className={`status-badge ${STATUS_CLASS[d.status] || ''}`}>{d.status}</span>
+                      <span className={`status-badge ${STATUS_CLASS[(d.status || '').toUpperCase()] || 'active'}`}>{d.status}</span>
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -439,12 +448,12 @@ const DoctorManagement: React.FC = () => {
                           <Edit3 size={13} /> Edit
                         </button>
                         <button
-                          className={`btn btn-sm ${d.status === 'ACTIVE' ? 'btn-danger' : 'btn-success'}`}
+                          className={`btn btn-sm ${(d.status || '').toUpperCase() === 'ACTIVE' ? 'btn-danger' : 'btn-success'}`}
                           onClick={() => toggleDoctorStatus(d)}
-                          title={d.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          title={(d.status || '').toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                           style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                         >
-                          {d.status === 'ACTIVE'
+                          {(d.status || '').toUpperCase() === 'ACTIVE'
                             ? <ToggleRight size={14} />
                             : <ToggleLeft size={14} />
                           }

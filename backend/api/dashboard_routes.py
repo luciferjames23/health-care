@@ -1078,20 +1078,20 @@ def get_doctors(
         conditions = []
         params = []
 
-        if search:
+        if search and search.strip():
+            s = f"%{search.strip().lower()}%"
             conditions.append(
-                "(LOWER(d.display_name) LIKE %s OR LOWER(d.specialization) LIKE %s OR LOWER(d.email) LIKE %s)"
+                "(LOWER(d.display_name) LIKE %s OR LOWER(d.doctor_code) LIKE %s OR LOWER(d.first_name) LIKE %s OR LOWER(d.last_name) LIKE %s OR LOWER(d.specialization) LIKE %s OR LOWER(d.email) LIKE %s OR LOWER(COALESCE(d.phone, '')) LIKE %s OR LOWER(COALESCE(dept.department_name, '')) LIKE %s)"
             )
-            like = f"%{search.lower()}%"
-            params += [like, like, like]
+            params += [s, s, s, s, s, s, s, s]
 
-        if department:
-            conditions.append("LOWER(dept.department_name) = LOWER(%s)")
-            params.append(department)
+        if department and department.strip() and department.strip().lower() not in {"all", "all departments", "all department", "null", "undefined"}:
+            conditions.append("LOWER(COALESCE(dept.department_name, 'General Medicine')) = LOWER(%s)")
+            params.append(department.strip())
 
-        if status:
-            conditions.append("d.status = %s")
-            params.append(status.upper())
+        if status and status.strip() and status.strip().lower() not in {"all", "all status", "all statuses", "null", "undefined"}:
+            conditions.append("UPPER(d.status) = UPPER(%s)")
+            params.append(status.strip())
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -1100,11 +1100,11 @@ def get_doctors(
             SELECT d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
                    d.specialization, d.qualification, d.experience_years,
                    d.phone, d.email, d.consultation_fee, d.status, d.created_at,
-                   dept.department_name,
+                   COALESCE(dept.department_name, 'General Medicine') as department_name,
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
                    COUNT(a.id) FILTER (WHERE a.status NOT IN ('CANCELLED', 'RESCHEDULED')) as total_appts
             FROM doctors d
-            JOIN departments dept ON d.department_id = dept.id
+            LEFT JOIN departments dept ON d.department_id = dept.id
             LEFT JOIN appointments a ON d.id = a.doctor_id
             {where}
             GROUP BY d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
@@ -1781,7 +1781,7 @@ def get_departments(current_user: dict = Depends(require_doctor_or_admin)):
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
                    COUNT(a.id) FILTER (WHERE a.status NOT IN ('CANCELLED', 'RESCHEDULED')) as total_appts
             FROM departments dept
-            LEFT JOIN doctors d ON dept.id = d.department_id AND d.status = 'ACTIVE'
+            LEFT JOIN doctors d ON dept.id = d.department_id AND UPPER(d.status) = 'ACTIVE'
             LEFT JOIN appointments a ON dept.id = a.department_id
             GROUP BY dept.id, dept.department_code, dept.department_name, dept.description, dept.status
             ORDER BY dept.department_name;
