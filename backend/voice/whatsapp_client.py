@@ -259,10 +259,76 @@ def send_welcome_message(to_number: str, template_name: str = "meridian_patient_
     return send_template_message(to_number, template_name=template_name, language_code=language_code)
 
 
+def send_image_message(to_number: str, image_url_or_path: str, caption: str = None) -> dict:
+    """
+    Send an image message to a WhatsApp number.
+    Supports either a public HTTP/HTTPS URL or local file path.
+    """
+    to_number = clean_whatsapp_number(to_number)
+    payload_mock = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "image",
+        "image": {
+            "link": image_url_or_path if image_url_or_path.startswith("http") else "http://localhost:8000/static/welcome_banner.jpg",
+            "caption": caption or ""
+        }
+    }
 
+    if is_mock_mode():
+        log_outbound_simulation("image", to_number, payload_mock)
+        return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}"}
+
+    try:
+        media_id = None
+        if not image_url_or_path.startswith("http") and os.path.exists(image_url_or_path):
+            media_id = upload_media(image_url_or_path)
+
+        url = f"{get_api_url()}/{get_phone_number_id()}/messages"
+        headers = {
+            "Authorization": f"Bearer {get_access_token()}",
+            "Content-Type": "application/json"
+        }
+
+        image_obj = {}
+        if media_id:
+            image_obj["id"] = media_id
+        else:
+            image_obj["link"] = image_url_or_path
+
+        if caption:
+            image_obj["caption"] = caption
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to_number,
+            "type": "image",
+            "image": image_obj
+        }
+
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if not res.ok:
+            parse_and_log_meta_error(res)
+        res.raise_for_status()
+        resp_data = res.json()
+        msg_id = None
+        try:
+            msg_id = resp_data.get("messages", [{}])[0].get("id")
+        except Exception:
+            pass
+        if not msg_id:
+            msg_id = f"wam.meta_image_{uuid.uuid4().hex[:12]}"
+        return {"success": True, "message_id": msg_id, "response": resp_data}
+    except Exception as e:
+        print(f"[ERROR] send_image_message failed: {e}. Falling back to simulation log.")
+        log_outbound_simulation("image", to_number, payload_mock)
+        return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}", "fallback": True}
 
 
 def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options") -> dict:
+
     """
     Sends a Meta WhatsApp interactive button message.
     Meta API strictly limits reply buttons to max 3 items, and body text to 1024 chars.
@@ -514,10 +580,16 @@ def upload_media(file_path: str) -> str | None:
     
     # Determine content-type
     content_type = "audio/wav"
-    if file_path.endswith(".mp3"):
+    lower_path = file_path.lower()
+    if lower_path.endswith((".jpg", ".jpeg")):
+        content_type = "image/jpeg"
+    elif lower_path.endswith(".png"):
+        content_type = "image/png"
+    elif lower_path.endswith(".mp3"):
         content_type = "audio/mpeg"
-    elif file_path.endswith(".ogg"):
+    elif lower_path.endswith(".ogg"):
         content_type = "audio/ogg"
+
         
     try:
         with open(file_path, "rb") as f:

@@ -279,6 +279,18 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         )
         t_agent_ms = int((time.monotonic() - t_agent_start) * 1000)
 
+        # Send Welcome Banner Image first if this is a welcome greeting response
+        is_welcome = (
+            agent_res.get("has_welcome_image") is True or
+            agent_res.get("intent") in ["GREETING", "WELCOME"] or
+            "welcome back" in agent_res.get("response", "").lower() or
+            "welcome to meridian" in agent_res.get("response", "").lower()
+        )
+        if is_welcome:
+            welcome_img_path = os.path.join(backend_dir, "static", "welcome_banner.jpg")
+            if os.path.exists(welcome_img_path):
+                whatsapp_client.send_image_message(sender_num, welcome_img_path)
+
         t_send_start = time.monotonic()
         if agent_res.get("interactive_buttons"):
             list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
@@ -292,6 +304,7 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         else:
             send_res = whatsapp_client.send_text_message(sender_num, agent_res["response"])
         t_send_ms = int((time.monotonic() - t_send_start) * 1000)
+
 
         t_total_ms = int((time.monotonic() - t_total_start) * 1000)
         print(

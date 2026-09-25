@@ -34,6 +34,8 @@ class AgentChatResponse(BaseModel):
     interactive_buttons: Optional[List[dict]] = None
     interactive_type: Optional[str] = None
     list_button_title: Optional[str] = None
+    has_welcome_image: Optional[bool] = None
+    welcome_image: Optional[str] = None
 
 @router.post("/chat", response_model=AgentChatResponse)
 def agent_chat_endpoint(payload: AgentChatRequest):
@@ -58,8 +60,11 @@ def agent_chat_endpoint(payload: AgentChatRequest):
             tool_called=res["tool_called"],
             interactive_buttons=res.get("interactive_buttons"),
             interactive_type=res.get("interactive_type"),
-            list_button_title=res.get("list_button_title")
+            list_button_title=res.get("list_button_title"),
+            has_welcome_image=res.get("has_welcome_image"),
+            welcome_image=res.get("welcome_image")
         )
+
     except Exception as e:
         import traceback
         traceback.print_exc()

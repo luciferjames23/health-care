@@ -1057,7 +1057,9 @@ def handle_unknown_patient_identification_flow(
                 "language": current_lang,
                 "intent": "PATIENT_IDENTIFICATION",
                 "response": resp,
-                "interactive_buttons": main_menu_buttons
+                "interactive_buttons": main_menu_buttons,
+                "has_welcome_image": True,
+                "welcome_image": "/welcome_banner.jpg"
             }
         elif len(all_pats) > 1:
             sel_pid = state.get("selected_patient_id")
@@ -1079,7 +1081,9 @@ def handle_unknown_patient_identification_flow(
                     "language": current_lang,
                     "intent": "PATIENT_IDENTIFICATION",
                     "response": resp,
-                    "interactive_buttons": main_menu_buttons
+                    "interactive_buttons": main_menu_buttons,
+                    "has_welcome_image": True,
+                    "welcome_image": "/welcome_banner.jpg"
                 }
             else:
                 return prompt_patient_selection(conversation_code, state, current_lang, action_intent=state.get("pending_action_intent") or state.get("intent") or "PATIENT_PROFILE")
@@ -3336,7 +3340,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "response": resp,
                 "intent": "GREETING",
                 "language": current_lang,
-                "interactive_buttons": state["interactive_buttons"]
+                "interactive_buttons": state["interactive_buttons"],
+                "has_welcome_image": True,
+                "welcome_image": "/welcome_banner.jpg"
             }
 
         elif btn_id == "btn_book_appt":
@@ -6915,7 +6921,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "response": response_text,
                 "missing_information": [],
                 "tool_called": None,
-                "interactive_buttons": state["interactive_buttons"]
+                "interactive_buttons": state["interactive_buttons"],
+                "has_welcome_image": True,
+                "welcome_image": "/welcome_banner.jpg"
             }
         else:
             # Phone number is NEW (unregistered in DB) — Prompt for patient registration first
@@ -10199,4 +10207,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         "tool_called": tool_called,
         "interactive_buttons": state.get("interactive_buttons", [])
     }
+    if intent in ["GREETING", "WELCOME"] or "welcome back" in response_text.lower() or "welcome to meridian" in response_text.lower():
+        res_payload["has_welcome_image"] = True
+        res_payload["welcome_image"] = "/welcome_banner.jpg"
+
     return response_validator.validate_pre_dispatch(state, res_payload)

@@ -166,6 +166,12 @@ app.include_router(proto_auth_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
 
+from fastapi.staticfiles import StaticFiles
+static_dir = BASE_DIR / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
 @app.on_event("startup")
 def on_startup():
     try:
