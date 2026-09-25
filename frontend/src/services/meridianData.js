@@ -215,6 +215,63 @@ export const ROLE_PAGE_ACCESS = {
   ]
 };
 
+export const ROLE_HOMES = {
+  Patient: 'portal',
+  Doctor: 'clinical',
+  Nurse: 'clinical',
+  'Front Office': 'appointments',
+  Billing: 'billing',
+  Insurance: 'insurance',
+  Radiologist: 'radiology',
+  Laboratory: 'lab',
+  Pathologist: 'lab',
+  Pharmacy: 'pharmacy',
+  'Hospital Management': 'command',
+  Admin: 'command',
+  'AI Administrator': 'ai-command',
+  'Governance Officer': 'governance',
+  'Store Manager': 'inventory',
+  'Procurement Officer': 'procurement',
+  'Finance Manager': 'finance',
+  'HR Manager': 'hr-dashboard',
+  'Canteen Manager': 'canteen',
+  'IT Administrator': 'users',
+  Auditor: 'audit'
+};
+
+export function isPageAllowed(role, page) {
+  if (!role) return false;
+  if (role === 'Hospital Management' || role === 'Admin') return true;
+  const allowedList = ROLE_PAGE_ACCESS[role];
+  if (allowedList === null || allowedList === undefined) return true;
+  if (allowedList.includes(page)) return true;
+  
+  // Normalization aliases
+  const aliasMap = {
+    'patient360': 'patients',
+    'soap': 'clinical',
+    'doctor-portal': 'clinical',
+    'lab': 'lab',
+    'lab-dashboard': 'lab',
+    'lab-workqueue': 'lab',
+    'criticalvalues': 'criticalvalues',
+    'medications': 'medications',
+    'surgery': 'surgery',
+    'deathmlc': 'deathmlc',
+    'sbar': 'sbar',
+    'assistant': 'assistant',
+    'chat': 'assistant',
+    'patient-chat': 'assistant',
+    'discharge-agent': 'discharge',
+    'hr': 'hr-dashboard'
+  };
+  const mapped = aliasMap[page];
+  if (mapped && allowedList.includes(mapped)) return true;
+  return false;
+}
+
+export const PROTOTYPE_USERS = DEMO_ROLES;
+
 let cachedInstance = null;
 
 export function getMeridianStore(onUpdate) {
@@ -270,3 +327,4 @@ export function getMeridianStore(onUpdate) {
   cachedInstance = { api, M, V, v6, erp5 };
   return cachedInstance;
 }
+

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, computeDischargeCasesCount } from '../services/api';
-import { ROLE_PAGE_ACCESS } from '../services/meridianData';
+import { isPageAllowed, ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
   {
@@ -190,17 +190,38 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  // Filter menu items based on role (Admin vs Doctor)
-  const visibleGroups = NAV_GROUPS.map(group => ({
-    ...group,
-    items: group.items.filter(item => {
-      const normalizedRole = (userRole || '').toString().trim().toLowerCase();
-      const isDoctor = normalizedRole === 'doctor';
-      if (isDoctor && (item.id === 'schedules' || item.id === 'doctor-management')) return false;
-      if (!isDoctor && item.id === 'doctor-portal') return false;
-      return true;
-    })
-  })).filter(group => group.items.length > 0);
+  // Filter menu items strictly based on role RBAC matrix from Meridian Prototype V2.1
+  const visibleGroups = React.useMemo(() => {
+    if (userRole === 'Patient') return [];
+    return NAV_GROUPS.map(group => ({
+      ...group,
+      items: group.items.filter(item => {
+        return isPageAllowed(userRole, item.id);
+      })
+    })).filter(group => group.items.length > 0);
+  }, [userRole]);
+
+  if (userRole === 'Patient' || visibleGroups.length === 0) {
+    return null;
+  }
+
+  const isItemActive = (itemId) => {
+    if (activePage === itemId) return true;
+    if (itemId === 'patients' && (activePage === 'patient360' || activePage === 'patient')) return true;
+    if (itemId === 'clinical' && (activePage === 'soap' || activePage === 'doctor-portal')) return true;
+    if (itemId === 'discharge' && (activePage === 'discharge-case' || activePage === 'discharge-agent')) return true;
+    if (itemId === 'agents' && activePage === 'agent') return true;
+    if (itemId === 'runs' && activePage === 'execution') return true;
+    if (itemId === 'approvals' && activePage === 'approval') return true;
+    if (itemId === 'assistant' && (activePage === 'chat' || activePage === 'patient-chat' || activePage === 'ask')) return true;
+    if (itemId === 'lab' && activePage === 'lab-dashboard') return true;
+    if (itemId === 'criticalvalues' && activePage === 'laboratory') return true;
+    if (itemId === 'medications' && activePage === 'mar') return true;
+    if (itemId === 'surgery' && activePage === 'ot') return true;
+    if (itemId === 'deathmlc' && activePage === 'deaths') return true;
+    if (itemId === 'sbar' && activePage === 'handover') return true;
+    return false;
+  };
 
   return (
     <nav style={{
@@ -219,7 +240,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
           </div>
 
           {group.items.map((item) => {
-            const isActive = activePage === item.id;
+            const isActive = isItemActive(item.id);
             const badgeText = item.id === 'discharge' 
               ? (dischargeCount !== null ? String(dischargeCount) : item.badge)
               : item.badge;
