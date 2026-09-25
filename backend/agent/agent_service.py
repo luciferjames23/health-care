@@ -1961,8 +1961,7 @@ def is_appointment_already_paid(state: dict, appointment_id_val=None, booking_id
 
 def get_appointment_paid_amount(booking_id: str = None, appt_db_id: int = None, state: dict = None) -> float:
     """
-    Retrieves total valid successful payment amount for an appointment from the payments database table.
-    Only payment_status IN ('SUCCESS', 'PAID', 'COMPLETED') are counted. PENDING, FAILED, CANCELLED are excluded.
+    Retrieves net valid payment amount for an appointment from the DB (total payments minus total refunds).
     """
     if not booking_id and not appt_db_id and state:
         booking_id = state.get("modifying_booking_id") or state.get("booking_id") or state.get("selected_booking_id")
@@ -1970,6 +1969,7 @@ def get_appointment_paid_amount(booking_id: str = None, appt_db_id: int = None, 
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     total_paid = 0.0
+    total_refunded = 0.0
     try:
         if appt_db_id:
             cur.execute("""
@@ -1979,29 +1979,43 @@ def get_appointment_paid_amount(booking_id: str = None, appt_db_id: int = None, 
             r = cur.fetchone()
             if r and r[0] is not None:
                 total_paid = float(r[0])
+
+            cur.execute("""
+                SELECT COALESCE(SUM(refund_amount), 0.0) FROM refunds
+                WHERE appointment_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED');
+            """, (appt_db_id,))
+            rf = cur.fetchone()
+            if rf and rf[0] is not None:
+                total_refunded = float(rf[0])
+
         elif booking_id:
             cur.execute("""
-                SELECT COALESCE(SUM(p.amount), 0.0)
-                FROM payments p
-                JOIN appointments a ON p.appointment_id = a.id
+                SELECT COALESCE(SUM(p.amount), 0.0), a.id
+                FROM appointments a
+                LEFT JOIN payments p ON p.appointment_id = a.id AND UPPER(p.payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED')
                 WHERE (a.booking_id = %s OR CAST(a.id AS VARCHAR) = %s)
-                  AND UPPER(p.payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
+                GROUP BY a.id;
             """, (str(booking_id), str(booking_id)))
             r = cur.fetchone()
-            if r and r[0] is not None and float(r[0]) > 0:
-                total_paid = float(r[0])
-            else:
-                if state and state.get("original_paid_amount") is not None:
-                    total_paid = float(state.get("original_paid_amount", 0.0))
+            if r:
+                total_paid = float(r[0]) if r[0] is not None else 0.0
+                a_id = r[1]
+                if a_id:
+                    cur.execute("""
+                        SELECT COALESCE(SUM(refund_amount), 0.0) FROM refunds
+                        WHERE appointment_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED');
+                    """, (a_id,))
+                    rf = cur.fetchone()
+                    if rf and rf[0] is not None:
+                        total_refunded = float(rf[0])
     except Exception as e:
         print(f"[GET_PAID_AMT_ERR] Error fetching paid amount from DB: {e}")
-        if state and state.get("original_paid_amount") is not None:
-            total_paid = float(state.get("original_paid_amount", 0.0))
     finally:
         cur.close()
         conn.close()
 
-    return total_paid
+    net_amount = max(0.0, total_paid - total_refunded)
+    return net_amount
 
 
 def calculate_appointment_balance(booking_id: str = None, doctor_id: int = None, state: dict = None) -> tuple:
@@ -2074,8 +2088,7 @@ def get_or_create_patient_bill(patient_id: int, bill_number: str = "INV-2026-884
 
 def calculate_bill_payments(bill_id: int, patient_id: int = None) -> float:
     """
-    Retrieves total valid successful payments for a hospital bill from payments table.
-    Only payment_status IN ('SUCCESS', 'PAID', 'COMPLETED') are counted.
+    Retrieves net valid payments for a hospital bill (total payments minus total refunds).
     """
     if not bill_id:
         return 0.0
@@ -2087,8 +2100,16 @@ def calculate_bill_payments(bill_id: int, patient_id: int = None) -> float:
             WHERE bill_id = %s AND UPPER(payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
         """, (bill_id,))
         r = cur.fetchone()
-        if r and r[0] is not None:
-            return float(r[0])
+        paid = float(r[0]) if r and r[0] is not None else 0.0
+
+        cur.execute("""
+            SELECT COALESCE(SUM(refund_amount), 0.0) FROM refunds
+            WHERE bill_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED');
+        """, (bill_id,))
+        rf = cur.fetchone()
+        refunded = float(rf[0]) if rf and rf[0] is not None else 0.0
+
+        return max(0.0, paid - refunded)
     except Exception as e:
         print(f"[CALC_BILL_PAYMENTS_ERR] {e}")
     finally:
@@ -4499,22 +4520,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 refund_msg = ""
                 if new_fee < orig_paid:
                     refund = orig_paid - new_fee
-                    ref_pay_ref = f"REF{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
-                    conn = db_config.get_db_connection()
-                    cur = conn.cursor()
+                    pat_id_ref = pat_info.get("patient_id") or state.get("patient_id")
                     try:
-                        pat_id_ref = pat_info.get("patient_id") or state.get("patient_id")
-                        cur.execute("""
-                            INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                            VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'MOCK_REFUND', 'REFUNDED', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
-                        """, (ref_pay_ref, pat_id_ref, modifying_b_id, pat_id_ref, refund))
-                        conn.commit()
+                        from services.payment_refund_service import process_mock_refund
+                        ref_res = process_mock_refund(
+                            patient_id=pat_id_ref,
+                            refund_amount=refund,
+                            refund_reason="Rescheduled to lower fee doctor via WhatsApp",
+                            appointment_id=None,
+                            conversation_code=conversation_code
+                        )
                     except Exception as e:
                         print(f"[REFUND_DB_ERR] Error inserting refund: {e}")
-                        conn.rollback()
-                    finally:
-                        cur.close()
-                        conn.close()
                     refund_msg = f"\n\n💳 *Mock Refund Successful*\nRefund Amount: ₹{int(refund)}\nNew Fee: ₹{int(new_fee)} (Originally Paid: ₹{int(orig_paid)})"
 
                 # Commit modification to appointment table
@@ -4872,11 +4889,28 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if res.get("success"):
                 log_agent_action(conversation_code, "APPOINTMENT_CANCELLED", {"booking_id": b_id})
                 d_str = a_date.strftime("%d %B %Y") if hasattr(a_date, "strftime") else str(a_date)
+
+                # Process refund if appointment was paid
+                paid_amt = get_appointment_paid_amount(appt_db_id=appt_db_id)
+                refund_notice = ""
+                if paid_amt > 0:
+                    try:
+                        from services.payment_refund_service import process_mock_refund
+                        ref_res = process_mock_refund(
+                            patient_id=a_pat_id or pat_id,
+                            refund_amount=paid_amt,
+                            refund_reason="Full refund on appointment cancellation",
+                            appointment_id=appt_db_id,
+                            conversation_code=conversation_code
+                        )
+                        if ref_res.get("success"):
+                            refund_notice = f"\n\n💳 *Mock Refund Processed: ₹{int(paid_amt)}*\nRefund Reference: {ref_res.get('refund_reference')}"
+                    except Exception as ref_err:
+                        print(f"[CANCELLATION_REFUND_ERR] {ref_err}")
                 
-                # Bug 4: Formatted success message
                 resp = (
                     f"✅ *Appointment Cancelled Successfully*\n\n"
-                    f"Your appointment has been cancelled successfully.\n\n"
+                    f"Your appointment has been cancelled successfully.{refund_notice}\n\n"
                     f"Appointment ID: *{b_id}*\n"
                     f"Doctor: *{doc_n}*\n"
                     f"Department: *{dept_n}*\n"

@@ -78,19 +78,25 @@ def run_migrations():
         # 2. Run migration files
         for sql_file in sql_files:
             file_path = os.path.join(migrations_dir, sql_file)
-            print(f"Executing migration: {sql_file}")
             with open(file_path, "r", encoding="utf-8") as f:
-                sql_content = f.read()
+                sql_content = f.read().strip()
                 
-            if sql_content.strip():
-                cur.execute(sql_content)
+            if sql_content:
+                cur.execute("SAVEPOINT migration_sp;")
+                try:
+                    cur.execute(sql_content)
+                    cur.execute("RELEASE SAVEPOINT migration_sp;")
+                    print(f"[SUCCESS] Executed migration: {sql_file}")
+                except Exception as m_err:
+                    cur.execute("ROLLBACK TO SAVEPOINT migration_sp;")
+                    print(f"Skipped/Handled existing migration {sql_file}: {m_err}")
                 
         # 3. Apply the updated_at trigger to tables that have it
         tables_with_updated_at = [
             "roles", "users", "patients", "departments", "doctors", 
             "doctor_schedules", "appointments", "pre_admissions", 
             "conversations", "knowledge_documents", "knowledge_chunks",
-            "payments", "patient_reports"
+            "payments", "refunds", "patient_reports"
         ]
         
         for table in tables_with_updated_at:
