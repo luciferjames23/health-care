@@ -9,6 +9,17 @@ import React from 'react';
 export function TableSkeleton({ rows = 6, columns = 7 }) {
   return (
     <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+      <style>{`
+        @keyframes hx-shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .hx-shimmer {
+          background: linear-gradient(90deg, #e2e8f0 25%, #cbd5e1 50%, #e2e8f0 75%) !important;
+          background-size: 200% 100% !important;
+          animation: hx-shimmer 1.4s ease-in-out infinite !important;
+        }
+      `}</style>
       {/* Header skeleton */}
       <div style={{
         display: 'grid',

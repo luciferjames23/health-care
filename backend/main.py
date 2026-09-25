@@ -74,6 +74,12 @@ try:
 except Exception as e:
     print(f"Failed to load clinical operations router: {e}")
 
+try:
+    from routers.pharmacy_supply import router as pharmacy_supply_router
+    routers_to_mount.append(pharmacy_supply_router)
+except Exception as e:
+    print(f"Failed to load pharmacy supply router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

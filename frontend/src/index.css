@@ -1037,3 +1037,15 @@ table.patient-table{width:100%; border-collapse:collapse;}
   100% { background-position: -200% 0; }
 }
 
+@keyframes hx-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.hx-shimmer {
+  background: linear-gradient(90deg, #e2e8f0 25%, #cbd5e1 50%, #e2e8f0 75%) !important;
+  background-size: 200% 100% !important;
+  animation: hx-shimmer 1.4s ease-in-out infinite !important;
+}
+
+

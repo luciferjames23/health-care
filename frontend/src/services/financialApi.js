@@ -57,9 +57,57 @@ export const financialApi = {
     return request(`/api/finance/insurance-claims?${q.toString()}`);
   },
 
+  getPreauthorisations: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.page) q.append('page', params.page);
+    if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
+    if (params.status) q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    return request(`/api/finance/preauth?${q.toString()}`);
+  },
+
+  submitPreauth: (claimId) => request(`/api/finance/preauth/${claimId}/submit`, {
+    method: 'POST'
+  }),
+
+  approvePreauth: (claimId, payload = {}) => request(`/api/finance/preauth/${claimId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
+  rejectPreauth: (claimId, payload = {}) => request(`/api/finance/preauth/${claimId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
+  settleClaimCashless: (claimId) => request(`/api/finance/claims/${claimId}/settle`, {
+    method: 'POST'
+  }),
+
+  appealClaim: (claimId, payload = {}) => request(`/api/finance/claims/${claimId}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
+  resolveBillAdjustment: (billId, payload = {}) => request(`/api/finance/bills/${billId}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
+  updateTaxSlab: (payload = {}) => request('/api/finance/tax-config/slabs', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
   getClaimsAnalytics: () => request('/api/finance/claims-analytics'),
 
-  getFinanceDashboard: () => request('/api/finance/dashboard'),
+  getFinanceDashboard: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.page) q.append('page', params.page);
+    if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
+    if (params.status && params.status !== "All") q.append('status', params.status);
+    return request(`/api/finance/dashboard${q.toString() ? '?' + q.toString() : ''}`);
+  },
 
   getTaxConfig: () => request('/api/finance/tax-config'),
 

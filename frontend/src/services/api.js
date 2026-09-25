@@ -1085,6 +1085,122 @@ export const apiService = {
     return data;
   },
 
+  // =========================================================================
+  // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
+  // =========================================================================
+  async getPrescriptions(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async dispensePrescription(rxId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions/${encodeURIComponent(rxId)}/dispense`, {
+      method: 'PATCH'
+    });
+    if (!res.ok) throw new Error(`Error dispensing prescription ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions`, data);
+    return data;
+  },
+
+  async getDrugMaster(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.form && params.form !== 'All') q.append('form', params.form);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/drugs?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPharmacySales(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/sales?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPharmacyInventory(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/inventory?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getHospitalStores(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/stores`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getProcurementOrders(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/procurement?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getHospitalVendors(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/vendors?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getCssdRecords(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/cssd?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async releaseCssdPack(recordId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/pharmacy-supply/cssd/${encodeURIComponent(recordId)}/release`, {
+      method: 'PATCH'
+    });
+    if (!res.ok) throw new Error(`Error releasing CSSD pack ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/pharmacy-supply/cssd`, data);
+    return data;
+  },
+
   async acknowledgeSbarHandover(handoverId) {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar/${handoverId}/acknowledge`, {
       method: 'PATCH'

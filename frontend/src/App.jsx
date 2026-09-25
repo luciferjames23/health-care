@@ -72,6 +72,11 @@ import {
   PrescriptionsView,
   DrugMasterView,
   PharmacyView,
+  InventoryView,
+  StoresView,
+  ProcurementView,
+  VendorsView,
+  CssdView,
   HrEmployeeView,
   NotificationsView,
   ConfigurationView,
@@ -532,13 +537,15 @@ export default function App() {
           {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'audit' && <AuditTrailView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           
-          {/* Pharmacy & Supply Chain Domain Views */}
+          {/* Pharmacy & Supply Chain Domain Views (Live PostgreSQL DB) */}
           {activePage === 'prescriptions' && <PrescriptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'drugs' && <DrugMasterView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'pharmacy' && <PharmacyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {['inventory', 'stores', 'procurement', 'vendors', 'cssd'].includes(activePage) && (
-            <AdminSystemView module={activePage === 'inventory' ? 'Inventory Catalog & Stock' : activePage === 'procurement' ? 'Procurement & 3-Way Purchase Orders' : activePage === 'vendors' ? 'Vendor Management & Contracts' : activePage === 'cssd' ? 'CSSD Sterilization Register' : 'Central Stores & Depots'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
-          )}
+          {activePage === 'inventory' && <InventoryView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'stores' && <StoresView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'procurement' && <ProcurementView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'vendors' && <VendorsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'cssd' && <CssdView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
 
           {/* People Domain Views */}
           {(activePage === 'hr-dashboard' || activePage === 'hr') && <HrEmployeeView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
