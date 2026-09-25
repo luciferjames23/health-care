@@ -854,54 +854,91 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       {/* Prototype KPI / Stats Row */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        {(activeTab === "billing"
-          ? billingStats
-          : activeTab === "insurance"
-          ? insuranceStats
-          : activeTab === "claims"
-          ? claimsStats
-          : activeTab === "finance"
-          ? financeStats
-          : []
-        ).map((st, idx) => (
-          <div
-            key={idx}
-            onClick={() => {
-              if (st.filter && st.filter !== "All") setActiveFilter(st.filter);
-            }}
-            role="button"
-            tabIndex={0}
-            style={{
-              background: "#fff",
-              border: `1px solid ${PALETTE.border}`,
-              borderRadius: "8px",
-              padding: "8px 14px",
-              minWidth: "120px",
-              cursor: "pointer",
-              transition: "border-color 0.15s, transform 0.1s"
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = PALETTE.primary;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = PALETTE.border;
-            }}
-          >
-            <div style={{ color: PALETTE.muted, fontSize: "11px", fontWeight: 500 }}>{st.k}</div>
+        {((activeTab === "billing" && loadingBills) ||
+          (activeTab === "insurance" && loadingPreauth) ||
+          (activeTab === "claims" && loadingClaims) ||
+          (activeTab === "finance" && loadingDashboard) ||
+          (activeTab === "tax" && loadingTax)) ? (
+          Array.from({
+            length:
+              activeTab === "billing"
+                ? 5
+                : activeTab === "insurance"
+                ? 4
+                : activeTab === "claims"
+                ? 5
+                : activeTab === "finance"
+                ? 4
+                : 4
+          }).map((_, idx) => (
             <div
+              key={idx}
               style={{
-                fontFamily: "Newsreader, Georgia, serif",
-                fontSize: "22px",
-                lineHeight: 1.15,
-                color: st.col || PALETTE.text,
-                marginTop: "2px",
-                fontWeight: 500
+                background: "#fff",
+                border: `1px solid ${PALETTE.border}`,
+                borderRadius: "8px",
+                padding: "8px 14px",
+                minWidth: "120px",
+                flex: "1 1 120px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px"
               }}
             >
-              {st.v}
+              <div className="hx-shimmer" style={{ width: "65%", height: "11px", borderRadius: "3px" }} />
+              <div className="hx-shimmer" style={{ width: "45%", height: "22px", borderRadius: "4px", marginTop: "2px" }} />
             </div>
-          </div>
-        ))}
+          ))
+        ) : (
+          (activeTab === "billing"
+            ? billingStats
+            : activeTab === "insurance"
+            ? insuranceStats
+            : activeTab === "claims"
+            ? claimsStats
+            : activeTab === "finance"
+            ? financeStats
+            : []
+          ).map((st, idx) => (
+            <div
+              key={idx}
+              onClick={() => {
+                if (st.filter && st.filter !== "All") setActiveFilter(st.filter);
+              }}
+              role="button"
+              tabIndex={0}
+              style={{
+                background: "#fff",
+                border: `1px solid ${PALETTE.border}`,
+                borderRadius: "8px",
+                padding: "8px 14px",
+                minWidth: "120px",
+                cursor: "pointer",
+                transition: "border-color 0.15s, transform 0.1s"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = PALETTE.primary;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = PALETTE.border;
+              }}
+            >
+              <div style={{ color: PALETTE.muted, fontSize: "11px", fontWeight: 500 }}>{st.k}</div>
+              <div
+                style={{
+                  fontFamily: "Newsreader, Georgia, serif",
+                  fontSize: "22px",
+                  lineHeight: 1.15,
+                  color: st.col || PALETTE.text,
+                  marginTop: "2px",
+                  fontWeight: 500
+                }}
+              >
+                {st.v}
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
@@ -1044,48 +1081,15 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
           {/* Loading Indicator */}
           {loadingBills && (
-            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "14px",
-                padding: "12px 18px",
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: "8px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "50%",
-                    border: "2.5px solid #cbd5e1",
-                    borderTopColor: "#0284c7",
-                    animation: "spin 0.8s linear infinite"
-                  }} />
-                  <div>
-                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
-                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} patient bills...
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>
-                      Fetching live billing items, invoices, co-pays & settlements
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: "12px",
-                  background: "#e0f2fe",
-                  color: "#0369a1"
-                }}>
-                  Live Syncing
-                </span>
-              </div>
-              <TableSkeleton rows={8} columns={7} />
+            <div style={{ padding: "16px" }}>
+              <ModuleLoadingScreen
+                title={`Loading ${activeFilter === "All" ? "Patient Bills" : `${activeFilter} Bills`} & Estimates...`}
+                subtitle="Retrieving live billing items, invoices, co-pays, tariff calculations & settlements..."
+                badgeText="Live Billing Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={9}
+              />
             </div>
           )}
 
@@ -1262,48 +1266,15 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
           {/* Loading Indicator */}
           {loadingPreauth && (
-            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "14px",
-                padding: "12px 18px",
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: "8px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "50%",
-                    border: "2.5px solid #cbd5e1",
-                    borderTopColor: "#0284c7",
-                    animation: "spin 0.8s linear infinite"
-                  }} />
-                  <div>
-                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
-                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} insurance preauthorisations...
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>
-                      Fetching TPA pre-auth requests, coverage approvals & SLA timers
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: "12px",
-                  background: "#e0f2fe",
-                  color: "#0369a1"
-                }}>
-                  Live Syncing
-                </span>
-              </div>
-              <TableSkeleton rows={8} columns={10} />
+            <div style={{ padding: "16px" }}>
+              <ModuleLoadingScreen
+                title="Loading Insurance Preauthorisations..."
+                subtitle="Retrieving TPA pre-auth requests, coverage approvals, completeness checks & SLA timers..."
+                badgeText="Live Insurance Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={10}
+              />
             </div>
           )}
 
@@ -1462,48 +1433,15 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       {activeTab === "claims" && (
         <>
           {loadingClaims && (
-            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "14px",
-                padding: "12px 18px",
-                background: "#ffffff",
-                border: "1px solid #e2e8f0",
-                borderRadius: "8px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <div style={{
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "50%",
-                    border: "2.5px solid #cbd5e1",
-                    borderTopColor: "#0284c7",
-                    animation: "spin 0.8s linear infinite"
-                  }} />
-                  <div>
-                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
-                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} insurance claims...
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#64748b" }}>
-                      Fetching TPA claim packets, query tracker & settlement status
-                    </div>
-                  </div>
-                </div>
-                <span style={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: "12px",
-                  background: "#e0f2fe",
-                  color: "#0369a1"
-                }}>
-                  Live Syncing
-                </span>
-              </div>
-              <TableSkeleton rows={8} columns={claimsViewMode === "kanban" ? 5 : 8} />
+            <div style={{ padding: "16px" }}>
+              <ModuleLoadingScreen
+                title="Loading Insurance Claims & Adjudication..."
+                subtitle="Retrieving TPA claim packets, query tracker, final approvals & settlement status..."
+                badgeText="Live Claims Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={claimsViewMode === "kanban" ? 5 : 10}
+              />
             </div>
           )}
 
@@ -1781,48 +1719,15 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
 
             {loadingDashboard && (
-              <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
-                <div style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: "14px",
-                  padding: "12px 18px",
-                  background: "#ffffff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: "8px",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <div style={{
-                      width: "22px",
-                      height: "22px",
-                      borderRadius: "50%",
-                      border: "2.5px solid #cbd5e1",
-                      borderTopColor: "#0284c7",
-                      animation: "spin 0.8s linear infinite"
-                    }} />
-                    <div>
-                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
-                        Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} payment transactions...
-                      </div>
-                      <div style={{ fontSize: "11px", color: "#64748b" }}>
-                        Fetching live PostgreSQL records for Revenue Cycle
-                      </div>
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    padding: "3px 10px",
-                    borderRadius: "12px",
-                    background: "#e0f2fe",
-                    color: "#0369a1"
-                  }}>
-                    Live Syncing
-                  </span>
-                </div>
-                <TableSkeleton rows={payPageSize || 8} columns={7} />
+              <div style={{ padding: "16px" }}>
+                <ModuleLoadingScreen
+                  title="Loading Finance Dashboard & Recent Collections..."
+                  subtitle="Retrieving real-time payment transactions, gateway settlements, and revenue cycle metrics..."
+                  badgeText="Live Revenue Sync"
+                  showKpis={false}
+                  tableRows={payPageSize || 8}
+                  tableColumns={7}
+                />
               </div>
             )}
 
@@ -2163,10 +2068,23 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             <span>Applies to</span>
             <span>Effective</span>
             <span>Inclusive</span>
-            <span>Status</span>
           </div>
 
-          {(taxData?.tax_slabs || [
+          {/* Loading Indicator */}
+          {loadingTax && (
+            <div style={{ padding: "16px" }}>
+              <ModuleLoadingScreen
+                title="Loading GST & Tax Configuration..."
+                subtitle="Retrieving central tax master, SAC/HSN codes & healthcare statutory exemptions..."
+                badgeText="Live Tax Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={11}
+              />
+            </div>
+          )}
+
+          {!loadingTax && (taxData?.tax_slabs || [
             { category: "Clinical Consultation", hsn: "999312", gst_rate: 0.0, desc: "Exempted under Healthcare Services Notification", status: "Active" },
             { category: "Inpatient Room Charges (< ₹5,000/day)", hsn: "999311", gst_rate: 0.0, desc: "Standard general ward beds exempted", status: "Active" },
             { category: "Inpatient Luxury Room (> ₹5,000/day)", hsn: "999311", gst_rate: 5.0, desc: "GST applicable on non-ICU room rent exceeding ₹5,000", status: "Active" },

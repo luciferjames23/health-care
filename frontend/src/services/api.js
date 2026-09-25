@@ -1225,6 +1225,20 @@ export const apiService = {
     return data;
   },
 
+  // =========================================================================
+  // ADMINISTRATION DOMAIN (PostgreSQL Live Database)
+  // =========================================================================
+  async getAdminData(endpoint, params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.search) q.append('search', params.search);
+    if (params.limit !== undefined && params.limit !== null) q.append('limit', params.limit);
+    if (params.offset !== undefined && params.offset !== null) q.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/admin/${encodeURIComponent(endpoint)}?${q.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
   async acknowledgeSbarHandover(handoverId) {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/clinical-ops/sbar/${handoverId}/acknowledge`, {
       method: 'PATCH'

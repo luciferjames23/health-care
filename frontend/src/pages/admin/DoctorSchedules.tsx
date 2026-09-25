@@ -4,6 +4,7 @@ import {
   fetchDoctors, fetchSchedules, createSchedule, deleteSchedule, format12HourTime,
   type Doctor, type DoctorSchedule
 } from '../../services/dashboardApi';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
@@ -219,7 +220,16 @@ const DoctorSchedules: React.FC = () => {
 
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>Loading schedules...</div>
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Consultant Schedules & OPD Timings..."
+                subtitle="Retrieving physician slot allocations, shift timings, clinic room numbers, and OPD availability..."
+                badgeText="Live OPD Sync"
+                showKpis={false}
+                tableRows={6}
+                tableColumns={8}
+              />
+            </div>
           ) : filteredSchedules.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)' }}>No schedule slots configured yet.</div>
           ) : (

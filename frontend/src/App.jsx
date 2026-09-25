@@ -592,7 +592,19 @@ export default function App() {
           {activePage === 'config' && <ConfigurationView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'reports' && <ReportsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {['integration-arch', 'users', 'roles', 'permissions', 'identity', 'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations'].includes(activePage) && (
-            <AdminSystemView module={activePage === 'integration-arch' ? 'Integration Architecture' : activePage === 'users' ? 'User Accounts & MFA Security' : activePage === 'permissions' ? 'RBAC & ABAC Policy Permission Matrix' : activePage === 'identity' ? 'Patient Identity Resolution & Consent Master' : activePage === 'departments' ? 'Clinical Departments & Specialty Services' : activePage === 'facilities' ? 'Facilities & Housekeeping Bed Management' : activePage === 'integrations' ? 'Interface Connectors (HL7 / FHIR / ASTM)' : 'Enterprise Master Data'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
+            <AdminSystemView module={
+              activePage === 'integration-arch' ? 'Integration Architecture' :
+              activePage === 'users' ? 'Users' :
+              activePage === 'roles' ? 'Roles' :
+              activePage === 'permissions' ? 'Permissions' :
+              activePage === 'identity' ? 'Identity' :
+              activePage === 'departments' ? 'Departments' :
+              activePage === 'services' ? 'Services' :
+              activePage === 'insurers' ? 'Insurers' :
+              activePage === 'payment-methods' ? 'Payment Methods' :
+              activePage === 'facilities' ? 'Facilities' :
+              activePage === 'integrations' ? 'Integrations' : 'Integration Architecture'
+            } onOpenDrawer={setDrawer} onOpenModal={setModal} />
           )}
 
           {/* Clinical Data Foundation Views */}

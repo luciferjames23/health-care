@@ -11,7 +11,7 @@ import {
   Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { TableSkeleton } from '../../components/ModuleLoadingScreen';
+import ModuleLoadingScreen, { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -444,38 +444,54 @@ const PreAdmissionPage: React.FC = () => {
 
       {/* KPI Cards Strip */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Pre-Admissions</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
-            {loading ? (
-              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.1 200)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
-            ) : totalCount}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending / Contacted</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)', marginTop: '2px' }}>
-            {loading ? (
-              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.13 70)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
-            ) : pendingCount}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Confirmed & Ready</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '2px' }}>
-            {loading ? (
-              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.4 0.12 150)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
-            ) : confirmedCount}
-          </div>
-        </div>
-        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Escalated (Needs Staff)</div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
-            {loading ? (
-              <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid #e3e6e8', borderTop: '2px solid oklch(0.5 0.18 25)', borderRadius: '50%', animation: 'kpi-spin 0.7s linear infinite', verticalAlign: 'middle' }} />
-            ) : escalatedCount}
-          </div>
-        </div>
+        {loading ? (
+          Array.from({ length: 4 }).map((_, idx) => (
+            <div
+              key={idx}
+              style={{
+                background: '#fff',
+                border: '1px solid #e3e6e8',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                minWidth: '130px',
+                flex: '1 1 130px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}
+            >
+              <div className="hx-shimmer" style={{ width: '65%', height: '11px', borderRadius: '3px' }} />
+              <div className="hx-shimmer" style={{ width: '45%', height: '22px', borderRadius: '4px', marginTop: '2px' }} />
+            </div>
+          ))
+        ) : (
+          <>
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+              <div style={{ color: '#8a9096', fontSize: '11px' }}>Total Pre-Admissions</div>
+              <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
+                {totalCount}
+              </div>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+              <div style={{ color: '#8a9096', fontSize: '11px' }}>Pending / Contacted</div>
+              <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.13 70)', marginTop: '2px' }}>
+                {pendingCount}
+              </div>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+              <div style={{ color: '#8a9096', fontSize: '11px' }}>Confirmed & Ready</div>
+              <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.4 0.12 150)', marginTop: '2px' }}>
+                {confirmedCount}
+              </div>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
+              <div style={{ color: '#8a9096', fontSize: '11px' }}>Escalated (Needs Staff)</div>
+              <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)', marginTop: '2px' }}>
+                {escalatedCount}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Filter and Search Bar Card */}
@@ -546,8 +562,15 @@ const PreAdmissionPage: React.FC = () => {
       {/* Pre-Admission Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading ? (
-          <div style={{ padding: '12px' }}>
-            <TableSkeleton rows={6} columns={8} />
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Pre-Admission Desk..."
+              subtitle="Retrieving planned inpatient admissions, bed reservations, and insurance pre-authorizations..."
+              badgeText="Live Pre-Admission Sync"
+              showKpis={false}
+              tableRows={7}
+              tableColumns={8}
+            />
           </div>
         ) : preAdmissions.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>

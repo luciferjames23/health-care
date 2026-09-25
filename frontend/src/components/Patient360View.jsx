@@ -93,7 +93,7 @@ export default function Patient360View({
     const pcode = patient?.mrn || patient?.uhid || patient?.patient_code;
     const targetName = (patient?.name || patient?.patient || patient?.patient_name || '').trim().toLowerCase();
 
-    const withTimeout = (p, ms = 6000) =>
+    const withTimeout = (p, ms = 10000) =>
       Promise.race([
         p,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms))
@@ -114,7 +114,7 @@ export default function Patient360View({
           if (Object.keys(fetchParams).length > 0) {
             fetchParams.limit = 1;
             try {
-              const res = await withTimeout(apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true }), 4000);
+              const res = await withTimeout(apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true }), 10000);
               if (res?.data && res.data.length > 0) {
                 const fetched = res.data[0];
                 const fetchedAid = cleanNum(fetched.admission_id);
@@ -127,7 +127,7 @@ export default function Patient360View({
                 }
               }
             } catch (e) {
-              console.warn("Admission fetch skipped or timed out:", e);
+              console.debug("Admission fetch fallback:", e?.message);
             }
           }
         }

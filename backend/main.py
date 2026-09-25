@@ -80,6 +80,12 @@ try:
 except Exception as e:
     print(f"Failed to load pharmacy supply router: {e}")
 
+try:
+    from routers.admin_system import router as admin_system_router
+    routers_to_mount.append(admin_system_router)
+except Exception as e:
+    print(f"Failed to load admin system router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

@@ -5,6 +5,7 @@ import {
   isValidEmail, isValidPhone,
   type Doctor, type Department, type NewDoctorPayload
 } from '../../services/dashboardApi';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const STATUS_CLASS: Record<string, string> = {
   ACTIVE: 'active',
@@ -370,7 +371,16 @@ const DoctorManagement: React.FC = () => {
 
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading doctors...</div>
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Doctor Directory..."
+                subtitle="Retrieving physician profiles, department affiliations, credentials, and schedule availability..."
+                badgeText="Live Clinician Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={9}
+              />
+            </div>
           ) : doctors.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>No doctors found.</div>
           ) : (

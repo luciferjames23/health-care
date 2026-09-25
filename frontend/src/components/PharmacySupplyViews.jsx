@@ -23,6 +23,28 @@ const pillStyle = (bg, color) => ({
   whiteSpace: 'nowrap'
 });
 
+export function PharmacyStatsSkeleton({ count = 4 }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+      {Array.from({ length: count }).map((_, idx) => (
+        <div
+          key={idx}
+          style={{
+            ...cardStyle,
+            padding: '12px 16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}
+        >
+          <div className="hx-shimmer" style={{ width: '60%', height: '11px', borderRadius: '3px' }} />
+          <div className="hx-shimmer" style={{ width: '40%', height: '22px', borderRadius: '4px' }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
@@ -201,32 +223,36 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Prescriptions</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalPrescriptions.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={4} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Prescriptions</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalPrescriptions.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Active · Awaiting Dispense</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {activeCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Dispensed Complete</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              {dispensedCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Prescribed Line Items</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#6366f1', marginTop: '2px' }}>
+              {totalItems.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Active · Awaiting Dispense</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {activeCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Dispensed Complete</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            {dispensedCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Prescribed Line Items</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#6366f1', marginTop: '2px' }}>
-            {totalItems.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -260,8 +286,17 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Inpatient Prescriptions..."
+              subtitle="Retrieving active patient prescriptions, drug orders, and clinical dosage schedules..."
+              badgeText="Live Pharmacy Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No prescription records found in database.
@@ -449,32 +484,36 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Approved Formulary Drugs</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalDrugs.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={4} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Approved Formulary Drugs</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalDrugs.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>High-Alert Medications</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
+              {highAlertCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Controlled (Schedule X)</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
+              {controlledCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Dosage Form Categories</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#6366f1', marginTop: '2px' }}>
+              {formsCount.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>High-Alert Medications</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
-            {highAlertCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Controlled (Schedule X)</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
-            {controlledCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Dosage Form Categories</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#6366f1', marginTop: '2px' }}>
-            {formsCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -508,8 +547,17 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Drug Master Directory..."
+              subtitle="Retrieving pharmaceutical formulary, dosage forms, strength catalog, and pricing..."
+              badgeText="Live Formularies Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No drug master entries found in database.
@@ -674,32 +722,36 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Pharmacy Transactions</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalSales.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={4} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Pharmacy Transactions</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalSales.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Revenue Realized</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Dispensed Complete</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {dispensedToday.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Pending Ward Delivery</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
+              {pendingCount.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Revenue Realized</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            ₹{totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Dispensed Complete</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {dispensedToday.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Pending Ward Delivery</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
-            {pendingCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -733,8 +785,17 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Pharmacy Dispense Queue..."
+              subtitle="Retrieving real-time medication dispense tickets, batch allocations, and verified orders..."
+              badgeText="Live Dispense Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No pharmacy sales records found in database.
@@ -906,38 +967,42 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Stock Batches</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalBatches.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={5} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Stock Batches</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalBatches.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Sufficient Stock Batches</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              {inStockCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Low Stock Warnings</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
+              {lowStockCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Expiring Soon (Within 90d)</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
+              {expiringCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Stock Valuation</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              ₹{totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Sufficient Stock Batches</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            {inStockCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Low Stock Warnings</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
-            {lowStockCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Expiring Soon (Within 90d)</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626', marginTop: '2px' }}>
-            {expiringCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Stock Valuation</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            ₹{totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -971,8 +1036,17 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Pharmacy Stock & Batch Inventory..."
+              subtitle="Retrieving live stock levels, batch numbers, expiry dates, and reorder thresholds..."
+              badgeText="Live Stock Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No inventory batches found in database.
@@ -1142,30 +1216,43 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Active Hospital Depots</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalDepots.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={3} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Active Hospital Depots</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalDepots.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total SKUs Distributed</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {totalSkus.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Consolidated Depot Valuation</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              ₹{totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total SKUs Distributed</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {totalSkus.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Consolidated Depot Valuation</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            ₹{totalValuation.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Stores Cards Grid */}
-      {loading ? (
-        <div style={{ padding: '24px' }}><TableSkeleton rows={6} /></div>
+      {loading && data.length === 0 ? (
+        <div style={{ padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <ModuleLoadingScreen
+            title="Loading Hospital Department Stores..."
+            subtitle="Retrieving sub-store inventory, department issue requests, and stock transfers..."
+            badgeText="Live Stores Sync"
+            showKpis={false}
+            tableRows={6}
+            tableColumns={4}
+          />
+        </div>
       ) : data.length === 0 ? (
         <div style={{ ...cardStyle, padding: '40px', textAlign: 'center', color: '#64748b' }}>
           No hospital stores registered in database.
@@ -1339,32 +1426,36 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Purchase Orders</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalPos.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={4} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Purchase Orders</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalPos.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Procurement Commitment</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              ₹{totalPoValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>3-Way Matched & Approved</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {matchedPos.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Pending Deliveries</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
+              {pendingDeliveries.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Procurement Commitment</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            ₹{totalPoValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>3-Way Matched & Approved</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {matchedPos.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Pending Deliveries</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
-            {pendingDeliveries.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1398,8 +1489,17 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Purchase Orders & Procurement..."
+              subtitle="Retrieving purchase requisitions, PO status, delivery timelines, and vendor approvals..."
+              badgeText="Live Procurement Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={7}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No purchase order records found in database.
@@ -1565,26 +1665,30 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Certified Suppliers</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalVendors.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={3} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Certified Suppliers</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalVendors.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Active Institutional Contracts</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              {activeContracts.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Average Supplier Compliance</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {avgCompliance}%
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Active Institutional Contracts</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            {activeContracts.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Average Supplier Compliance</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {avgCompliance}%
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1618,8 +1722,17 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Supplier & Vendor Master..."
+              subtitle="Retrieving verified pharmaceutical suppliers, GSTIN, compliance, and contact registry..."
+              badgeText="Live Vendor Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No vendors found in database.
@@ -1808,32 +1921,36 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Sterilization Cycles</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
-            {totalCycles.toLocaleString('en-IN')}
+      {loading && data.length === 0 ? (
+        <PharmacyStatsSkeleton count={4} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Total Sterilization Cycles</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f766e', marginTop: '2px' }}>
+              {totalCycles.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Released to OT / Wards</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
+              {releasedCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Passed · Awaiting Release</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
+              {passedCount.toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ ...cardStyle, padding: '12px 16px' }}>
+            <div style={{ fontSize: '11px', color: '#8a9096' }}>Incubating Biological Indicators</div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
+              {incubatingCount.toLocaleString('en-IN')}
+            </div>
           </div>
         </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Released to OT / Wards</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-            {releasedCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Passed · Awaiting Release</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#2563eb', marginTop: '2px' }}>
-            {passedCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div style={{ ...cardStyle, padding: '12px 16px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Incubating Biological Indicators</div>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: '#d97706', marginTop: '2px' }}>
-            {incubatingCount.toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1867,8 +1984,17 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
 
       {/* Main Table */}
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: '24px' }}><TableSkeleton rows={8} /></div>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading CSSD & Surgical Sterilization..."
+              subtitle="Retrieving autoclave batch logs, sterilization cycles, OT set tracking, and biological indicators..."
+              badgeText="Live CSSD Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No CSSD sterilization cycle records found in database.

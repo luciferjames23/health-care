@@ -1072,7 +1072,8 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
           title="Consultant Schedules"
           subtitle="Synchronizing 160+ physician slot templates, OPD clinic hours, and on-call assignments..."
           badgeText="Live Sync"
-          showKpis={false}
+          showKpis={true}
+          statCount={5}
           tableRows={8}
           tableColumns={9}
         />
@@ -1669,7 +1670,8 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
           title="Nursing Workspace"
           subtitle="Retrieving real-time ward census, vitals, EWS deterioration alerts, and medication schedules..."
           badgeText="Live Sync"
-          showKpis={false}
+          showKpis={true}
+          statCount={7}
           tableRows={8}
           tableColumns={14}
         />
@@ -2351,7 +2353,8 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
           title="Medication Administration Record (eMAR)"
           subtitle="Loading live electronic MAR, scheduled medication doses, and high-alert drug validations..."
           badgeText="Live Sync"
-          showKpis={false}
+          showKpis={true}
+          statCount={4}
           tableRows={8}
           tableColumns={9}
         />
@@ -4178,22 +4181,25 @@ const BILLING_RECORDS = [
 export function BillingView({ onOpenDrawer, onOpenModal }) {
   const handleBillClick = (row) => {
     if (!onOpenDrawer) return;
+    const tot = Number(row.total) || 0;
+    const tpa = Number(row.tpa) || 0;
+    const ptShare = Number(row.patientShare) || 0;
     onOpenDrawer({
-      title: `${row.inv} · ${row.patient}`,
-      sub: `Gross: ₹${row.total.toLocaleString()} · Insurance: ₹${row.tpa.toLocaleString()} · Due: ₹${row.patientShare.toLocaleString()}`,
+      title: `${row.inv || 'INV'} · ${row.patient || 'Patient'}`,
+      sub: `Gross: ₹${tot.toLocaleString()} · Insurance: ₹${tpa.toLocaleString()} · Due: ₹${ptShare.toLocaleString()}`,
       badges: [
-        { t: row.status, bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
+        { t: row.status || 'Active', bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
       ],
       facts: [
         { k: 'Invoice Number', v: row.inv, b: true },
         { k: 'Patient Name', v: row.patient, b: true },
         { k: 'UHID / MRN', v: row.uhid },
         { k: 'Admission Encounter', v: row.adm },
-        { k: 'Total Gross Amount', v: `₹${row.total.toLocaleString()}` },
-        { k: 'Insurance / TPA Share', v: `₹${row.tpa.toLocaleString()}` },
-        { k: 'Patient Co-Pay Balance', v: `₹${row.patientShare.toLocaleString()}` },
+        { k: 'Total Gross Amount', v: `₹${tot.toLocaleString()}` },
+        { k: 'Insurance / TPA Share', v: `₹${tpa.toLocaleString()}` },
+        { k: 'Patient Co-Pay Balance', v: `₹${ptShare.toLocaleString()}` },
         { k: 'Pharmacy Clearance', v: row.pharmacyClear ? 'Cleared' : 'Pending' },
-        { k: 'Financial Status', v: row.status }
+        { k: 'Financial Status', v: row.status || 'Active' }
       ],
       actions: [
         { label: 'Issue Discharge Gate Pass', primary: true, on: () => alert(`Gate pass issued for ${row.patient}`) },
@@ -4241,9 +4247,9 @@ export function BillingView({ onOpenDrawer, onOpenModal }) {
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
                   <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
                 </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{row.total.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#059669' }}>₹{row.tpa.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>₹{row.patientShare.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{(Number(row.total) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#059669' }}>₹{(Number(row.tpa) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>₹{(Number(row.patientShare) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   {row.pharmacyClear ? <span style={{ color: '#059669', fontWeight: 700 }}>✓ Cleared</span> : <span style={{ color: '#d97706', fontWeight: 600 }}>⏳ Due</span>}
                 </td>
@@ -4293,9 +4299,9 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
         { k: 'Patient Name', v: row.patient, b: true },
         { k: 'TPA / Insurer', v: row.tpa },
         { k: 'Policy Number', v: row.policy },
-        { k: 'Sum Insured', v: `₹${row.sumInsured.toLocaleString()}` },
-        { k: 'Initial Auth', v: `₹${row.initialAuth.toLocaleString()}` },
-        { k: 'Final Claimed', v: `₹${row.finalClaimed.toLocaleString()}` },
+        { k: 'Sum Insured', v: `₹${(Number(row.sumInsured) || 0).toLocaleString()}` },
+        { k: 'Initial Auth', v: `₹${(Number(row.initialAuth) || 0).toLocaleString()}` },
+        { k: 'Final Claimed', v: `₹${(Number(row.finalClaimed) || 0).toLocaleString()}` },
         { k: 'Turnaround Time', v: row.turnaround },
         { k: 'Pre-auth Status', v: row.status }
       ],
@@ -4349,7 +4355,7 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
                 <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 600 }}>{row.tpa}</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{row.policy}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>₹{row.finalClaimed.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700 }}>₹{(Number(row.finalClaimed) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
                     row.status.includes('Approved') ? '#dcfce7' : row.status.includes('Query') ? '#fee2e2' : '#fef3c7',
@@ -5491,9 +5497,9 @@ export function ClaimsView({ onOpenDrawer, onOpenModal }) {
         { k: 'Insurance Company', v: row.insurer },
         { k: 'TPA Network', v: row.tpa },
         { k: 'Pre-auth Approval No', v: row.auth },
-        { k: 'Gross Claimed', v: `₹${row.requested.toLocaleString()}` },
-        { k: 'TPA Sanctioned', v: `₹${row.approved.toLocaleString()}` },
-        { k: 'Disallowed / Co-Pay Due', v: `₹${row.liability.toLocaleString()}` },
+        { k: 'Gross Claimed', v: `₹${(Number(row.requested) || 0).toLocaleString()}` },
+        { k: 'TPA Sanctioned', v: `₹${(Number(row.approved) || 0).toLocaleString()}` },
+        { k: 'Disallowed / Co-Pay Due', v: `₹${(Number(row.liability) || 0).toLocaleString()}` },
         { k: 'Current Status', v: row.status }
       ],
       actions: [
@@ -5576,9 +5582,9 @@ export function ClaimsView({ onOpenDrawer, onOpenModal }) {
                   <div style={{ fontSize: '11px', color: '#64748b' }}>{row.tpa}</div>
                 </td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.auth}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{row.requested.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#059669', fontWeight: 600 }}>₹{row.approved.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#dc2626', fontWeight: 700 }}>₹{row.liability.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{(Number(row.requested) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#059669', fontWeight: 600 }}>₹{(Number(row.approved) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#dc2626', fontWeight: 700 }}>₹{(Number(row.liability) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
                     row.status === 'Settled' ? '#dcfce7' : row.status === 'Submitted' ? '#e0f2fe' : '#fef3c7',
@@ -5616,8 +5622,9 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
 
   const handleTxnClick = (row) => {
     if (!onOpenDrawer) return;
+    const amt = Number(row.amount) || 0;
     onOpenDrawer({
-      title: `${row.id} · ₹${row.amount.toLocaleString()}`,
+      title: `${row.id} · ₹${amt.toLocaleString()}`,
       sub: `Payer: ${row.patient} · Tender: ${row.mode}`,
       badges: [{ t: row.status, bg: '#dcfce7', fg: '#15803d' }],
       facts: [
@@ -5626,7 +5633,7 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
         { k: 'Linked Bill / Batch', v: row.bill },
         { k: 'Tender Mode', v: row.mode },
         { k: 'Transaction Time', v: row.time },
-        { k: 'Collected Amount', v: `₹${row.amount.toLocaleString()}` },
+        { k: 'Collected Amount', v: `₹${amt.toLocaleString()}` },
         { k: 'Settlement Status', v: row.status }
       ],
       actions: [
@@ -5703,7 +5710,7 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.bill}</td>
                 <td style={{ padding: '10px 14px' }}>{row.mode}</td>
                 <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.time}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#059669' }}>₹{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#059669' }}>₹{(Number(row.amount) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle('#dcfce7', '#15803d')}>
                     ✓ {row.status}
@@ -6070,14 +6077,53 @@ export const DUMMY_HR_QUERIES = [
 ];
 
 export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      const res = await apiService.getAdminData('hr-dashboard', {
+        search,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize
+      });
+      if (res && res.data) {
+        setData(res.data);
+        setTotalCount(res.total ?? res.data.length);
+      } else {
+        setData([]);
+        setTotalCount(0);
+      }
+    } catch (err) {
+      console.error("Failed to load HR dashboard data:", err);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [search, currentPage, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const startRow = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const endRow = Math.min(currentPage * pageSize, totalCount);
+
   const handleRowClick = (q) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
       title: `HR Query · ${q.employee}`,
       sub: `Submitted at ${q.time} · Confidence ${q.conf}`,
-      badges: [{ t: q.conf.startsWith('4') ? 'Escalated' : 'AI Resolved', bg: q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', fg: q.conf.startsWith('4') ? '#b91c1c' : '#15803d' }],
+      badges: [{ t: q.conf && q.conf.startsWith('4') ? 'Escalated' : 'AI Resolved', bg: q.conf && q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', fg: q.conf && q.conf.startsWith('4') ? '#b91c1c' : '#15803d' }],
       facts: [
         { k: 'Employee', v: q.employee },
+        { k: 'Department', v: q.department },
         { k: 'Natural Language Query', v: q.question },
         { k: 'Knowledge Source Citation', v: q.source },
         { k: 'Agent Outcome', v: q.outcome }
@@ -6094,47 +6140,261 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
       <Header
         title="HR & Employee Service"
         subtitle="Employee Service Agent answers from governed HR knowledge (Leave Policy v5.0, Payroll FAQ). Low-confidence queries route to HR leads."
-        count={DUMMY_HR_QUERIES.length}
+        count={totalCount}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Ask Employee Service Copilot', text: 'Enter staff HR question (leave, benefits, allowances):' })}
         newLabel="+ Submit HR Query"
         onExport={() => alert('Exported HR query logs')}
       />
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
+        </div>
+        <input
+          type="text"
+          placeholder="Search in HR & Employee Service..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+          style={{
+            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+            width: '280px', outline: 'none'
+          }}
+        />
+      </div>
+
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-              <th style={{ padding: '10px 14px' }}>Employee</th>
-              <th style={{ padding: '10px 14px' }}>Question</th>
-              <th style={{ padding: '10px 14px' }}>Source Citation</th>
-              <th style={{ padding: '10px 14px' }}>Confidence</th>
-              <th style={{ padding: '10px 14px' }}>Outcome</th>
-            </tr>
-          </thead>
-          <tbody>
-            {DUMMY_HR_QUERIES.map((q, i) => (
-              <tr
-                key={i}
-                onClick={() => handleRowClick(q)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
-                <td style={{ padding: '10px 14px' }}>{q.question}</td>
-                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
-                    {q.outcome}
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading HR & Employee Service Copilot..."
+              subtitle="Retrieving real-time staff queries, HR knowledge policies, and AI confidence evaluations..."
+              badgeText="Live PostgreSQL Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={7}
+            />
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            No HR query records found.
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Time</th>
+                  <th style={{ padding: '10px 14px' }}>Employee</th>
+                  <th style={{ padding: '10px 14px' }}>Department</th>
+                  <th style={{ padding: '10px 14px' }}>Question</th>
+                  <th style={{ padding: '10px 14px' }}>Source Citation</th>
+                  <th style={{ padding: '10px 14px' }}>Confidence</th>
+                  <th style={{ padding: '10px 14px' }}>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((q, i) => (
+                  <tr
+                    key={q.id || i}
+                    onClick={() => handleRowClick(q)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
+                    <td style={{ padding: '10px 14px' }}>{q.department}</td>
+                    <td style={{ padding: '10px 14px' }}>{q.question}</td>
+                    <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(q.conf && q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf && q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
+                        {q.outcome}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination Footer */}
+            {totalCount > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: '#fafbfc',
+                borderTop: '1px solid #eef0f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span>
+                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
                   </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                    {[10, 20, 50, 100].map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                        style={{
+                          height: '24px',
+                          padding: '0 8px',
+                          borderRadius: '4px',
+                          border: '1px solid',
+                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                          color: pageSize === sz ? '#0369a1' : '#64748b',
+                          fontWeight: pageSize === sz ? 700 : 500,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    « First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                    let pageNum = idx + 1;
+                    if (totalPages > 5) {
+                      if (currentPage <= 3) {
+                        pageNum = idx + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + idx;
+                      } else {
+                        pageNum = currentPage - 2 + idx;
+                      }
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        style={{
+                          height: '28px',
+                          width: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
+                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
+                          color: currentPage === pageNum ? '#ffffff' : '#475569',
+                          fontWeight: currentPage === pageNum ? 700 : 500,
+                          fontSize: '11.5px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -6335,51 +6595,662 @@ export function ReportsView({ onOpenDrawer, onOpenModal }) {
 // ----------------------------------------------------
 
 export function AdminSystemView({ module = 'Integration Architecture', onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Map module name to backend admin endpoint
+  const endpointMap = {
+    'Integration Architecture': 'integration-arch',
+    'Interface Connectors (HL7 / FHIR / ASTM)': 'integration-arch',
+    'Integrations': 'integration-arch',
+    'User Accounts & MFA Security': 'users',
+    'Users': 'users',
+    'Roles': 'roles',
+    'RBAC & ABAC Policy Permission Matrix': 'permissions',
+    'Permissions': 'permissions',
+    'Clinical Departments & Specialty Services': 'departments',
+    'Departments': 'departments',
+    'Services': 'services',
+    'Insurers': 'insurers',
+    'Payment Methods': 'payment-methods',
+    'Facilities & Housekeeping Bed Management': 'facilities',
+    'Facilities': 'facilities',
+    'Patient Identity Resolution & Consent Master': 'identity',
+    'Identity': 'identity',
+    // PEOPLE DOMAINS
+    'Employee Master Directory': 'employees',
+    'Employees': 'employees',
+    'Biometric Attendance & Overtime': 'attendance',
+    'Attendance': 'attendance',
+    'Staff Credentialing & Medical Licensing': 'credentials',
+    'Staff Credentials': 'credentials',
+    'Predictive Nurse & Staff Roster': 'staff',
+    'Staff Roster': 'staff',
+    'Staff Dining & Canteen Operations': 'canteen',
+    'Canteen': 'canteen',
+    'HR & Employee Service': 'hr-dashboard',
+    'HR': 'hr-dashboard'
+  };
+
+  const endpoint = endpointMap[module] || 'integration-arch';
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await apiService.getAdminData(endpoint, {
+        search,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize
+      });
+      if (res && res.data) {
+        setData(res.data);
+        setTotalCount(res.total ?? res.data.length);
+      } else {
+        setData([]);
+        setTotalCount(0);
+      }
+    } catch (err) {
+      console.error(`Failed to fetch live admin data for ${module}:`, err);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [module, search, currentPage, pageSize]);
+
+  // Reset to page 1 on module change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [module]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const startRow = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const endRow = Math.min(currentPage * pageSize, totalCount);
+
+  const handleRowClick = (item) => {
+    if (!onOpenDrawer) return;
+    const title = item.component || item.name || item.staff_name || item.role_name || item.department_name || item.service_name || item.provider_name || item.method_name || item.ward_name || item.token_id || module;
+    const sub = item.protocol || item.email || item.designation || item.description || item.code || item.shift || item.type || item.location || 'Live PostgreSQL Connected Configuration';
+    
+    const facts = Object.entries(item)
+      .filter(([k]) => !['id', 'password_hash'].includes(k))
+      .slice(0, 8)
+      .map(([k, v]) => ({
+        k: k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        v: typeof v === 'boolean' ? (v ? 'Enabled' : 'Disabled') : String(v || '—'),
+        b: ['name', 'staff_name', 'component', 'code', 'uhid', 'staff_code', 'token_id'].includes(k)
+      }));
+
+    onOpenDrawer({
+      title,
+      sub,
+      badges: [{ t: item.status || item.health || 'Operational', bg: '#dcfce7', fg: '#15803d' }],
+      facts,
+      actions: [
+        {
+          label: 'Edit Configuration',
+          primary: true,
+          on: () => onOpenModal && onOpenModal({ kind: 'reason', title: `Edit ${title}`, text: `Update configuration parameters for ${title}:` })
+        }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title={module}
-        subtitle="Governed enterprise infrastructure · connected to clinical data foundation"
-        count={8}
+        subtitle="Governed enterprise infrastructure · connected directly to live PostgreSQL database foundation"
+        count={totalCount}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: `Configure ${module}`, text: `Modify settings or credentials for ${module}:` })}
         newLabel="+ Add Configuration"
-        onExport={() => alert(`Exported ${module} configuration`)}
+        onExport={() => alert(`Exported ${module} live configuration from database`)}
       />
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
+        </div>
+        <input
+          type="text"
+          placeholder={`Search in ${module}...`}
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+          style={{
+            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+            width: '280px', outline: 'none'
+          }}
+        />
+      </div>
+
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Component</th>
-              <th style={{ padding: '10px 14px' }}>Protocol</th>
-              <th style={{ padding: '10px 14px' }}>Direction</th>
-              <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
-              <th style={{ padding: '10px 14px' }}>Fallback Mode</th>
-              <th style={{ padding: '10px 14px' }}>Health</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              ['HMS (Hospital Management System)', 'REST / HL7 v2', 'Bidirectional', 'Real-time (WebSocket)', 'Local SQLite queue', 'Healthy'],
-              ['EMR Clinical Progress Notes', 'FHIR R4 / JSON', 'Read · Draft write', '1 min pull', 'Clinician direct input', 'Healthy'],
-              ['LIS (Laboratory Information System)', 'ASTM 1394 / TCP', 'Read-only', 'Real-time analyzer push', 'Manual entry fallback', 'Healthy'],
-              ['RIS / PACS Imaging & Studies', 'DICOM / DIMSE', 'Read-only', 'On study complete', 'Radiology workstation', 'Healthy'],
-              ['Insurance & TPA Clearinghouse', 'National Health Claims (NHCX)', 'Bidirectional', '3 min polling', 'Web portal manual', 'Healthy'],
-              ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Direct transaction', 'Paper MAR contingency', 'Healthy'],
-              ['WhatsApp Patient Notification Gateway', 'Meta Cloud API', 'Outbound / Inbound', 'Instant', 'SMS fallback', 'Healthy'],
-              ['Clinical Data Foundation Views', 'Clinical SQL Service', 'Registry Ingestion', '5 min interval sync', 'Read replica cache', 'Healthy'],
-            ].map(([c, p, d, f, fb, h], i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{c}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p}</td>
-                <td style={{ padding: '10px 14px' }}>{d}</td>
-                <td style={{ padding: '10px 14px' }}>{f}</td>
-                <td style={{ padding: '10px 14px', color: '#52585e' }}>{fb}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {h}</span></td>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title={`Loading ${module}...`}
+              subtitle={`Retrieving real-time ${module.toLowerCase()} records from PostgreSQL database...`}
+              badgeText="Live PostgreSQL Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            No records found for {module}.
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                {endpoint === 'integration-arch' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Component</th>
+                    <th style={{ padding: '10px 14px' }}>Protocol</th>
+                    <th style={{ padding: '10px 14px' }}>Direction</th>
+                    <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
+                    <th style={{ padding: '10px 14px' }}>Live Records / Metrics</th>
+                    <th style={{ padding: '10px 14px' }}>Health</th>
+                  </>
+                ) : endpoint === 'users' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>User Name</th>
+                    <th style={{ padding: '10px 14px' }}>Role</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Email</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'employees' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                    <th style={{ padding: '10px 14px' }}>Role / Type</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Email / Contact</th>
+                    <th style={{ padding: '10px 14px' }}>Joining Date</th>
+                    <th style={{ padding: '10px 14px' }}>Salary</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'attendance' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Shift Schedule</th>
+                    <th style={{ padding: '10px 14px' }}>Check In</th>
+                    <th style={{ padding: '10px 14px' }}>Check Out</th>
+                    <th style={{ padding: '10px 14px' }}>Work Hours</th>
+                    <th style={{ padding: '10px 14px' }}>Overtime</th>
+                    <th style={{ padding: '10px 14px' }}>Biometric Device</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'credentials' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Clinician Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Designation</th>
+                    <th style={{ padding: '10px 14px' }}>Council Reg No</th>
+                    <th style={{ padding: '10px 14px' }}>Licensing Authority</th>
+                    <th style={{ padding: '10px 14px' }}>License Expiry</th>
+                    <th style={{ padding: '10px 14px' }}>CME Credits</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'staff' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Assigned Unit / Ward</th>
+                    <th style={{ padding: '10px 14px' }}>Shift Timing</th>
+                    <th style={{ padding: '10px 14px' }}>Duty Role</th>
+                    <th style={{ padding: '10px 14px' }}>SBAR Handover</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'canteen' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Token ID</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Meal Category</th>
+                    <th style={{ padding: '10px 14px' }}>Dining Time</th>
+                    <th style={{ padding: '10px 14px' }}>Subsidy</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Co-Pay</th>
+                    <th style={{ padding: '10px 14px' }}>Payment Mode</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'roles' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Role Name</th>
+                    <th style={{ padding: '10px 14px' }}>Description</th>
+                    <th style={{ padding: '10px 14px' }}>Active Members</th>
+                    <th style={{ padding: '10px 14px' }}>Permissions Scope</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'permissions' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Module / Domain</th>
+                    <th style={{ padding: '10px 14px' }}>Admin</th>
+                    <th style={{ padding: '10px 14px' }}>Doctor</th>
+                    <th style={{ padding: '10px 14px' }}>Nurse</th>
+                    <th style={{ padding: '10px 14px' }}>Pharmacist</th>
+                    <th style={{ padding: '10px 14px' }}>Billing</th>
+                  </>
+                ) : endpoint === 'departments' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Code</th>
+                    <th style={{ padding: '10px 14px' }}>Department Name</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Doctors</th>
+                    <th style={{ padding: '10px 14px' }}>Wards</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'services' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Service Code</th>
+                    <th style={{ padding: '10px 14px' }}>Service Name</th>
+                    <th style={{ padding: '10px 14px' }}>Category</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Standard Charge</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'insurers' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Insurance Provider</th>
+                    <th style={{ padding: '10px 14px' }}>Claims Count</th>
+                    <th style={{ padding: '10px 14px' }}>Total Claimed</th>
+                    <th style={{ padding: '10px 14px' }}>Total Approved</th>
+                    <th style={{ padding: '10px 14px' }}>Settlement Rate</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'payment-methods' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Payment Method</th>
+                    <th style={{ padding: '10px 14px' }}>Channel</th>
+                    <th style={{ padding: '10px 14px' }}>Txn Count</th>
+                    <th style={{ padding: '10px 14px' }}>Total Collected</th>
+                    <th style={{ padding: '10px 14px' }}>Success Rate</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'facilities' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Ward / Unit</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Rooms</th>
+                    <th style={{ padding: '10px 14px' }}>Beds</th>
+                    <th style={{ padding: '10px 14px' }}>Housekeeping</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>UHID</th>
+                    <th style={{ padding: '10px 14px' }}>Patient Name</th>
+                    <th style={{ padding: '10px 14px' }}>Gender</th>
+                    <th style={{ padding: '10px 14px' }}>Blood Group</th>
+                    <th style={{ padding: '10px 14px' }}>Phone</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                )}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((item, i) => (
+                <tr
+                  key={item.id || i}
+                  onClick={() => handleRowClick(item)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  {endpoint === 'integration-arch' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.component}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.protocol}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.direction}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.frequency}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 500, color: '#0f766e' }}>{item.records}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.health}</span></td>
+                    </>
+                  ) : endpoint === 'users' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'Active' ? '#dcfce7' : '#fee2e2', item.status === 'Active' ? '#15803d' : '#b91c1c')}>{item.status}</span></td>
+                    </>
+                  ) : endpoint === 'employees' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.joining_date}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#16a34a' }}>{item.salary_display}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'attendance' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#15803d', fontWeight: 600 }}>{item.check_in}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.check_out}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.work_hours}</td>
+                      <td style={{ padding: '10px 14px', color: item.overtime_hours !== '0.0 hrs' ? '#dc2626' : '#64748b', fontWeight: 600 }}>{item.overtime_hours}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.biometric_device}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'credentials' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.designation}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>{item.council_reg_number}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.licensing_authority}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.license_expiry}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.cme_credits}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.verification_status}</span></td>
+                    </>
+                  ) : endpoint === 'staff' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.assigned_unit}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.duty_role}</span></td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#15803d', fontWeight: 600 }}>✓ {item.handover_status}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'On Duty' ? '#dcfce7' : '#f1f5f9', item.status === 'On Duty' ? '#15803d' : '#475569')}>{item.status}</span></td>
+                    </>
+                  ) : endpoint === 'canteen' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#0f766e' }}>{item.token_id}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.meal_category}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.dining_time}</td>
+                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.subsidy_rate}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.co_pay}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.payment_mode}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'roles' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.role_name || item.name}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.description || 'Role Definition'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.member_count || 0)} users</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.permissions_summary || 'Standard access'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                    </>
+                  ) : endpoint === 'permissions' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.module || 'System Domain'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>{item.admin || 'Full Control'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.doctor || 'Read / Write'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#fef3c7', '#b45309')}>{item.nurse || 'Administer'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{item.pharmacist || 'Dispense'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f8fafc', '#64748b')}>{item.billing || 'Billing View'}</span></td>
+                    </>
+                  ) : endpoint === 'departments' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.department_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.department_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.type || 'Clinical'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Main Hospital'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.doctor_count || 0)}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.ward_count || 0)}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                    </>
+                  ) : endpoint === 'services' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.service_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.service_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.category || 'Clinical'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department || 'General'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.charge_display || `₹${Number(item.standard_charge || 0).toFixed(2)}`}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status || 'Active'}</span></td>
+                    </>
+                  ) : endpoint === 'insurers' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.provider_name || 'Insurance Partner'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.claim_count) || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.claimed_display || `₹${(Number(item.total_claimed) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#16a34a', fontWeight: 600 }}>{item.approved_display || `₹${(Number(item.total_approved) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#2563eb' }}>{item.approval_rate || '95.0%'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active Partner</span></td>
+                    </>
+                  ) : endpoint === 'payment-methods' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.method_name || 'Payment Channel'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.channel || 'Digital / Counter'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.txn_count) || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.collected_display || `₹${(Number(item.total_collected) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.success_rate || '100%'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Operational</span></td>
+                    </>
+                  ) : endpoint === 'facilities' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.ward_name || item.facility || 'Ward'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.ward_type || 'Inpatient'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.floor || 'Floor 1'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.room_count || 0)} rooms</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.bed_count || 0)} beds</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Sanitized</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Operational</span></td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.uhid || item.patient_code || 'PAT-001'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.patient_name || 'Patient'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.gender || '—'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.blood_group || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.phone || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Chennai, Tamil Nadu'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Verified</span></td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+            {/* Pagination Footer */}
+            {totalCount > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: '#fafbfc',
+                borderTop: '1px solid #eef0f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span>
+                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                    {[10, 20, 50, 100].map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                        style={{
+                          height: '24px',
+                          padding: '0 8px',
+                          borderRadius: '4px',
+                          border: '1px solid',
+                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                          color: pageSize === sz ? '#0369a1' : '#64748b',
+                          fontWeight: pageSize === sz ? 700 : 500,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    « First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                    let pageNum = idx + 1;
+                    if (totalPages > 5) {
+                      if (currentPage <= 3) {
+                        pageNum = idx + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + idx;
+                      } else {
+                        pageNum = currentPage - 2 + idx;
+                      }
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        style={{
+                          height: '28px',
+                          width: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
+                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
+                          color: currentPage === pageNum ? '#ffffff' : '#475569',
+                          fontWeight: currentPage === pageNum ? 700 : 500,
+                          fontSize: '11.5px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

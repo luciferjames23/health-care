@@ -14,6 +14,7 @@ import {
   calculateDateRange,
   toYMD
 } from '../../components/DateRangeFilter';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -510,10 +511,15 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       {/* Appointment Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading ? (
-          <div style={{ padding: '36px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[80, 60, 70, 55, 65].map((w, i) => (
-              <div key={i} style={{ height: '14px', borderRadius: '4px', background: '#eef0f1', animation: 'mpulse 1s infinite', width: `${w}%` }} />
-            ))}
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Outpatient Appointments..."
+              subtitle="Retrieving OPD bookings, doctor consultation slots, queue tokens, and appointment statuses..."
+              badgeText="Live OPD Bookings Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={11}
+            />
           </div>
         ) : appointments.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
