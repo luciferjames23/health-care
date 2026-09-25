@@ -16,9 +16,14 @@ class ImagingHistoryTests(unittest.TestCase):
         self.cur.execute('''ALTER TABLE radiology_orders ADD COLUMN indication text DEFAULT 'Chest symptoms',
             ADD COLUMN priority text DEFAULT 'Routine',ADD COLUMN status text DEFAULT 'Requested',
             ADD COLUMN uploaded_at timestamptz;
-            ALTER TABLE radiology_scan ADD COLUMN image text,ADD COLUMN radiologist_finding text;
+            ALTER TABLE radiology_scan ADD COLUMN image text,ADD COLUMN radiologist_finding text,ADD COLUMN study_id text,ADD COLUMN dl_response jsonb;
             UPDATE radiology_orders SET created_at=CURRENT_TIMESTAMP - INTERVAL '3 days';''')
         migration = (Path(__file__).parents[1] / 'db/migrations/005_imaging_followups.sql').read_text()
+        self.cur.execute(migration.replace('BEGIN;', '').replace('COMMIT;', ''))
+        self.cur.execute('''ALTER TABLE radiology_orders ADD COLUMN upload_started_at timestamptz,
+            ADD COLUMN uploaded_by bigint, ADD COLUMN upload_sha256 text,
+            ADD COLUMN orthanc_instance_id text, ADD COLUMN orthanc_study_id text;''')
+        migration = (Path(__file__).parents[1] / 'db/migrations/006_multi_study_orders.sql').read_text()
         self.cur.execute(migration.replace('BEGIN;', '').replace('COMMIT;', ''))
         app = FastAPI()
         app.include_router(orders_router)
@@ -63,7 +68,7 @@ class ImagingHistoryTests(unittest.TestCase):
     def test_compare_requires_same_patient_problem_and_earlier_version(self):
         second, _ = self.create(follow_up_of=self.order)
         sid = second['order_id']
-        self.cur.execute("INSERT INTO radiology_scan(scan_id,order_id,scan_report,image,review_status) VALUES(3,%s,'Follow-up report','preview','Pending')", (sid,))
+        self.cur.execute("INSERT INTO radiology_scan(scan_id,order_id,order_study_id,scan_report,image,review_status) VALUES(3,%s,%s,'Follow-up report','preview','Pending')", (sid,sid))
         response = self.call('GET', f'/{sid}/comparison?prior_order_id={self.order}', user=3)
         self.assertEqual(response.status_code, 200, response.text)
         pair = response.json()

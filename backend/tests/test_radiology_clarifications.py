@@ -82,6 +82,21 @@ class ClarificationTests(unittest.TestCase):
         self.assertEqual(result.status_code, 201, result.text)
         return payload
 
+    def test_each_view_has_its_own_discussion_and_review_gate(self):
+        self.cur.execute("UPDATE radiology_orders SET examination='Chest X-ray PA + AP' WHERE order_id=%s", (self.order,))
+        self.cur.execute("INSERT INTO radiology_scan VALUES(3,%s,'AP pending',NULL,NULL,'Pending Review')", (self.order,))
+        context = self.call('GET', f'?order_id={self.order}&scan_id=1').json()['context']
+        self.assertIsNotNone(context['reviewed_at'])
+        payload = dict(id=str(uuid4()), order_id=self.order, scan_id=1, subject='PA question', body='Please clarify PA', report_fingerprint=context['report_fingerprint'])
+        self.assertEqual(self.call('POST', json=payload).status_code, 201)
+        self.assertEqual(len(self.call('GET', f'?order_id={self.order}&scan_id=1').json()['threads']), 1)
+        self.assertEqual(self.call('GET', f'?order_id={self.order}&scan_id=3').json()['threads'], [])
+        pending = self.call('GET', f'?order_id={self.order}&scan_id=3').json()['context']
+        self.assertIsNone(pending['reviewed_at'])
+        self.assertEqual(self.call('POST', json={**payload, 'id': str(uuid4()), 'scan_id': 3, 'report_fingerprint': pending['report_fingerprint']}).status_code, 409)
+        self.assertEqual(self.call('GET', f'?order_id={self.order}&scan_id=2').status_code, 404)
+        self.assertEqual(self.call('POST', json={**payload, 'scan_id': 2}).status_code, 404)
+
     def test_strict_identity_and_patient_access(self):
         for user, status in [(None, 401), (5, 403), (6, 403)]:
             self.assertEqual(self.call('GET', user=user).status_code, status)

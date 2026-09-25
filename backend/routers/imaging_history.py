@@ -97,13 +97,20 @@ def unlink(order_id: UUID, body: UnlinkRequest, user=Depends(discussion_user)):
         return {'ok': True}
 
 
-SUMMARY = '''SELECT o.order_id,o.patient_id,o.accession_number,o.examination,o.indication,o.status,
+SUMMARY = '''SELECT (SELECT jsonb_agg(jsonb_build_object(
+    'projection',a.projection,'study_instance_uid',a.study_instance_uid,'status',a.status,
+    'scan_report',r.scan_report,'review_status',r.review_status,'reviewed_by',r.reviewed_by,
+    'reviewed_at',r.reviewed_at,'radiologist_finding',r.radiologist_finding) ORDER BY a.projection DESC)
+    FROM radiology_order_studies a LEFT JOIN radiology_scan r ON r.order_study_id=a.study_key
+    WHERE a.order_id=o.order_id) AS studies,o.order_id,o.patient_id,o.accession_number,o.examination,o.indication,o.status,
     o.created_at,o.uploaded_at,o.study_instance_uid,o.root_order_id,o.follow_up_of,o.study_version,
     COALESCE(o.clinical_problem,o.indication) AS clinical_problem,
+    prior.accession_number AS follow_up_accession,prior.study_version AS follow_up_version,
     p.patient_code,concat_ws(' ',p.first_name,p.last_name) AS patient_name,
     s.scan_id,s.scan_report,s.reviewed_by,s.reviewed_at,s.review_status,s.radiologist_finding
     FROM radiology_orders o JOIN patients p ON p.id=o.patient_id
-    LEFT JOIN radiology_scan s ON s.order_id=o.order_id'''
+    LEFT JOIN radiology_scan s ON s.order_id=o.order_id AND o.examination<>'Chest X-ray PA + AP'
+    LEFT JOIN radiology_orders prior ON prior.order_id=o.follow_up_of'''
 
 
 @router.get('/{order_id}/history')
@@ -137,6 +144,13 @@ def compare(order_id: UUID, prior_order_id: UUID, user=Depends(discussion_user))
             raise HTTPException(422, 'Select an earlier study as the prior examination.')
         rows = []
         for oid in (prior_order_id, order_id):
-            cur.execute(SUMMARY.replace('SELECT o.order_id', 'SELECT s.image,o.order_id') + ' WHERE o.order_id=%s', (str(oid),))
-            rows.append(cur.fetchone())
+            cur.execute(SUMMARY.replace('SELECT (SELECT', 'SELECT s.image,(SELECT', 1) + ' WHERE o.order_id=%s', (str(oid),))
+            row = dict(cur.fetchone())
+            if row['examination'] == 'Chest X-ray PA + AP':
+                cur.execute('''SELECT a.projection,a.study_instance_uid,a.status,s.image,s.scan_report,
+                    s.review_status,s.reviewed_by,s.reviewed_at,s.radiologist_finding
+                    FROM radiology_order_studies a LEFT JOIN radiology_scan s ON s.order_study_id=a.study_key
+                    WHERE a.order_id=%s ORDER BY a.projection DESC''', (str(oid),))
+                row['studies'] = [dict(study) for study in cur.fetchall()]
+            rows.append(row)
         return {'prior': rows[0], 'current': rows[1]}

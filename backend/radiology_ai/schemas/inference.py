@@ -130,6 +130,8 @@ class LocalizationSummaryResponse(BaseModel):
 
 
 class WorklistItemResponse(BaseModel):
+    order_id: Optional[str] = None
+    projection: Optional[str] = None
     study_id: str
     display_study_id: Optional[str] = None
     patient_id: Optional[Any] = None
@@ -178,6 +180,8 @@ class ReviewStatusRequest(BaseModel):
 
 
 class StudyDetailResponse(AnalyzeResponse):
+    order_id: Optional[str] = None
+    projection: Optional[str] = None
     """Same shape as AnalyzeResponse (so the existing Analysis screen can
     render it unmodified) plus worklist-only fields recorded at save time."""
     analyzed_at: str

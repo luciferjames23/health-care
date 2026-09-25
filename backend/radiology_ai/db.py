@@ -157,9 +157,9 @@ def list_scans(
                 SELECT 
                     rs.scan_id,
                     rs.order_id,
-                    COALESCE(ro.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
+                    COALESCE(acquisition.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
                     ro.accession_number,
-                    ro.orthanc_study_id,
+                    acquisition.orthanc_study_id,
                     rs.patient_id,
                     rs.patient_code,
                     p.first_name,
@@ -172,6 +172,8 @@ def list_scans(
                     rs.height,
                     rs.target,
                     rs.image,
+                    rs.annotated_image,
+                    acquisition.projection,
                     rs.scan_report,
                     rs.study_id,
                     rs.display_study_id,
@@ -190,6 +192,7 @@ def list_scans(
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id
+                LEFT JOIN radiology_order_studies acquisition ON acquisition.study_key=rs.order_study_id
                 LEFT JOIN radiology_orders ro ON rs.order_id = ro.order_id
                 {where_sql}
                 ORDER BY rs.scan_id ASC
@@ -218,9 +221,9 @@ def get_scan_by_id(scan_id: int) -> Optional[Dict[str, Any]]:
                 SELECT 
                     rs.scan_id,
                     rs.order_id,
-                    COALESCE(ro.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
+                    COALESCE(acquisition.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
                     ro.accession_number,
-                    ro.orthanc_study_id,
+                    acquisition.orthanc_study_id,
                     rs.patient_id,
                     rs.patient_code,
                     p.first_name,
@@ -233,6 +236,8 @@ def get_scan_by_id(scan_id: int) -> Optional[Dict[str, Any]]:
                     rs.height,
                     rs.target,
                     rs.image,
+                    rs.annotated_image,
+                    acquisition.projection,
                     rs.scan_report,
                     rs.study_id,
                     rs.display_study_id,
@@ -251,6 +256,7 @@ def get_scan_by_id(scan_id: int) -> Optional[Dict[str, Any]]:
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id
+                LEFT JOIN radiology_order_studies acquisition ON acquisition.study_key=rs.order_study_id
                 LEFT JOIN radiology_orders ro ON rs.order_id = ro.order_id
                 WHERE rs.scan_id = %s;
             """, (scan_id,))

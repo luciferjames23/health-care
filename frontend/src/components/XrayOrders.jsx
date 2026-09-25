@@ -3,7 +3,7 @@ import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import { ClarificationButton } from './RadiologyClarifications';
 import { ImagingHistoryButton } from './ImagingHistory';
 import { studyVersion } from '../services/imagingHistory';
-import { OHIF_BASE_URL } from '../services/radiologyApi';
+import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { Card, btn, primaryBtn } from './RadiologyShared';
 
 export default function XrayOrders({ patient, radiologist = false }) {
@@ -14,6 +14,8 @@ export default function XrayOrders({ patient, radiologist = false }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [projection, setProjection] = useState('PA');
+  const [reportStudy, setReportStudy] = useState(null);
   const [file, setFile] = useState(null);
   const [patientReview, setPatientReview] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -31,16 +33,16 @@ export default function XrayOrders({ patient, radiologist = false }) {
     finally { setLoading(false); }
   }, [patientId, radiologist]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 10000); return () => clearInterval(timer); }, [refresh]);
-  useEffect(() => { requestId.current = null; setIndication(''); setFollowUpOf(''); setClinicalProblem(''); setMessage(''); setSelected(null); setFile(null); }, [patientId]);
+  useEffect(() => { requestId.current = null; setIndication(''); setFollowUpOf(''); setClinicalProblem(''); setMessage(''); setSelected(null); setFile(null); setReportStudy(null); }, [patientId]);
 
-  useEffect(() => { setPatientReview(null); setConfirmed(false); }, [file, selected?.order_id]);
+  useEffect(() => { setPatientReview(null); setConfirmed(false); }, [file, selected?.order_id, projection]);
 
   const create = async e => {
     e.preventDefault(); setBusy(true); setError(''); setMessage('');
     requestId.current ||= crypto.randomUUID();
     try {
       const order = await imagingOrdersApi.create({ patient_id: Number(patientId), examination, priority, indication, request_id: requestId.current, follow_up_of: followUpOf || null, clinical_problem: followUpOf ? null : clinicalProblem.trim() || null });
-      setMessage(`Order ${order.accession_number} sent to Radiology · ${studyVersion(order)}.`);
+      setMessage(`Order ${order.accession_number} sent to Radiology · ${studyVersion(order, orders)}.`);
       setIndication(''); setFollowUpOf(''); setClinicalProblem(''); requestId.current = null;
       await refresh();
     } catch (e) { setError(e.message); }
@@ -50,7 +52,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
     e.preventDefault(); if (!selected || !file) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      await imagingOrdersApi.upload(selected.order_id, file, Boolean(patientReview && confirmed));
+      await imagingOrdersApi.upload(selected.order_id, file, Boolean(patientReview && confirmed), projection);
       setMessage(`${selected.accession_number}: X-ray uploaded to Orthanc.`);
       setSelected(null); setFile(null); await refresh();
     } catch (e) {
@@ -86,7 +88,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
         {orders.map(order => <option key={order.order_id} value={order.order_id}>Follow-up: {order.clinical_problem || order.indication} · {order.accession_number} · V{order.study_version || 1}</option>)}
       </select></label>
       {followUpOf ? <p style={{ margin: 0 }}>This request joins the selected study's clinical problem. It will receive the next study number and retain its own image and report.</p> : <label>Problem name (optional)<input style={{ ...input, marginLeft: 8 }} maxLength={2000} minLength={3} value={clinicalProblem} disabled={busy} placeholder="For example: follow-up of chest symptoms" onChange={e => { setClinicalProblem(e.target.value); requestId.current = null; }} /><small style={{ display: 'block' }}>If blank, the clinical indication identifies this problem.</small></label>}
-      <label>Examination <select style={input} value={examination} disabled={busy} onChange={e => { setExamination(e.target.value); requestId.current = null; }}>{['Chest X-ray PA', 'Chest X-ray AP'].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label>Examination <select style={input} value={examination} disabled={busy} onChange={e => { setExamination(e.target.value); requestId.current = null; }}>{['Chest X-ray PA', 'Chest X-ray AP', 'Chest X-ray PA + AP'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Priority <select style={input} value={priority} disabled={busy} onChange={e => { setPriority(e.target.value); requestId.current = null; }}><option>Routine</option><option>Urgent</option></select></label>
       <label>Clinical indication<textarea style={{ ...input, display: 'block', width: '100%', boxSizing: 'border-box' }} required minLength={3} maxLength={2000} value={indication} disabled={busy} onChange={e => { setIndication(e.target.value); requestId.current = null; }} /></label>
       <button style={{ ...primaryBtn, justifySelf: 'start' }} disabled={busy || indication.trim().length < 3}>{busy ? 'Sending…' : 'Send X-ray request'}</button>
@@ -166,7 +168,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
               <tr key={order.order_id}>
                 <td style={{ padding: 8 }}>{order.accession_number}<br />{new Date(order.created_at).toLocaleString()}</td>
                 <td>{order.patient_name}<br />{order.patient_code}</td>
-                <td>{order.examination}<br /><b>{studyVersion(order)}</b><br />{order.clinical_problem || order.indication}<br /><small>{order.indication}</small></td>
+                <td>{order.examination}<br /><b>{studyVersion(order, orders)}</b><br />{order.clinical_problem || order.indication}<br /><small>{order.indication}</small></td>
                 <td>{order.requested_by_name}</td>
                 <td>
                   <span style={{
@@ -183,15 +185,19 @@ export default function XrayOrders({ patient, radiologist = false }) {
                     {order.priority}
                   </span>
                 </td>
-                <td>{order.status}</td>
+                <td>{order.status}
+                  {(order.studies || []).map(study => <div key={study.study_key}><b>{study.projection}</b>: {study.status !== 'Uploaded' ? study.status : study.analyzed ? study.review_status || 'Pending Review' : 'Awaiting AI analysis'}</div>)}
+                  {order.studies?.length > 1 && <small>{order.studies.filter(s => s.analyzed).length}/{order.studies.length} analyzed</small>}
+                </td>
                 <td>
                   <ImagingHistoryButton orderId={order.order_id} onChanged={refresh} />
                   {order.status === 'Uploaded' && <ClarificationButton orderId={order.order_id} />}
                   {radiologist && order.status !== 'Uploaded' && (
-                    <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setFile(null); setError(''); }}>
+                    <button type="button" style={btn} disabled={busy} onClick={() => { setSelected(order); setProjection(order.studies?.find(s => s.status !== 'Uploaded')?.projection || order.examination.split(' ').at(-1)); setFile(null); setError(''); }}>
                       Upload X-ray
                     </button>
                   )}
+                  {(order.studies || []).filter(s => s.analyzed).map(study => <button key={study.study_key} style={btn} disabled={busy} onClick={async () => { setBusy(true); setError(''); try { setReportStudy(await radiologyApi.getStudy(study.study_id)); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>View {study.projection} result</button>)}
                   {radiologist && order.status === 'Uploaded' && order.study_instance_uid && (
                     <a href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(order.study_instance_uid)}`} target="_blank" rel="noreferrer">
                       Open in OHIF
@@ -208,7 +214,11 @@ export default function XrayOrders({ patient, radiologist = false }) {
       <b>Upload for {selected.patient_name} · {selected.patient_code}</b>
       <p>{selected.accession_number} · {selected.examination}</p>
       <p style={{ fontSize: 12 }}>DICOM PatientID must match {selected.patient_code}, {selected.patient_id}, or a registered DICOM ID for this patient. New IDs require patient verification below before upload. Accession must be blank or {selected.accession_number}. CR/DX DICOM only, up to 30 MB.</p>
-      <input key={selected.order_id} aria-label="X-ray DICOM file" type="file" accept=".dcm,application/dicom" required disabled={busy} onChange={e => setFile(e.target.files?.[0] || null)} />
+      <label>Study <select value={projection} disabled={busy} onChange={e => { setProjection(e.target.value); setFile(null); }} style={input}>
+        {(selected.studies || []).filter(s => s.status !== 'Uploaded').map(s => <option key={s.study_key} value={s.projection}>{s.projection}</option>)}
+      </select></label>
+      {selected.studies?.length > 1 && <p>Upload one PA and one AP DICOM study with distinct StudyInstanceUIDs. DICOM ViewPosition must match the selected view. Both use this accession.</p>}
+      <input key={`${selected.order_id}-${projection}`} aria-label="X-ray DICOM file" type="file" accept=".dcm,application/dicom" required disabled={busy} onChange={e => setFile(e.target.files?.[0] || null)} />
       {patientReview && <section aria-label="Verify image patient" style={{ marginTop: 12, padding: 12, background: '#fff8e6', borderRadius: 6 }}>
         <b>Verify this image belongs to the order patient</b>
         <p>Order: {selected.patient_name} · {selected.patient_code} · {selected.accession_number}</p>
@@ -221,5 +231,28 @@ export default function XrayOrders({ patient, radiologist = false }) {
       </section>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}><button disabled={busy || !file || (patientReview && !confirmed)} style={primaryBtn}>{busy ? 'Uploading…' : patientReview ? 'Confirm patient and upload' : 'Upload to Orthanc'}</button><button type="button" style={btn} disabled={busy} onClick={() => setSelected(null)}>Cancel</button></div>
     </form>}
+    {reportStudy && <StudyResult key={reportStudy.study_id} study={reportStudy} onClose={() => setReportStudy(null)} />}
   </Card>;
+}
+
+function StudyResult({ study, onClose }) {
+  const [error, setError] = useState('');
+  const [localized, setLocalized] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const dialog = useRef(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  const uid = study.source?.study_instance_uid;
+  return <dialog ref={dialog} onCancel={onClose} onClose={onClose} aria-label="Study result" style={{ width: 'min(1100px, 92vw)', maxHeight: '90vh', border: '1px solid #cbd5e1', borderRadius: 10 }}>
+    <button style={btn} onClick={onClose}>Close</button>
+    <h3>{study.display_study_id} · {study.projection} · {study.patient_name}</h3>
+    <p>{study.review_status || 'Pending Review'}{study.reviewed_at && ` · ${study.reviewed_by} · ${new Date(study.reviewed_at).toLocaleString()}`}</p>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{[['original', 'Original X-ray'], ['annotated', 'AI localized image']].map(([field,label]) => <figure key={field} style={{ margin: 0, flex: '1 1 300px' }}><figcaption>{study.projection} · {label}</figcaption>{study.images?.[field] && <img alt={`${study.projection} ${label}`} src={`data:image/png;base64,${study.images[field]}`} style={{ width: '100%' }} />}</figure>)}</div>
+    <p>AI screening score: {Math.round((study.triage?.probability || 0) * 100)}% · {study.combined_assessment?.status} · {study.localization?.number_of_regions ?? 0} localized region(s)</p>
+    <p>{study.radiologist_finding || study.interpretation?.finding}</p>
+    <p style={{ whiteSpace: 'pre-wrap' }}>{study.scan_report || study.interpretation?.summary}</p>
+    {!study.reviewed_at && <p>Preliminary AI result — awaiting radiologist confirmation.</p>}
+    {uid && <a style={btn} href={`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}`} target="_blank" rel="noreferrer">Original in OHIF</a>}
+    {localized ? <a style={btn} href={localized} target="_blank" rel="noreferrer">AI localized image in OHIF</a> : <button style={btn} disabled={busy || !uid} onClick={async () => { setBusy(true); try { const r = await radiologyApi.prepareLocalizedOhif(study.study_id); setLocalized(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(r.study_instance_uid)}&initialSeriesInstanceUID=${encodeURIComponent(r.series_instance_uid)}`); } catch (e) { setError(e.message); } finally { setBusy(false); } }}>{busy ? 'Preparing…' : 'Prepare AI image in OHIF'}</button>}
+    {error && <p role="alert">{error}</p>}
+  </dialog>;
 }

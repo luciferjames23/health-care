@@ -85,6 +85,8 @@ def to_worklist_item(record: dict, mapping: Optional[dict] = None) -> dict:
 
     return {
         "study_id": record["study_id"],
+        "order_id": record.get("order_id"),
+        "projection": record.get("projection"),
         "display_study_id": record.get("display_study_id"),
         "patient_id": patient_id,
         "patient_code": patient_code,

@@ -26,5 +26,5 @@ export const imagingOrdersApi = {
   compare: (id, priorId) => request(`/${encodeURIComponent(id)}/comparison?prior_order_id=${encodeURIComponent(priorId)}`),
   link: (id, priorId, reason) => request(`/${encodeURIComponent(id)}/follow-up`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prior_order_id: priorId, reason }) }),
   unlink: (id, reason) => request(`/${encodeURIComponent(id)}/separate-problem`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }),
-  upload: (id, file, confirmed = false) => { const body = new FormData(); body.append('file', file); body.append('confirm_patient_match', String(confirmed)); return request(`/${id}/upload`, { method: 'POST', body }); },
+  upload: (id, file, confirmed = false, projection) => { const body = new FormData(); body.append('file', file); if (projection) body.append('projection', projection); body.append('confirm_patient_match', String(confirmed)); return request(`/${id}/upload`, { method: 'POST', body }); },
 };

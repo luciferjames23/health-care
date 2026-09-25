@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
+import { StatusBadge, statusStyle } from './RadiologyShared';
 import { ImagingHistoryButton } from './ImagingHistory';
-import { groupImagingOrders, studyVersion } from '../services/imagingHistory';
+import { groupImagingOrders, studyVersion, scanStudyLabel, orderViewResults, scanAssessmentStatus } from '../services/imagingHistory';
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import { clarificationApi } from '../services/clarificationApi';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
@@ -2299,18 +2300,17 @@ export default function Patient360View({
             const xrayRows = patientXrayOrders.map((xo) => {
               const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
               const isUploaded = xo.status === 'Uploaded' || xo.status === 'Completed';
-              const matchingScan = diagScans.find(s => s.order_id === xo.order_id || s.study_instance_uid === xo.study_instance_uid);
-              const studyUid = xo.study_instance_uid || matchingScan?.study_instance_uid;
-              const scanResult = matchingScan
-                ? (matchingScan.target === 1 ? '⚠ Opacity Detected' : '✓ Normal')
-                : (xo.indication ? `Indication: ${xo.indication}` : 'PACS Study Available');
+              const views = orderViewResults(xo, diagScans);
+              const matchingScan = views.find(view => view.scan)?.scan;
+              const studyUid = views.map(view => view.uid).filter(Boolean).join(',');
+              const scanResult = views.map(view => `${view.projection}: ${view.status}`).join(' · ');
 
               return [
                 xo.accession_number || `XR-${xo.order_id.slice(0, 8)}`,
-                <span key={xo.order_id + '-test'} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>🩻</span>
-                  <strong>{xo.examination || 'Chest X-ray PA'}</strong>
-                </span>,
+                <div key={xo.order_id + '-test'}>
+                  <strong>🩻 {xo.examination || 'Chest X-ray PA'}</strong>
+                  <div style={{ fontSize: '11px', color: '#087e8b', marginTop: '3px' }}>{studyVersion(xo, patientXrayOrders)}</div>
+                </div>,
                 <span key={xo.order_id + '-kind'} style={{ color: '#0284c7', fontWeight: 600 }}>
                   Radiology · X-Ray
                 </span>,
@@ -2328,9 +2328,7 @@ export default function Patient360View({
                   <span style={{
                     color: matchingScan?.target === 1 ? '#dc2626' : (matchingScan ? '#15803d' : '#475569'),
                     fontWeight: matchingScan ? 600 : 400,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
+                    whiteSpace: 'normal'
                   }}>
                     {scanResult}
                   </span>
@@ -2342,7 +2340,7 @@ export default function Patient360View({
                     color: isUploaded ? '#15803d' : '#b45309',
                     whiteSpace: 'nowrap'
                   }}>
-                    {xo.status || 'Requested'}
+                    {views.filter(view => view.uid).length}/{views.length} views available
                   </span>
                   {studyUid && (
                     <button
@@ -2430,9 +2428,8 @@ export default function Patient360View({
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
                       {group.studies.map((xo) => {
                         const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
-                        const isUploaded = xo.status === 'Uploaded' || xo.status === 'Completed';
-                        const matchingScan = diagScans.find(s => s.order_id === xo.order_id || s.study_instance_uid === xo.study_instance_uid);
-                        const studyUid = xo.study_instance_uid || matchingScan?.study_instance_uid;
+                        const views = orderViewResults(xo, diagScans);
+                        const isUploaded = views.every(view => view.uid);
 
                         return (
                           <div
@@ -2448,7 +2445,7 @@ export default function Patient360View({
                               boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
                             }}
                           >
-                            <b style={{ fontSize: '12px', color: '#087e8b' }}>{studyVersion(xo)}</b>
+                            <b style={{ fontSize: '12px', color: '#087e8b' }}>{studyVersion(xo, patientXrayOrders)}</b>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
@@ -2469,7 +2466,7 @@ export default function Patient360View({
                                 background: isUploaded ? '#dcfce7' : '#fef3c7',
                                 color: isUploaded ? '#166534' : '#92400e'
                               }}>
-                                {isUploaded ? '✓ Uploaded to PACS' : xo.status}
+                                {views.filter(view => view.uid).length}/{views.length} views available
                               </span>
                             </div>
 
@@ -2489,59 +2486,16 @@ export default function Patient360View({
                               <span>{xo.created_at ? new Date(xo.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}</span>
                             </div>
 
-                            {studyUid && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => setOhifViewerModal(getOhifViewerUrl(studyUid))}
-                                  style={{
-                                    flex: 1,
-                                    height: '28px',
-                                    borderRadius: '5px',
-                                    border: '1px solid oklch(0.5 0.1 200)',
-                                    background: 'oklch(0.96 0.04 200)',
-                                    color: 'oklch(0.4 0.12 200)',
-                                    fontSize: '11.5px',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '5px'
-                                  }}
-                                >
-                                  <span>🖼️</span> Open in OHIF Viewer →
-                                </button>
-                                <ClarificationButton orderId={xo.order_id} />
-
-                                {matchingScan && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setPatientScans([matchingScan]);
-                                      setActiveScanIdx(0);
-                                      setScanModalOpen(true);
-                                    }}
-                                    style={{
-                                      height: '28px',
-                                      padding: '0 10px',
-                                      borderRadius: '5px',
-                                      border: '1px solid #cbd5e1',
-                                      background: '#fff',
-                                      color: matchingScan.target === 1 ? '#dc2626' : '#16a34a',
-                                      fontSize: '11.5px',
-                                      fontWeight: 600,
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
-                                    }}
-                                  >
-                                    <span>🔬</span> {matchingScan.target === 1 ? 'Opacity' : 'Normal'}
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                            <div style={{ display: 'grid', gap: '6px' }}>
+                              {views.map(view => (
+                                <div key={view.projection} style={{ padding: '8px', border: '1px solid #e2e8f0', borderRadius: '5px', fontSize: '12px' }}>
+                                  <b>{view.projection}</b> · {view.status}
+                                  {view.uid && <button type="button" style={{ marginLeft: '8px' }} onClick={() => setOhifViewerModal(getOhifViewerUrl(view.uid))}>Open {view.projection} image</button>}
+                                  {view.scan && <button type="button" style={{ marginLeft: '8px' }} onClick={() => { setPatientScans([view.scan]); setActiveScanIdx(0); setScanModalOpen(true); }}>View {view.projection} result · Scan #{view.scan.scan_id}</button>}
+                                  <ClarificationButton orderId={xo.order_id} scanId={view.scan?.scan_id} projection={view.projection} disabled={!view.scan?.scan_id} />
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         );
                       })}
@@ -2565,17 +2519,16 @@ export default function Patient360View({
                     <span style={{ fontSize: '14px', fontWeight: 700, color: '#15181b' }}>Radiology Imaging · X-Ray</span>
                     <span style={{
                       fontSize: '11px', padding: '2px 7px', borderRadius: '4px', fontWeight: 600,
-                      background: isOpacity ? '#fee2e2' : '#dcfce7',
-                      color: isOpacity ? '#991b1b' : '#166534'
+                      ...statusStyle(scanAssessmentStatus(sc))
                     }}>
-                      {isOpacity ? '⚠ Opacity Detected' : '✓ Routine / Normal'}
+                      {sc.reviewed_at ? 'Reviewed' : 'Preliminary AI'} · {scanAssessmentStatus(sc)}
                     </span>
                     {diagScans.length > 1 && (
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>{diagScans.length} scans on record</span>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>{diagScans.length} analysis records (not an image count)</span>
                     )}
                   </div>
                   <span style={{ fontSize: '11.5px', color: '#687076' }}>
-                    Scan #{sc.scan_id} · {sc.review_status || 'Pending Sign-off'}
+                    {scanStudyLabel(sc, patientXrayOrders)} · {sc.review_status || 'Pending Sign-off'}
                     {sc.order_id && <ImagingHistoryButton orderId={sc.order_id} />}
                   </span>
                 </div>
@@ -2596,7 +2549,7 @@ export default function Patient360View({
                       <>
                         <img
                           src={sc.image.startsWith('data:') ? sc.image : `data:image/png;base64,${sc.image}`}
-                          alt="Radiology X-Ray"
+                          alt={`X-ray · ${sc.projection || 'View unverified'} · Scan #${sc.scan_id}`} 
                           style={{ width: '100%', height: '200px', objectFit: 'cover', display: 'block' }}
                         />
                         {isOpacity && sc.x != null && sc.width != null && (
@@ -2628,11 +2581,11 @@ export default function Patient360View({
                         fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.05em',
                         background: isOpacity ? '#dc2626' : '#16a34a', color: '#fff'
                       }}>
-                        {isOpacity ? 'OPACITY' : 'NORMAL'}
+                        {sc.projection || 'VIEW UNVERIFIED'} · {isOpacity ? 'OPACITY' : sc.target === 0 ? 'NO OPACITY' : 'RESULT UNAVAILABLE'}
                       </span>
-                      {sc.priority && (
+                      {scanAssessmentStatus(sc) && (
                         <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, background: '#1e293b', color: '#94a3b8' }}>
-                          {sc.priority}
+                          <StatusBadge status={scanAssessmentStatus(sc)} />
                         </span>
                       )}
                       {sc.probability != null && (
@@ -2654,13 +2607,25 @@ export default function Patient360View({
                         background: '#1e293b', borderRadius: '6px', padding: '8px 10px',
                         fontSize: '11.5px', color: '#94a3b8', lineHeight: 1.55, marginTop: '2px'
                       }}>
-                        <span style={{ color: '#64748b', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Radiologist Report</span>
+                        <span style={{ color: '#64748b', fontWeight: 600, display: 'block', marginBottom: '3px' }}>{sc.reviewed_at ? 'Radiologist Report' : 'Preliminary report · awaiting radiologist review'}</span>
                         {sc.scan_report}
                       </div>
                     )}
 
                     {/* Recommended action */}
-                    {sc.recommended_action && (
+                    {sc.reviewed_at && (
+                      <div style={{ fontSize: '11.5px', color: '#a7f3d0', marginTop: '2px' }}>
+                        Radiologist review recorded · {sc.review_status || 'Reviewed'}
+                        {sc.reviewed_by ? ` · ${sc.reviewed_by}` : ''}
+                        {' · '}{new Date(sc.reviewed_at).toLocaleString()}
+                      </div>
+                    )}
+                    {sc.recommended_action && sc.reviewed_at ? (
+                      <details style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>
+                        <summary>Original AI recommendation (before radiologist review)</summary>
+                        <div style={{ marginTop: '4px' }}>{sc.recommended_action}</div>
+                      </details>
+                    ) : sc.recommended_action && (
                       <div style={{ fontSize: '11.5px', color: '#fbbf24', marginTop: '2px' }}>
                         ⚡ {sc.recommended_action}
                       </div>
@@ -2701,7 +2666,7 @@ export default function Patient360View({
                           color: diagScanIdx === idx ? '#fff' : '#475569'
                         }}
                       >
-                        {patientXrayOrders.find(o => o.order_id === s.order_id)?.accession_number || `Scan #${s.scan_id}`} · V{patientXrayOrders.find(o => o.order_id === s.order_id)?.study_version || 1} {s.target === 1 ? '· Opacity' : '· Normal'}
+                        {scanStudyLabel(s, patientXrayOrders)} · {scanAssessmentStatus(s)}
                       </button>
                     ))}
                   </div>
@@ -3337,11 +3302,10 @@ export default function Patient360View({
                       borderRadius: '4px',
                       fontSize: '11px',
                       fontWeight: 700,
-                      background: currentScan.target === 1 ? '#fee2e2' : '#dcfce7',
-                      color: currentScan.target === 1 ? '#991b1b' : '#166534',
+                      ...statusStyle(scanAssessmentStatus(currentScan)),
                     }}
                   >
-                    {currentScan.target === 1 ? '⚠️ OPACITY DETECTED' : '✓ ROUTINE / NORMAL'}
+                    {scanAssessmentStatus(currentScan)}
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
@@ -3398,7 +3362,7 @@ export default function Patient360View({
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Scan #{s.scan_id || (idx + 1)} · {s.target === 1 ? 'Opacity Detected' : 'Normal'}
+                    {scanStudyLabel(s, patientXrayOrders)} · {scanAssessmentStatus(s)}
                   </button>
                 ))}
               </div>
@@ -3538,7 +3502,7 @@ export default function Patient360View({
                   >
                     <span>ID: {currentScan.patient_code || p.uhid}</span>
                     <span>SCAN #{currentScan.scan_id}</span>
-                    <span>TARGET: {currentScan.target}</span>
+                    <span>VIEW: {currentScan.projection || 'Unverified'}</span>
                   </div>
                 </div>
               </div>
@@ -3552,23 +3516,23 @@ export default function Patient360View({
                 {/* Key Metrics Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px' }}>
-                    <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Triage Priority</div>
+                    <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Combined AI review priority</div>
                     <div
                       style={{
                         fontSize: '14px',
                         fontWeight: 700,
-                        color: currentScan.target === 1 ? '#dc2626' : '#16a34a',
+                        color: statusStyle(scanAssessmentStatus(currentScan)).color,
                         marginTop: '2px',
                       }}
                     >
-                      {currentScan.priority || (currentScan.target === 1 ? 'HIGH PRIORITY' : 'ROUTINE')}
+                      {scanAssessmentStatus(currentScan)}
                     </div>
                   </div>
 
                   <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px' }}>
                     <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Opacity Status</div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-                      {currentScan.target === 1 ? 'Suspected Opacity' : 'Clear / Unremarkable'}
+                      {currentScan.target === 1 ? 'Focal opacity localized' : currentScan.target === 0 ? 'No focal opacity localized' : 'Localization unavailable'}
                     </div>
                   </div>
                 </div>
@@ -3579,10 +3543,7 @@ export default function Patient360View({
                     Automated Radiologic Report / Findings:
                   </div>
                   <div style={{ fontSize: '12px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                    {currentScan.scan_report ||
-                      (currentScan.target === 1
-                        ? 'The triage deep-learning model identified suspected pulmonary opacity. Localized coordinates flagged for urgent radiologist review. No tension pneumothorax.'
-                        : 'No focal consolidation, pneumothorax, or large pleural effusion detected. Cardiac silhouette within normal limits for patient age.')}
+                    {currentScan.scan_report || 'Report unavailable · awaiting radiologist review.'}
                   </div>
                 </div>
 

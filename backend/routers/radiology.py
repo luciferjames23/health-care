@@ -98,16 +98,16 @@ def _require_models() -> None:
 
 
 def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> dict:
-    ref = get_first_instance_for_study(study_id)
     orthanc_study = orthanc_get_study(study_id)
     study_instance_uid = (orthanc_study.get("MainDicomTags") or {}).get("StudyInstanceUID")
     from routers.imaging_orders import patient_for_ordered_study
     order = patient_for_ordered_study(study_instance_uid)
     if not order:
         raise HTTPException(409, 'This PACS study is not linked to an uploaded X-ray order. Use X-ray Orders to upload the requested image.')
-    existing = get_study(str(order['order_id']))
+    existing = get_study(str(order['study_key']))
     if existing:
         return existing
+    ref = get_first_instance_for_study(study_id, order['orthanc_instance_id'])
     file_bytes = get_instance_file(ref.instance_id)
     result = run_full_analysis(
         file_bytes,
@@ -176,11 +176,21 @@ def worklist(user: dict = Depends(require_radiologist_or_doctor)):
     return {"studies": items, "counts": compute_counts(items)}
 
 
+def authorize_study(record, user):
+    if str(user.get('role', '')).lower() == 'doctor':
+        from routers.radiology_clarifications import order_access
+        from psycopg2.extras import RealDictCursor
+        import db_config
+        with db_config.get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            order_access(cur, record['order_id'], {**user, 'role': 'doctor'})
+
+
 @router.get("/studies/{study_id}", response_model=StudyDetailResponse)
 def study_detail(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    authorize_study(record, _user)
     record = enrich_study_detail(record)
     return record
 
@@ -190,6 +200,7 @@ def localized_ohif(study_id: str, _user: dict = Depends(require_radiologist_or_d
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    authorize_study(record, _user)
     try:
         return ensure_localized_series(record)
     except OrthancError as exc:
@@ -198,6 +209,10 @@ def localized_ohif(study_id: str, _user: dict = Depends(require_radiologist_or_d
 
 @router.post("/studies/{study_id}/viewed", response_model=ViewedStatusResponse)
 def viewed(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
+    existing = get_study(study_id)
+    if existing is None:
+        raise HTTPException(404, 'No analysis found for this study ID.')
+    authorize_study(existing, _user)
     stamp = datetime.now(timezone.utc).isoformat()
     record = mark_study_viewed(study_id, stamp)
     if record is None:
@@ -242,6 +257,7 @@ def review_study(study_id: str, request: ReviewStatusRequest, reviewer: dict = D
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
 
+    authorize_study(record, _user)
     record = enrich_study_detail(record)
     return record
 

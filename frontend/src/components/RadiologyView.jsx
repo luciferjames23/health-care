@@ -1,7 +1,7 @@
 import XrayOrders from './XrayOrders';
 import { ImagingHistoryButton } from './ImagingHistory';
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime } from './RadiologyShared';
 
@@ -26,6 +26,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
   const [data, setData] = useState(null);
   const [pacs, setPacs] = useState(null);
   const [detail, setDetail] = useState(null);
+  const detailRequest = useRef(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [ohif, setOhif] = useState(null);
@@ -75,16 +76,21 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
   }, [tab, refreshPacs]);
 
   const openStudy = useCallback(async (id) => {
+    const request = ++detailRequest.current;
+    setBusy(true);
     setError('');
     try {
       // Viewing is workflow state only. It never reruns inference or changes AI status.
       await radiologyApi.markViewed(id).catch(err => console.warn('markViewed non-critical error:', err));
       const d = await radiologyApi.getStudy(id);
+      if (request !== detailRequest.current) return;
       setDetail(d);
       setTab('analysis');
       await refresh();
     } catch (e) {
-      setError(e.message);
+      if (request === detailRequest.current) setError(e.message);
+    } finally {
+      if (request === detailRequest.current) setBusy(false);
     }
   }, [refresh]);
 
@@ -199,7 +205,10 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
 
     {tab === 'pacs' && (!pacs ? <Loading text="Loading Demo PACS studies…" /> : <PacsTable pacs={pacs} onRefresh={refreshPacs} />)}
 
-    {tab === 'analysis' && detail && <Analysis detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={(uid, series) => setOhif(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}${series ? `&initialSeriesInstanceUID=${encodeURIComponent(series)}` : ""}&_cb=${Date.now()}`)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
+    {tab === 'analysis' && detail && <div style={{ display: 'flex', gap: 8, marginBottom: 12 }} aria-label="Studies in this order">
+      {(data?.studies || []).filter(s => s.order_id === detail.order_id).map(s => <button key={s.study_id} style={s.study_id === detail.study_id ? primaryBtn : btn} disabled={busy} onClick={() => openStudy(s.study_id)}>{s.projection || s.metadata?.view_position} · {s.review_status || 'Pending Review'}</button>)}
+    </div>}
+    {tab === 'analysis' && detail && <Analysis key={detail.study_id} detail={detail} busy={busy} onBack={() => setTab('worklist')} onOhif={(uid, series) => setOhif(`${OHIF_BASE_URL}/viewer?StudyInstanceUIDs=${encodeURIComponent(uid)}${series ? `&initialSeriesInstanceUID=${encodeURIComponent(series)}` : ""}&_cb=${Date.now()}`)} onFinalise={finaliseReview} reviewerName={reviewerName} onSelectPatient={onSelectPatient} />}
 
     {ohif && <div onClick={() => setOhif(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '97vw', height: '94vh', background: '#fff', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -315,7 +324,7 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
     <Card style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <b style={{ fontSize: 15 }}>
-          {detail.metadata?.series_description || 'Chest Radiograph'} ·{' '}
+          {detail.projection || detail.metadata?.series_description || 'Chest Radiograph'} ·{' '}
           {canNavigate ? (
             <span
               style={{

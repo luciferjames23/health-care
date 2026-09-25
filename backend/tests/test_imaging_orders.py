@@ -130,6 +130,7 @@ class DatabaseOrderFlowTests(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute('CREATE TEMP TABLE radiology_orders (LIKE public.radiology_orders INCLUDING ALL) ON COMMIT DROP')
                 cur.execute('CREATE TEMP TABLE radiology_patient_identifiers (LIKE public.radiology_patient_identifiers INCLUDING ALL) ON COMMIT DROP')
+                cur.execute('CREATE TEMP TABLE radiology_order_studies (LIKE public.radiology_order_studies INCLUDING ALL) ON COMMIT DROP')
                 cur.execute('CREATE TEMP TABLE radiology_scan (LIKE public.radiology_scan INCLUDING ALL) ON COMMIT DROP')
                 cur.execute('SELECT id,patient_code FROM patients ORDER BY id LIMIT 1'); patient_id,patient_code=cur.fetchone()
                 cur.execute("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE lower(r.name)='doctor' AND u.is_active=true ORDER BY u.id LIMIT 2"); doctor_ids=[row[0] for row in cur.fetchall()]

@@ -1766,6 +1766,14 @@ def get_patient_scans(
             cur.execute(f"""
                 SELECT
                     rs.scan_id,
+                    rs.order_id,
+                    ro.accession_number,
+                    acquisition.study_instance_uid,
+                    ro.study_version,
+                    ro.root_order_id,
+                    ro.follow_up_of,
+                    prior.accession_number AS follow_up_accession,
+                    prior.study_version AS follow_up_version,
                     rs.patient_id,
                     rs.patient_code,
                     rs.original_patient_id,
@@ -1777,6 +1785,8 @@ def get_patient_scans(
                     rs.height,
                     rs.target,
                     rs.image,
+                    rs.annotated_image,
+                    acquisition.projection,
                     rs.scan_report,
                     rs.priority,
                     rs.opacity_detected,
@@ -1795,6 +1805,9 @@ def get_patient_scans(
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id
+                LEFT JOIN radiology_order_studies acquisition ON acquisition.study_key=rs.order_study_id
+                LEFT JOIN radiology_orders ro ON ro.order_id = rs.order_id
+                LEFT JOIN radiology_orders prior ON prior.order_id = ro.follow_up_of
                 {where_sql}
                 ORDER BY rs.scan_id DESC
                 LIMIT %s;

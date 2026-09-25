@@ -4,8 +4,8 @@ import ModuleLoadingScreen from './ModuleLoadingScreen';
 export const statusRank = { 'HIGH PRIORITY': 0, 'REVIEW FLAG': 1, 'ROUTINE': 2 };
 
 export const statusStyle = (status) => ({
-  color: status === 'HIGH PRIORITY' ? '#a52828' : status === 'REVIEW FLAG' ? '#8a5b00' : '#17606c',
-  background: status === 'HIGH PRIORITY' ? '#fff0ef' : status === 'REVIEW FLAG' ? '#fff7df' : '#eaf7f8',
+  color: status === 'HIGH PRIORITY' ? '#a52828' : status === 'REVIEW FLAG' ? '#8a5b00' : status === 'ROUTINE' ? '#17606c' : '#475569',
+  background: status === 'HIGH PRIORITY' ? '#fff0ef' : status === 'REVIEW FLAG' ? '#fff7df' : status === 'ROUTINE' ? '#eaf7f8' : '#f1f5f9',
   border: `1px solid ${status === 'HIGH PRIORITY' ? '#f2c3bf' : status === 'REVIEW FLAG' ? '#efd99a' : '#b9dfe2'}`,
   borderRadius: 999, padding: '3px 8px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap'
 });
@@ -127,7 +127,7 @@ export function StudyTable({ studies = [], onOpen }) {
             </div>
           ) : null}
         </td>
-        <td style={cell}>{meta.modality || meta.Modality || 'DX'}</td>
+        <td style={cell}>{meta.modality || meta.Modality || 'DX'} · {s.projection || meta.view_position || ''}</td>
         <td style={cell}><span style={{ fontWeight: 650 }}>{Math.round(probability * 100)}%</span></td>
         <td style={cell}>{regions} suspected region(s){s.localization_summary?.highest_confidence != null ? <div style={{ fontSize: 10, color: '#7b8288' }}>max {Math.round(s.localization_summary.highest_confidence * 100)}%</div> : null}</td>
         <td style={cell}>

@@ -76,7 +76,13 @@ def get_instance_file(instance_id: str) -> bytes:
     return content
 
 
-def get_first_instance_for_study(study_id: str) -> OrthancInstanceRef:
+def get_first_instance_for_study(study_id: str, instance_id: str | None = None) -> OrthancInstanceRef:
+    if instance_id:
+        instance = _request('GET', f'/instances/{instance_id}').json()
+        series_id = instance.get('ParentSeries')
+        if not series_id or get_series(series_id).get('ParentStudy') != study_id:
+            raise OrthancError('The uploaded image does not belong to this PACS study.')
+        return OrthancInstanceRef(study_id=study_id, series_id=series_id, instance_id=instance_id)
     study = get_study(study_id)
     series_ids = study.get("Series") or []
     if not series_ids:

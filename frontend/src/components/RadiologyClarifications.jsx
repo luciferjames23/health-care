@@ -7,7 +7,7 @@ const date = value => value ? new Date(value).toLocaleString(undefined, { dateSt
 const box = { border: '1px solid #dbe4ec', borderRadius: 8, padding: 14, background: '#fff' };
 const field = { width: '100%', padding: 8, border: '1px solid #cbd5e1', borderRadius: 5, boxSizing: 'border-box' };
 
-export function ClarificationButton({ orderId, label = 'Report discussions', inbox = false }) {
+export function ClarificationButton({ orderId, scanId, projection, disabled = false, label = 'Report discussions', inbox = false }) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const trigger = useRef(null);
@@ -24,15 +24,15 @@ export function ClarificationButton({ orderId, label = 'Report discussions', inb
     else { dialog.current?.close(); trigger.current?.focus(); }
   }, [open]);
   return <>
-    <button ref={trigger} type="button" style={btn} onClick={() => setOpen(true)}>{label}{unread > 0 ? ` (${unread} unread)` : ''}</button>
+    <button ref={trigger} disabled={disabled} type="button" style={btn} onClick={() => setOpen(true)}>{label}{unread > 0 ? ` (${unread} unread)` : ''}</button>
     <dialog ref={dialog} onCancel={() => setOpen(false)} onClose={() => setOpen(false)} aria-label="X-ray report discussions" style={{ width: 'min(1050px, 92vw)', maxHeight: '90vh', border: '1px solid #cbd5e1', borderRadius: 10, padding: 20 }}>
-      {open && <><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}><h2 style={{ margin: 0, fontSize: 18 }}>X-ray report discussions</h2><button style={btn} onClick={() => setOpen(false)}>Close</button></div>
-        <RadiologyClarifications key={orderId || 'inbox'} orderId={orderId} /></>}
+      {open && <><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}><h2 style={{ margin: 0, fontSize: 18 }}>{projection ? `${projection} report discussions` : 'X-ray report discussions'}</h2><button style={btn} onClick={() => setOpen(false)}>Close</button></div>
+        <RadiologyClarifications key={`${orderId || 'inbox'}-${scanId || 'all'}`} orderId={orderId} scanId={scanId} /></>}
     </dialog>
   </>;
 }
 
-export default function RadiologyClarifications({ orderId }) {
+export default function RadiologyClarifications({ orderId, scanId }) {
   const [list, setList] = useState(null);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -54,13 +54,13 @@ export default function RadiologyClarifications({ orderId }) {
     const refresh = async () => {
       if (document.visibilityState === 'hidden') return;
       try {
-        const result = await api.list(orderId);
+        const result = await api.list(orderId, scanId);
         if (alive) { setList(result); setError(''); }
       } catch (e) { if (alive) setError(e.message); }
     };
     refresh(); const timer = setInterval(refresh, 10000);
     return () => { alive = false; clearInterval(timer); };
-  }, [orderId, revision]);
+  }, [orderId, scanId, revision]);
   useEffect(() => {
     if (!selected) return undefined;
     let alive = true;
@@ -92,7 +92,7 @@ export default function RadiologyClarifications({ orderId }) {
     const target = selected;
     try {
       if (compose) {
-        const payload = { order_id: orderId, subject, priority, body, report_fingerprint: draftReport.report_fingerprint };
+        const payload = { order_id: orderId, ...(scanId != null ? { scan_id: scanId } : {}), subject, priority, body, report_fingerprint: draftReport.report_fingerprint };
         if (!request.current || request.current.signature !== JSON.stringify(payload)) request.current = { signature: JSON.stringify(payload), id: crypto.randomUUID() };
         const result = await api.create({ ...payload, id: request.current.id });
         request.current = null; setSubject(''); setBody(''); choose(result.id);
@@ -108,7 +108,7 @@ export default function RadiologyClarifications({ orderId }) {
   const selectedRow = list?.threads.find(t => t.id === selected);
   const user = list?.user;
   return <section style={{ fontSize: 13 }}>
-    {list?.context && <div style={{ ...box, marginBottom: 12 }}><b>{list.context.patient_name} · {list.context.patient_code}</b><div>{list.context.examination} · {list.context.accession_number} · Ordered {date(list.context.created_at)}</div><div>Reporting radiologist: {list.context.reviewed_by || 'Awaiting review'}</div></div>}
+    {list?.context && <div style={{ ...box, marginBottom: 12 }}><b>{list.context.patient_name} · {list.context.patient_code}</b><div>{list.context.examination}{scanId != null ? ` · Scan #${scanId}` : ''} · {list.context.accession_number} · Ordered {date(list.context.created_at)}</div><div>Reporting radiologist: {list.context.reviewed_by || 'Awaiting review'}</div></div>}
     <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
       <span>Questions and replies stay linked to the original study and report snapshot.</span>
       {orderId && user?.role === 'doctor' && <button style={primaryBtn} disabled={busy || compose || !list.context?.reviewed_at || !list.context?.scan_report} onClick={() => { choose(null); setDraftReport(list.context); setCompose(true); }}>Request clarification</button>}

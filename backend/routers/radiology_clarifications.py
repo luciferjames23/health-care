@@ -77,6 +77,7 @@ class Message(BaseModel):
 
 class NewThread(Message):
     order_id: UUID
+    scan_id: int | None = Field(default=None, gt=0)
     subject: str = Field(min_length=3, max_length=200)
     priority: Literal['Routine', 'Urgent'] = 'Routine'
     report_fingerprint: str = Field(min_length=64, max_length=64)
@@ -106,27 +107,63 @@ def report_fingerprint(scan):
     return hashlib.sha256(json.dumps(values).encode()).hexdigest()
 
 
+def order_report(scans, expected=1):
+    """Keep an order discussion tied to all its reports, never an arbitrary view."""
+    if len(scans) <= 1:
+        row = dict(scans[0]) if scans else None
+        if row and (expected > len(scans) or row.get('examination') == 'Chest X-ray PA + AP'):
+            row['reviewed_at'] = None
+        return row
+    scans = sorted(scans, key=lambda row: row.get('scan_id') or 0)
+    combined = dict(scans[0])
+    for row in scans:
+        if isinstance(row.get('dl_response'), str):
+            row['dl_response'] = json.loads(row['dl_response'])
+    combined['scan_report'] = '\n\n'.join(
+        f"{(row.get('dl_response') or {}).get('projection') or 'Study ' + str(row['scan_id'])}: {row.get('scan_report') or 'Pending report'}"
+        for row in scans)
+    combined['reviewed_by'] = ', '.join(dict.fromkeys(row['reviewed_by'] for row in scans if row.get('reviewed_by')))
+    combined['reviewed_at'] = max(row['reviewed_at'] for row in scans) if all(row.get('reviewed_at') for row in scans) else None
+    combined['scan_id'] = ','.join(str(row['scan_id']) for row in scans)
+    combined['review_status'] = 'Reviewed' if combined['reviewed_at'] else 'Pending Review'
+    return combined
+
+
 @router.get('')
-def list_threads(order_id: UUID | None = None, user=Depends(discussion_user)):
+def list_threads(order_id: UUID | None = None, user=Depends(discussion_user), scan_id: int | None = None):
+    if scan_id is not None and (not order_id or scan_id <= 0):
+        raise HTTPException(422, 'A valid order and scan are required.')
     with db_config.get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         context = None
         if order_id:
             order_access(cur, order_id, user)
             cur.execute('''SELECT o.order_id,o.accession_number,o.examination,o.created_at,o.patient_id,
                 p.patient_code,concat_ws(' ',p.first_name,p.last_name) AS patient_name,
-                s.reviewed_by,s.reviewed_at,s.scan_report
+                s.scan_id,to_jsonb(s)->'dl_response' AS dl_response,s.reviewed_by,s.reviewed_at,s.scan_report
                 FROM radiology_orders o JOIN patients p ON p.id=o.patient_id
-                LEFT JOIN radiology_scan s ON s.order_id=o.order_id WHERE o.order_id=%s''', (str(order_id),))
-            context = cur.fetchone()
+                LEFT JOIN radiology_scan s ON s.order_id=o.order_id WHERE o.order_id=%s'''
+                + (' AND s.scan_id=%s' if scan_id is not None else ''),
+                (str(order_id), scan_id) if scan_id is not None else (str(order_id),))
+            rows = cur.fetchall()
+            if scan_id is not None and not rows:
+                raise HTTPException(404, 'Scan not found for this order.')
+            context = dict(rows[0]) if scan_id is not None else order_report(rows)
             context['report_fingerprint'] = report_fingerprint(context)
         clauses, params = [], [user['user_id'], user['user_id']]
         if order_id:
             clauses.append('t.order_id=%s')
             params.append(str(order_id))
+        if scan_id is not None:
+            clauses.append("t.report_snapshot->>'scan_id'=%s")
+            params.append(str(scan_id))
         if user['role'] == 'doctor':
             clauses.append(ACCESS)
             params.extend([user['user_id']] * 2)
-        cur.execute("""SELECT t.*, o.patient_id,o.accession_number,o.examination,o.study_instance_uid,
+        cur.execute("""SELECT t.*, o.patient_id,o.accession_number,o.examination,
+            CASE WHEN t.report_snapshot->>'scan_id' ~ '^[0-9]+$' THEN
+                (SELECT to_jsonb(rs)->>'study_instance_uid' FROM radiology_scan rs
+                 WHERE rs.order_id=t.order_id AND rs.scan_id::text=t.report_snapshot->>'scan_id')
+                ELSE o.study_instance_uid END AS study_instance_uid,
             p.patient_code,concat_ws(' ',p.first_name,p.last_name) AS patient_name,
             COALESCE(u.staff_name,u.username) AS assigned_name,
             (SELECT count(*) FROM radiology_clarification_messages m
@@ -143,9 +180,14 @@ def create_thread(body: NewThread, user=Depends(discussion_user)):
     if user['role'] != 'doctor':
         raise HTTPException(403, 'Only a doctor can request clarification.')
     with db_config.get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        order_access(cur, body.order_id, user)
-        cur.execute('SELECT * FROM radiology_scan WHERE order_id=%s FOR SHARE', (str(body.order_id),))
-        scan = cur.fetchone()
+        order = order_access(cur, body.order_id, user)
+        cur.execute('SELECT * FROM radiology_scan WHERE order_id=%s'
+                    + (' AND scan_id=%s' if body.scan_id is not None else '') + ' FOR SHARE',
+                    (str(body.order_id), body.scan_id) if body.scan_id is not None else (str(body.order_id),))
+        rows = cur.fetchall()
+        if body.scan_id is not None and not rows:
+            raise HTTPException(404, 'Scan not found for this order.')
+        scan = dict(rows[0]) if body.scan_id is not None else order_report(rows, 2 if order['examination'] == 'Chest X-ray PA + AP' else 1)
         if not scan or not scan.get('scan_report') or not scan.get('reviewed_at'):
             raise HTTPException(409, 'A radiologist-reviewed report is required before requesting clarification.')
         cur.execute('SELECT id FROM radiology_clarifications WHERE id=%s', (str(body.id),))
@@ -167,6 +209,8 @@ def create_thread(body: NewThread, user=Depends(discussion_user)):
         thread = thread_access(cur, body.id, user, lock=True)
         if str(thread['order_id']) != str(body.order_id) or thread['created_by'] != user['user_id'] or thread['subject'] != body.subject or thread['priority'] != body.priority:
             raise HTTPException(409, 'Request identifier already used.')
+        if body.scan_id is not None and str(thread['report_snapshot'].get('scan_id')) != str(body.scan_id):
+            raise HTTPException(409, 'Request identifier already used for another scan.')
         insert_message(cur, body.id, body, user)
         if inserted:
             event(cur, body.id, user, 'Requested clarification' + ('; assigned to reporting radiologist' if assignee else '; sent to shared radiology queue'))

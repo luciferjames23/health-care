@@ -32,7 +32,7 @@ def order_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
 class NewOrder(BaseModel):
     model_config = ConfigDict(extra="forbid")
     patient_id: int = Field(gt=0)
-    examination: Literal['Chest X-ray PA', 'Chest X-ray AP']
+    examination: Literal['Chest X-ray PA', 'Chest X-ray AP', 'Chest X-ray PA + AP']
     indication: str = Field(min_length=3, max_length=2000)
     priority: Literal['Routine', 'Urgent'] = 'Routine'
     request_id: uuid.UUID
@@ -41,10 +41,17 @@ class NewOrder(BaseModel):
 
 
 ORDER_SELECT = """
-SELECT o.*, p.patient_code, concat_ws(' ',p.first_name,p.last_name) AS patient_name,
-       COALESCE(d.display_name,u.staff_name,u.username) AS requested_by_name
+SELECT o.*, COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'study_key',a.study_key,'projection',a.projection,'status',a.status,
+           'study_instance_uid',a.study_instance_uid,'study_id',rs.study_id,
+           'review_status',rs.review_status,'analyzed',rs.scan_id IS NOT NULL) ORDER BY a.projection DESC)
+           FROM radiology_order_studies a LEFT JOIN radiology_scan rs ON rs.order_study_id=a.study_key
+           WHERE a.order_id=o.order_id),'[]'::jsonb) AS studies, p.patient_code, concat_ws(' ',p.first_name,p.last_name) AS patient_name,
+       COALESCE(d.display_name,u.staff_name,u.username) AS requested_by_name,
+       prior.accession_number AS follow_up_accession,prior.study_version AS follow_up_version
 FROM radiology_orders o JOIN patients p ON p.id=o.patient_id
 JOIN users u ON u.id=o.requested_by LEFT JOIN doctors d ON d.user_id=u.id
+LEFT JOIN radiology_orders prior ON prior.order_id=o.follow_up_of
 """
 
 
@@ -114,6 +121,13 @@ def create_order(body: NewOrder, user=Depends(order_user)):
                 raise HTTPException(409, 'This request identifier is already used. Start a new order.')
             if str(row.get('follow_up_of')) != str(body.follow_up_of) or (not body.follow_up_of and (row.get('clinical_problem') or row['indication']) != problem):
                 raise HTTPException(409, 'This request identifier has different clinical problem details. Start a new order.')
+            projections = ['PA', 'AP'] if body.examination == 'Chest X-ray PA + AP' else [body.examination.rsplit(' ', 1)[-1]]
+            for projection in projections:
+                key = order_id if len(projections) == 1 else str(uuid.uuid5(body.request_id, projection))
+                cur.execute('''INSERT INTO radiology_order_studies(study_key,order_id,projection)
+                    VALUES (%s,%s,%s) ON CONFLICT (order_id,projection) DO NOTHING''', (key,order_id,projection))
+            cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
+            row = dict(cur.fetchone())
             conn.commit()
             return row
 
@@ -179,6 +193,12 @@ def prepare_dicom(content: bytes, order: dict, confirmed: bool = False) -> tuple
                               dicom_patient_birth_date=str(getattr(ds, 'PatientBirthDate', '')),
                               dicom_patient_sex=str(getattr(ds, 'PatientSex', '')))
         raise
+    expected_projection = order.get('projection')
+    actual_projection = str(getattr(ds, 'ViewPosition', '')).strip().upper()
+    if expected_projection and actual_projection and actual_projection != expected_projection:
+        raise HTTPException(422, f'DICOM view {actual_projection} does not match the selected {expected_projection} study.')
+    if order.get('examination') == 'Chest X-ray PA + AP' and not actual_projection:
+        raise HTTPException(422, 'Combined orders require DICOM ViewPosition PA or AP to verify each study.')
     ds.AccessionNumber = order['accession_number']
     output = io.BytesIO()
     ds.save_as(output, enforce_file_format=True)
@@ -186,7 +206,7 @@ def prepare_dicom(content: bytes, order: dict, confirmed: bool = False) -> tuple
 
 
 @router.post('/{order_id}/upload')
-def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Depends(require_radiologist), confirm_patient_match: Annotated[bool, Form()] = False):
+def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Depends(require_radiologist), confirm_patient_match: Annotated[bool, Form()] = False, projection: Annotated[Literal['PA', 'AP'] | None, Form()] = None):
     content = file.file.read(30 * 1024 * 1024 + 1)
     if not content or len(content) > 30 * 1024 * 1024:
         raise HTTPException(413, 'Upload a non-empty DICOM file up to 30 MB.')
@@ -198,9 +218,19 @@ def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Dep
             if not row:
                 raise HTTPException(404, 'X-ray order not found.')
             order = dict(row)
+            if order['examination'] == 'Chest X-ray PA + AP' and not projection:
+                raise HTTPException(422, 'Select PA or AP for this combined order.')
+            projection = projection or order['examination'].rsplit(' ', 1)[-1]
+            cur.execute('SELECT * FROM radiology_order_studies WHERE order_id=%s AND projection=%s', (str(order_id),projection))
+            acquisition = cur.fetchone()
+            if not acquisition:
+                raise HTTPException(422, 'This projection was not requested for this order.')
+            study_key = str(acquisition['study_key'])
+            order.update(dict(acquisition))
             if order['status'] == 'Uploaded':
                 if order['upload_sha256'] == digest:
-                    return order
+                    cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (str(order_id),))
+                    return dict(cur.fetchone())
                 raise HTTPException(409, 'An image is already uploaded for this order.')
     payload, study_uid = prepare_dicom(content, order, confirm_patient_match)
     # Do not attach an already-stored image from another examination to this order.
@@ -212,24 +242,24 @@ def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Dep
         existing = _request('POST', '/tools/find', json={'Level':'Instance', 'Query':{'SOPInstanceUID':sop_uid}}).json()
         for instance_id in existing:
             tags = _request('GET', f'/instances/{instance_id}/simplified-tags').json()
-            if tags.get('AccessionNumber') != order['accession_number']:
+            if tags.get('AccessionNumber') != order['accession_number'] or tags.get('StudyInstanceUID') != study_uid:
                 raise HTTPException(409, 'This DICOM image is already in PACS for another accession. Upload the image acquired for this order.')
     except OrthancError as exc:
         raise HTTPException(502, 'PACS is unavailable. Please retry.') from exc
     with db_config.get_db_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT order_id FROM radiology_orders WHERE study_instance_uid=%s AND order_id<>%s', (study_uid,str(order_id)))
+            cur.execute('SELECT order_id FROM radiology_order_studies WHERE study_instance_uid=%s AND study_key<>%s', (study_uid,study_key))
             if cur.fetchone():
                 raise HTTPException(409, 'This DICOM study is already linked to another order.')
     with db_config.get_db_connection() as conn:
         with conn.cursor() as cur:
             # One claimant per order. Retrying the same upload is safe after interruption.
             try:
-                cur.execute('''UPDATE radiology_orders SET status='Uploading',upload_started_at=CURRENT_TIMESTAMP,
-                    upload_sha256=%s, study_instance_uid=%s WHERE order_id=%s AND
+                cur.execute('''UPDATE radiology_order_studies SET status='Uploading',upload_started_at=CURRENT_TIMESTAMP,
+                    upload_sha256=%s, study_instance_uid=%s WHERE study_key=%s AND
                     (status='Requested' OR (status='Uploading' AND upload_started_at < CURRENT_TIMESTAMP - INTERVAL '5 minutes'))
                     AND (upload_sha256 IS NULL OR upload_sha256=%s) RETURNING order_id''',
-                    (digest, study_uid, str(order_id), digest))
+                    (digest, study_uid, study_key, digest))
             except psycopg2.errors.UniqueViolation as exc:
                 raise HTTPException(409, 'This DICOM study is already linked to another order.') from exc
             if not cur.fetchone():
@@ -251,14 +281,24 @@ def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Dep
     except (OrthancError, ValueError) as exc:
         with db_config.get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE radiology_orders SET status='Requested' WHERE order_id=%s AND status='Uploading'", (str(order_id),))
+                cur.execute("UPDATE radiology_order_studies SET status='Requested' WHERE study_key=%s AND status='Uploading'", (study_key,))
                 conn.commit()
         raise HTTPException(502, 'PACS upload could not be confirmed. Retry the same file.') from exc
     with db_config.get_db_connection() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('''UPDATE radiology_orders SET status='Uploaded',uploaded_at=CURRENT_TIMESTAMP,
-                uploaded_by=%s,orthanc_instance_id=%s,orthanc_study_id=%s WHERE order_id=%s''',
-                (reviewer['user_id'], result['ID'], result['ParentStudy'], str(order_id)))
+            cur.execute('''UPDATE radiology_order_studies SET status='Uploaded',uploaded_at=CURRENT_TIMESTAMP,
+                uploaded_by=%s,orthanc_instance_id=%s,orthanc_study_id=%s WHERE study_key=%s''',
+                (reviewer['user_id'], result['ID'], result['ParentStudy'], study_key))
+            # Serialize aggregate updates so simultaneous PA/AP completions cannot lose readiness.
+            cur.execute('SELECT order_id FROM radiology_orders WHERE order_id=%s FOR UPDATE', (str(order_id),))
+            cur.execute('''UPDATE radiology_orders SET status=CASE WHEN NOT EXISTS
+                (SELECT 1 FROM radiology_order_studies WHERE order_id=%s AND status<>'Uploaded')
+                THEN 'Uploaded' ELSE 'Requested' END, uploaded_at=CURRENT_TIMESTAMP,
+                uploaded_by=%s WHERE order_id=%s''', (str(order_id),reviewer['user_id'],str(order_id)))
+            if order['examination'] != 'Chest X-ray PA + AP':
+                cur.execute('''UPDATE radiology_orders SET study_instance_uid=%s,orthanc_instance_id=%s,
+                    orthanc_study_id=%s,upload_sha256=%s WHERE order_id=%s''',
+                    (study_uid,result['ID'],result['ParentStudy'],digest,str(order_id)))
             conn.commit()
             cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (str(order_id),))
             return dict(cur.fetchone())
@@ -267,6 +307,11 @@ def upload_order(order_id: uuid.UUID, file: UploadFile = File(...), reviewer=Dep
 def patient_for_ordered_study(study_uid):
     with db_config.get_db_connection() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(ORDER_SELECT + " WHERE o.study_instance_uid=%s AND o.status='Uploaded'", (study_uid,))
+            cur.execute(ORDER_SELECT + " JOIN radiology_order_studies acquisition ON acquisition.order_id=o.order_id WHERE acquisition.study_instance_uid=%s AND acquisition.status='Uploaded'", (study_uid,))
             row = cur.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            order = dict(row)
+            cur.execute('SELECT study_key,projection,orthanc_instance_id,orthanc_study_id FROM radiology_order_studies WHERE study_instance_uid=%s', (study_uid,))
+            order.update(dict(cur.fetchone()))
+            return order

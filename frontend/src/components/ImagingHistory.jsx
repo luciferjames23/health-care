@@ -22,6 +22,7 @@ export function ImagingHistoryButton({ orderId, onChanged, label = 'History / co
 }
 
 function ComparisonStudy({ study, title }) {
+  if (study.studies?.length > 1) return <div style={{ flex: '1 1 360px' }}><h3>{title} · {study.accession_number}</h3>{study.studies.map(s => <ComparisonStudy key={s.projection} title={`${title} ${s.projection}`} study={{ ...study, ...s, studies: undefined, examination: `Chest X-ray ${s.projection}` }} />)}</div>;
   const reviewed = Boolean(study.reviewed_at);
   return <article style={{ flex: '1 1 360px', minWidth: 0, border: '1px solid #dbe4ec', borderRadius: 8, padding: 12 }}>
     <h3 style={{ margin: '0 0 8px' }}>{title} — {studyVersion(study)}</h3>
@@ -91,7 +92,7 @@ function ImagingHistory({ orderId, onChanged }) {
       <p><b>{source?.patient_name} · {source?.patient_code}</b><br />Clinical problem: {source?.clinical_problem}</p>
       <p>Baseline and follow-ups are separate examinations of the same problem. V1, V2 and later numbers identify studies, not revisions of a signed report.</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        {data.studies.map(s => <div key={s.order_id} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: 10 }}><b>{studyVersion(s)}</b><div>{s.accession_number} · {s.examination}</div><div>{date(s.created_at)}</div><small>{s.status} · {s.review_status || 'Awaiting review'}</small></div>)}
+        {data.studies.map(s => <div key={s.order_id} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: 10 }}><b>{studyVersion(s)}</b><div>{s.accession_number} · {s.examination}</div><div>{date(s.created_at)}</div><small>{s.status} · {s.review_status || 'Awaiting review'}</small>{s.studies?.length > 1 && s.studies.map(a => <div key={a.projection}>{a.projection}: {a.status} · {a.review_status || 'Awaiting review'}</div>)}</div>)}
       </div>
       <button style={btn} disabled={busy} onClick={() => { setError(''); setRevision(n => n + 1); }}>Refresh history</button>
       {data.studies.length > 1 ? <>
