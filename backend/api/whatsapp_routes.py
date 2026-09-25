@@ -183,70 +183,82 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
 def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]:
     """
     Dynamically resolves context-aware list_button_title and section_title for Meta WhatsApp Interactive List Messages.
-    Guarantees 'Select Option' is NEVER shown on the WhatsApp UI.
+    Ensures every list message displays an explicit, context-matched button label on WhatsApp UI.
     """
     explicit_list_title = agent_res.get("list_button_title")
     explicit_sec_title = agent_res.get("section_title")
     
     intent = (agent_res.get("intent") or "").upper()
     buttons = agent_res.get("interactive_buttons") or []
-    response = agent_res.get("response") or ""
     
-    btn_ids_str = " ".join(b.get("id", "") for b in buttons if isinstance(b, dict)).lower()
+    btn_ids = [b.get("id", "") for b in buttons if isinstance(b, dict)]
+    btn_ids_str = " ".join(btn_ids).lower()
     btn_titles_str = " ".join(b.get("title", "") for b in buttons if isinstance(b, dict)).lower()
-    comb_str = f"{intent} {btn_ids_str} {btn_titles_str} {response}".lower()
+    comb_str = f"{intent} {btn_ids_str} {btn_titles_str}".lower()
 
     # 1. Resolve list_button_title (must be max 20 chars per Meta WhatsApp spec)
     list_title = explicit_list_title
     if not list_title or list_title.strip().lower() in ["select option", "select an option", "select"]:
-        if any(k in comb_str for k in ["profile", "btn_update_", "btn_change_profile", "btn_my_profile", "btn_edit_profile"]):
-            list_title = "Profile Options"
-        elif any(k in comb_str for k in ["slot", "time", "10:00", "11:00", "btn_slot_"]):
-            list_title = "Available Slots"
-        elif any(k in comb_str for k in ["date", "today", "tomorrow", "btn_date_"]):
-            list_title = "Available Dates"
-        elif any(k in comb_str for k in ["dept", "department", "pediatrics", "dermatology", "cardiology", "orthopedics", "general medicine", "btn_dept_"]):
-            list_title = "View Departments"
-        elif any(k in comb_str for k in ["doctor", "dr.", "btn_doc_"]):
-            list_title = "Doctor Options"
-        elif any(k in comb_str for k in ["pay", "upi", "gpay", "netbanking", "card", "btn_pay_"]):
-            list_title = "Payment Methods"
-        elif any(k in comb_str for k in ["report", "record", "lab", "btn_my_reports"]):
-            list_title = "Health Options"
-        elif any(k in comb_str for k in ["cancel", "reschedule", "btn_cancel_", "btn_reschedule_"]):
-            list_title = "Appointment Options"
-        elif any(k in comb_str for k in ["handoff", "human", "agent", "staff", "escalat"]):
-            list_title = "Handoff Options"
-        elif any(k in comb_str for k in ["menu", "greeting", "btn_book_appt", "btn_find_doctor"]):
+        # Check Main Menu first (8 category buttons: btn_cat_appts, btn_cat_doctors, etc. or GREETING intent)
+        if intent in ["GREETING", "MAIN_MENU"] or any(k in btn_ids_str for k in ["btn_cat_appts", "btn_cat_doctors", "btn_cat_inquiries", "btn_cat_health", "btn_cat_billing", "btn_cat_voice_lang", "btn_cat_staff", "btn_cat_emergency"]):
             list_title = "Main Menu"
+        elif any(k in btn_ids_str for k in ["btn_slot_"]) or "slot" in comb_str or any(t in btn_titles_str for t in ["10:00", "11:00", "09:00", "02:00"]):
+            list_title = "Choose a Time"
+        elif any(k in btn_ids_str for k in ["btn_date_"]) or (intent in ["BOOK_APPOINTMENT", "DOCTOR_AVAILABILITY"] and any(d in btn_titles_str for d in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])):
+            list_title = "Available Dates"
+        elif any(k in btn_ids_str for k in ["btn_dept_"]) or "department" in comb_str:
+            list_title = "Select Department"
+        elif any(k in btn_ids_str for k in ["btn_doc_"]) or "doctor" in comb_str or "dr." in btn_titles_str:
+            list_title = "Select Doctor"
+        elif any(k in btn_ids_str for k in ["btn_pay_"]) or "pay" in comb_str or "upi" in btn_titles_str or "card" in btn_titles_str:
+            list_title = "Payment Method"
+        elif any(k in btn_ids_str for k in ["btn_update_", "btn_change_profile", "btn_edit_profile"]):
+            list_title = "Select Field"
+        elif any(k in btn_ids_str for k in ["btn_my_reports", "btn_my_documents", "btn_preadmission"]):
+            list_title = "Select Record Type"
+        elif any(k in btn_ids_str for k in ["btn_cancel_", "btn_reschedule_"]):
+            list_title = "Select Action"
+        elif any(k in btn_ids_str for k in ["btn_hosp_info", "btn_reg_inq", "btn_billing_inq"]):
+            list_title = "Select Topic"
+        elif any(k in btn_ids_str for k in ["btn_change_language", "btn_lang_"]):
+            list_title = "Select Language"
+        elif any(k in btn_ids_str for k in ["btn_appt_id_"]):
+            list_title = "Select Appointment"
         else:
-            list_title = "Menu Options"
+            list_title = "Main Menu"
 
-    list_title = list_title[:20]
+    if list_title == "Select Payment Method":
+        list_title = "Payment Method"
+    else:
+        list_title = list_title[:20]
 
     # 2. Resolve section_title (max 24 chars per Meta WhatsApp spec)
     sec_title = explicit_sec_title
     if not sec_title or sec_title.strip().lower() in ["options", "select option", "select an option"]:
-        if any(k in comb_str for k in ["slot", "time", "10:00", "11:00", "btn_slot_"]):
-            sec_title = "Available Slots"
-        elif any(k in comb_str for k in ["date", "today", "tomorrow", "btn_date_"]):
-            sec_title = "Available Dates"
-        elif any(k in comb_str for k in ["dept", "department", "btn_dept_"]):
-            sec_title = "Hospital Departments"
-        elif any(k in comb_str for k in ["doctor", "dr.", "btn_doc_"]):
-            sec_title = "Available Doctors"
-        elif any(k in comb_str for k in ["profile", "btn_update_", "btn_change_profile"]):
-            sec_title = "Profile Actions"
-        elif any(k in comb_str for k in ["pay", "upi", "gpay", "btn_pay_"]):
-            sec_title = "Payment Methods"
-        elif any(k in comb_str for k in ["report", "record", "btn_my_reports"]):
-            sec_title = "Health Records"
-        elif any(k in comb_str for k in ["cancel", "reschedule"]):
-            sec_title = "Appointment Actions"
-        elif any(k in comb_str for k in ["menu", "greeting"]):
+        if list_title == "Main Menu":
             sec_title = "Main Menu Options"
+        elif list_title == "Choose a Time":
+            sec_title = "Available Time Slots"
+        elif list_title == "Available Dates":
+            sec_title = "Available Booking Dates"
+        elif list_title == "Select Department":
+            sec_title = "Hospital Departments"
+        elif list_title == "Select Doctor":
+            sec_title = "Available Doctors"
+        elif list_title in ["Select Payment Method", "Payment Method"]:
+            sec_title = "Payment Gateways"
+        elif list_title == "Select Field":
+            sec_title = "Profile Attributes"
+        elif list_title == "Select Record Type":
+            sec_title = "Health Records"
+        elif list_title == "Select Action":
+            sec_title = "Appointment Actions"
+        elif list_title == "Select Topic":
+            sec_title = "Information Topics"
+        elif list_title == "Select Language":
+            sec_title = "Supported Languages"
         else:
-            sec_title = "Select Action"
+            sec_title = "Menu Options"
 
     sec_title = sec_title[:24]
 
@@ -256,11 +268,7 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
 def process_and_send_reply(session_code: str, sender_num: str, message_id: str, body_text: str, button_id: str = None):
     t_total_start = time.monotonic()
     masked_num = f"***{sender_num[-4:]}" if sender_num and len(sender_num) >= 4 else "****"
-    if sender_num:
-        try:
-            whatsapp_client.send_typing_indicator(sender_num)
-        except Exception as _te:
-            print(f"[TYPING_INDICATOR] Error sending typing indicator: {_te}")
+
     try:
         t_agent_start = time.monotonic()
         agent_res = agent_service.process_agent_message(
@@ -336,8 +344,7 @@ def process_voice_reply(session_id: str, from_number: str, msg_id: str, audio_da
     media_id = audio_data.get("id")
     temp_audio_path = None
     print(f"[VOICE_MESSAGE_RECEIVED] wamid={msg_id}, media_id={media_id}, from={from_number}")
-    whatsapp_client.mark_message_read(msg_id)
-    whatsapp_client.send_typing_indicator(from_number)
+
 
     if not media_id:
         err_msg = "Sorry, I couldn't access your voice message. Please try again."
@@ -591,6 +598,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
 
     print(f"[WHATSAPP_MESSAGE_RECEIVED] wamid={msg_id}, type={msg_type}, from={from_number}")
 
+    # Centralized Typing Indicator & Read Status Trigger (Meta WhatsApp Cloud API Requirement)
+    # Immediately marks inbound message as read AND shows typing bubble simultaneously using exact wamid.
+    if msg_id:
+        background_tasks.add_task(whatsapp_client.send_typing_indicator, msg_id)
+
     try:
         session_id = get_or_create_whatsapp_session(from_number)
 
@@ -628,9 +640,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             if not text_body:
                 return {"status": "ok", "detail": "Empty message body"}
 
-            # Fire-and-forget: don't block agent processing (~200ms saved)
-            background_tasks.add_task(whatsapp_client.mark_message_read, msg_id)
-            background_tasks.add_task(whatsapp_client.send_typing_indicator, from_number)
+
 
             if msg_type == "interactive":
                 background_tasks.add_task(process_and_send_reply, session_id, from_number, msg_id, text_body, interactive_id)

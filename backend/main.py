@@ -53,6 +53,11 @@ except Exception as e:
 try:
     from routers.radiology import router as radiology_router, pacs_router, scans_router
     routers_to_mount.extend([radiology_router, pacs_router, scans_router])
+except ModuleNotFoundError as e:
+    if e.name in ("torch", "torchvision", "torchaudio"):
+        print("[INFO] Radiology router skipped (PyTorch optional module not installed)")
+    else:
+        print(f"Radiology router unavailable: {e}")
 except Exception as e:
     print(f"Radiology router unavailable: {e}")
 
@@ -166,6 +171,12 @@ def on_startup():
     try:
         from routers.radiology import initialize_radiology
         initialize_radiology()
+    except ModuleNotFoundError as e:
+        import logging
+        if e.name in ("torch", "torchvision", "torchaudio"):
+            logging.getLogger("uvicorn").info("Radiology auto-init skipped (PyTorch optional module not installed)")
+        else:
+            logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
