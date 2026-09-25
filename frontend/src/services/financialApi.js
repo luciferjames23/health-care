@@ -106,6 +106,7 @@ export const financialApi = {
     if (params.page) q.append('page', params.page);
     if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
     if (params.status && params.status !== "All") q.append('status', params.status);
+    if (params.search && params.search.trim()) q.append('search', params.search.trim());
     return request(`/api/finance/dashboard${q.toString() ? '?' + q.toString() : ''}`);
   },
 

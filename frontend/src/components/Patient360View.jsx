@@ -12,7 +12,7 @@ import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function Patient360View({
-  patient,
+  patient: propPatient,
   currentUser,
   onOpenDischarge,
   onOpenSoap,
@@ -22,6 +22,13 @@ export default function Patient360View({
   onOpenModal,
   onOpenRadiologyStudy,
 }) {
+  const patient = propPatient || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_selected_patient') || 'null');
+    } catch {
+      return null;
+    }
+  })();
   const [activeTab, setActiveTab] = useState('Overview');
   const canDiscussXrays = ['doctor', 'radiologist'].includes(currentUser?.role?.toLowerCase());
   const [discussionUnread, setDiscussionUnread] = useState(0);
@@ -61,6 +68,7 @@ export default function Patient360View({
   const [patientXrayOrders, setPatientXrayOrders] = useState([]);
   const [patientVitalsHistory, setPatientVitalsHistory] = useState([]);
   const [dischargeSummary, setDischargeSummary] = useState(null);
+  const [livePrescriptions, setLivePrescriptions] = useState([]);
   const [loadingPatient360, setLoadingPatient360] = useState(true);
 
   // Unified synchronized data fetch for Patient 360 to eliminate screen refreshing/flickering
@@ -129,7 +137,7 @@ export default function Patient360View({
         const effectiveBid = patient?.bill_id || resolvedAdmission?.bill_id;
 
         // 2. Concurrently fetch all secondary datasets in parallel
-        const [bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes] = await Promise.allSettled([
+        const [bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes, rxRes] = await Promise.allSettled([
           // Bed Management
           withTimeout(apiService.getBedManagementData(), 5000),
           // Vitals telemetry
@@ -157,6 +165,10 @@ export default function Patient360View({
           // Radiology Scans
           (effectivePid || pcode)
             ? withTimeout(radiologyApi.getPatientScans({ patient_id: effectivePid || undefined, patient_code: pcode || undefined, limit: 5 }), 5000)
+            : Promise.resolve(null),
+          // Live Prescriptions from DB
+          (effectivePid || pcode || targetName)
+            ? withTimeout(apiService.getPrescriptions({ search: pcode || (effectivePid ? `MER-PAT-${String(effectivePid).padStart(7, '0')}` : targetName), limit: 20 }), 5000)
             : Promise.resolve(null)
         ]);
 
@@ -240,6 +252,13 @@ export default function Patient360View({
           setDiagScanIdx(0);
         } else {
           setDiagScans([]);
+        }
+
+        // Live Prescriptions
+        if (rxRes.status === 'fulfilled' && rxRes.value?.data && Array.isArray(rxRes.value.data) && rxRes.value.data.length > 0) {
+          setLivePrescriptions(rxRes.value.data);
+        } else {
+          setLivePrescriptions([]);
         }
       } catch (err) {
         console.error("Patient 360 data load error:", err);
@@ -431,32 +450,30 @@ export default function Patient360View({
       .filter(py => String(py.payment_status || '').toUpperCase() === 'SUCCESS')
       .reduce((sum, py) => sum + Number(py.amount || 0), 0);
 
-    // Admission is explicitly pending clearance if clearance status is 'pending' or outstanding balance > 0
-    const isExplicitlyPending = (
-      rawClearance.toLowerCase() === 'pending' ||
-      String(raw.bill_status || '').toLowerCase() === 'pending' ||
-      (rawAdmOutstanding !== null && rawAdmOutstanding > 0)
+    // Determine if bill is genuinely cleared / settled:
+    const isReadyForDischarge = String(raw.discharge_status || d.discharge_status || '').toLowerCase() === 'ready';
+
+    const isExplicitlyCleared = (
+      ['PAID', 'SETTLED', 'RELEASED'].includes(String(raw.bill_status || '').toUpperCase()) ||
+      ['PAID', 'SETTLED', 'RELEASED'].includes(String(liveBill?.bill_status || '').toUpperCase()) ||
+      ['SETTLED', 'CLEARED'].includes(rawClearance.toUpperCase()) ||
+      isReadyForDischarge ||
+      (rawAdmOutstanding !== null && rawAdmOutstanding <= 0 && rawClearance.toLowerCase() !== 'pending' && String(raw.bill_status || '').toLowerCase() !== 'pending') ||
+      (successfulPaymentsTotal >= billNetAmount && billNetAmount > 0)
     );
 
-    // Determine if bill is genuinely cleared:
-    const isCleared = isOP || (!isExplicitlyPending && (
-      rawClearance.toLowerCase() === 'cleared' ||
-      ['PAID', 'SETTLED'].includes(String(raw.bill_status || '').toUpperCase()) ||
-      ['PAID', 'SETTLED'].includes(String(liveBill?.bill_status || '').toUpperCase()) ||
-      (rawAdmOutstanding !== null && rawAdmOutstanding <= 0) ||
-      (successfulPaymentsTotal >= billNetAmount && billNetAmount > 0)
-    ));
+    const isCleared = isOP || isExplicitlyCleared;
 
-    // Outstanding balance
-    const calculatedOutstanding = (isOP || isCleared)
+    // Outstanding balance is strictly 0 when cleared, outpatient, or discharged
+    const calculatedOutstanding = (isOP || isCleared || isDischarged)
       ? 0
       : (rawAdmOutstanding !== null
           ? rawAdmOutstanding
           : Math.max(0, (liveBill?.patient_amount != null ? Number(liveBill.patient_amount) : (billNetAmount - insuranceAmount)) - successfulPaymentsTotal)
         );
-    const outstandingBalance = Math.max(0, calculatedOutstanding);
+    const outstandingBalance = isCleared ? 0 : Math.max(0, calculatedOutstanding);
 
-    const billStatus = isOP ? 'Paid' : isCleared ? 'Paid' : (rawBillStatus === 'Settled' && !isCleared ? 'Pending' : rawBillStatus);
+    const billStatus = isOP ? 'Paid' : isCleared ? 'Settled' : rawBillStatus;
     const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || 'Pending');
 
     const billingStatusDisplay = isOP
@@ -475,10 +492,10 @@ export default function Patient360View({
         ? 'Emergency Triage Active'
         : isDischarged
           ? 'Discharged'
-          : (d.status || d._status || (isCleared ? 'Cleared for Discharge' : 'Admitted · Pending Clearance'));
+          : (d.status || d._status || (isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted · Pending Clearance'));
 
     let statusBadge = {
-      text: isCleared ? 'Bill Cleared · Admitted' : 'Admitted · Pending Clearance',
+      text: isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted · Pending Clearance',
       bg: isCleared ? '#dcfce7' : '#fee2e2',
       color: isCleared ? '#15803d' : '#991b1b',
       border: isCleared ? '#bbf7d0' : '#fecaca',
@@ -506,7 +523,7 @@ export default function Patient360View({
       };
     } else if (isCleared) {
       statusBadge = {
-        text: 'Bill Cleared · Admitted',
+        text: isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted',
         bg: '#dcfce7',
         color: '#15803d',
         border: '#bbf7d0',
@@ -1559,24 +1576,59 @@ export default function Patient360View({
       <div style={{ padding: '32px 24px', textAlign: 'center', background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', color: '#64748b' }}>
         <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '16px' }}>No Patient Selected</h3>
         <p style={{ margin: 0, fontSize: '13px' }}>Please select a patient from Admissions, Patients, or Bed Board to view their 360 profile.</p>
-        {onBack && (
-          <button
-            onClick={onBack}
-            style={{
-              marginTop: '16px',
-              padding: '8px 18px',
-              borderRadius: '6px',
-              background: '#0284c7',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '13px'
-            }}
-          >
-            ← Return to Previous View
-          </button>
-        )}
+        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {onBack && (
+            <button
+              onClick={onBack}
+              style={{
+                padding: '8px 18px',
+                borderRadius: '6px',
+                background: '#0284c7',
+                color: '#fff',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '13px'
+              }}
+            >
+              ← Return to Previous View
+            </button>
+          )}
+          {onNavigate && (
+            <>
+              <button
+                onClick={() => onNavigate('patients')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  background: '#f1f5f9',
+                  color: '#334155',
+                  border: '1px solid #cbd5e1',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  fontSize: '13px'
+                }}
+              >
+                Go to Patients
+              </button>
+              <button
+                onClick={() => onNavigate('admissions')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  background: '#f1f5f9',
+                  color: '#334155',
+                  border: '1px solid #cbd5e1',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  fontSize: '13px'
+                }}
+              >
+                Go to Admissions
+              </button>
+            </>
+          )}
+        </div>
       </div>
     );
   }
@@ -2756,55 +2808,83 @@ export default function Patient360View({
       {/* Tab 6: Medications */}
       {activeTab === 'Medications' && (
         <TableContainer
-          cols={['Rx', 'Drug', 'Dose · Route · Freq', 'Days · Qty', 'Safety', 'Status']}
-          grid="120px minmax(200px, 1fr) 180px 140px 100px 90px"
+          cols={['Rx #', 'Prescribed Medication', 'Dose · Route · Freq', 'Duration · Qty', 'Prescriber / Safety', 'Status']}
+          grid="130px minmax(200px, 1fr) 180px 140px 160px 100px"
           rows={
-            (p.medications && p.medications.length > 0)
-              ? p.medications.map((m, idx) => {
-                  const qtyVal = m.quantity || (() => {
-                    const days = parseInt(m.duration) || 5;
-                    const freqLower = (m.frequency || '').toLowerCase().trim();
-                    const freqMultiplier = freqLower.includes('tds') || freqLower.includes('tid') ? 3
-                      : (freqLower.includes('bd') || freqLower.includes('bid')) ? 2
-                      : freqLower.includes('qid') ? 4
-                      : 1;
-                    return days * freqMultiplier;
-                  })();
+            (livePrescriptions && livePrescriptions.length > 0)
+              ? livePrescriptions.map((rx) => {
+                  const rxNo = rx.prescription_number || rx.rx_number || rx.id;
+                  const drugName = rx.drug_name || rx.drug || rx.items?.[0]?.drug_name || 'Prescribed Drug';
+                  const doseStr = rx.dose || `${rx.dosage || '500 mg'} ${rx.route || 'Oral'} ${rx.frequency || 'BD'}`;
+                  const daysStr = rx.days || `${rx.duration || '5 Days'} · ${rx.quantity || 10} units`;
+                  const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
+                  const statusStr = rx.status || 'Prescribed';
+                  const docStr = rx.doctor_name || rx.doctor || 'Attending Doctor';
+
                   return [
-                    `RX-${idx + 101}`,
-                    m.medication_name,
-                    `${m.dosage || ''} ${m.route || 'Oral'} ${m.frequency || 'OD'}`.trim() || 'Standard Dose',
-                    `${m.duration || '5 Days'} · Qty: ${qtyVal}`,
-                    'Clear',
-                    'Active'
+                    rxNo,
+                    drugName,
+                    doseStr,
+                    daysStr,
+                    isHighAlert ? '⚠ High Alert' : docStr,
+                    statusStr
                   ];
                 })
-              : (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
-                ? liveBill.pharmacy_items.map((pi, idx) => [
-                    `RX-${pi.sale_item_id || idx + 101}`,
-                    pi.item_name,
-                    `${pi.category || 'Therapeutic'} · Dispensed`,
-                    `${pi.quantity || 1} units · Qty: ${pi.quantity || 1}`,
-                    'Clear',
-                    'Active'
-                  ])
-                : [
-                    [`RX-${p.admission_id || '87248'}`, 'Tab. Paracetamol 650mg', '650mg Oral SOS', '5 Days · Qty: 10', 'Clear', 'Active']
-                  ]
+              : (p.medications && p.medications.length > 0)
+                ? p.medications.map((m, idx) => {
+                    const qtyVal = m.quantity || (() => {
+                      const days = parseInt(m.duration) || 5;
+                      const freqLower = (m.frequency || '').toLowerCase().trim();
+                      const freqMultiplier = freqLower.includes('tds') || freqLower.includes('tid') ? 3
+                        : (freqLower.includes('bd') || freqLower.includes('bid')) ? 2
+                        : freqLower.includes('qid') ? 4
+                        : 1;
+                      return days * freqMultiplier;
+                    })();
+                    return [
+                      `RX-${idx + 101}`,
+                      m.medication_name,
+                      `${m.dosage || ''} ${m.route || 'Oral'} ${m.frequency || 'OD'}`.trim() || 'Standard Dose',
+                      `${m.duration || '5 Days'} · Qty: ${qtyVal}`,
+                      'Standard',
+                      'Active'
+                    ];
+                  })
+                : (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
+                  ? liveBill.pharmacy_items.map((pi, idx) => [
+                      `RX-${pi.sale_item_id || idx + 101}`,
+                      pi.item_name,
+                      `${pi.category || 'Therapeutic'} · Dispensed`,
+                      `${pi.quantity || 1} units · Qty: ${pi.quantity || 1}`,
+                      'Standard',
+                      'Dispensed'
+                    ])
+                  : [
+                      [`RX-${p.admission_id || '87248'}`, 'Inj. Vancomycin HCl', '40 mg SC OD', '30 Days · 30 units', '⚠ High Alert', 'Prescribed']
+                    ]
           }
           onRowClick={(row) => {
             if (onOpenDrawer) {
+              const matchedRx = livePrescriptions?.find(r => (r.prescription_number || r.id) === row[0]);
+              const st = (row[5] || '').toLowerCase();
               onOpenDrawer({
                 title: `${row[1]} · ${row[0]}`,
                 sub: `${row[2]} · ${row[3]}`,
-                badges: [{ t: row[5], bg: '#dcfce7', fg: '#15803d' }],
+                badges: [{
+                  t: row[5],
+                  bg: st === 'dispensed' ? '#dcfce7' : st === 'verified' ? '#e0e7ff' : '#fef3c7',
+                  fg: st === 'dispensed' ? '#15803d' : st === 'verified' ? '#3730a3' : '#b45309'
+                }],
                 facts: [
                   { k: 'Prescription Code', v: row[0], b: true },
-                  { k: 'Medication Name', v: row[1] },
-                  { k: 'Dosage & Regimen', v: row[2] },
-                  { k: 'Duration & Quantity', v: row[3] },
-                  { k: 'Safety Clearance', v: row[4] },
-                  { k: 'Status', v: row[5] }
+                  { k: 'Medication Name', v: row[1], b: true },
+                  { k: 'Dosage · Regimen · Route', v: row[2] },
+                  { k: 'Duration & Dispense Units', v: row[3] },
+                  { k: 'Safety / High Alert', v: row[4] },
+                  { k: 'Prescription Status', v: row[5] },
+                  { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || 'Attending Physician' },
+                  { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Live Order' },
+                  { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' }
                 ]
               });
             }
@@ -2831,38 +2911,91 @@ export default function Patient360View({
 
       {/* Tab 8: Insurance */}
       {activeTab === 'Insurance' && (
-        <TableContainer
-          cols={['Case', 'Insurer', 'Requested', 'Approved', 'Missing', 'Risk', 'Status']}
-          grid="130px 180px 120px 120px minmax(180px, 1fr) 80px 160px"
-          rows={
-            (liveBill?.claims && liveBill.claims.length > 0)
-              ? liveBill.claims.map(claim => [
-                  claim.claim_number || `CLM-${claim.claim_id}`,
-                  claim.insurance_provider || p.insurer,
-                  `₹${Number(claim.claimed_amount || p.billNetAmount).toLocaleString('en-IN')}`,
-                  `₹${Number(claim.approved_amount || 0).toLocaleString('en-IN')}`,
-                  claim.rejection_reason || (Number(claim.outstanding_amount) > 0 ? `Co-pay: ₹${Number(claim.outstanding_amount).toLocaleString('en-IN')}` : 'None · Verified'),
-                  '0%',
-                  claim.claim_status || 'Pending'
-                ])
-              : [
-                  [
-                    `PA-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
-                    p.insurer || 'Direct Billing / Corporate',
-                    `₹${p.billNetAmount.toLocaleString('en-IN')}`,
-                    `₹${(p.isCleared ? p.billNetAmount : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
-                    p.isCleared ? 'None · Pre-auth verified' : `Co-pay balance: ₹${p.outstandingBalance.toLocaleString('en-IN')}`,
-                    p.isCleared ? '0%' : '5%',
-                    p.isCleared ? 'Approved · Settled' : 'Pending Clearance'
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>Cashless Pre-Auth & Claims</span>
+              <span style={{ color: '#64748b' }}>· Insurer: {p.insurer}</span>
+            </div>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: '12px',
+              background: '#e0f2fe',
+              color: '#0369a1'
+            }}>
+              Live Syncing
+            </span>
+          </div>
+          <TableContainer
+            cols={['Case', 'Insurer', 'Requested', 'Approved', 'Missing', 'Risk', 'Status']}
+            grid="130px 180px 120px 120px minmax(180px, 1fr) 80px 160px"
+            rows={
+              (liveBill?.claims && liveBill.claims.length > 0)
+                ? liveBill.claims.map(claim => [
+                    claim.claim_number || `CLM-${claim.claim_id}`,
+                    claim.insurance_provider || p.insurer,
+                    `₹${Number(claim.claimed_amount || p.billNetAmount).toLocaleString('en-IN')}`,
+                    `₹${Number(claim.approved_amount || 0).toLocaleString('en-IN')}`,
+                    claim.rejection_reason || (Number(claim.outstanding_amount) > 0 ? `Co-pay: ₹${Number(claim.outstanding_amount).toLocaleString('en-IN')}` : 'None · Verified'),
+                    '0%',
+                    claim.claim_status || 'Pending'
+                  ])
+                : [
+                    [
+                      `PA-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
+                      p.insurer || 'Direct Billing / Corporate',
+                      `₹${p.billNetAmount.toLocaleString('en-IN')}`,
+                      `₹${(p.isCleared ? p.billNetAmount : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
+                      p.isCleared ? 'None · Pre-auth verified' : `Co-pay balance: ₹${p.outstandingBalance.toLocaleString('en-IN')}`,
+                      p.isCleared ? '0%' : '5%',
+                      p.isCleared ? 'Approved · Settled' : 'Pending Clearance'
+                    ]
                   ]
-                ]
-          }
-        />
+            }
+          />
+        </div>
       )}
 
       {/* Tab 9: Billing - Full Dynamic Itemized Bill Breakdown */}
       {activeTab === 'Billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>Live Financial Ledger</span>
+              <span style={{ color: '#64748b' }}>· Bill #{p.billNumber} · Status: {p.billingStatusDisplay}</span>
+            </div>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: '12px',
+              background: '#e0f2fe',
+              color: '#0369a1'
+            }}>
+              Live Syncing
+            </span>
+          </div>
+
           {/* Master Bill Overview Row */}
           <div>
             <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

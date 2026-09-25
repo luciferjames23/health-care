@@ -301,7 +301,6 @@ def get_bill_by_admission(admission_id: int):
                 
         billing_info = llm_json.get("billing", {})
         
-        # Fetch pharmacy items
         cur.execute("""
             SELECT 
                 psi.sale_item_id,
@@ -315,13 +314,14 @@ def get_bill_by_admission(admission_id: int):
                 psi.tax_amount,
                 psi.net_amount,
                 ps.sale_date,
-                ps.payment_status
+                ps.payment_status,
+                ps.prescription_id
             FROM pharmacy_sales ps
             JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
             LEFT JOIN medications m ON psi.medication_id = m.medication_id
-            WHERE ps.admission_id = %s
+            WHERE ps.admission_id = %s OR ps.patient_id = %s
             ORDER BY psi.sale_item_id ASC
-        """, (admission_id,))
+        """, (admission_id, adm_data.get("patient_id")))
         pharmacy_items = serialize_rows(cur, cur.fetchall())
         
         # Fetch lab items
@@ -506,51 +506,30 @@ def get_bill_detail(bill_id: int):
         items = serialize_rows(cur, cur.fetchall())
         
         # 3. Linked Pharmacy Items
-        pharmacy_items = []
-        if admission_id:
-            cur.execute("""
-                SELECT 
-                    psi.sale_item_id,
-                    psi.sale_id,
-                    COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
-                    m.generic_name,
-                    m.category,
-                    psi.quantity,
-                    psi.unit_price,
-                    psi.discount_amount,
-                    psi.tax_amount,
-                    psi.net_amount,
-                    ps.sale_date,
-                    ps.payment_status
-                FROM pharmacy_sales ps
-                JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
-                LEFT JOIN medications m ON psi.medication_id = m.medication_id
-                WHERE ps.admission_id = %s
-                ORDER BY psi.sale_item_id ASC
-            """, (admission_id,))
-            pharmacy_items = serialize_rows(cur, cur.fetchall())
-        elif patient_id:
-            cur.execute("""
-                SELECT 
-                    psi.sale_item_id,
-                    psi.sale_id,
-                    COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
-                    m.generic_name,
-                    m.category,
-                    psi.quantity,
-                    psi.unit_price,
-                    psi.discount_amount,
-                    psi.tax_amount,
-                    psi.net_amount,
-                    ps.sale_date,
-                    ps.payment_status
-                FROM pharmacy_sales ps
-                JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
-                LEFT JOIN medications m ON psi.medication_id = m.medication_id
-                WHERE ps.patient_id = %s AND ps.admission_id IS NULL
-                ORDER BY psi.sale_item_id ASC
-            """, (patient_id,))
-            pharmacy_items = serialize_rows(cur, cur.fetchall())
+        cur.execute("""
+            SELECT 
+                psi.sale_item_id,
+                psi.sale_id,
+                COALESCE(m.medication_name, 'Prescribed Medication') as item_name,
+                m.generic_name,
+                m.category,
+                psi.quantity,
+                psi.unit_price,
+                psi.discount_amount,
+                psi.tax_amount,
+                psi.net_amount,
+                ps.sale_date,
+                ps.payment_status,
+                ps.prescription_id
+            FROM pharmacy_sales ps
+            JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
+            LEFT JOIN medications m ON psi.medication_id = m.medication_id
+            WHERE (ps.admission_id IS NOT NULL AND ps.admission_id = %s)
+               OR (ps.bill_id IS NOT NULL AND ps.bill_id = %s)
+               OR (ps.patient_id IS NOT NULL AND ps.patient_id = %s)
+            ORDER BY psi.sale_item_id ASC
+        """, (admission_id or -1, bill_id, patient_id or -1))
+        pharmacy_items = serialize_rows(cur, cur.fetchall())
             
         # 4. Linked Lab Investigation Orders & Tests
         lab_items = []
@@ -740,16 +719,19 @@ def get_insurance_claims(
             params.append(f"%{provider}%")
             
         if search and search.strip():
-            st = f"%{search.strip()}%"
+            raw_s = search.strip()
+            st = f"%{raw_s}%"
             where_clauses.append("""
                 (c.claim_number ILIKE %s OR 
                  c.policy_number ILIKE %s OR 
                  c.insurance_provider ILIKE %s OR 
                  p.first_name ILIKE %s OR 
                  p.last_name ILIKE %s OR 
+                 CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) ILIKE %s OR
+                 CONCAT(COALESCE(p.last_name, ''), ' ', COALESCE(p.first_name, '')) ILIKE %s OR
                  p.patient_code ILIKE %s)
             """)
-            params.extend([st, st, st, st, st, st])
+            params.extend([st, st, st, st, st, st, st, st])
             
         where_sql = " AND ".join(where_clauses)
         
@@ -921,6 +903,7 @@ def get_claims_analytics():
 @router.get("/dashboard")
 def get_finance_dashboard(
     status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100)
 ):
@@ -1004,42 +987,113 @@ def get_finance_dashboard(
         """)
         ar_aging = serialize_row(cur, cur.fetchone())
         
-        # 5. Recent Live Payments with Pagination
+        # 5. Recent Live Payments & Ledger Transactions with Pagination
         pay_where = ["1=1"]
         pay_params = []
         if status and status.lower() != "all":
-            pay_where.append("LOWER(py.payment_status) = LOWER(%s)")
-            pay_params.append(status.strip())
+            s_low = status.strip().lower()
+            if s_low == "success":
+                pay_where.append("LOWER(t.payment_status) = 'success'")
+            elif s_low == "pending":
+                pay_where.append("(LOWER(t.payment_status) = 'pending' OR LOWER(t.payment_status) LIKE '%%part%%')")
+            elif s_low == "failed":
+                pay_where.append("LOWER(t.payment_status) = 'failed'")
+            else:
+                pay_where.append("LOWER(t.payment_status) = %s")
+                pay_params.append(s_low)
+
+        if search and search.strip():
+            raw_s = search.strip()
+            st = f"%{raw_s}%"
+            pay_where.append("""
+                (t.payment_reference ILIKE %s OR 
+                 t.bill_number ILIKE %s OR 
+                 t.patient_name ILIKE %s OR 
+                 t.patient_code ILIKE %s OR
+                 t.payment_method ILIKE %s)
+            """)
+            pay_params.extend([st, st, st, st, st])
+
         pay_where_sql = " AND ".join(pay_where)
 
-        cur.execute(f"SELECT COUNT(*) FROM payments py WHERE {pay_where_sql}", tuple(pay_params))
+        base_ledger_sql = """
+            WITH patient_ledger AS (
+                SELECT 
+                    py.id as payment_id,
+                    py.bill_id,
+                    COALESCE(py.patient_id, b.patient_id) as patient_id,
+                    py.amount,
+                    COALESCE(py.payment_method, 'UPI') as payment_method,
+                    COALESCE(py.payment_status, 'SUCCESS') as payment_status,
+                    COALESCE(py.payment_reference, CONCAT('PAY-', LPAD(py.id::text, 6, '0'))) as payment_reference,
+                    py.payment_date,
+                    b.bill_number,
+                    COALESCE(
+                        NULLIF(TRIM(CONCAT(COALESCE(p.first_name, pb.first_name, ''), ' ', COALESCE(p.last_name, pb.last_name, ''))), ''),
+                        'Enrolled Patient'
+                    ) as patient_name,
+                    COALESCE(p.patient_code, pb.patient_code) as patient_code
+                FROM payments py
+                LEFT JOIN bills b ON py.bill_id = b.bill_id
+                LEFT JOIN patients p ON py.patient_id = p.id
+                LEFT JOIN patients pb ON b.patient_id = pb.id
+                
+                UNION ALL
+                
+                SELECT
+                    b.bill_id as payment_id,
+                    b.bill_id,
+                    b.patient_id,
+                    COALESCE(b.patient_amount, b.net_amount) as amount,
+                    'UPI' as payment_method,
+                    CASE 
+                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('settled', 'paid', 'cleared') THEN 'SUCCESS'
+                        WHEN LOWER(COALESCE(b.bill_status, '')) LIKE '%%part%%' THEN 'PARTIALLY PAID'
+                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('failed', 'disputed', 'voided') THEN 'FAILED'
+                        ELSE 'PENDING'
+                    END as payment_status,
+                    CONCAT('PAY-', RIGHT(b.bill_number, 5)) as payment_reference,
+                    COALESCE(b.bill_date, NOW()) as payment_date,
+                    b.bill_number,
+                    COALESCE(
+                        NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
+                        'Enrolled Patient'
+                    ) as patient_name,
+                    p.patient_code
+                FROM bills b
+                LEFT JOIN patients p ON b.patient_id = p.id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM payments py WHERE py.bill_id = b.bill_id
+                )
+            )
+        """
+
+        cur.execute(f"""
+            {base_ledger_sql}
+            SELECT COUNT(*) 
+            FROM patient_ledger t
+            WHERE {pay_where_sql}
+        """, tuple(pay_params))
         total_payment_count = cur.fetchone()[0]
 
         offset = (page - 1) * page_size
 
         cur.execute(f"""
+            {base_ledger_sql}
             SELECT 
-                py.id as payment_id,
-                py.bill_id,
-                COALESCE(py.patient_id, b.patient_id) as patient_id,
-                py.amount,
-                py.payment_method,
-                py.payment_status,
-                py.payment_reference,
-                py.payment_date,
-                b.bill_number,
-                COALESCE(
-                    NULLIF(TRIM(CONCAT(COALESCE(p.first_name, pb.first_name, ''), ' ', COALESCE(p.last_name, pb.last_name, ''))), ''),
-                    NULLIF(TRIM(CONCAT(dai.first_name, ' ', dai.last_name)), ''),
-                    'Enrolled Patient'
-                ) as patient_name
-            FROM payments py
-            LEFT JOIN bills b ON py.bill_id = b.bill_id
-            LEFT JOIN patients p ON py.patient_id = p.id
-            LEFT JOIN patients pb ON b.patient_id = pb.id
-            LEFT JOIN dim_admission_inputs dai ON COALESCE(py.patient_id, b.patient_id) = dai.patient_id
+                t.payment_id,
+                t.bill_id,
+                t.patient_id,
+                t.amount,
+                t.payment_method,
+                t.payment_status,
+                t.payment_reference,
+                t.payment_date,
+                t.bill_number,
+                t.patient_name
+            FROM patient_ledger t
             WHERE {pay_where_sql}
-            ORDER BY py.payment_date DESC, py.id DESC
+            ORDER BY t.payment_date DESC, t.payment_id DESC
             LIMIT %s OFFSET %s
         """, tuple(pay_params + [page_size, offset]))
         recent_payments = serialize_rows(cur, cur.fetchall())
@@ -1387,17 +1441,20 @@ def get_preauthorisations(
                 params.append(s_lower)
 
         if search and search.strip():
-            st = f"%{search.strip()}%"
+            raw_s = search.strip()
+            st = f"%{raw_s}%"
             where_clauses.append("""
                 (c.claim_number ILIKE %s OR 
                  c.policy_number ILIKE %s OR 
                  c.insurance_provider ILIKE %s OR 
                  p.first_name ILIKE %s OR 
                  p.last_name ILIKE %s OR 
+                 CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) ILIKE %s OR
+                 CONCAT(COALESCE(p.last_name, ''), ' ', COALESCE(p.first_name, '')) ILIKE %s OR
                  p.patient_code ILIKE %s OR
                  a.reason_for_admission ILIKE %s)
             """)
-            params.extend([st, st, st, st, st, st, st])
+            params.extend([st, st, st, st, st, st, st, st, st])
 
         where_sql = " AND ".join(where_clauses)
 

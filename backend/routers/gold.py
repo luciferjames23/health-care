@@ -1138,6 +1138,15 @@ def get_dim_admission_inputs(
                     elif i_info:
                         row['insurance_provider'] = i_info.get('insurance_provider') or row.get('insurance_provider')
                         row['policy_number'] = i_info.get('policy_number')
+
+                    # Normalize settled / cleared bills to have zero outstanding balance
+                    bs = str(row.get('bill_status') or '').strip().lower()
+                    bcs = str(row.get('bill_clearance_status') or '').strip().lower()
+                    if bs in ('settled', 'paid', 'cleared') or bcs in ('settled', 'cleared'):
+                        row['outstanding_balance'] = 0.0
+                        row['bill_clearance_status'] = 'Settled'
+                        if bs not in ('settled', 'paid'):
+                            row['bill_status'] = 'Settled'
             except Exception:
                 pass
         return res

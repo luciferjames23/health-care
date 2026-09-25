@@ -264,15 +264,16 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       const res = await financialApi.getFinanceDashboard({
         page: payPage,
         pageSize: payPageSize,
-        status: activeFilter === "All" ? undefined : activeFilter
+        status: activeFilter === "All" ? undefined : activeFilter,
+        search: searchQuery.trim() || undefined
       });
       if (res && res.success) setDashboardData(res);
     } catch (e) {
       console.error("Dashboard error:", e);
     } finally {
-      setLoadingDashboard(false);
+      if (!silent) setLoadingDashboard(false);
     }
-  }, [activeFilter, payPage, payPageSize]);
+  }, [activeFilter, payPage, payPageSize, searchQuery]);
 
   const loadTax = useCallback(async (silent = false) => {
     try {
@@ -292,12 +293,12 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   }, [loadOverview]);
 
   useEffect(() => {
-    // Initial fetch on tab change
-    if (activeTab === "billing") loadBills(bills.length > 0);
-    else if (activeTab === "insurance") loadPreauths(preauths.length > 0);
-    else if (activeTab === "claims") loadClaims(claims.length > 0);
+    // Initial fetch on tab change - display high-fidelity loading state
+    if (activeTab === "billing") loadBills(false);
+    else if (activeTab === "insurance") loadPreauths(false);
+    else if (activeTab === "claims") loadClaims(false);
     else if (activeTab === "finance") loadDashboard(false);
-    else if (activeTab === "tax") loadTax(!!taxData);
+    else if (activeTab === "tax") loadTax(false);
 
     const refreshSilently = () => {
       loadOverview(true);
@@ -784,7 +785,13 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (activeTab === "billing") { setBillPage(1); setLoadingBills(true); }
+              else if (activeTab === "insurance") { setPreauthPage(1); setLoadingPreauth(true); }
+              else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
+              else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
+            }}
             placeholder="Search…"
             style={{
               height: "30px",
@@ -972,6 +979,15 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   if (activeTab === "finance") {
                     setPayPage(1);
                     setLoadingDashboard(true);
+                  } else if (activeTab === "billing") {
+                    setBillPage(1);
+                    setLoadingBills(true);
+                  } else if (activeTab === "insurance") {
+                    setPreauthPage(1);
+                    setLoadingPreauth(true);
+                  } else if (activeTab === "claims") {
+                    setClaimPage(1);
+                    setLoadingClaims(true);
                   }
                 }}
                 style={{
@@ -1027,9 +1043,49 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           </div>
 
           {/* Loading Indicator */}
-          {loadingBills && bills.length === 0 && (
-            <div style={{ padding: "12px" }}>
-              <TableSkeleton rows={6} columns={7} />
+          {loadingBills && (
+            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "14px",
+                padding: "12px 18px",
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    border: "2.5px solid #cbd5e1",
+                    borderTopColor: "#0284c7",
+                    animation: "spin 0.8s linear infinite"
+                  }} />
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
+                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} patient bills...
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                      Fetching live billing items, invoices, co-pays & settlements
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  padding: "3px 10px",
+                  borderRadius: "12px",
+                  background: "#e0f2fe",
+                  color: "#0369a1"
+                }}>
+                  Live Syncing
+                </span>
+              </div>
+              <TableSkeleton rows={8} columns={7} />
             </div>
           )}
 
@@ -1042,7 +1098,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           )}
 
           {/* Table Rows */}
-          {bills.map((b) => {
+          {!loadingBills && bills.map((b) => {
             const est = Number(b.gross_amount) || Number(b.total) || 1;
             const act = Number(b.total) || 0;
             const v = act - est;
@@ -1117,7 +1173,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <button
                   key={sz}
                   type="button"
-                  onClick={() => setBillPageSize(sz)}
+                  onClick={() => { setLoadingBills(true); setBillPageSize(sz); setBillPage(1); }}
                   style={{
                     height: "22px",
                     padding: "0 7px",
@@ -1135,7 +1191,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               <button
                 type="button"
                 disabled={billPage <= 1}
-                onClick={() => setBillPage((p) => Math.max(1, p - 1))}
+                onClick={() => { setLoadingBills(true); setBillPage((p) => Math.max(1, p - 1)); }}
                 style={{
                   height: "22px",
                   padding: "0 8px",
@@ -1152,7 +1208,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               <button
                 type="button"
                 disabled={billPage * billPageSize >= billTotal}
-                onClick={() => setBillPage((p) => p + 1)}
+                onClick={() => { setLoadingBills(true); setBillPage((p) => p + 1); }}
                 style={{
                   height: "22px",
                   padding: "0 8px",
@@ -1204,8 +1260,49 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             <span>Status</span>
           </div>
 
-          {loadingPreauth && preauths.length === 0 && (
-            <div style={{ padding: "16px" }}>
+          {/* Loading Indicator */}
+          {loadingPreauth && (
+            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "14px",
+                padding: "12px 18px",
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    border: "2.5px solid #cbd5e1",
+                    borderTopColor: "#0284c7",
+                    animation: "spin 0.8s linear infinite"
+                  }} />
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
+                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} insurance preauthorisations...
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                      Fetching TPA pre-auth requests, coverage approvals & SLA timers
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  padding: "3px 10px",
+                  borderRadius: "12px",
+                  background: "#e0f2fe",
+                  color: "#0369a1"
+                }}>
+                  Live Syncing
+                </span>
+              </div>
               <TableSkeleton rows={8} columns={10} />
             </div>
           )}
@@ -1217,7 +1314,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           )}
 
-          {preauthRows.map((p, idx) => {
+          {!loadingPreauth && preauthRows.map((p, idx) => {
             const riskNum = parseInt(p.risk, 10) || 0;
             const riskHigh = riskNum >= 25;
 
@@ -1305,7 +1402,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <button
                   key={sz}
                   type="button"
-                  onClick={() => setPreauthPageSize(sz)}
+                  onClick={() => { setLoadingPreauth(true); setPreauthPageSize(sz); setPreauthPage(1); }}
                   style={{
                     height: "22px",
                     padding: "0 7px",
@@ -1323,7 +1420,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               <button
                 type="button"
                 disabled={preauthPage <= 1}
-                onClick={() => setPreauthPage((p) => Math.max(1, p - 1))}
+                onClick={() => { setLoadingPreauth(true); setPreauthPage((p) => Math.max(1, p - 1)); }}
                 style={{
                   height: "22px",
                   padding: "0 8px",
@@ -1340,7 +1437,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               <button
                 type="button"
                 disabled={preauthPage * preauthPageSize >= preauthTotal}
-                onClick={() => setPreauthPage((p) => p + 1)}
+                onClick={() => { setLoadingPreauth(true); setPreauthPage((p) => p + 1); }}
                 style={{
                   height: "22px",
                   padding: "0 8px",
@@ -1364,7 +1461,54 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "claims" && (
         <>
-          {claimsViewMode === "kanban" ? (
+          {loadingClaims && (
+            <div style={{ padding: "20px 16px", background: "#f8fafc" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "14px",
+                padding: "12px 18px",
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: "8px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <div style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    border: "2.5px solid #cbd5e1",
+                    borderTopColor: "#0284c7",
+                    animation: "spin 0.8s linear infinite"
+                  }} />
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a" }}>
+                      Loading {activeFilter === "All" ? "all" : activeFilter.toLowerCase()} insurance claims...
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                      Fetching TPA claim packets, query tracker & settlement status
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  padding: "3px 10px",
+                  borderRadius: "12px",
+                  background: "#e0f2fe",
+                  color: "#0369a1"
+                }}>
+                  Live Syncing
+                </span>
+              </div>
+              <TableSkeleton rows={8} columns={claimsViewMode === "kanban" ? 5 : 8} />
+            </div>
+          )}
+
+          {!loadingClaims && (
+            claimsViewMode === "kanban" ? (
             /* KANBAN BOARD VIEW */
             <div
               style={{
@@ -1601,7 +1745,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <span>{claims.length} claims in view · click a row to view adjudication trace or simulate settlement</span>
               </div>
             </div>
-          )}
+          ))}
         </>
       )}
 
@@ -1685,20 +1829,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             {!loadingDashboard && (() => {
               let paymentList = (dashboardData?.recent_payments && dashboardData.recent_payments.length > 0)
                 ? dashboardData.recent_payments
-                : bills.slice(0, 15).map(b => ({
-                    payment_id: b.bill_id,
-                    patient_name: b.patient,
-                    bill_number: b.inv,
-                    amount: b.paid_amount || b.patientShare || b.total,
-                    payment_method: "UPI",
-                    payment_date: b.bill_date,
-                    payment_status: "SUCCESS"
-                  }));
+                : bills.slice(0, 15).map(b => {
+                    const st = String(b.status || "").toLowerCase();
+                    const isSettled = /settled|paid|cleared/i.test(st) && !/part/i.test(st);
+                    const isPartial = /part/i.test(st);
+                    const isFailed = /disputed|failed|void/i.test(st);
+                    const payStatus = isSettled ? "SUCCESS" : isPartial ? "PARTIALLY PAID" : isFailed ? "FAILED" : "PENDING";
+                    return {
+                      payment_id: b.bill_id,
+                      patient_name: b.patient,
+                      bill_number: b.inv || b.bill_number,
+                      amount: isSettled ? (b.paid_amount || b.total) : (b.patientShare || b.total),
+                      payment_method: "UPI",
+                      payment_date: b.bill_date,
+                      payment_status: payStatus
+                    };
+                  });
 
               if (activeFilter && activeFilter !== "All") {
-                paymentList = paymentList.filter(py => 
-                  String(py.payment_status || "").toUpperCase() === activeFilter.toUpperCase()
-                );
+                const af = activeFilter.toUpperCase();
+                paymentList = paymentList.filter(py => {
+                  const ps = String(py.payment_status || "").toUpperCase();
+                  if (af === "SUCCESS") return ps === "SUCCESS";
+                  if (af === "PENDING") return ps === "PENDING" || ps.includes("PARTIAL");
+                  if (af === "FAILED") return ps === "FAILED";
+                  return ps === af;
+                });
               }
 
               if (searchQuery && searchQuery.trim()) {
@@ -1715,24 +1871,22 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               if (paymentList.length === 0) {
                 return (
                   <div style={{
-                    padding: "36px 20px",
+                    padding: "48px 20px",
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: "10px",
+                    gap: "8px",
                     color: PALETTE.text2
                   }}>
-                    <div style={{
-                      width: "24px",
-                      height: "24px",
-                      border: `2.5px solid ${PALETTE.border}`,
-                      borderTopColor: "#15181b",
-                      borderRadius: "50%",
-                      animation: "spin 0.8s linear infinite"
-                    }} />
-                    <div style={{ fontSize: "12px", color: PALETTE.muted, fontWeight: 500 }}>
-                      Loading payment transactions...
+                    <span style={{ fontSize: "28px" }}>💳</span>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: PALETTE.text }}>
+                      No payment transactions found
+                    </div>
+                    <div style={{ fontSize: "11.5px", color: PALETTE.muted, textAlign: "center", maxWidth: "480px", lineHeight: "1.4" }}>
+                      {searchQuery
+                        ? `No payment records match "${searchQuery}". If this patient's bill is pending clearance or awaiting insurance review, payment has not been recorded yet.`
+                        : `No payment transactions found for filter "${activeFilter}".`}
                     </div>
                   </div>
                 );

@@ -1296,22 +1296,42 @@ def clear_patient_bill_internal(
         txn_ref = f"TXN-{uuid.uuid4().hex[:10].upper()}"
         pay_method = (payment_method or "UPI").upper()
 
-        cur.execute("""
-            INSERT INTO payments (
-                id, bill_id, patient_id, amount, payment_method,
-                payment_status, payer_type, payment_reference,
-                transaction_reference, payment_date, created_at, updated_at
-            ) VALUES (
-                (SELECT COALESCE(MAX(id), 0) + 1 FROM payments),
-                %s, %s, %s, %s,
-                'SUCCESS', 'PATIENT', %s,
-                %s, %s, %s, %s
-            ) RETURNING id;
-        """, (
-            matched_bill_id, resolved_pid, cleared_amt, pay_method,
-            ref, txn_ref, now_dt, now_dt, now_dt
-        ))
-        payment_id = cur.fetchone()[0]
+        # Check if a successful payment record already exists for this bill to avoid duplicate payment entries
+        existing_payment = None
+        if matched_bill_id:
+            cur.execute("""
+                SELECT id, amount, payment_method, payment_reference, transaction_reference, payment_date
+                FROM payments
+                WHERE bill_id = %s AND payment_status = 'SUCCESS'
+                ORDER BY id DESC LIMIT 1;
+            """, (matched_bill_id,))
+            existing_payment = cur.fetchone()
+
+        if existing_payment:
+            payment_id = existing_payment[0]
+            cleared_amt = float(existing_payment[1] or cleared_amt)
+            pay_method = existing_payment[2] or pay_method
+            ref = existing_payment[3] or ref
+            txn_ref = existing_payment[4] or txn_ref
+            if existing_payment[5] and hasattr(existing_payment[5], 'isoformat'):
+                now_dt = existing_payment[5]
+        else:
+            cur.execute("""
+                INSERT INTO payments (
+                    id, bill_id, patient_id, amount, payment_method,
+                    payment_status, payer_type, payment_reference,
+                    transaction_reference, payment_date, created_at, updated_at
+                ) VALUES (
+                    (SELECT COALESCE(MAX(id), 0) + 1 FROM payments),
+                    %s, %s, %s, %s,
+                    'SUCCESS', 'PATIENT', %s,
+                    %s, %s, %s, %s
+                ) RETURNING id;
+            """, (
+                matched_bill_id, resolved_pid, cleared_amt, pay_method,
+                ref, txn_ref, now_dt, now_dt, now_dt
+            ))
+            payment_id = cur.fetchone()[0]
 
         conn.commit()
         DatabricksConnector.clear_cache()

@@ -185,11 +185,58 @@ def dispense_prescription(rx_id: str):
     try:
         cur = conn.cursor()
         clean_id = rx_id.replace('RX-2026-', '').lstrip('0')
+        numeric_id = int(clean_id) if clean_id.isdigit() else 0
+        
+        # 1. Update prescription status
         cur.execute("""
             UPDATE prescriptions 
             SET status = 'Dispensed' 
-            WHERE prescription_id::text = %s OR ('RX-2026-' || LPAD(prescription_id::text, 4, '0')) = %s;
+            WHERE prescription_id::text = %s OR ('RX-2026-' || LPAD(prescription_id::text, 4, '0')) = %s
+            RETURNING patient_id;
         """, (clean_id, rx_id))
+        res_row = cur.fetchone()
+        patient_id = res_row[0] if res_row else None
+
+        # 2. Synchronize linked pharmacy_sales record to Paid / Dispensed & link active admission/bill
+        if patient_id:
+            cur.execute("""
+                UPDATE pharmacy_sales ps
+                SET 
+                    payment_status = 'Paid',
+                    admission_id = COALESCE(ps.admission_id, adm.admission_id),
+                    bill_id = COALESCE(ps.bill_id, b.bill_id)
+                FROM dim_admission_inputs adm
+                JOIN patients p ON adm.patient_number = p.patient_code
+                LEFT JOIN bills b ON adm.admission_id = b.admission_id
+                WHERE (ps.prescription_id = %s OR ps.prescription_id::text = %s)
+                  AND p.id = %s
+                  AND adm.discharge_status != 'Discharged';
+            """, (numeric_id, clean_id, patient_id))
+
+        cur.execute("""
+            UPDATE pharmacy_sales 
+            SET payment_status = 'Paid' 
+            WHERE prescription_id = %s OR prescription_id::text = %s;
+        """, (numeric_id, clean_id))
+
+        # 3. Synchronize eMAR record
+        if patient_id:
+            cur.execute("""
+                SELECT m.medication_name, p.first_name || ' ' || COALESCE(p.last_name, '') as full_name
+                FROM prescription_items pi
+                JOIN medications m ON pi.medication_id = m.medication_id
+                JOIN patients p ON p.id = %s
+                WHERE pi.prescription_id = %s;
+            """, (patient_id, numeric_id))
+            med_row = cur.fetchone()
+            if med_row:
+                med_name, full_name = med_row[0], med_row[1]
+                cur.execute("""
+                    UPDATE emar_records
+                    SET status = 'Given', stage = 'Completed', administered_by = 'Staff Nurse Sneha Rao, RN', signed_at = TO_CHAR(NOW(), 'HH12:MI AM')
+                    WHERE LOWER(patient_name) = LOWER(%s) AND LOWER(medication_name) = LOWER(%s);
+                """, (full_name, med_name))
+
         conn.commit()
         return {"success": True, "message": f"Prescription {rx_id} dispensed successfully"}
     except Exception as e:
@@ -350,10 +397,15 @@ def get_pharmacy_sales(
             where_clauses.append("""(
                 LOWER(ps.sale_id::text) LIKE %s OR
                 LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
+                LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
                 LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
-                LOWER(COALESCE(adm.ward_name, '')) LIKE %s
+                LOWER(COALESCE(adm.ward_name, '')) LIKE %s OR
+                LOWER(COALESCE(adm.bed_number, '')) LIKE %s OR
+                LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
+                ('ph-' || LPAD(ps.sale_id::text, 5, '0')) LIKE %s OR
+                ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
             )""")
-            params.extend([s, s, s, s])
+            params.extend([s, s, s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -378,6 +430,7 @@ def get_pharmacy_sales(
                 ps.sale_id as id,
                 'PH-' || LPAD(ps.sale_id::text, 5, '0') as txn_number,
                 ps.patient_id,
+                ps.prescription_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || ps.patient_id) as patient,
                 COALESCE(pat.patient_code, 'PAT-' || ps.patient_id) as patient_code,
                 COALESCE(adm.bed_number, 'OPD-Desk') as bed,
@@ -409,6 +462,7 @@ def get_pharmacy_sales(
             pat_label = f"{r['patient']} ({r['bed']})" if r['bed'] != 'OPD-Desk' else r['patient']
             status_label = 'dispensed' if r['payment_status'] == 'Paid' else 'pending'
             amt = float(r['net_amount'] or r['total_amount'] or 0)
+            rx_num = f"RX-2026-{r['prescription_id']}" if r.get('prescription_id') else f"RX-2026-{r['id']:04d}"
 
             formatted.append({
                 "id": r['txn_number'],
@@ -434,7 +488,7 @@ def get_pharmacy_sales(
                 "sale_date": dt_str,
                 "date": dt_str,
                 "status": status_label,
-                "prescription_number": f"RX-2026-{r['id']:04d}",
+                "prescription_number": rx_num,
                 "items": [{
                     "drug_name": r['drug'],
                     "quantity": r['qty'],

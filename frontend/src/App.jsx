@@ -104,7 +104,11 @@ export default function App() {
     try { return sessionStorage.getItem('hx_page') || 'command'; } catch { return 'command'; }
   });
 
-  // Keep sessionStorage in sync whenever auth / role / activePage change
+  const [selectedPatient, setSelectedPatient] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('hx_selected_patient') || 'null'); } catch { return null; }
+  });
+
+  // Keep sessionStorage in sync whenever auth / role / activePage / selectedPatient change
   useEffect(() => {
     try { sessionStorage.setItem('hx_auth', JSON.stringify(auth)); } catch {}
   }, [auth]);
@@ -114,9 +118,16 @@ export default function App() {
   useEffect(() => {
     try { sessionStorage.setItem('hx_page', activePage); } catch {}
   }, [activePage]);
+  useEffect(() => {
+    try {
+      if (selectedPatient) {
+        sessionStorage.setItem('hx_selected_patient', JSON.stringify(selectedPatient));
+      } else {
+        sessionStorage.removeItem('hx_selected_patient');
+      }
+    } catch {}
+  }, [selectedPatient]);
   // ─────────────────────────────────────────────────────────────────────────────
-
-  const [selectedPatient, setSelectedPatient] = useState(null);
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
@@ -169,6 +180,8 @@ export default function App() {
     sessionStorage.removeItem('hc_auth_token');
     setAuth(null);
     setRoleState(null);
+    setSelectedPatient(null);
+    setNavHistory([]);
     setAuthScreenUsername(null);
     setAuthScreenInfo('');
     // Clear persisted session so the next visit shows login
@@ -176,6 +189,8 @@ export default function App() {
       sessionStorage.removeItem('hx_auth');
       sessionStorage.removeItem('hx_role');
       sessionStorage.removeItem('hx_page');
+      sessionStorage.removeItem('hx_selected_patient');
+      sessionStorage.removeItem('hx_nav_history');
     } catch {}
   };
 
@@ -185,17 +200,32 @@ export default function App() {
       sessionStorage.removeItem('hx_auth');
       sessionStorage.removeItem('hx_role');
       sessionStorage.removeItem('hx_page');
+      sessionStorage.removeItem('hx_selected_patient');
+      sessionStorage.removeItem('hx_nav_history');
     } catch {}
     setAuth(null);
     setRoleState(null);
     setSelectedPatient(null);
+    setNavHistory([]);
     setDrawer(null);
     setModal(null);
     setAuthScreenUsername(targetUser?.username || null);
     setAuthScreenInfo(targetUser?.name ? `Signed out. Please sign in as ${targetUser.name}.` : 'Signed out. Please sign in to continue.');
   };
 
-  const [navHistory, setNavHistory] = useState([]);
+  const [navHistory, setNavHistory] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('hx_nav_history') || '[]'); } catch { return []; }
+  });
+
+  useEffect(() => {
+    try {
+      if (navHistory && navHistory.length > 0) {
+        sessionStorage.setItem('hx_nav_history', JSON.stringify(navHistory));
+      } else {
+        sessionStorage.removeItem('hx_nav_history');
+      }
+    } catch {}
+  }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
     if (newPage === activePage && (newPatient === undefined || newPatient === selectedPatient)) {
@@ -484,13 +514,13 @@ export default function App() {
               doctorName={role === 'Doctor' ? auth?.name : null}
               doctorId={auth?.doctorId}
               onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
-              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+              onSelectPatient={handleSelectPatient}
             />
           )}
           {activePage === 'diagnostics' && (
             <DiagnosticsView
               onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
-              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+              onSelectPatient={handleSelectPatient}
             />
           )}
           {activePage === 'radiology' && (
@@ -498,7 +528,7 @@ export default function App() {
               requestedStudyId={requestedRadiologyStudy}
               onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)}
               currentUser={auth}
-              onSelectPatient={(p) => { setSelectedPatient(p); setActivePage('patient360'); }}
+              onSelectPatient={handleSelectPatient}
             />
           )}
           {activePage === 'xray-orders' && (
