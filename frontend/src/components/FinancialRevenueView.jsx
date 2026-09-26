@@ -107,9 +107,16 @@ function StatusPill({ status }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Component: FinancialRevenueView
 // ─────────────────────────────────────────────────────────────────────────────
-export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal }) {
+export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal, onSelectPatient, userRole }) {
   // Active view matches the selected Revenue cycle sub-module from sidebar
   const activeTab = initialTab || "billing";
+
+  // Role Access Guard: Check if user is authorized for insurance/claims
+  const isInsuranceRole = useMemo(() => {
+    if (!userRole) return true;
+    const allowed = ['Insurance', 'Billing', 'Finance Manager', 'Hospital Management', 'Admin', 'Auditor', 'AI Administrator', 'IT Administrator'];
+    return allowed.includes(userRole);
+  }, [userRole]);
 
   // Global search & filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -1128,7 +1135,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
               >
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{b.inv}</span>
-                <span style={{ fontWeight: 600, color: PALETTE.text }}>{b.patient}</span>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                    cursor: onSelectPatient ? "pointer" : "default",
+                    textDecoration: onSelectPatient ? "underline" : "none"
+                  }}
+                  title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                  onClick={(e) => {
+                    if (onSelectPatient) {
+                      e.stopPropagation();
+                      onSelectPatient({
+                        patient_id: b.patient_id,
+                        id: b.patient_id,
+                        patient_code: b.uhid || b.patient_code || b.patient_number,
+                        patient_number: b.uhid || b.patient_code || b.patient_number,
+                        patient_name: b.patient,
+                        first_name: b.patient ? b.patient.split(" ")[0] : "",
+                        last_name: b.patient ? b.patient.split(" ").slice(1).join(" ") : "",
+                        admission_id: b.admission_id
+                      });
+                    }
+                  }}
+                >
+                  {b.patient}
+                </span>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
                   {b.adm}
                 </span>
@@ -1235,6 +1267,17 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       {/* TAB 2: INSURANCE & PREAUTH VIEW (Exact Match to Screenshot 1) */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "insurance" && (
+        !isInsuranceRole ? (
+          <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: "36px", marginBottom: "12px" }}>🔒</div>
+            <div style={{ fontSize: "16px", fontWeight: 600, color: PALETTE.text, marginBottom: "6px" }}>
+              Insurance Pre-Authorisation Access Restricted
+            </div>
+            <div style={{ fontSize: "13px", color: PALETTE.text2, maxWidth: "500px", margin: "0 auto 16px", lineHeight: "1.5" }}>
+              Staff role <strong>{userRole || "Current Staff"}</strong> is restricted from accessing insurance underwriting and TPA preauthorisations. Please contact the Insurance Desk or Finance Manager.
+            </div>
+          </div>
+        ) : (
         <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
           <div
             style={{
@@ -1308,7 +1351,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
               >
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{p.claim}</span>
-                <span style={{ fontWeight: 600, color: PALETTE.text }}>{p.patient || p.patient_name}</span>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                    cursor: onSelectPatient ? "pointer" : "default",
+                    textDecoration: onSelectPatient ? "underline" : "none"
+                  }}
+                  title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                  onClick={(e) => {
+                    if (onSelectPatient) {
+                      e.stopPropagation();
+                      onSelectPatient({
+                        patient_id: p.patient_id,
+                        id: p.patient_id,
+                        patient_code: p.patient_code || p.patient_number || p.uhid,
+                        patient_number: p.patient_code || p.patient_number || p.uhid,
+                        patient_name: p.patient || p.patient_name,
+                        first_name: (p.patient || p.patient_name || "").split(" ")[0],
+                        last_name: (p.patient || p.patient_name || "").split(" ").slice(1).join(" "),
+                        admission_id: p.admission_id
+                      });
+                    }
+                  }}
+                >
+                  {p.patient || p.patient_name}
+                </span>
                 <span style={{ color: PALETTE.text2 }}>{p.tpa || p.insurer}</span>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.procedure}>
                   {p.procedure}
@@ -1425,12 +1493,24 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {/* TAB 3: CLAIMS VIEW (Kanban & Table Views - Exact Match to Screenshot 2) */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "claims" && (
+        !isInsuranceRole ? (
+          <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: "36px", marginBottom: "12px" }}>🔒</div>
+            <div style={{ fontSize: "16px", fontWeight: 600, color: PALETTE.text, marginBottom: "6px" }}>
+              Insurance Claims & Settlement Access Restricted
+            </div>
+            <div style={{ fontSize: "13px", color: PALETTE.text2, maxWidth: "500px", margin: "0 auto 16px", lineHeight: "1.5" }}>
+              Staff role <strong>{userRole || "Current Staff"}</strong> is restricted from accessing insurance claims and cashless settlement adjudication.
+            </div>
+          </div>
+        ) : (
         <>
           {loadingClaims && (
             <div style={{ padding: "16px" }}>
@@ -1572,7 +1652,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: "12.5px", fontWeight: 600, color: PALETTE.text, marginBottom: "4px" }}>
+                          <div
+                            style={{
+                              fontSize: "12.5px",
+                              fontWeight: 600,
+                              color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                              cursor: onSelectPatient ? "pointer" : "default",
+                              textDecoration: onSelectPatient ? "underline" : "none",
+                              marginBottom: "4px"
+                            }}
+                            title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                            onClick={(e) => {
+                              if (onSelectPatient) {
+                                e.stopPropagation();
+                                onSelectPatient({
+                                  patient_id: item.patient_id,
+                                  id: item.patient_id,
+                                  patient_code: item.patient_code || item.uhid,
+                                  patient_number: item.patient_code || item.uhid,
+                                  patient_name: item.patient,
+                                  first_name: (item.patient || "").split(" ")[0],
+                                  last_name: (item.patient || "").split(" ").slice(1).join(" "),
+                                  admission_id: item.admission_id
+                                });
+                              }
+                            }}
+                          >
                             {item.patient}
                           </div>
                           <div
@@ -1647,7 +1752,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                 >
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{cl.claim}</span>
-                  <span style={{ fontWeight: 600, color: PALETTE.text }}>{cl.patient}</span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                      cursor: onSelectPatient ? "pointer" : "default",
+                      textDecoration: onSelectPatient ? "underline" : "none"
+                    }}
+                    title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                    onClick={(e) => {
+                      if (onSelectPatient) {
+                        e.stopPropagation();
+                        onSelectPatient({
+                          patient_id: cl.patient_id,
+                          id: cl.patient_id,
+                          patient_code: cl.patient_code || cl.uhid,
+                          patient_number: cl.patient_code || cl.uhid,
+                          patient_name: cl.patient,
+                          first_name: (cl.patient || "").split(" ")[0],
+                          last_name: (cl.patient || "").split(" ").slice(1).join(" "),
+                          admission_id: cl.admission_id
+                        });
+                      }
+                    }}
+                  >
+                    {cl.patient}
+                  </span>
                   <span style={{ color: PALETTE.text2 }}>{cl.tpa} · Direct TPA</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
                     {cl.policy}
@@ -1685,6 +1815,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           ))}
         </>
+        )
       )}
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
@@ -1827,7 +1958,30 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                         <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>
                           {payRef}
                         </span>
-                        <span style={{ fontWeight: 600, color: PALETTE.text }}>
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                            cursor: onSelectPatient ? "pointer" : "default",
+                            textDecoration: onSelectPatient ? "underline" : "none"
+                          }}
+                          title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                          onClick={(e) => {
+                            if (onSelectPatient) {
+                              e.stopPropagation();
+                              onSelectPatient({
+                                patient_id: py.patient_id,
+                                id: py.patient_id,
+                                patient_code: py.patient_code || py.patient_number || py.uhid,
+                                patient_number: py.patient_code || py.patient_number || py.uhid,
+                                patient_name: py.patient_name,
+                                first_name: (py.patient_name || "").split(" ")[0],
+                                last_name: (py.patient_name || "").split(" ").slice(1).join(" "),
+                                admission_id: py.admission_id
+                              });
+                            }
+                          }}
+                        >
                           {(py.patient_name && py.patient_name.trim()) || "Enrolled Patient"}
                         </span>
                         <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
@@ -2416,6 +2570,42 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
             {/* Action Buttons in Drawer (Exact Prototype Actions) */}
             <div style={{ borderTop: `1px solid ${PALETTE.borderLight}`, paddingTop: "14px", display: "flex", flexDirection: "column", gap: "6px" }}>
+              {onSelectPatient && drawerData.type !== "tax" && (drawerData.data.patient_id || drawerData.data.patient) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectPatient({
+                      patient_id: drawerData.data.patient_id,
+                      id: drawerData.data.patient_id,
+                      patient_code: drawerData.data.uhid || drawerData.data.patient_code || drawerData.data.patient_number,
+                      patient_number: drawerData.data.uhid || drawerData.data.patient_code || drawerData.data.patient_number,
+                      patient_name: drawerData.data.patient_name || drawerData.data.patient,
+                      first_name: (drawerData.data.patient_name || drawerData.data.patient || "").split(" ")[0],
+                      last_name: (drawerData.data.patient_name || drawerData.data.patient || "").split(" ").slice(1).join(" "),
+                      admission_id: drawerData.data.admission_id
+                    });
+                    setDrawerData(null);
+                  }}
+                  style={{
+                    height: "34px",
+                    padding: "0 12px",
+                    borderRadius: "6px",
+                    border: `1px solid ${PALETTE.border}`,
+                    background: "#f0fdf4",
+                    color: PALETTE.success,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between"
+                  }}
+                >
+                  <span>👤 View Patient 360 Profile</span>
+                  <span style={{ fontSize: "12px" }}>→</span>
+                </button>
+              )}
+
               {drawerData.type === "bill" && (
                 <>
                   <button

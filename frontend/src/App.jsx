@@ -572,6 +572,8 @@ export default function App() {
               initialTab={activePage}
               onOpenDrawer={setDrawer}
               onOpenModal={setModal}
+              onSelectPatient={handleSelectPatient}
+              userRole={role}
             />
           )}
           {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

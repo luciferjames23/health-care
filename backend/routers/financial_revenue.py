@@ -46,6 +46,22 @@ def serialize_rows(cursor, rows):
         result.append(item)
     return result
 
+def _parse_id_numeric(val: Any) -> Optional[int]:
+    """Safely extracts numeric integer ID from mixed types (e.g. 'MER-PAT-0087221' -> 87221, 1001 -> 1001)."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() in ("none", "null", "undefined", ""):
+        return None
+    import re
+    digits = re.findall(r'\d+', s)
+    if digits:
+        try:
+            return int(digits[-1])
+        except ValueError:
+            return None
+    return None
+
 
 @router.get("/overview")
 def get_financial_overview():
@@ -127,7 +143,15 @@ def get_bills(
     """
     Get paginated bills joined with patient details and admission encounters.
     Supports filtering by bill status and searching by patient name, UHID, or bill number.
+    Properly links patient master records across patients and dim_admission_inputs tables.
     """
+    clean_page = page if isinstance(page, int) else 1
+    clean_page_size = page_size if isinstance(page_size, int) else 20
+    clean_status = status if isinstance(status, str) else None
+    clean_search = search if isinstance(search, str) else None
+    clean_sort_by = sort_by if isinstance(sort_by, str) else "bill_id"
+    clean_order = order if isinstance(order, str) else "desc"
+
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -135,20 +159,33 @@ def get_bills(
         where_clauses = ["1=1"]
         params = []
         
-        if status and status.lower() != "all":
-            where_clauses.append("LOWER(b.bill_status) = LOWER(%s)")
-            params.append(status)
+        if clean_status and clean_status.lower() != "all":
+            st_low = clean_status.strip().lower()
+            if st_low in ("settled", "paid", "cleared"):
+                where_clauses.append("(LOWER(b.bill_status) IN ('settled', 'paid', 'cleared'))")
+            elif st_low in ("pending", "provisional"):
+                where_clauses.append("(LOWER(b.bill_status) IN ('pending', 'provisional'))")
+            elif "part" in st_low:
+                where_clauses.append("(LOWER(b.bill_status) LIKE '%%part%%')")
+            elif st_low in ("disputed", "failed", "voided", "void requested"):
+                where_clauses.append("(LOWER(b.bill_status) IN ('disputed', 'failed', 'voided', 'void requested'))")
+            else:
+                where_clauses.append("LOWER(b.bill_status) = %s")
+                params.append(st_low)
             
-        if search and search.strip():
-            search_term = f"%{search.strip()}%"
+        if clean_search and clean_search.strip():
+            search_term = f"%{clean_search.strip()}%"
             where_clauses.append("""
                 (b.bill_number ILIKE %s OR 
                  p.patient_code ILIKE %s OR 
+                 dai.patient_number ILIKE %s OR
                  p.first_name ILIKE %s OR 
                  p.last_name ILIKE %s OR 
-                 CONCAT(p.first_name, ' ', p.last_name) ILIKE %s)
+                 dai.first_name ILIKE %s OR
+                 dai.last_name ILIKE %s OR
+                 CONCAT(COALESCE(p.first_name, dai.first_name, ''), ' ', COALESCE(p.last_name, dai.last_name, '')) ILIKE %s)
             """)
-            params.extend([search_term, search_term, search_term, search_term, search_term])
+            params.extend([search_term, search_term, search_term, search_term, search_term, search_term, search_term, search_term])
             
         where_sql = " AND ".join(where_clauses)
         
@@ -157,6 +194,7 @@ def get_bills(
             SELECT COUNT(*) 
             FROM bills b
             LEFT JOIN patients p ON b.patient_id = p.id
+            LEFT JOIN dim_admission_inputs dai ON (b.admission_id IS NOT NULL AND b.admission_id = dai.admission_id) OR (b.patient_id IS NOT NULL AND b.patient_id = dai.patient_id)
             WHERE {where_sql}
         """
         cur.execute(count_sql, tuple(params))
@@ -171,10 +209,10 @@ def get_bills(
             "patient_amount": "b.patient_amount",
             "bill_status": "b.bill_status"
         }
-        sort_col = allowed_sorts.get(sort_by, "b.bill_id")
-        sort_order = "ASC" if order.lower() == "asc" else "DESC"
+        sort_col = allowed_sorts.get(clean_sort_by, "b.bill_id")
+        sort_order = "ASC" if clean_order.lower() == "asc" else "DESC"
         
-        offset = (page - 1) * page_size
+        offset = (clean_page - 1) * clean_page_size
         
         # Fetch items
         query_sql = f"""
@@ -192,25 +230,26 @@ def get_bills(
                 b.insurance_amount,
                 b.patient_amount,
                 b.bill_status,
-                p.patient_code,
-                p.first_name,
-                p.last_name,
-                p.phone as patient_phone,
-                p.gender,
-                a.admission_number,
-                a.discharge_status,
+                COALESCE(p.patient_code, dai.patient_number, CONCAT('MER-PAT-', LPAD(COALESCE(b.patient_id, 0)::text, 7, '0'))) as patient_code,
+                COALESCE(p.first_name, dai.first_name, '') as first_name,
+                COALESCE(p.last_name, dai.last_name, '') as last_name,
+                COALESCE(p.phone, dai.phone, '—') as patient_phone,
+                COALESCE(p.gender, dai.gender, '—') as gender,
+                COALESCE(a.admission_number, dai.admission_number, CONCAT('MER-ADM-', LPAD(COALESCE(b.admission_id, 0)::text, 7, '0'))) as admission_number,
+                COALESCE(a.discharge_status, dai.discharge_status, 'Admitted') as discharge_status,
                 (SELECT COUNT(*) FROM bill_items bi WHERE bi.bill_id = b.bill_id) as item_count,
                 (SELECT COUNT(*) FROM payments py WHERE py.bill_id = b.bill_id AND py.payment_status = 'SUCCESS') as payment_count,
                 (SELECT COALESCE(SUM(py.amount), 0) FROM payments py WHERE py.bill_id = b.bill_id AND py.payment_status = 'SUCCESS') as paid_amount
             FROM bills b
             LEFT JOIN patients p ON b.patient_id = p.id
             LEFT JOIN admissions a ON b.admission_id = a.admission_id
+            LEFT JOIN dim_admission_inputs dai ON (b.admission_id IS NOT NULL AND b.admission_id = dai.admission_id) OR (b.patient_id IS NOT NULL AND b.patient_id = dai.patient_id)
             WHERE {where_sql}
             ORDER BY {sort_col} {sort_order}
             LIMIT %s OFFSET %s
         """
         
-        cur.execute(query_sql, tuple(params + [page_size, offset]))
+        cur.execute(query_sql, tuple(params + [clean_page_size, offset]))
         rows = serialize_rows(cur, cur.fetchall())
         
         # Format rows for UI
@@ -224,6 +263,7 @@ def get_bills(
                 "bill_date": r["bill_date"],
                 "patient_id": r["patient_id"],
                 "patient": p_name,
+                "patient_name": p_name,
                 "uhid": r.get("patient_code") or f"MER-PAT-{str(r['patient_id'] or 0).zfill(7)}",
                 "phone": r.get("patient_phone") or "—",
                 "gender": r.get("gender") or "—",
@@ -241,14 +281,14 @@ def get_bills(
                 "dischargeClear": r.get("bill_status") == "Settled",
             })
             
-        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        total_pages = (total_count + clean_page_size - 1) // clean_page_size if total_count > 0 else 1
         
         return {
             "success": True,
             "items": formatted,
             "total": total_count,
-            "page": page,
-            "page_size": page_size,
+            "page": clean_page,
+            "page_size": clean_page_size,
             "total_pages": total_pages
         }
     except Exception as e:
@@ -259,37 +299,69 @@ def get_bills(
 
 
 @router.get("/bills/admission/{admission_id}")
-def get_bill_by_admission(admission_id: int):
+def get_bill_by_admission(admission_id: Any):
     """
     Get deep billing details for a specific admission, including room charges,
     pharmacy sales/medications, laboratory orders/results, and payments.
+    Accepts numeric ID, string ID, or admission code (e.g. MER-ADM-0087221).
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT bill_id FROM bills WHERE admission_id = %s ORDER BY bill_id DESC LIMIT 1", (admission_id,))
+        parsed_aid = _parse_id_numeric(admission_id)
+        raw_adm_str = str(admission_id).strip()
+
+        # Check direct bill by admission_id or admission_number
+        cur.execute("""
+            SELECT b.bill_id FROM bills b
+            LEFT JOIN admissions a ON b.admission_id = a.admission_id
+            WHERE (%s IS NOT NULL AND b.admission_id = %s)
+               OR a.admission_number = %s
+            ORDER BY b.bill_id DESC LIMIT 1
+        """, (parsed_aid, parsed_aid, raw_adm_str))
         row = cur.fetchone()
         if row and row[0]:
             conn.close()
             return get_bill_detail(row[0])
             
-        # If no direct bill row exists in `bills`, check dim_admission_inputs
+        # If no direct bill row exists in `bills`, check admissions + dim_admission_inputs
         cur.execute("""
             SELECT a.admission_id, a.patient_id, a.admission_number, a.admission_date, a.discharge_date,
                    a.admission_type, a.reason_for_admission, a.discharge_status,
-                   p.patient_code, p.first_name, p.last_name, p.phone, p.gender, p.blood_group,
+                   COALESCE(p.patient_code, dai.patient_number) as patient_code,
+                   COALESCE(p.first_name, dai.first_name) as first_name,
+                   COALESCE(p.last_name, dai.last_name) as last_name,
+                   COALESCE(p.phone, dai.phone) as phone,
+                   COALESCE(p.gender, dai.gender) as gender,
+                   p.blood_group,
                    dai.llm_input_json
             FROM admissions a
             LEFT JOIN patients p ON a.patient_id = p.id
             LEFT JOIN dim_admission_inputs dai ON a.admission_id = dai.admission_id
-            WHERE a.admission_id = %s
-        """, (admission_id,))
+            WHERE (%s IS NOT NULL AND a.admission_id = %s) OR a.admission_number = %s
+            ORDER BY a.admission_id DESC LIMIT 1
+        """, (parsed_aid, parsed_aid, raw_adm_str))
         adm = cur.fetchone()
         if not adm:
-            raise HTTPException(status_code=404, detail="Admission not found")
+            cur.execute("""
+                SELECT dai.admission_id, dai.patient_id, dai.admission_number, dai.admission_date, NULL::date as discharge_date,
+                       dai.admission_type, dai.reason_for_admission, dai.discharge_status,
+                       dai.patient_number as patient_code, dai.first_name, dai.last_name, dai.phone, dai.gender,
+                       '—' as blood_group, dai.llm_input_json
+                FROM dim_admission_inputs dai
+                WHERE (%s IS NOT NULL AND (dai.admission_id = %s OR dai.patient_id = %s))
+                   OR dai.admission_number = %s OR dai.patient_number = %s
+                ORDER BY dai.admission_id DESC LIMIT 1
+            """, (parsed_aid, parsed_aid, parsed_aid, raw_adm_str, raw_adm_str))
+            adm = cur.fetchone()
+
+        if not adm:
+            raise HTTPException(status_code=404, detail=f"No admission record found for {admission_id}")
             
         adm_data = serialize_row(cur, adm)
         p_name = f"{adm_data.get('first_name') or ''} {adm_data.get('last_name') or ''}".strip() or "Patient"
+        resolved_aid = adm_data.get("admission_id") or parsed_aid
+        resolved_pid = adm_data.get("patient_id")
         
         # Parse llm_input_json if available
         llm_json = {}
@@ -321,7 +393,7 @@ def get_bill_by_admission(admission_id: int):
             LEFT JOIN medications m ON psi.medication_id = m.medication_id
             WHERE ps.admission_id = %s OR ps.patient_id = %s
             ORDER BY psi.sale_item_id ASC
-        """, (admission_id, adm_data.get("patient_id")))
+        """, (resolved_aid, resolved_pid))
         pharmacy_items = serialize_rows(cur, cur.fetchall())
         
         # Fetch lab items
@@ -346,7 +418,7 @@ def get_bill_by_admission(admission_id: int):
             LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
             WHERE lo.admission_id = %s
             ORDER BY lo.lab_order_id ASC
-        """, (admission_id,))
+        """, (resolved_aid,))
         lab_items = serialize_rows(cur, cur.fetchall())
         
         gross = float(billing_info.get("bill_gross_amount") or 0.0)
@@ -354,21 +426,74 @@ def get_bill_by_admission(admission_id: int):
         pat_amt = float(billing_info.get("bill_patient_portion") or billing_info.get("outstanding_balance") or net)
         ins_amt = float(billing_info.get("bill_insurance_portion") or 0.0)
         
+        # Fetch insurance claims on this admission or patient
+        cur.execute("""
+            SELECT 
+                claim_id,
+                claim_number,
+                patient_id,
+                bill_id,
+                insurance_provider,
+                policy_number,
+                claim_date,
+                claimed_amount,
+                approved_amount,
+                rejected_amount,
+                settled_amount,
+                outstanding_amount,
+                claim_status,
+                rejection_reason,
+                settlement_date
+            FROM insurance_claims
+            WHERE (bill_id IS NOT NULL AND bill_id = %s)
+               OR (patient_id IS NOT NULL AND patient_id = %s)
+            ORDER BY claim_id DESC
+        """, (resolved_aid, resolved_pid))
+        claims = serialize_rows(cur, cur.fetchall())
+
+        if not claims and resolved_pid:
+            cur.execute("""
+                SELECT 
+                    insurance_id as claim_id,
+                    'POL-' || LPAD(insurance_id::text, 5, '0') as claim_number,
+                    patient_id,
+                    NULL::int as bill_id,
+                    insurance_provider,
+                    policy_number,
+                    coverage_start_date as claim_date,
+                    coverage_limit as claimed_amount,
+                    coverage_limit as approved_amount,
+                    0.0 as rejected_amount,
+                    0.0 as settled_amount,
+                    0.0 as outstanding_amount,
+                    'Active' as claim_status,
+                    NULL as rejection_reason,
+                    NULL as settlement_date
+                FROM patient_insurance
+                WHERE patient_id = %s
+                ORDER BY insurance_id DESC
+            """, (resolved_pid,))
+            claims = serialize_rows(cur, cur.fetchall())
+
+        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "ICICI Lombard"
+
         bill_obj = {
-            "bill_id": admission_id,
-            "bill_number": billing_info.get("bill_number") or f"MER-BIL-{str(admission_id).zfill(7)}",
+            "bill_id": resolved_aid,
+            "bill_number": billing_info.get("bill_number") or f"MER-BIL-{str(resolved_aid).zfill(7)}",
             "bill_date": adm_data.get("admission_date"),
-            "patient_id": adm_data.get("patient_id"),
-            "admission_id": admission_id,
+            "patient_id": resolved_pid,
+            "admission_id": resolved_aid,
             "gross_amount": gross,
             "discount_amount": float(billing_info.get("bill_discount_amount") or 0.0),
             "tax_amount": float(billing_info.get("bill_tax_amount") or 0.0),
             "net_amount": net,
             "insurance_amount": ins_amt,
             "patient_amount": pat_amt,
+            "insurance_provider": detected_insurer,
+            "insurer": detected_insurer,
             "bill_status": billing_info.get("bill_status") or "Pending",
             "patient_name": p_name,
-            "uhid": adm_data.get("patient_code") or f"MER-PAT-{str(adm_data.get('patient_id') or 0).zfill(7)}",
+            "uhid": adm_data.get("patient_code") or f"MER-PAT-{str(resolved_pid or 0).zfill(7)}",
             "phone": adm_data.get("phone") or "—",
             "gender": adm_data.get("gender") or "—",
             "blood_group": adm_data.get("blood_group") or "—",
@@ -379,7 +504,7 @@ def get_bill_by_admission(admission_id: int):
             "pharmacy_items": pharmacy_items,
             "lab_items": lab_items,
             "payments": [],
-            "claims": []
+            "claims": claims
         }
         return {"success": True, "bill": bill_obj}
     except HTTPException:
@@ -392,32 +517,62 @@ def get_bill_by_admission(admission_id: int):
 
 
 @router.get("/bills/patient/{patient_id}")
-def get_bill_by_patient(patient_id: int):
+def get_bill_by_patient(patient_id: Any):
     """
     Get latest bill details for a specific patient.
+    Accepts numeric ID, string ID, or patient code/UHID (e.g. MER-PAT-0087221).
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1", (patient_id,))
+        parsed_pid = _parse_id_numeric(patient_id)
+        raw_pat_str = str(patient_id).strip()
+
+        # Try bills table directly
+        cur.execute("""
+            SELECT b.bill_id FROM bills b
+            LEFT JOIN patients p ON b.patient_id = p.id
+            WHERE (%s IS NOT NULL AND b.patient_id = %s)
+               OR p.patient_code = %s
+            ORDER BY (b.admission_id IS NOT NULL) DESC, b.bill_id DESC LIMIT 1
+        """, (parsed_pid, parsed_pid, raw_pat_str))
         row = cur.fetchone()
         if row and row[0]:
             conn.close()
             return get_bill_detail(row[0])
             
-        cur.execute("SELECT admission_id FROM admissions WHERE patient_id = %s ORDER BY admission_id DESC LIMIT 1", (patient_id,))
+        # Try admissions table
+        cur.execute("""
+            SELECT a.admission_id FROM admissions a
+            LEFT JOIN patients p ON a.patient_id = p.id
+            WHERE (%s IS NOT NULL AND a.patient_id = %s)
+               OR p.patient_code = %s
+            ORDER BY a.admission_id DESC LIMIT 1
+        """, (parsed_pid, parsed_pid, raw_pat_str))
         adm_row = cur.fetchone()
         if adm_row and adm_row[0]:
             conn.close()
             return get_bill_by_admission(adm_row[0])
+
+        # Try dim_admission_inputs
+        cur.execute("""
+            SELECT dai.admission_id FROM dim_admission_inputs dai
+            WHERE (%s IS NOT NULL AND dai.patient_id = %s)
+               OR dai.patient_number = %s
+            ORDER BY dai.admission_id DESC LIMIT 1
+        """, (parsed_pid, parsed_pid, raw_pat_str))
+        dai_row = cur.fetchone()
+        if dai_row and dai_row[0]:
+            conn.close()
+            return get_bill_by_admission(dai_row[0])
             
-        raise HTTPException(status_code=404, detail="No billing record found for this patient")
+        raise HTTPException(status_code=404, detail=f"No billing record found for patient {patient_id}")
     finally:
         conn.close()
 
 
 @router.get("/bills/{bill_id}")
-def get_bill_detail(bill_id: int):
+def get_bill_detail(bill_id: Any):
     """
     Get deep details of a specific bill:
     - Master bill metadata & amounts
@@ -432,6 +587,8 @@ def get_bill_detail(bill_id: int):
     conn = get_db_connection()
     try:
         cur = conn.cursor()
+        parsed_bid = _parse_id_numeric(bill_id)
+        raw_bill_str = str(bill_id).strip()
         
         # 1. Master Bill Details
         cur.execute("""
@@ -449,32 +606,35 @@ def get_bill_detail(bill_id: int):
                 b.insurance_amount,
                 b.patient_amount,
                 b.bill_status,
-                p.patient_code,
-                p.first_name,
-                p.last_name,
-                p.phone,
+                COALESCE(p.patient_code, dai.patient_number, CONCAT('MER-PAT-', LPAD(COALESCE(b.patient_id, 0)::text, 7, '0'))) as patient_code,
+                COALESCE(p.first_name, dai.first_name, '') as first_name,
+                COALESCE(p.last_name, dai.last_name, '') as last_name,
+                COALESCE(p.phone, dai.phone, '—') as phone,
                 p.email,
                 p.address,
                 p.blood_group,
-                p.gender,
+                COALESCE(p.gender, dai.gender, '—') as gender,
                 p.date_of_birth,
-                a.admission_number,
-                a.admission_date,
-                a.discharge_date,
-                a.admission_type,
-                a.reason_for_admission,
-                a.discharge_status
+                COALESCE(a.admission_number, dai.admission_number, CONCAT('MER-ADM-', LPAD(COALESCE(b.admission_id, 0)::text, 7, '0'))) as admission_number,
+                COALESCE(a.admission_date, dai.admission_date) as admission_date,
+                a.discharge_date as discharge_date,
+                COALESCE(a.admission_type, dai.admission_type) as admission_type,
+                COALESCE(a.reason_for_admission, dai.reason_for_admission) as reason_for_admission,
+                COALESCE(a.discharge_status, dai.discharge_status, 'Admitted') as discharge_status
             FROM bills b
             LEFT JOIN patients p ON b.patient_id = p.id
             LEFT JOIN admissions a ON b.admission_id = a.admission_id
-            WHERE b.bill_id = %s
-        """, (bill_id,))
+            LEFT JOIN dim_admission_inputs dai ON (b.admission_id IS NOT NULL AND b.admission_id = dai.admission_id) OR (b.patient_id IS NOT NULL AND b.patient_id = dai.patient_id)
+            WHERE (%s IS NOT NULL AND b.bill_id = %s) OR b.bill_number = %s
+            ORDER BY b.bill_id DESC LIMIT 1
+        """, (parsed_bid, parsed_bid, raw_bill_str))
         
         bill_row = cur.fetchone()
         if not bill_row:
             raise HTTPException(status_code=404, detail="Bill not found")
         bill_meta = serialize_row(cur, bill_row)
         
+        resolved_bid = bill_meta.get("bill_id") or parsed_bid
         admission_id = bill_meta.get("admission_id")
         patient_id = bill_meta.get("patient_id")
         
@@ -502,7 +662,7 @@ def get_bill_detail(bill_id: int):
             LEFT JOIN billing_services bs ON bi.billing_service_id = bs.billing_service_id
             WHERE bi.bill_id = %s
             ORDER BY bi.bill_item_id ASC
-        """, (bill_id,))
+        """, (resolved_bid,))
         items = serialize_rows(cur, cur.fetchall())
         
         # 3. Linked Pharmacy Items
@@ -528,59 +688,34 @@ def get_bill_detail(bill_id: int):
                OR (ps.bill_id IS NOT NULL AND ps.bill_id = %s)
                OR (ps.patient_id IS NOT NULL AND ps.patient_id = %s)
             ORDER BY psi.sale_item_id ASC
-        """, (admission_id or -1, bill_id, patient_id or -1))
+        """, (admission_id or -1, resolved_bid or -1, patient_id or -1))
         pharmacy_items = serialize_rows(cur, cur.fetchall())
             
         # 4. Linked Lab Investigation Orders & Tests
-        lab_items = []
-        if admission_id:
-            cur.execute("""
-                SELECT 
-                    lo.lab_order_id,
-                    lo.ordered_date,
-                    lo.priority,
-                    lo.status as order_status,
-                    COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
-                    lt.test_category,
-                    COALESCE(lt.standard_charge, 0.0) as unit_price,
-                    1 as quantity,
-                    COALESCE(lt.standard_charge, 0.0) as net_amount,
-                    lr.test_parameter,
-                    lr.result_value,
-                    lr.unit,
-                    lr.reference_range,
-                    lr.abnormal_flag
-                FROM lab_orders lo
-                LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
-                LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
-                WHERE lo.admission_id = %s
-                ORDER BY lo.lab_order_id ASC
-            """, (admission_id,))
-            lab_items = serialize_rows(cur, cur.fetchall())
-        elif patient_id:
-            cur.execute("""
-                SELECT 
-                    lo.lab_order_id,
-                    lo.ordered_date,
-                    lo.priority,
-                    lo.status as order_status,
-                    COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
-                    lt.test_category,
-                    COALESCE(lt.standard_charge, 0.0) as unit_price,
-                    1 as quantity,
-                    COALESCE(lt.standard_charge, 0.0) as net_amount,
-                    lr.test_parameter,
-                    lr.result_value,
-                    lr.unit,
-                    lr.reference_range,
-                    lr.abnormal_flag
-                FROM lab_orders lo
-                LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
-                LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
-                WHERE lo.patient_id = %s AND lo.admission_id IS NULL
-                ORDER BY lo.lab_order_id ASC
-            """, (patient_id,))
-            lab_items = serialize_rows(cur, cur.fetchall())
+        cur.execute("""
+            SELECT 
+                lo.lab_order_id,
+                lo.ordered_date,
+                lo.priority,
+                lo.status as order_status,
+                COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
+                lt.test_category,
+                COALESCE(lt.standard_charge, 0.0) as unit_price,
+                1 as quantity,
+                COALESCE(lt.standard_charge, 0.0) as net_amount,
+                lr.test_parameter,
+                lr.result_value,
+                lr.unit,
+                lr.reference_range,
+                lr.abnormal_flag
+            FROM lab_orders lo
+            LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
+            WHERE (lo.admission_id IS NOT NULL AND lo.admission_id = %s)
+               OR (lo.patient_id IS NOT NULL AND lo.patient_id = %s)
+            ORDER BY lo.lab_order_id ASC
+        """, (admission_id or -1, patient_id or -1))
+        lab_items = serialize_rows(cur, cur.fetchall())
         
         # 5. Payments
         cur.execute("""
@@ -599,7 +734,7 @@ def get_bill_detail(bill_id: int):
             FROM payments
             WHERE bill_id = %s
             ORDER BY id DESC
-        """, (bill_id,))
+        """, (resolved_bid,))
         payments = serialize_rows(cur, cur.fetchall())
         
         # 6. Insurance Claims on this Bill or Patient
@@ -621,17 +756,47 @@ def get_bill_detail(bill_id: int):
                 rejection_reason,
                 settlement_date
             FROM insurance_claims
-            WHERE bill_id = %s OR (patient_id = %s AND patient_id IS NOT NULL)
+            WHERE (bill_id IS NOT NULL AND bill_id = %s)
+               OR (patient_id IS NOT NULL AND patient_id = %s)
             ORDER BY claim_id DESC
-        """, (bill_id, bill_meta.get("patient_id")))
+        """, (resolved_bid or -1, patient_id or -1))
         claims = serialize_rows(cur, cur.fetchall())
+
+        # If no explicit claim row exists, check patient_insurance for active coverage
+        if not claims and patient_id:
+            cur.execute("""
+                SELECT 
+                    insurance_id as claim_id,
+                    'POL-' || LPAD(insurance_id::text, 5, '0') as claim_number,
+                    patient_id,
+                    NULL::int as bill_id,
+                    insurance_provider,
+                    policy_number,
+                    coverage_start_date as claim_date,
+                    coverage_limit as claimed_amount,
+                    coverage_limit as approved_amount,
+                    0.0 as rejected_amount,
+                    0.0 as settled_amount,
+                    0.0 as outstanding_amount,
+                    'Active Policy (Direct / TPA)' as claim_status,
+                    NULL as rejection_reason,
+                    NULL::date as settlement_date
+                FROM patient_insurance
+                WHERE patient_id = %s AND status = 'Active'
+                ORDER BY insurance_id DESC
+            """, (patient_id,))
+            claims = serialize_rows(cur, cur.fetchall())
         
         p_name = f"{bill_meta.get('first_name') or ''} {bill_meta.get('last_name') or ''}".strip() or "Walk-in Patient"
+        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "ICICI Lombard"
         
         return {
             "success": True,
             "bill": {
                 **bill_meta,
+                "insurance_provider": detected_insurer,
+                "insurer": detected_insurer,
+                "insurance": detected_insurer,
                 "patient_name": p_name,
                 "uhid": bill_meta.get("patient_code") or f"MER-PAT-{str(bill_meta.get('patient_id') or 0).zfill(7)}",
                 "items": items,
@@ -662,6 +827,12 @@ def get_insurance_claims(
     Get paginated insurance claims prioritized for currently admitted patients,
     with flexible status mappings, provider breakdowns, and aggregate stats.
     """
+    clean_page = page if isinstance(page, int) else 1
+    clean_page_size = page_size if isinstance(page_size, int) else 20
+    clean_status = status if isinstance(status, str) else None
+    clean_provider = provider if isinstance(provider, str) else None
+    clean_search = search if isinstance(search, str) else None
+
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -684,8 +855,8 @@ def get_insurance_claims(
         where_clauses = ["1=1"]
         params = []
         
-        if status and status.lower() != "all":
-            st_clean = status.strip().lower()
+        if clean_status and clean_status.lower() != "all":
+            st_clean = clean_status.strip().lower()
             if "claim ready" in st_clean or st_clean == "ready":
                 where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
                 params.extend(["%ready%", "%pending%"])
@@ -714,12 +885,12 @@ def get_insurance_claims(
                 where_clauses.append("LOWER(c.claim_status) = %s")
                 params.append(st_clean)
             
-        if provider and provider.lower() != "all":
+        if clean_provider and clean_provider.lower() != "all":
             where_clauses.append("c.insurance_provider ILIKE %s")
-            params.append(f"%{provider}%")
+            params.append(f"%{clean_provider}%")
             
-        if search and search.strip():
-            raw_s = search.strip()
+        if clean_search and clean_search.strip():
+            raw_s = clean_search.strip()
             st = f"%{raw_s}%"
             where_clauses.append("""
                 (c.claim_number ILIKE %s OR 
@@ -746,7 +917,7 @@ def get_insurance_claims(
         """, tuple(params))
         total_count = cur.fetchone()[0]
         
-        offset = (page - 1) * page_size
+        offset = (clean_page - 1) * clean_page_size
         
         query_sql = f"""
             SELECT 
@@ -820,15 +991,15 @@ def get_insurance_claims(
                 "procedure": r.get("reason_for_admission") or "Inpatient Care & Diagnostics"
             })
             
-        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        total_pages = (total_count + clean_page_size - 1) // clean_page_size if total_count > 0 else 1
         
         return {
             "success": True,
             "items": formatted,
             "stats": claim_stats,
             "total": total_count,
-            "page": page,
-            "page_size": page_size,
+            "page": clean_page,
+            "page_size": clean_page_size,
             "total_pages": total_pages
         }
     except Exception as e:
@@ -915,6 +1086,11 @@ def get_finance_dashboard(
     - AR Aging analysis (0-30, 31-60, 61-90, 90+ days)
     - Recent live payment collections with pagination & status filters
     """
+    clean_page = page if isinstance(page, int) else 1
+    clean_page_size = page_size if isinstance(page_size, int) else 15
+    clean_status = status if isinstance(status, str) else None
+    clean_search = search if isinstance(search, str) else None
+
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -990,8 +1166,8 @@ def get_finance_dashboard(
         # 5. Recent Live Payments & Ledger Transactions with Pagination
         pay_where = ["1=1"]
         pay_params = []
-        if status and status.lower() != "all":
-            s_low = status.strip().lower()
+        if clean_status and clean_status.lower() != "all":
+            s_low = clean_status.strip().lower()
             if s_low == "success":
                 pay_where.append("LOWER(t.payment_status) = 'success'")
             elif s_low == "pending":
@@ -1002,8 +1178,8 @@ def get_finance_dashboard(
                 pay_where.append("LOWER(t.payment_status) = %s")
                 pay_params.append(s_low)
 
-        if search and search.strip():
-            raw_s = search.strip()
+        if clean_search and clean_search.strip():
+            raw_s = clean_search.strip()
             st = f"%{raw_s}%"
             pay_where.append("""
                 (t.payment_reference ILIKE %s OR 
@@ -1406,12 +1582,17 @@ def get_preauthorisations(
         """)
         stat_row = serialize_row(cur, cur.fetchone())
 
+        clean_page = int(getattr(page, "default", page) if not isinstance(page, int) else page)
+        clean_page_size = int(getattr(page_size, "default", page_size) if not isinstance(page_size, int) else page_size)
+        clean_status = getattr(status, "default", status) if not isinstance(status, (str, type(None))) else status
+        clean_search = getattr(search, "default", search) if not isinstance(search, (str, type(None))) else search
+
         # 2. Filter clauses
         where_clauses = ["1=1"]
         params = []
 
-        if status and status.lower() != "all":
-            s_lower = status.lower()
+        if clean_status and str(clean_status).lower() != "all":
+            s_lower = str(clean_status).lower()
             if "pending" in s_lower:
                 where_clauses.append("c.claim_status ILIKE %s")
                 params.append("%pending%")
@@ -1440,8 +1621,8 @@ def get_preauthorisations(
                 where_clauses.append("LOWER(c.claim_status) = %s")
                 params.append(s_lower)
 
-        if search and search.strip():
-            raw_s = search.strip()
+        if clean_search and str(clean_search).strip():
+            raw_s = str(clean_search).strip()
             st = f"%{raw_s}%"
             where_clauses.append("""
                 (c.claim_number ILIKE %s OR 
@@ -1469,7 +1650,7 @@ def get_preauthorisations(
         """, tuple(params))
         total_count = cur.fetchone()[0]
 
-        offset = (page - 1) * page_size
+        offset = (clean_page - 1) * clean_page_size
 
         query = f"""
             SELECT 
@@ -1503,7 +1684,7 @@ def get_preauthorisations(
             ORDER BY c.claim_id DESC
             LIMIT %s OFFSET %s;
         """
-        cur.execute(query, tuple(params + [page_size, offset]))
+        cur.execute(query, tuple(params + [clean_page_size, offset]))
         rows = serialize_rows(cur, cur.fetchall())
 
         proc_map = {
@@ -1590,15 +1771,15 @@ def get_preauthorisations(
                 "bill_number": r.get('bill_number') or f"MER-BIL-{r.get('bill_id') or 1001}"
             })
 
-        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        total_pages = (total_count + clean_page_size - 1) // clean_page_size if total_count > 0 else 1
 
         return {
             "success": True,
             "items": formatted,
             "stats": stat_row,
             "total": total_count,
-            "page": page,
-            "page_size": page_size,
+            "page": clean_page,
+            "page_size": clean_page_size,
             "total_pages": total_pages
         }
     except Exception as e:

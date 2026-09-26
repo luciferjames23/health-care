@@ -90,8 +90,8 @@ export const ROLE_PAGE_ACCESS = {
     'command', 'patients', 'admissions', 'bedboard',
     // Operational
     'appointments', 'emergency', 'schedules', 'patient360', 'deathmlc',
-    // Financial & Revenue
-    'billing', 'insurance',
+    // Financial & Revenue (Billing only; Insurance is strictly Insurance / Finance roles)
+    'billing',
     // People & Administration
     'hr-dashboard', 'notifications', 'reports',
     // Platform

@@ -1011,7 +1011,8 @@ def get_all_patients_directory(
                         WHEN LOWER(COALESCE(a.discharge_status, '')) = 'discharged' THEN 'Discharged'
                         ELSE 'Admitted'
                     END AS status,
-                    COALESCE(ic.insurance_provider, 'Star Health') AS insurer
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'ICICI Lombard') AS insurer,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'ICICI Lombard') AS insurance_provider
                 FROM admissions a
                 JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN doctors d ON d.id = a.doctor_id
@@ -1021,6 +1022,10 @@ def get_all_patients_directory(
                     SELECT DISTINCT ON (patient_id) patient_id, insurance_provider 
                     FROM insurance_claims ORDER BY patient_id, claim_id DESC
                 ) ic ON ic.patient_id = p.id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
+                    FROM patient_insurance ORDER BY patient_id, insurance_id DESC
+                ) pi ON pi.patient_id = p.id
                 WHERE a.discharge_status IN ('Admitted', 'Ready')
                 ORDER BY a.admission_id DESC;
             """)
@@ -1171,3 +1176,258 @@ def get_all_patients_directory(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 11. DIAGNOSES ENDPOINTS (PostgreSQL live data)
+# ---------------------------------------------------------------------------
+@router.get("/diagnoses", summary="Get Diagnoses by patient, admission, or visit")
+def get_diagnoses(
+    patient_id: Optional[int] = None,
+    admission_id: Optional[int] = None,
+    visit_id: Optional[int] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+
+        if patient_id is not None:
+            where_clauses.append("d.patient_id = %s")
+            params.append(patient_id)
+        if admission_id is not None:
+            where_clauses.append("d.admission_id = %s")
+            params.append(admission_id)
+        if visit_id is not None:
+            where_clauses.append("d.visit_id = %s")
+            params.append(visit_id)
+        if search and search.strip():
+            s = f"%{search.strip().lower()}%"
+            where_clauses.append("""(
+                LOWER(d.diagnosis_code) LIKE %s OR 
+                LOWER(d.diagnosis_name) LIKE %s OR 
+                LOWER(d.diagnosis_type) LIKE %s OR
+                LOWER(COALESCE(doc.display_name, '')) LIKE %s
+            )""")
+            params.extend([s, s, s, s])
+
+        where_sql = " AND ".join(where_clauses)
+
+        cur.execute(f"SELECT COUNT(*) as total FROM diagnoses d LEFT JOIN doctors doc ON d.doctor_id = doc.id WHERE {where_sql};", tuple(params))
+        total_count = cur.fetchone().get('total', 0)
+
+        query = f"""
+            SELECT 
+                d.diagnosis_id,
+                d.patient_id,
+                d.visit_id,
+                d.admission_id,
+                d.doctor_id,
+                d.diagnosis_code,
+                d.diagnosis_name,
+                d.diagnosis_type,
+                d.diagnosis_date,
+                d.is_primary,
+                doc.display_name as doctor_name,
+                doc.specialization as doctor_specialty,
+                p.patient_code,
+                CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) as patient_name
+            FROM diagnoses d
+            LEFT JOIN doctors doc ON d.doctor_id = doc.id
+            LEFT JOIN patients p ON d.patient_id = p.id
+            WHERE {where_sql}
+            ORDER BY d.is_primary DESC, d.diagnosis_date DESC, d.diagnosis_id DESC
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(query, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            dt_str = r['diagnosis_date'].strftime('%d %b %Y, %I:%M %p') if r.get('diagnosis_date') else None
+            formatted.append({
+                "diagnosis_id": r['diagnosis_id'],
+                "patient_id": r['patient_id'],
+                "admission_id": r['admission_id'],
+                "visit_id": r['visit_id'],
+                "code": r['diagnosis_code'],
+                "diagnosis_code": r['diagnosis_code'],
+                "name": r['diagnosis_name'],
+                "diagnosis_name": r['diagnosis_name'],
+                "type": r['diagnosis_type'] or ('Primary' if r['is_primary'] else 'Secondary'),
+                "is_primary": bool(r['is_primary']),
+                "date": dt_str,
+                "diagnosis_date": dt_str,
+                "doctor": r['doctor_name'] or 'Attending Physician',
+                "doctor_specialty": r['doctor_specialty'],
+                "patient_code": r['patient_code'],
+                "patient_name": r['patient_name']
+            })
+
+        return {
+            "success": True,
+            "total": total_count,
+            "count": len(formatted),
+            "data": formatted
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# 12. LABORATORY ORDERS & RESULTS (PostgreSQL live data)
+# ---------------------------------------------------------------------------
+@router.get("/labs", summary="Get Laboratory Orders and Results by patient, admission, or visit")
+def get_lab_orders(
+    patient_id: Optional[int] = None,
+    admission_id: Optional[int] = None,
+    visit_id: Optional[int] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+
+        if patient_id is not None:
+            where_clauses.append("lo.patient_id = %s")
+            params.append(patient_id)
+        if admission_id is not None:
+            where_clauses.append("lo.admission_id = %s")
+            params.append(admission_id)
+        if visit_id is not None:
+            where_clauses.append("lo.visit_id = %s")
+            params.append(visit_id)
+        if search and search.strip():
+            s = f"%{search.strip().lower()}%"
+            where_clauses.append("""(
+                LOWER(lt.test_code) LIKE %s OR 
+                LOWER(lt.test_name) LIKE %s OR 
+                LOWER(lt.test_category) LIKE %s OR
+                LOWER(COALESCE(doc.display_name, '')) LIKE %s
+            )""")
+            params.extend([s, s, s, s])
+
+        where_sql = " AND ".join(where_clauses)
+
+        cur.execute(f"""
+            SELECT COUNT(*) as total 
+            FROM lab_orders lo 
+            LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id 
+            LEFT JOIN doctors doc ON lo.doctor_id = doc.id 
+            WHERE {where_sql};
+        """, tuple(params))
+        total_count = cur.fetchone().get('total', 0)
+
+        query = f"""
+            SELECT 
+                lo.lab_order_id,
+                lo.patient_id,
+                lo.doctor_id,
+                lo.visit_id,
+                lo.admission_id,
+                lo.lab_test_id,
+                lo.ordered_date,
+                lo.priority,
+                lo.status as order_status,
+                lt.test_code,
+                lt.test_name,
+                lt.test_category,
+                lt.sample_type,
+                lt.standard_charge,
+                doc.display_name as doctor_name,
+                p.patient_code,
+                CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) as patient_name
+            FROM lab_orders lo
+            LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN doctors doc ON lo.doctor_id = doc.id
+            LEFT JOIN patients p ON lo.patient_id = p.id
+            WHERE {where_sql}
+            ORDER BY lo.ordered_date DESC, lo.lab_order_id DESC
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(query, tuple(params + [limit, offset]))
+        orders = cur.fetchall()
+
+        order_ids = [o['lab_order_id'] for o in orders if o.get('lab_order_id')]
+        results_by_order = {}
+        if order_ids:
+            cur.execute("""
+                SELECT 
+                    lr.lab_result_id,
+                    lr.lab_order_id,
+                    lr.patient_id,
+                    lr.test_parameter,
+                    lr.result_value,
+                    lr.unit,
+                    lr.reference_range,
+                    lr.abnormal_flag,
+                    lr.verification_status,
+                    lr.result_date,
+                    lr.verified_by
+                FROM lab_results lr
+                WHERE lr.lab_order_id = ANY(%s)
+                ORDER BY lr.lab_result_id ASC;
+            """, (order_ids,))
+            r_rows = cur.fetchall()
+            for r in r_rows:
+                oid = r['lab_order_id']
+                if oid not in results_by_order:
+                    results_by_order[oid] = []
+                res_date_str = r['result_date'].strftime('%d %b %Y, %I:%M %p') if r.get('result_date') else None
+                results_by_order[oid].append({
+                    "lab_result_id": r['lab_result_id'],
+                    "parameter": r['test_parameter'],
+                    "value": r['result_value'],
+                    "unit": r['unit'],
+                    "reference_range": r['reference_range'],
+                    "is_abnormal": bool(r['abnormal_flag']),
+                    "verification_status": r['verification_status'],
+                    "result_date": res_date_str
+                })
+
+        formatted = []
+        for o in orders:
+            oid = o['lab_order_id']
+            ord_date_str = o['ordered_date'].strftime('%d %b %Y, %I:%M %p') if o.get('ordered_date') else None
+            ord_results = results_by_order.get(oid, [])
+            formatted.append({
+                "lab_order_id": oid,
+                "order_number": f"LAB-2026-{oid}",
+                "patient_id": o['patient_id'],
+                "admission_id": o['admission_id'],
+                "visit_id": o['visit_id'],
+                "test_code": o['test_code'] or f"T-{o.get('lab_test_id', 1)}",
+                "test_name": o['test_name'] or 'Comprehensive Diagnostic Panel',
+                "category": o['test_category'] or 'Biochemistry',
+                "sample_type": o['sample_type'] or 'Serum',
+                "charge": float(o['standard_charge'] or 0),
+                "priority": o['priority'] or 'Routine',
+                "status": o['order_status'] or 'Completed',
+                "ordered_date": ord_date_str,
+                "doctor": o['doctor_name'] or 'Attending Physician',
+                "patient_code": o['patient_code'],
+                "patient_name": o['patient_name'],
+                "results": ord_results
+            })
+
+        return {
+            "success": True,
+            "total": total_count,
+            "count": len(formatted),
+            "data": formatted
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+

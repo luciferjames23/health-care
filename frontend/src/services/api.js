@@ -1116,6 +1116,8 @@ export const apiService = {
     const q = new URLSearchParams();
     if (params.status && params.status !== 'All') q.append('status', params.status);
     if (params.search) q.append('search', params.search);
+    if (params.patient_id) q.append('patient_id', params.patient_id);
+    if (params.admission_id) q.append('admission_id', params.admission_id);
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions?${q.toString()}`, {
@@ -1151,6 +1153,8 @@ export const apiService = {
     const q = new URLSearchParams();
     if (params.status && params.status !== 'All') q.append('status', params.status);
     if (params.search) q.append('search', params.search);
+    if (params.patient_id) q.append('patient_id', params.patient_id);
+    if (params.admission_id) q.append('admission_id', params.admission_id);
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/sales?${q.toString()}`, {
@@ -1299,6 +1303,41 @@ export const apiService = {
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/all-patients?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientDiagnoses(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.patient_id) query.append('patient_id', params.patient_id);
+    if (params.admission_id) query.append('admission_id', params.admission_id);
+    if (params.visit_id) query.append('visit_id', params.visit_id);
+    if (params.search) query.append('search', params.search);
+    if (params.limit) query.append('limit', params.limit);
+    if (params.offset) query.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/diagnoses?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientLabOrders(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.patient_id) query.append('patient_id', params.patient_id);
+    if (params.admission_id) query.append('admission_id', params.admission_id);
+    if (params.visit_id) query.append('visit_id', params.visit_id);
+    if (params.search) query.append('search', params.search);
+    if (params.limit) query.append('limit', params.limit);
+    if (params.offset) query.append('offset', params.offset);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientAppointments(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/patients/${patientId}/appointments`, {
       ...options,
       revalidateMs: 2000
     });
@@ -1458,7 +1497,7 @@ export function parseAdmissionLlmRecord(record) {
   const wardName = record.ward_name || adm.ward_name || 'Emerald Semi-Private';
   const bedNum = record.bed_number || 'Unassigned';
   const department = record.department_name || wardName || doctorSpecialty || 'General Medicine';
-  const insurer = record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'Cashless Health Insurance' : 'Direct Billing / Corporate');
+  const insurer = record.insurer || record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'ICICI Lombard' : 'Direct Billing / Corporate');
 
   return {
     id: String(record.admission_id || record.patient_id),

@@ -29,6 +29,8 @@ db_connector = PostgresConnector()
 def get_prescriptions(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    patient_id: Optional[int] = None,
+    admission_id: Optional[int] = None,
     limit: int = 100,
     offset: int = 0
 ):
@@ -37,6 +39,14 @@ def get_prescriptions(
         cur = db_connector.get_dict_cursor(conn)
         where_clauses = []
         params = []
+
+        if patient_id is not None:
+            where_clauses.append("p.patient_id = %s")
+            params.append(patient_id)
+
+        if admission_id is not None:
+            where_clauses.append("p.admission_id = %s")
+            params.append(admission_id)
 
         if status and isinstance(status, str) and status != 'All':
             where_clauses.append("LOWER(p.status) = LOWER(%s)")
@@ -374,6 +384,8 @@ def get_drug_master(
 def get_pharmacy_sales(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    patient_id: Optional[int] = None,
+    admission_id: Optional[int] = None,
     limit: int = 100,
     offset: int = 0
 ):
@@ -382,6 +394,14 @@ def get_pharmacy_sales(
         cur = db_connector.get_dict_cursor(conn)
         where_clauses = []
         params = []
+
+        if patient_id is not None:
+            where_clauses.append("ps.patient_id = %s")
+            params.append(patient_id)
+
+        if admission_id is not None:
+            where_clauses.append("ps.admission_id = %s")
+            params.append(admission_id)
 
         if status and isinstance(status, str) and status != 'All':
             if status.lower() == 'dispensed':
@@ -722,7 +742,9 @@ def get_hospital_stores():
 @router.get("/procurement", summary="List Procurement Purchase Orders from DB")
 def get_procurement_orders(
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
 ):
     conn = db_connector.get_connection()
     try:
@@ -757,7 +779,7 @@ def get_procurement_orders(
         """, tuple(params))
         stat_row = cur.fetchone() or {}
 
-        cur.execute(f"SELECT * FROM procurement_orders {where_sql} ORDER BY order_date DESC, id DESC;", tuple(params))
+        cur.execute(f"SELECT * FROM procurement_orders {where_sql} ORDER BY order_date DESC, id DESC LIMIT %s OFFSET %s;", tuple(params + [limit, offset]))
         rows = cur.fetchall()
 
         formatted = []
@@ -812,7 +834,9 @@ def get_procurement_orders(
 def get_hospital_vendors(
     category: Optional[str] = None,
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
 ):
     conn = db_connector.get_connection()
     try:
@@ -850,7 +874,7 @@ def get_hospital_vendors(
         """, tuple(params))
         stat_row = cur.fetchone() or {}
 
-        cur.execute(f"SELECT * FROM hospital_vendors {where_sql} ORDER BY compliance_score DESC, id ASC;", tuple(params))
+        cur.execute(f"SELECT * FROM hospital_vendors {where_sql} ORDER BY compliance_score DESC, id ASC LIMIT %s OFFSET %s;", tuple(params + [limit, offset]))
         rows = cur.fetchall()
 
         formatted = []
@@ -898,7 +922,9 @@ def get_hospital_vendors(
 @router.get("/cssd", summary="List CSSD Sterilization Cycles from DB")
 def get_cssd_records(
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
 ):
     conn = db_connector.get_connection()
     try:
@@ -934,7 +960,7 @@ def get_cssd_records(
         """, tuple(params))
         stat_row = cur.fetchone() or {}
 
-        cur.execute(f"SELECT * FROM cssd_sterilization_records {where_sql} ORDER BY id ASC;", tuple(params))
+        cur.execute(f"SELECT * FROM cssd_sterilization_records {where_sql} ORDER BY id ASC LIMIT %s OFFSET %s;", tuple(params + [limit, offset]))
         rows = cur.fetchall()
 
         formatted = []
