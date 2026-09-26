@@ -475,7 +475,7 @@ def get_bill_by_admission(admission_id: Any):
             """, (resolved_pid,))
             claims = serialize_rows(cur, cur.fetchall())
 
-        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "ICICI Lombard"
+        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "Self-Pay"
 
         bill_obj = {
             "bill_id": resolved_aid,
@@ -788,7 +788,7 @@ def get_bill_detail(bill_id: Any):
             claims = serialize_rows(cur, cur.fetchall())
         
         p_name = f"{bill_meta.get('first_name') or ''} {bill_meta.get('last_name') or ''}".strip() or "Walk-in Patient"
-        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "ICICI Lombard"
+        detected_insurer = (claims[0].get("insurance_provider") if claims else None) or "Self-Pay"
         
         return {
             "success": True,

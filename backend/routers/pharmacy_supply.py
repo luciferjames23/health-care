@@ -125,6 +125,7 @@ def get_prescriptions(
 
             formatted.append({
                 "id": r['rx_number'],
+                "rx_number": r['rx_number'],
                 "prescription_number": r['rx_number'],
                 "prescriptionNumber": r['rx_number'],
                 "prescriptionId": r['id'],
@@ -419,13 +420,13 @@ def get_pharmacy_sales(
                 LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
                 LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
                 LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
-                LOWER(COALESCE(adm.ward_name, '')) LIKE %s OR
-                LOWER(COALESCE(adm.bed_number, '')) LIKE %s OR
+                LOWER(COALESCE(w.ward_name, '')) LIKE %s OR
+                LOWER(COALESCE(b.bed_number, '')) LIKE %s OR
                 LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
                 ('ph-' || LPAD(ps.sale_id::text, 5, '0')) LIKE %s OR
                 ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
             )""")
-            params.extend([s, s, s, s, s, s, s, s, s])
+            params.extend([s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -439,7 +440,9 @@ def get_pharmacy_sales(
             LEFT JOIN patients pat ON ps.patient_id = pat.id
             LEFT JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
             LEFT JOIN medications m ON psi.medication_id = m.medication_id
-            LEFT JOIN dim_admission_inputs adm ON ps.admission_id = adm.admission_id
+            LEFT JOIN admissions a ON ps.admission_id = a.admission_id
+            LEFT JOIN beds b ON a.bed_id = b.bed_id
+            LEFT JOIN wards w ON a.ward_id = w.ward_id
             {where_sql};
         """, tuple(params))
         stat_row = cur.fetchone() or {}
@@ -453,8 +456,8 @@ def get_pharmacy_sales(
                 ps.prescription_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || ps.patient_id) as patient,
                 COALESCE(pat.patient_code, 'PAT-' || ps.patient_id) as patient_code,
-                COALESCE(adm.bed_number, 'OPD-Desk') as bed,
-                COALESCE(adm.ward_name, 'Outpatient Pharmacy') as ward,
+                COALESCE(b.bed_number, 'OPD-Desk') as bed,
+                COALESCE(w.ward_name, 'Outpatient Pharmacy') as ward,
                 ps.sale_date as time,
                 ps.total_amount,
                 ps.net_amount,
@@ -468,7 +471,9 @@ def get_pharmacy_sales(
             LEFT JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
             LEFT JOIN medications m ON psi.medication_id = m.medication_id
             LEFT JOIN pharmacy_inventory inv ON psi.inventory_id = inv.inventory_id
-            LEFT JOIN dim_admission_inputs adm ON ps.admission_id = adm.admission_id
+            LEFT JOIN admissions a ON ps.admission_id = a.admission_id
+            LEFT JOIN beds b ON a.bed_id = b.bed_id
+            LEFT JOIN wards w ON a.ward_id = w.ward_id
             {where_sql}
             ORDER BY ps.sale_date DESC, ps.sale_id DESC
             LIMIT %s OFFSET %s;

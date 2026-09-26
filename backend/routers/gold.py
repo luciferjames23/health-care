@@ -1079,6 +1079,97 @@ def get_dim_admission_inputs(
     try:
         res = db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=clean_limit, offset=clean_offset)
         data = res.get("data", [])
+        
+        # If no records found in dim_admission_inputs (210 rows) and caller specified an admission or patient filter, fall back to master admissions table
+        if not data and (clean_aid or clean_pid or clean_anum or clean_pnum or clean_ds):
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                adm_where = ["1=1"]
+                adm_params = []
+                if clean_aid:
+                    adm_where.append("a.admission_id = %s")
+                    adm_params.append(clean_aid)
+                if clean_pid:
+                    adm_where.append("a.patient_id = %s")
+                    adm_params.append(clean_pid)
+                if clean_anum:
+                    adm_where.append("a.admission_number = %s")
+                    adm_params.append(clean_anum)
+                if clean_pnum:
+                    adm_where.append("p.patient_code = %s")
+                    adm_params.append(clean_pnum)
+                if clean_ds and clean_ds.strip().lower() != "all":
+                    adm_where.append("LOWER(a.discharge_status) = LOWER(%s)")
+                    adm_params.append(clean_ds.strip())
+
+                lim = clean_limit or 50
+                off = clean_offset or 0
+                cur.execute(f"""
+                    SELECT 
+                        a.admission_id,
+                        a.patient_id,
+                        p.patient_code AS patient_number,
+                        (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                        p.first_name,
+                        p.last_name,
+                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age_at_admission,
+                        p.gender,
+                        p.blood_group,
+                        p.date_of_birth,
+                        p.phone,
+                        p.email,
+                        p.address,
+                        a.admission_date,
+                        a.admission_type,
+                        COALESCE(a.reason_for_admission, 'Inpatient Admission') AS reason_for_admission,
+                        COALESCE(a.reason_for_admission, 'Inpatient Admission') AS primary_diagnosis,
+                        'None recorded' AS secondary_diagnoses,
+                        a.discharge_status,
+                        a.discharge_date,
+                        a.admission_number,
+                        b.bed_number,
+                        b.bed_type,
+                        r.room_number,
+                        w.ward_name,
+                        COALESCE(d.display_name, 'Attending Physician') AS attending_doctor,
+                        d.specialization AS doctor_specialization,
+                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider,
+                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer
+                    FROM admissions a
+                    JOIN patients p ON a.patient_id = p.id
+                    LEFT JOIN doctors d ON a.doctor_id = d.id
+                    LEFT JOIN beds b ON a.bed_id = b.bed_id
+                    LEFT JOIN rooms r ON b.room_id = r.room_id
+                    LEFT JOIN wards w ON b.ward_id = w.ward_id
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
+                        FROM insurance_claims ORDER BY patient_id, claim_date DESC, claim_id DESC
+                    ) ic ON ic.patient_id = p.id
+                    LEFT JOIN (
+                        SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
+                        FROM patient_insurance ORDER BY patient_id, insurance_id DESC
+                    ) pi ON pi.patient_id = p.id
+                    WHERE {" AND ".join(adm_where)}
+                    ORDER BY a.admission_id DESC
+                    LIMIT %s OFFSET %s;
+                """, tuple(adm_params + [lim, off]))
+                fb_rows = cur.fetchall()
+                cur.close()
+                conn.close()
+                if fb_rows:
+                    data = [dict(r) for r in fb_rows]
+                    res = {
+                        "catalog": Config.DATABRICKS_CATALOG,
+                        "schema": Config.DATABRICKS_SCHEMA,
+                        "table_name": "dim_admission_inputs",
+                        "count": len(data),
+                        "data": data
+                    }
+            except Exception as e_adm_list:
+                print(f"[WARN] Error fetching admissions fallback list: {e_adm_list}")
+
         if data:
             try:
                 conn = db_connector.get_connection()
@@ -1200,12 +1291,117 @@ def get_dim_admission_inputs_summary():
 
 @router.get("/current-admission-llm-inputs/{admission_id}", summary="Get Single Current Admission LLM Record")
 def get_current_admission_llm_input_by_id(admission_id: str):
-    """Retrieve a single admission LLM input record by admission_id or patient_number."""
-    res = db_connector.query_gold_table("dim_admission_inputs", filters={"admission_id": admission_id}, limit=1)
-    data = res.get("data", [])
+    """Retrieve a single admission LLM input record by admission_id, admission_number, or patient_number/patient_id."""
+    import re
+    raw_str = str(admission_id).strip()
+    digits = re.findall(r'\d+', raw_str)
+    num_id = int(digits[-1]) if digits else None
+
+    data = []
+    if num_id is not None:
+        try:
+            res = db_connector.query_gold_table("dim_admission_inputs", filters={"admission_id": num_id}, limit=1)
+            data = res.get("data", [])
+        except Exception:
+            pass
+
+    if not data and raw_str:
+        try:
+            res = db_connector.query_gold_table("dim_admission_inputs", filters={"admission_number": raw_str}, limit=1)
+            data = res.get("data", [])
+        except Exception:
+            pass
+
+    if not data and raw_str:
+        try:
+            res = db_connector.query_gold_table("dim_admission_inputs", filters={"patient_number": raw_str}, limit=1)
+            data = res.get("data", [])
+        except Exception:
+            pass
+
+    if not data and num_id is not None:
+        try:
+            res = db_connector.query_gold_table("dim_admission_inputs", filters={"patient_id": num_id}, limit=1)
+            data = res.get("data", [])
+        except Exception:
+            pass
+
+    # Fallback to master admissions table (87k+ rows)
     if not data:
-        res = db_connector.query_gold_table("dim_admission_inputs", filters={"patient_number": admission_id}, limit=1)
-        data = res.get("data", [])
+        try:
+            import db_config
+            conn = db_config.get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT 
+                    a.admission_id,
+                    a.patient_id,
+                    p.patient_code AS patient_number,
+                    (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                    p.first_name,
+                    p.last_name,
+                    EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age_at_admission,
+                    p.gender,
+                    p.blood_group,
+                    p.date_of_birth,
+                    p.marital_status,
+                    p.preferred_language,
+                    p.phone,
+                    p.email,
+                    p.address,
+                    p.city,
+                    p.state,
+                    p.pincode AS postal_code,
+                    p.emergency_contact_name,
+                    p.emergency_contact_phone,
+                    a.admission_date,
+                    a.admission_type,
+                    a.admission_source,
+                    COALESCE(a.reason_for_admission, 'Inpatient Admission') AS reason_for_admission,
+                    COALESCE(a.reason_for_admission, 'Inpatient Admission') AS primary_diagnosis,
+                    'None recorded' AS secondary_diagnoses,
+                    a.discharge_status,
+                    a.discharge_date,
+                    a.admission_number,
+                    b.bed_number,
+                    b.bed_type,
+                    r.room_number,
+                    w.ward_name,
+                    COALESCE(d.display_name, 'Attending Physician') AS attending_doctor,
+                    d.specialization AS doctor_specialization,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                    COALESCE(ic.claim_status, pi.status, 'Active') AS claim_status
+                FROM admissions a
+                JOIN patients p ON a.patient_id = p.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                LEFT JOIN beds b ON a.bed_id = b.bed_id
+                LEFT JOIN rooms r ON b.room_id = r.room_id
+                LEFT JOIN wards w ON b.ward_id = w.ward_id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider, claim_status
+                    FROM insurance_claims ORDER BY patient_id, claim_date DESC, claim_id DESC
+                ) ic ON ic.patient_id = p.id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider, status
+                    FROM patient_insurance ORDER BY patient_id, insurance_id DESC
+                ) pi ON pi.patient_id = p.id
+                WHERE (%s IS NOT NULL AND (a.admission_id = %s OR a.patient_id = %s))
+                   OR a.admission_number = %s
+                   OR p.patient_code = %s
+                ORDER BY a.admission_id DESC
+                LIMIT 1;
+            """, (num_id, num_id, num_id, raw_str, raw_str))
+            adm_row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if adm_row:
+                rec = dict(adm_row)
+                rec["admission_id"] = str(rec["admission_id"])
+                return rec
+        except Exception as e_adm:
+            print(f"[WARN] Error fetching fallback admission: {e_adm}")
+
     if not data:
         raise HTTPException(status_code=404, detail=f"Admission LLM record '{admission_id}' not found.")
     rec = data[0]
@@ -1234,19 +1430,92 @@ def get_dim_generated_discharge_summaries(
 ):
     """Query `health_care.gold.dim_generated_discharge_summaries` table with optional filters and pagination."""
     filters = {}
-    if isinstance(patient_id, int): filters["patient_id"] = patient_id
-    if isinstance(patient_number, str) and patient_number: filters["patient_number"] = patient_number
-    if isinstance(admission_id, (str, int)) and admission_id: filters["admission_id"] = admission_id
+    resolved_pid = patient_id
+    if resolved_pid is None and isinstance(patient_number, str) and patient_number.strip():
+        import re
+        digits = re.findall(r'\d+', patient_number)
+        if digits:
+            resolved_pid = int(digits[-1])
+
+    if isinstance(resolved_pid, int): filters["patient_id"] = resolved_pid
+    if isinstance(admission_id, (str, int)) and admission_id:
+        import re
+        adm_digits = re.findall(r'\d+', str(admission_id))
+        if adm_digits:
+            filters["admission_id"] = int(adm_digits[-1])
     if isinstance(approval_status, str) and approval_status: filters["approval_status"] = approval_status
-    if isinstance(attending_physician, str) and attending_physician: filters["attending_physician"] = attending_physician
+    if isinstance(attending_physician, str) and attending_physician: filters["primary_consultant"] = attending_physician
     if isinstance(model_name, str) and model_name: filters["model_name"] = model_name
-    if isinstance(discharge_date_from, str) and discharge_date_from: filters["discharge_date_from"] = discharge_date_from
-    if isinstance(discharge_date_to, str) and discharge_date_to: filters["discharge_date_to"] = discharge_date_to
     clean_limit = limit if isinstance(limit, int) else None
     clean_offset = offset if isinstance(offset, int) else 0
 
     try:
         res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters=filters, limit=clean_limit, offset=clean_offset)
+        # If no records found in dim table and querying by patient or admission, fallback to live discharge_summaries (87k+ rows)
+        if not res.get("data") and (resolved_pid or patient_number or admission_id):
+            try:
+                import db_config
+                conn = db_config.get_db_connection()
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("""
+                    SELECT 
+                        ds.summary_id,
+                        ds.admission_id,
+                        ds.patient_id,
+                        ds.doctor_id,
+                        ds.admission_date,
+                        ds.discharge_date,
+                        ds.diagnoses AS discharge_diagnosis,
+                        ds.diagnoses,
+                        ds.case_history AS hospital_course_summary,
+                        ds.case_history,
+                        ds.investigations,
+                        ds.treatment AS discharge_medications,
+                        ds.treatment,
+                        ds.primary_consultant AS attending_physician,
+                        ds.primary_consultant,
+                        ds.discharge_advice AS followup_instructions,
+                        ds.discharge_advice,
+                        ds.surgery_details,
+                        ds.patient_condition,
+                        ds.generated_at,
+                        'Approved' AS approval_status,
+                        CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) AS patient_name,
+                        p.patient_code AS patient_number,
+                        p.gender,
+                        p.date_of_birth,
+                        a.admission_number,
+                        b.bed_number,
+                        b.bed_type,
+                        w.ward_name
+                    FROM discharge_summaries ds
+                    LEFT JOIN patients p ON ds.patient_id = p.id
+                    LEFT JOIN admissions a ON ds.admission_id = a.admission_id
+                    LEFT JOIN beds b ON a.bed_id = b.bed_id
+                    LEFT JOIN wards w ON b.ward_id = w.ward_id
+                    WHERE (%s IS NOT NULL AND (ds.patient_id = %s OR ds.admission_id = %s))
+                       OR p.patient_code = %s
+                       OR a.admission_number = %s
+                    ORDER BY ds.summary_id DESC
+                    LIMIT %s;
+                """, (resolved_pid, resolved_pid, resolved_pid, str(patient_number or ''), str(admission_id or ''), clean_limit or 50))
+                fb_rows = cur.fetchall()
+                cur.close()
+                conn.close()
+                if fb_rows:
+                    fallback_data = [dict(r) for r in fb_rows]
+                    for r in fallback_data:
+                        r["summary_id"] = f"DS-{r['summary_id']}"
+                    return {
+                        "table_name": "discharge_summaries",
+                        "total_records": len(fallback_data),
+                        "limit": clean_limit,
+                        "offset": clean_offset,
+                        "data": fallback_data
+                    }
+            except Exception as e_fb:
+                print(f"[WARN] Error fetching fallback discharge summaries: {e_fb}")
+
         # Automatically extract patient_name and primary_consultant if missing
         import re
         for row in res.get("data", []):
@@ -1358,19 +1627,34 @@ def get_dim_generated_discharge_summaries_summary():
 
 @router.get("/generated-discharge-summaries/{summary_id}", summary="Get Single Discharge Summary Record")
 def get_generated_discharge_summary_by_id(summary_id: str):
-    """Retrieve a single discharge summary record by summary_id, admission_id, or patient_number."""
+    """Retrieve a single discharge summary record by summary_id, admission_id, or patient_number/patient_id."""
     import re
-    res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"summary_id": summary_id}, limit=1)
-    data = res.get("data", [])
-    if not data:
-        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"admission_id": summary_id}, limit=1)
-        data = res.get("data", [])
-    if not data:
-        res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"patient_number": summary_id}, limit=1)
-        data = res.get("data", [])
+    raw_str = str(summary_id).strip()
+    digits = re.findall(r'\d+', raw_str)
+    num_id = int(digits[-1]) if digits else None
+
+    data = []
+    if num_id is not None:
+        try:
+            res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"summary_id": num_id}, limit=1)
+            data = res.get("data", [])
+        except Exception:
+            pass
+        if not data:
+            try:
+                res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"admission_id": num_id}, limit=1)
+                data = res.get("data", [])
+            except Exception:
+                pass
+        if not data:
+            try:
+                res = db_connector.query_gold_table("dim_generated_discharge_summaries", filters={"patient_id": num_id}, limit=1)
+                data = res.get("data", [])
+            except Exception:
+                pass
+
     if not data:
         # Fallback to the live discharge_summaries table (87k+ rows)
-        raw_id = re.sub(r'^(DS-|ADM-|MER-ADM-|MER-PAT-|PAT-)', '', str(summary_id).strip(), flags=re.IGNORECASE)
         try:
             import db_config
             conn = db_config.get_db_connection()
@@ -1384,11 +1668,16 @@ def get_generated_discharge_summary_by_id(summary_id: str):
                     ds.admission_date,
                     ds.discharge_date,
                     ds.diagnoses as discharge_diagnosis,
+                    ds.diagnoses,
                     ds.case_history as hospital_course_summary,
+                    ds.case_history,
                     ds.investigations,
                     ds.treatment as discharge_medications,
+                    ds.treatment,
                     ds.primary_consultant as attending_physician,
+                    ds.primary_consultant,
                     ds.discharge_advice as followup_instructions,
+                    ds.discharge_advice,
                     ds.surgery_details,
                     ds.patient_condition,
                     ds.generated_at,
@@ -1408,9 +1697,12 @@ def get_generated_discharge_summary_by_id(summary_id: str):
                 LEFT JOIN admissions a ON ds.admission_id = a.admission_id
                 LEFT JOIN beds b ON a.bed_id = b.bed_id
                 LEFT JOIN wards w ON b.ward_id = w.ward_id
-                WHERE ds.summary_id = %s OR ds.admission_id = %s OR ds.patient_id = %s OR p.patient_code = %s
+                WHERE (%s IS NOT NULL AND (ds.summary_id = %s OR ds.admission_id = %s OR ds.patient_id = %s))
+                   OR p.patient_code = %s
+                   OR a.admission_number = %s
+                ORDER BY ds.summary_id DESC
                 LIMIT 1;
-            """, (int(raw_id) if raw_id.isdigit() else -1, int(raw_id) if raw_id.isdigit() else -1, int(raw_id) if raw_id.isdigit() else -1, str(summary_id).strip()))
+            """, (num_id, num_id, num_id, num_id, raw_str, raw_str))
             fallback_row = cur.fetchone()
             cur.close()
             conn.close()

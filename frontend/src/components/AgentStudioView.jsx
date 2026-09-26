@@ -570,7 +570,7 @@ export const ALL_21_AGENTS = [
     humanApproval: 'Required',
     toolsCount: 6,
     knowledgeCount: 4,
-    purpose: 'Drafts comprehensive clinical discharge summaries from admission SOAP notes, surgical logs, lab results, and final medication plans.',
+    purpose: 'Drafts comprehensive clinical discharge summaries from admission surgical logs, lab results, and final medication plans.',
     instructions: {
       role: 'You are the Discharge Summary Agent.',
       goal: 'Assemble clinical admission history, course in hospital, diagnostic summaries, procedures performed, and home discharge medications.',
@@ -734,14 +734,14 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
       const eligibleList = (batchRes?.eligible_patients && batchRes.eligible_patients.length > 0)
         ? batchRes.eligible_patients
         : [
-            { patient_name: 'Rohiter Parthalan', patient_id: 87226, uhid: 'PAT-87226', primary_diagnosis: 'Diagnosis 5', attending_doctor: 'Dr. Sanjay Gupta' },
-            { patient_name: 'Saanvier Parthalan', patient_id: 87227, uhid: 'PAT-87227', primary_diagnosis: 'Diagnosis 6', attending_doctor: 'Dr. Sneha Das' },
-            { patient_name: 'Adityaer Parthalan', patient_id: 87228, uhid: 'PAT-87228', primary_diagnosis: 'Diagnosis 7', attending_doctor: 'Dr. Pooja Pillai' },
-            { patient_name: 'Parier Parthalan', patient_id: 87229, uhid: 'PAT-87229', primary_diagnosis: 'Diagnosis 8', attending_doctor: 'Dr. Meenakshi Gupta' },
-            { patient_name: 'Parial Parthalan', patient_id: 87289, uhid: 'PAT-87289', primary_diagnosis: 'Diagnosis 8', attending_doctor: 'Dr. Sanjay Gupta' },
-            { patient_name: 'Nishaya Parthalan', patient_id: 87314, uhid: 'PAT-87314', primary_diagnosis: 'Diagnosis 3', attending_doctor: 'Dr. Amit Sharma' },
-            { patient_name: 'Rohitya Parthalan', patient_id: 87316, uhid: 'PAT-87316', primary_diagnosis: 'Diagnosis 5', attending_doctor: 'Dr. Priya Patel' }
-          ];
+          { patient_name: 'Rohiter Parthalan', patient_id: 87226, uhid: 'PAT-87226', primary_diagnosis: 'Diagnosis 5', attending_doctor: 'Dr. Sanjay Gupta' },
+          { patient_name: 'Saanvier Parthalan', patient_id: 87227, uhid: 'PAT-87227', primary_diagnosis: 'Diagnosis 6', attending_doctor: 'Dr. Sneha Das' },
+          { patient_name: 'Adityaer Parthalan', patient_id: 87228, uhid: 'PAT-87228', primary_diagnosis: 'Diagnosis 7', attending_doctor: 'Dr. Pooja Pillai' },
+          { patient_name: 'Parier Parthalan', patient_id: 87229, uhid: 'PAT-87229', primary_diagnosis: 'Diagnosis 8', attending_doctor: 'Dr. Meenakshi Gupta' },
+          { patient_name: 'Parial Parthalan', patient_id: 87289, uhid: 'PAT-87289', primary_diagnosis: 'Diagnosis 8', attending_doctor: 'Dr. Sanjay Gupta' },
+          { patient_name: 'Nishaya Parthalan', patient_id: 87314, uhid: 'PAT-87314', primary_diagnosis: 'Diagnosis 3', attending_doctor: 'Dr. Amit Sharma' },
+          { patient_name: 'Rohitya Parthalan', patient_id: 87316, uhid: 'PAT-87316', primary_diagnosis: 'Diagnosis 5', attending_doctor: 'Dr. Priya Patel' }
+        ];
 
       const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
       const executionId = `EXE-2026-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -1058,10 +1058,10 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
         {activeTab === 'Access' && (
           <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', maxWidth: '720px' }}>
             {[
-              ['Roles', 'Doctor, Nurse, Medical Records, Front Office'],
-              ['Departments', 'Inpatient Wards, ICU, Cardiology, General Surgery, Medical Records'],
-              ['Patients', 'Active inpatients with physician discharge order'],
-              ['Data scopes', 'Clinical observations, medication orders, procedure logs, vital telemetry'],
+              ['Roles', 'Doctor, Nurse, Medical Records, Front Office, Billing & TPA Desk'],
+              ['Departments', 'Inpatient Wards, ICU, Cardiology, General Surgery, Medical Records, Billing & Pharmacy'],
+              ['Patients', 'Active inpatients eligible for discharge, fit-for-discharge candidates, or multidisciplinary care-team clearance (Medical, Nursing, Pharmacy & Billing)'],
+              ['Data scopes', 'Clinical observations, medication orders, procedure logs, vital telemetry, lab results, and billing clearance'],
               ['Environment', 'Production (HIPAA & NABH Governed)'],
             ].map(([k, v], idx, arr) => (
               <div key={k} style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: '8px', padding: '8px 0', borderBottom: idx === arr.length - 1 ? 'none' : '1px solid #f2f3f4', fontSize: '12px' }}>
@@ -1589,7 +1589,7 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
   // DEFAULT VIEW: THE EXACT AGENTS REGISTRY TABLE FROM THE SCREENSHOT
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      
+
       {/* Breadcrumb Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
@@ -1675,10 +1675,10 @@ All 8 active summaries are persisted in the PostgreSQL lakehouse and queued in t
               const statusPill = ag.status === 'Published'
                 ? { bg: 'oklch(0.95 0.04 150)', fg: 'oklch(0.4 0.12 150)' }
                 : (ag.status === 'Disabled' || ag.status === 'Suspended')
-                ? { bg: 'oklch(0.96 0.03 25)', fg: 'oklch(0.45 0.17 25)' }
-                : (ag.status === 'Silent Validation' || ag.status === 'Pilot')
-                ? { bg: 'oklch(0.96 0.03 300)', fg: 'oklch(0.45 0.1 300)' }
-                : { bg: '#eef0f1', fg: '#52585e' };
+                  ? { bg: 'oklch(0.96 0.03 25)', fg: 'oklch(0.45 0.17 25)' }
+                  : (ag.status === 'Silent Validation' || ag.status === 'Pilot')
+                    ? { bg: 'oklch(0.96 0.03 300)', fg: 'oklch(0.45 0.1 300)' }
+                    : { bg: '#eef0f1', fg: '#52585e' };
 
               return (
                 <tr

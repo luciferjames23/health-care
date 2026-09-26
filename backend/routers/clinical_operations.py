@@ -1011,8 +1011,8 @@ def get_all_patients_directory(
                         WHEN LOWER(COALESCE(a.discharge_status, '')) = 'discharged' THEN 'Discharged'
                         ELSE 'Admitted'
                     END AS status,
-                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'ICICI Lombard') AS insurer,
-                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'ICICI Lombard') AS insurance_provider
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
                 FROM admissions a
                 JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN doctors d ON d.id = a.doctor_id

@@ -491,7 +491,7 @@ export default function Patient360View({
       || d.insurance_provider
       || (d.insurer && d.insurer !== 'Star Health' ? d.insurer : null)
       || (d.insurance && d.insurance !== 'Star Health' ? d.insurance : null)
-      || (isOP ? 'Direct / Outpatient' : isER ? 'Emergency Direct' : (billing.bill_insurance_portion > 0 ? 'ICICI Lombard' : 'Direct Billing / Corporate'));
+      || (isOP ? 'Direct / Outpatient' : isER ? 'Emergency Direct' : (billing.bill_insurance_portion > 0 ? 'Star Health / TPA' : 'Self-Pay / Direct Billing'));
     const risk = d.risk || (vitals.latest_heart_rate > 100 || vitals.latest_oxygen_saturation < 95 ? 'Moderate' : 'None');
     const attendant = d.attendant || (demo.emergency_contact_name ? `${demo.emergency_contact_name} · ${lang}` : 'Family Member · ' + lang);
 
@@ -898,14 +898,14 @@ export default function Patient360View({
     if (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0) {
       return liveBill.pharmacy_items.reduce((acc, item) => acc + Number(item.net_amount || (item.quantity * item.unit_price) || 0), 0);
     }
-    return 100;
+    return 0;
   }, [liveBill]);
 
   const labSum = useMemo(() => {
     if (liveBill?.lab_items && liveBill.lab_items.length > 0) {
       return liveBill.lab_items.reduce((acc, item) => acc + Number(item.unit_price || item.net_amount || 0), 0);
     }
-    return 450;
+    return 0;
   }, [liveBill]);
 
   const hospitalSum = useMemo(() => {

@@ -1497,7 +1497,7 @@ export function parseAdmissionLlmRecord(record) {
   const wardName = record.ward_name || adm.ward_name || 'Emerald Semi-Private';
   const bedNum = record.bed_number || 'Unassigned';
   const department = record.department_name || wardName || doctorSpecialty || 'General Medicine';
-  const insurer = record.insurer || record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'ICICI Lombard' : 'Direct Billing / Corporate');
+  const insurer = record.insurer || record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'Star Health / TPA' : 'Direct Billing / Corporate');
 
   return {
     id: String(record.admission_id || record.patient_id),
