@@ -159,8 +159,8 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     async function fetchDischargeCount() {
       try {
         const [resSummaries, resAdmissions] = await Promise.all([
-          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions().catch(() => ({ data: [] }))
         ]);
         if (!isMounted) return;
         const targetDoctor = userRole === 'Doctor' ? doctorName : null;
@@ -179,14 +179,11 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
     fetchDischargeCount();
 
-    const timer = setInterval(fetchDischargeCount, 8000);
-    const handleUpdate = () => fetchDischargeCount();
-    window.addEventListener('hc_api_updated', handleUpdate);
+    const timer = setInterval(fetchDischargeCount, 30000);
 
     return () => {
       isMounted = false;
       clearInterval(timer);
-      window.removeEventListener('hc_api_updated', handleUpdate);
     };
   }, [doctorName, userRole]);
 

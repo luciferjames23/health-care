@@ -262,6 +262,12 @@ function createCaseInitialState(base) {
   };
 }
 
+// Module-level persistent cache across component remounts and tab navigations
+let _memSummaries = null;
+let _memAdmissions = null;
+let _memBeds = null;
+let _memWards = null;
+
 export default function DischargeCommandCentre({
   selectedPatient,
   onClearSelectedPatient,
@@ -280,12 +286,12 @@ export default function DischargeCommandCentre({
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeDrawer, setActiveDrawer] = useState(null); // 'bill', 'insurance', or null
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => (!_memAdmissions || _memAdmissions.length === 0));
   const [error, setError] = useState(null);
-  const [rawSummaries, setRawSummaries] = useState([]);
-  const [rawAdmissions, setRawAdmissions] = useState([]);
-  const [rawBeds, setRawBeds] = useState([]);
-  const [rawWards, setRawWards] = useState([]);
+  const [rawSummaries, setRawSummaries] = useState(() => _memSummaries || []);
+  const [rawAdmissions, setRawAdmissions] = useState(() => _memAdmissions || []);
+  const [rawBeds, setRawBeds] = useState(() => _memBeds || []);
+  const [rawWards, setRawWards] = useState(() => _memWards || []);
   const [familyMsgLang, setFamilyMsgLang] = useState('EN'); // 'TA' or 'EN'
   const [toasts, setToasts] = useState([]);
 
@@ -306,39 +312,58 @@ export default function DischargeCommandCentre({
     }, 4500);
   }, []);
 
-  // Fetch backend data
+  // Fetch backend data with module caching
   const loadDischargeCandidates = useCallback(async (isSilent = false) => {
-    if (!isSilent && rawSummaries.length === 0 && rawAdmissions.length === 0) setLoading(true);
+    if (!isSilent && (!_memAdmissions || _memAdmissions.length === 0)) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
-        apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-        apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-        apiService.getBeds({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-        apiService.getWards({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+        apiService.getDischargedPatients().catch(() => null),
+        apiService.getCurrentAdmissions().catch(() => null),
+        apiService.getBeds().catch(() => null),
+        apiService.getWards().catch(() => null)
       ]);
-      setRawSummaries(resSummaries?.data || []);
-      setRawAdmissions(resAdmissions?.data || []);
-      setRawBeds(resBeds?.data || []);
-      setRawWards(resWards?.data || []);
-      // Trigger background auto-generation for eligible cleared-bill + stable-vital patients
-      if (apiService.autoProcessReadyPatients) {
-        apiService.autoProcessReadyPatients().catch(() => {});
+      if (resSummaries?.data && resSummaries.data.length > 0) {
+        _memSummaries = resSummaries.data;
+        setRawSummaries(resSummaries.data);
+      }
+      if (resAdmissions?.data && resAdmissions.data.length > 0) {
+        _memAdmissions = resAdmissions.data;
+        setRawAdmissions(resAdmissions.data);
+      }
+      if (resBeds?.data && resBeds.data.length > 0) {
+        _memBeds = resBeds.data;
+        setRawBeds(resBeds.data);
+      }
+      if (resWards?.data && resWards.data.length > 0) {
+        _memWards = resWards.data;
+        setRawWards(resWards.data);
       }
     } catch (err) {
       if (!isSilent) setError(err.message || 'Failed to fetch discharge candidates.');
     } finally {
-      if (!isSilent) setLoading(false);
+      setLoading(false);
     }
-  }, [rawSummaries.length, rawAdmissions.length]);
+  }, []);
 
   useEffect(() => {
     loadDischargeCandidates();
-    const interval = setInterval(() => loadDischargeCandidates(true), 15000);
-    const handleUpdate = () => loadDischargeCandidates(true);
+    const interval = setInterval(() => loadDischargeCandidates(true), 30000);
+    let debounceTimer = null;
+    const handleUpdate = (e) => {
+      const url = e?.detail?.url || '';
+      if (url.includes('auto-process') || url.includes('discharge-count')) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadDischargeCandidates(true);
+      }, 1000);
+    };
     window.addEventListener('hc_api_updated', handleUpdate);
     return () => {
       clearInterval(interval);
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
   }, [loadDischargeCandidates]);

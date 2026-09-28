@@ -798,8 +798,10 @@ export const apiService = {
       throw new Error(errBody?.detail || `HTTP error ${res.status}`);
     }
     const data = await res.json();
-    clearAllStorageCache();
-    notifyDataUpdated(url, data);
+    if (data?.processed_patient_ids && data.processed_patient_ids.length > 0) {
+      clearAllStorageCache();
+      notifyDataUpdated(url, data);
+    }
     return data;
   },
 

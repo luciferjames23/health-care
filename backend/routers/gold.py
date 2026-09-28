@@ -1172,34 +1172,46 @@ def get_dim_admission_inputs(
 
         if data:
             try:
+                adm_ids = [r['admission_id'] for r in data if r.get('admission_id') is not None]
+                pat_ids = [r['patient_id'] for r in data if r.get('patient_id') is not None]
+
                 conn = db_connector.get_connection()
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                cur.execute("""
-                    SELECT a.admission_id, a.patient_id, b.bed_number, r.room_number, w.ward_name, b.bed_type
-                    FROM admissions a
-                    JOIN beds b ON a.bed_id = b.bed_id
-                    JOIN rooms r ON b.room_id = r.room_id
-                    JOIN wards w ON b.ward_id = w.ward_id;
-                """)
-                bed_map = {r['admission_id']: r for r in cur.fetchall()}
+
+                bed_map = {}
+                if adm_ids:
+                    cur.execute("""
+                        SELECT a.admission_id, a.patient_id, b.bed_number, r.room_number, w.ward_name, b.bed_type
+                        FROM admissions a
+                        JOIN beds b ON a.bed_id = b.bed_id
+                        JOIN rooms r ON b.room_id = r.room_id
+                        JOIN wards w ON b.ward_id = w.ward_id
+                        WHERE a.admission_id = ANY(%s);
+                    """, (adm_ids,))
+                    bed_map = {r['admission_id']: r for r in cur.fetchall()}
 
                 # Enrich with live insurance claims and patient insurance
-                cur.execute("""
-                    SELECT DISTINCT ON (patient_id)
-                        patient_id, bill_id, insurance_provider, policy_number, claim_status,
-                        approved_amount, rejected_amount, claimed_amount
-                    FROM insurance_claims
-                    ORDER BY patient_id, claim_date DESC, claim_id DESC;
-                """)
-                claim_map = {r['patient_id']: r for r in cur.fetchall()}
+                claim_map = {}
+                ins_map = {}
+                if pat_ids:
+                    cur.execute("""
+                        SELECT DISTINCT ON (patient_id)
+                            patient_id, bill_id, insurance_provider, policy_number, claim_status,
+                            approved_amount, rejected_amount, claimed_amount
+                        FROM insurance_claims
+                        WHERE patient_id = ANY(%s)
+                        ORDER BY patient_id, claim_date DESC, claim_id DESC;
+                    """, (pat_ids,))
+                    claim_map = {r['patient_id']: r for r in cur.fetchall()}
 
-                cur.execute("""
-                    SELECT DISTINCT ON (patient_id)
-                        patient_id, insurance_provider, policy_number, coverage_limit, status
-                    FROM patient_insurance
-                    ORDER BY patient_id, insurance_id DESC;
-                """)
-                ins_map = {r['patient_id']: r for r in cur.fetchall()}
+                    cur.execute("""
+                        SELECT DISTINCT ON (patient_id)
+                            patient_id, insurance_provider, policy_number, coverage_limit, status
+                        FROM patient_insurance
+                        WHERE patient_id = ANY(%s)
+                        ORDER BY patient_id, insurance_id DESC;
+                    """, (pat_ids,))
+                    ins_map = {r['patient_id']: r for r in cur.fetchall()}
 
                 cur.close()
                 conn.close()
