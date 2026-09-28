@@ -29,7 +29,7 @@ export default function AdmissionsView({
       setError(null);
       try {
         const [admRes, bedsRes, wardsRes, dcRes] = await Promise.all([
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getBeds({}, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getWards({}, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] }))

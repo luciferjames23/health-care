@@ -261,7 +261,10 @@ const PreAdmissionPage: React.FC = () => {
         admission_type: typeFilter || undefined,
         admission_date: dateFilter || undefined
       });
-      setPreAdmissions(res.pre_admissions);
+      setPreAdmissions(res?.pre_admissions || []);
+    } catch (err) {
+      console.error('Error fetching pre-admissions:', err);
+      setPreAdmissions([]);
     } finally {
       setLoading(false);
     }
@@ -383,11 +386,11 @@ const PreAdmissionPage: React.FC = () => {
   };
 
   // KPIs
-  const totalCount = preAdmissions.length;
-  const pendingCount = preAdmissions.filter(p => p.status === 'PENDING' || p.status === 'CONTACTED').length;
-  const confirmedCount = preAdmissions.filter(p => p.status === 'CONFIRMED' || p.status === 'READY' || p.status === 'READY_FOR_ADMISSION').length;
-  const escalatedCount = preAdmissions.filter(p => p.status === 'ESCALATED').length;
-  const completedCount = preAdmissions.filter(p => p.status === 'COMPLETED').length;
+  const totalCount = preAdmissions?.length || 0;
+  const pendingCount = (preAdmissions || []).filter(p => p.status === 'PENDING' || p.status === 'CONTACTED').length;
+  const confirmedCount = (preAdmissions || []).filter(p => p.status === 'CONFIRMED' || p.status === 'READY' || p.status === 'READY_FOR_ADMISSION').length;
+  const escalatedCount = (preAdmissions || []).filter(p => p.status === 'ESCALATED').length;
+  const completedCount = (preAdmissions || []).filter(p => p.status === 'COMPLETED').length;
 
   const handleOpenAddModal = () => {
     setShowAddModal(true);

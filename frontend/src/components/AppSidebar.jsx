@@ -153,6 +153,30 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     return () => window.removeEventListener('hc_discharge_count_updated', handleCountUpdate);
   }, []);
 
+  const [notifCount, setNotifCount] = React.useState(null);
+
+  // Fetch live notifications unread count
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchNotifCount() {
+      try {
+        const res = await apiService.getNotificationCounts().catch(() => null);
+        if (isMounted && res && res.unread_count !== undefined) {
+          setNotifCount(res.unread_count);
+        }
+      } catch (e) {}
+    }
+    fetchNotifCount();
+    const timer = setInterval(fetchNotifCount, 20000);
+    const handleUpdate = () => fetchNotifCount();
+    window.addEventListener('hc_api_updated', handleUpdate);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
+  }, []);
+
   // Fetch discharge count dynamically combining summaries and admissions matching doctor/role
   useEffect(() => {
     let isMounted = true;
@@ -160,7 +184,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
       try {
         const [resSummaries, resAdmissions] = await Promise.all([
           apiService.getDischargedPatients().catch(() => ({ data: [] })),
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] }))
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] }))
         ]);
         if (!isMounted) return;
         const targetDoctor = userRole === 'Doctor' ? doctorName : null;
@@ -179,11 +203,25 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
     fetchDischargeCount();
 
+    const handleDischargeCountUpdated = (e) => {
+      if (e?.detail?.count !== undefined) {
+        setDischargeCount(e.detail.count);
+      } else {
+        fetchDischargeCount();
+      }
+    };
+
+    const handleUpdate = () => fetchDischargeCount();
+
     const timer = setInterval(fetchDischargeCount, 30000);
+    window.addEventListener('hc_discharge_count_updated', handleDischargeCountUpdated);
+    window.addEventListener('hc_api_updated', handleUpdate);
 
     return () => {
       isMounted = false;
       clearInterval(timer);
+      window.removeEventListener('hc_discharge_count_updated', handleDischargeCountUpdated);
+      window.removeEventListener('hc_api_updated', handleUpdate);
     };
   }, [doctorName, userRole]);
 
@@ -240,7 +278,9 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
             const isActive = isItemActive(item.id);
             const badgeText = item.id === 'discharge' 
               ? (dischargeCount !== null ? String(dischargeCount) : item.badge)
-              : item.badge;
+              : item.id === 'notifications'
+                ? (notifCount !== null ? String(notifCount) : item.badge)
+                : item.badge;
 
             return (
               <div

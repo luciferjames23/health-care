@@ -27,8 +27,8 @@ export default function ClinicalWorkspaceView({
       try {
         // 1. Fetch Current Admitted Patients, Discharges, beds, and wards
         const [admRes, dcRes, bedsRes, wardsRes] = await Promise.all([
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getBeds().catch(() => ({ data: [] })),
           apiService.getWards().catch(() => ({ data: [] }))
         ]);

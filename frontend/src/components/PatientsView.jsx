@@ -95,7 +95,9 @@ export default function PatientsView({
 
           const parsed = parseAdmissionLlmRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
-          const docName = matchedSummary?.primary_consultant || matchedSummary?.doctor_name || r.attending_doctor || parsed.doctor || 'Attending Physician';
+          const docName = isDischarged
+            ? (matchedSummary?.primary_consultant || matchedSummary?.doctor_name || r.attending_doctor || parsed.doctor || 'Attending Physician')
+            : (r.attending_doctor || parsed.doctor || matchedSummary?.primary_consultant || matchedSummary?.doctor_name || 'Attending Physician');
 
           if (isDischarged) {
             if (pid) seenDischargedPids.add(pid);

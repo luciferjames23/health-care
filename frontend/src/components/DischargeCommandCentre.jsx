@@ -322,7 +322,7 @@ export default function DischargeCommandCentre({
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
         apiService.getDischargedPatients().catch(() => null),
-        apiService.getCurrentAdmissions().catch(() => null),
+        apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => null),
         apiService.getBeds().catch(() => null),
         apiService.getWards().catch(() => null)
       ]);
@@ -426,7 +426,13 @@ export default function DischargeCommandCentre({
       const rawBal = parseFloat(adm.outstanding_balance != null ? adm.outstanding_balance : (parsed.approval_status === 'Approved' ? 0 : Math.round(billNet * 0.15)));
       const insCoverage = Math.max(0, billNet - rawBal);
 
-      const doctorName = parsed.doctor_name || adm.attending_doctor || 'Dr. Amit Sharma';
+      const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
+      const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
+
+      const doctorName = (isDischarged
+        ? (parsed.doctor_name || adm.attending_doctor)
+        : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma';
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
       const rawAdmName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || adm.patient_name || adm.name;
       const isParsedGeneric = !parsed.patient_name || /^Patient\s+(PAT-|\d+)/i.test(parsed.patient_name) || /^Patient\s*$/i.test(parsed.patient_name);
@@ -435,9 +441,6 @@ export default function DischargeCommandCentre({
       const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
 
-      const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
-      const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
       const isBillCleared = (rawBal <= 0) || ['cleared', 'settled', 'paid'].includes(String(adm.bill_clearance_status || '').toLowerCase()) || ['paid', 'settled'].includes(String(adm.bill_status || '').toLowerCase());
       const vitalsCheck = checkPatientVitalsNormal(adm);
 

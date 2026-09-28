@@ -1,4 +1,10 @@
-import React, { useState, useEffect } from 'react';
+# Builder script for AgentStudioView.jsx
+import os
+
+# Complete definitions of ALL 21 AGENTS matching Meridian Prototype V2.1.html
+# Keeping AG-19 completely untouched as requested!
+
+content = """import React, { useState, useEffect } from 'react';
 import { agentApi } from '../agent/agentApi';
 
 export const ALL_21_AGENTS = [
@@ -24,7 +30,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Patient Search', perm: 'Lookup patient UHID & demographics', read: true, write: false, appr: 'None', enabled: true },
@@ -89,7 +95,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Patient Search', perm: 'Lookup patient registration context', read: true, write: false, appr: 'None', enabled: true },
@@ -151,7 +157,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Patient Search', perm: 'Validate UHID / KYC credentials', read: true, write: true, appr: 'None', enabled: true },
@@ -214,7 +220,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Scheduling', perm: 'Read duty shift & leave balances', read: true, write: false, appr: 'None', enabled: true },
@@ -275,7 +281,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Messaging', perm: 'Collect patient sentiment & feedback', read: true, write: true, appr: 'None', enabled: true },
@@ -336,7 +342,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Scheduling', perm: 'Track OPD queue token order', read: true, write: true, appr: 'None', enabled: true },
@@ -399,7 +405,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'EMR', perm: 'Read Clinical History & Notes', read: true, write: false, appr: 'None', enabled: true },
@@ -465,7 +471,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Billing', perm: 'Read Itemized Lines & Variance', read: true, write: false, appr: 'Finance Lead', enabled: true },
@@ -528,7 +534,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'EMR', perm: 'Track Clinical Discharge Milestones', read: true, write: false, appr: 'None', enabled: true },
@@ -595,7 +601,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'LIS', perm: 'Read Lab Results & Turnaround', read: true, write: false, appr: 'None', enabled: true },
@@ -657,7 +663,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Messaging', perm: 'Send WhatsApp Recovery Polls', read: true, write: true, appr: 'None', enabled: true },
@@ -720,7 +726,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Patient Search', perm: 'Lookup Callers & UHID', read: true, write: false, appr: 'None', enabled: true },
@@ -784,7 +790,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Notification', perm: 'Send Quiz Scenarios', read: false, write: true, appr: 'None', enabled: true },
@@ -846,7 +852,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'HMS', perm: 'Read Hospital Census & KPIs', read: true, write: false, appr: 'None', enabled: true },
@@ -909,7 +915,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'HMS', perm: 'Predict Bed Demand & ER Flow', read: true, write: false, appr: 'None', enabled: true },
@@ -970,7 +976,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'PACS', perm: 'Read DICOM Imaging Studies', read: true, write: false, appr: 'None', enabled: true },
@@ -1030,7 +1036,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'EMR', perm: 'Draft Structured SOAP Note', read: true, write: true, appr: 'Doctor Sign-off', enabled: true },
@@ -1093,7 +1099,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'EMR', perm: 'Read Shift Vitals & MAR Administration', read: true, write: false, appr: 'None', enabled: true },
@@ -1225,7 +1231,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'Insurance / TPA', perm: 'Read Denial Reasons & Query Letters', read: true, write: false, appr: 'None', enabled: true },
@@ -1288,7 +1294,7 @@ export const ALL_21_AGENTS = [
       rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
       safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
       escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      refusal: '"I don\\'t have enough verified information to answer this safely." then route to a human.'
     },
     tools: [
       { tool: 'HMS', perm: 'Query Live Bed Census & Department TAT', read: true, write: false, appr: 'None', enabled: true },
@@ -1464,7 +1470,7 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
           const diag = p.primary_diagnosis || 'Clinical Inpatient Care';
           const doc = p.attending_doctor || 'Attending Physician';
           return `${idx + 1}. ${name} (UHID: ${uhid}) · ${diag} · ${doc} · Bill Cleared · Vitals Stable`;
-        }).join('\n');
+        }).join('\\n');
 
         const outputText = `INPATIENT DISCHARGE ORCHESTRATION BATCH SUMMARY
 Workflow: Sequential 2-Step Protocol (Bill Clearance → Groq Vital Stability → Summary Synthesis)
@@ -2563,3 +2569,9 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
     </div>
   );
 }
+"""
+
+with open('frontend/src/components/AgentStudioView.jsx', 'w', encoding='utf-8') as f:
+    f.write(content.strip() + '\n')
+
+print("AgentStudioView.jsx updated successfully!")

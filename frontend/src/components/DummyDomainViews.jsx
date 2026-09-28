@@ -6526,6 +6526,109 @@ export const DUMMY_NOTIFICATIONS = [
 ];
 
 export function NotificationsView({ onOpenDrawer, onOpenModal }) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [criticalCount, setCriticalCount] = useState(0);
+  const [search, setSearch] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const loadNotifications = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const res = await apiService.getNotifications({
+        search: search.trim() || undefined,
+        priority: priorityFilter !== 'All' ? priorityFilter : undefined,
+        status: statusFilter !== 'All' ? statusFilter : undefined,
+        limit: pageSize,
+        offset: (page - 1) * pageSize
+      });
+      if (res && res.success) {
+        setNotifications(res.data || []);
+        setTotalCount(res.total || 0);
+        setUnreadCount(res.unread_count || 0);
+        setCriticalCount(res.critical_count || 0);
+      }
+    } catch (err) {
+      console.error('Error fetching dynamic notifications:', err);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Reset to page 1 on filter or search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search, priorityFilter, statusFilter, pageSize]);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(() => loadNotifications(true), 15000);
+    const handleUpdate = () => loadNotifications(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
+  }, [search, priorityFilter, statusFilter, page, pageSize]);
+
+  const handleMarkAllRead = async () => {
+    if (isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      // Optimistic update
+      setNotifications(prev => prev.map(n => ({ ...n, unread: false, state: 'Read' })));
+      setUnreadCount(0);
+      await apiService.markAllNotificationsRead();
+      loadNotifications(true);
+    } catch (err) {
+      console.error('Error marking all notifications read:', err);
+      loadNotifications(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleMarkSingleRead = async (notifId) => {
+    try {
+      setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, unread: false, state: 'Read' } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      await apiService.markNotificationRead(notifId);
+      loadNotifications(true);
+    } catch (err) {
+      console.error(`Error marking notification ${notifId} read:`, err);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (!notifications.length) return;
+    const headers = ['ID', 'Time', 'Priority', 'Title', 'Details', 'Source Service', 'State'];
+    const rows = notifications.map(n => [
+      `"${n.id}"`,
+      `"${n.time}"`,
+      `"${n.pri}"`,
+      `"${(n.title || '').replace(/"/g, '""')}"`,
+      `"${(n.detail || '').replace(/"/g, '""')}"`,
+      `"${(n.src || '').replace(/"/g, '""')}"`,
+      `"${n.state}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `hospital_notifications_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleRowClick = (n) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
@@ -6536,65 +6639,366 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
         { k: 'Notification Message', v: n.detail },
         { k: 'Source System', v: n.src },
         { k: 'Priority Level', v: n.pri },
-        { k: 'Read Status', v: n.unread ? 'Unread · High Attention' : 'Acknowledged' }
+        { k: 'Read Status', v: n.unread ? 'Unread · Attention Required' : 'Acknowledged / Read' },
+        ...(n.created_at ? [{ k: 'Logged Timestamp', v: new Date(n.created_at).toLocaleString('en-IN') }] : [])
       ],
       actions: [
-        { label: 'Mark as Acknowledged', primary: true, on: () => alert(`Notification ${n.id} acknowledged`) },
+        ...(n.unread ? [{
+          label: 'Mark as Acknowledged / Read',
+          primary: true,
+          on: () => {
+            handleMarkSingleRead(n.id);
+          }
+        }] : []),
         { label: 'Deep Link to Workflow', on: () => alert(`Opening correlated workflow for ${n.id}`) }
       ]
     });
   };
 
+  // Generate page numbers array with windowing
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, page - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  const startRecord = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
+  const endRecord = Math.min(page * pageSize, totalCount);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Hospital Notification Centre"
-        subtitle="26 unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations"
-        count={26}
-        onNew={() => alert('All notifications marked as read')}
-        newLabel="Mark All Read"
-        onExport={() => alert('Exported notifications log')}
+        subtitle={`${unreadCount} unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations`}
+        count={totalCount}
+        onNew={handleMarkAllRead}
+        newLabel={isSubmitting ? "Updating..." : "Mark All Read"}
+        onExport={handleExportCSV}
       />
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-              <th style={{ padding: '10px 14px' }}>Priority</th>
-              <th style={{ padding: '10px 14px' }}>Title</th>
-              <th style={{ padding: '10px 14px' }}>Clinical / Operational Details</th>
-              <th style={{ padding: '10px 14px' }}>Source Service</th>
-              <th style={{ padding: '10px 14px' }}>State</th>
-            </tr>
-          </thead>
-          <tbody>
-            {DUMMY_NOTIFICATIONS.map(n => (
-              <tr
-                key={n.id}
-                onClick={() => handleRowClick(n)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent'}
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Search Input */}
+          <div style={{ position: 'relative', width: '260px' }}>
+            <input
+              type="text"
+              placeholder="Search notifications, alerts, IDs..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '7px 12px 7px 30px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                background: '#ffffff'
+              }}
+            />
+            <span style={{ position: 'absolute', left: '10px', top: '7px', fontSize: '13px', color: '#94a3b8' }}>🔍</span>
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: '8px', top: '7px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}
               >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{n.time}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : '#f1f5f9', n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : '#475569')}>
-                    {n.pri}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{n.title}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{n.detail}</td>
-                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{n.src}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
-                    {n.unread ? 'Unread' : 'Read'}
-                  </span>
-                </td>
-              </tr>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Priority Filters */}
+          <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '6px' }}>
+            {['All', 'Critical', 'High', 'Medium', 'Low'].map(pri => (
+              <button
+                key={pri}
+                onClick={() => setPriorityFilter(pri)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: priorityFilter === pri ? '#ffffff' : 'transparent',
+                  color: priorityFilter === pri ? (pri === 'Critical' ? '#b91c1c' : '#0f172a') : '#64748b',
+                  boxShadow: priorityFilter === pri ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                {pri}
+              </button>
             ))}
-          </tbody>
-        </table>
+          </div>
+
+          {/* Status Filter */}
+          <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '6px' }}>
+            {['All', 'Unread', 'Read'].map(st => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: statusFilter === st ? '#ffffff' : 'transparent',
+                  color: statusFilter === st ? '#0f172a' : '#64748b',
+                  boxShadow: statusFilter === st ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: '12px', color: '#64748b' }}>
+          Showing <strong>{startRecord} - {endRecord}</strong> of <strong>{totalCount}</strong> records ({unreadCount} unread)
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <TableSkeleton rows={pageSize} />
+        ) : notifications.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>🔕</div>
+            <div style={{ fontWeight: 600, color: '#1e293b' }}>No notifications found</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>
+              {search || priorityFilter !== 'All' || statusFilter !== 'All'
+                ? 'Try clearing the active filters or search terms.'
+                : 'All platform and clinical notifications are acknowledged.'}
+            </div>
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Time</th>
+                  <th style={{ padding: '10px 14px' }}>Priority</th>
+                  <th style={{ padding: '10px 14px' }}>Title</th>
+                  <th style={{ padding: '10px 14px' }}>Clinical / Operational Details</th>
+                  <th style={{ padding: '10px 14px' }}>Source Service</th>
+                  <th style={{ padding: '10px 14px' }}>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {notifications.map(n => (
+                  <tr
+                    key={n.id}
+                    onClick={() => handleRowClick(n)}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      cursor: 'pointer',
+                      background: n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'}
+                  >
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: n.unread ? 700 : 400 }}>{n.time}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(
+                        n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : n.pri === 'Medium' ? '#e0e7ff' : '#f1f5f9',
+                        n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : n.pri === 'Medium' ? '#3730a3' : '#475569'
+                      )}>
+                        {n.pri}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontWeight: n.unread ? 700 : 600, color: n.unread ? '#0f172a' : '#334155' }}>
+                      {n.title}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#334155', maxWidth: '380px' }}>
+                      {n.detail}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 500 }}>
+                      {n.src}
+                    </td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
+                        {n.unread ? 'Unread' : 'Read'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination Controls */}
+            {totalCount > 0 && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 16px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                fontSize: '12px',
+                color: '#64748b',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <span>
+                    Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{totalCount}</strong> notifications
+                  </span>
+                  
+                  {/* Rows Per Page Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Rows:</span>
+                    <select
+                      value={pageSize}
+                      onChange={e => setPageSize(Number(e.target.value))}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: '11.5px',
+                        borderRadius: '4px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#334155',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {[10, 15, 25, 50].map(sz => (
+                        <option key={sz} value={sz}>{sz}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Page Navigation Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPage(1)}
+                    disabled={page <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      fontWeight: 600
+                    }}
+                  >
+                    « First
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {getPageNumbers().map(pageNum => (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setPage(pageNum)}
+                      style={{
+                        height: '28px',
+                        minWidth: '28px',
+                        padding: '0 6px',
+                        borderRadius: '5px',
+                        border: '1px solid',
+                        borderColor: page === pageNum ? '#0284c7' : '#e2e8f0',
+                        background: page === pageNum ? '#0284c7' : '#ffffff',
+                        color: page === pageNum ? '#ffffff' : '#475569',
+                        fontWeight: page === pageNum ? 700 : 500,
+                        fontSize: '11.5px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {pageNum}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(totalPages)}
+                    disabled={page >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      fontWeight: 600
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

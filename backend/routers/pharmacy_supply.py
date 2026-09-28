@@ -561,9 +561,19 @@ def get_pharmacy_inventory(
 
         filter_st = status or stock_status
         if filter_st and isinstance(filter_st, str) and filter_st != 'All':
-            clean_st = filter_st.replace('_', ' ')
-            where_clauses.append("LOWER(inv.stock_status) LIKE LOWER(%s)")
-            params.append(f"%{clean_st}%")
+            st_lower = filter_st.lower().replace('-', '_').replace(' ', '_')
+            if st_lower in ('expiring_soon', 'expiring', 'critical', 'critical_stock'):
+                where_clauses.append("(inv.stock_status ILIKE '%%critical%%' OR inv.expiry_date <= CURRENT_DATE + 90)")
+            elif st_lower in ('in_stock', 'instock', 'sufficient'):
+                where_clauses.append("inv.stock_status ILIKE '%%in stock%%'")
+            elif st_lower in ('low_stock', 'lowstock', 'low'):
+                where_clauses.append("inv.stock_status ILIKE '%%low%%'")
+            elif st_lower in ('stock_out', 'stockout'):
+                where_clauses.append("(inv.stock_status ILIKE '%%stock-out%%' OR inv.stock_status ILIKE '%%stockout%%')")
+            else:
+                clean_st = filter_st.replace('_', ' ')
+                where_clauses.append("LOWER(inv.stock_status) LIKE LOWER(%s)")
+                params.append(f"%{clean_st}%")
 
         if search and isinstance(search, str) and search.strip():
             s = f"%{search.strip().lower()}%"
@@ -579,6 +589,22 @@ def get_pharmacy_inventory(
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
+        # Global stats across inventory for KPI cards
+        search_where = []
+        search_params = []
+        if search and isinstance(search, str) and search.strip():
+            s = f"%{search.strip().lower()}%"
+            search_where.append("""(
+                LOWER(inv.batch_number) LIKE %s OR
+                LOWER(m.medication_code) LIKE %s OR
+                LOWER(m.medication_name) LIKE %s OR
+                LOWER(m.generic_name) LIKE %s OR
+                LOWER(COALESCE(inv.supplier, '')) LIKE %s OR
+                LOWER(COALESCE(inv.location, '')) LIKE %s
+            )""")
+            search_params.extend([s, s, s, s, s, s])
+        search_sql = ("WHERE " + " AND ".join(search_where)) if search_where else ""
+
         cur.execute(f"""
             SELECT 
                 COUNT(*) as total,
@@ -588,10 +614,19 @@ def get_pharmacy_inventory(
                 COALESCE(SUM(inv.available_quantity * inv.unit_cost), 0) as total_val
             FROM pharmacy_inventory inv
             JOIN medications m ON inv.medication_id = m.medication_id
+            {search_sql};
+        """, tuple(search_params))
+        stat_row = cur.fetchone() or {}
+
+        # Filtered count for pagination
+        cur.execute(f"""
+            SELECT COUNT(*) as filtered_total
+            FROM pharmacy_inventory inv
+            JOIN medications m ON inv.medication_id = m.medication_id
             {where_sql};
         """, tuple(params))
-        stat_row = cur.fetchone() or {}
-        total = stat_row.get('total') or 0
+        filtered_count_row = cur.fetchone() or {}
+        total = filtered_count_row.get('filtered_total') or 0
 
         query = f"""
             SELECT 

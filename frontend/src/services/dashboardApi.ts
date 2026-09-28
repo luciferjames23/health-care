@@ -349,10 +349,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
     if (!res.ok) {
       const errorMsg = typeof data?.detail === 'string' ? data.detail : (data?.error || `Server error (${res.status})`);
       console.warn(`[Dashboard API] ${path} returned ${res.status}:`, errorMsg);
-      if (res.status === 401) {
-        sessionStorage.removeItem('meridian_user');
-      }
-      return (data && typeof data === 'object' ? { success: false, error: errorMsg, ...data } : { success: false, error: errorMsg }) as unknown as T;
+      return null;
     }
     return data as T;
   } catch (err) {
@@ -810,8 +807,8 @@ export async function fetchPreAdmissions(params?: {
   if (params?.admission_date) qs.set('admission_date', params.admission_date);
   if (params?.patient_id) qs.set('patient_id', String(params.patient_id));
 
-  const data = await apiFetch<{ pre_admissions: PreAdmissionItem[] }>(`/api/dashboard/pre-admissions?${qs}`);
-  return data ?? { pre_admissions: [] };
+  const data = await apiFetch<{ pre_admissions?: PreAdmissionItem[] }>(`/api/dashboard/pre-admissions?${qs}`);
+  return { pre_admissions: Array.isArray(data?.pre_admissions) ? data.pre_admissions : [] };
 }
 
 export async function createPreAdmission(payload: NewPreAdmissionPayload): Promise<{
