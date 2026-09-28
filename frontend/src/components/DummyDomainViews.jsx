@@ -1604,11 +1604,11 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
           status: r.status || 'Active',
           nurse: r.assigned_nurse || '',
           notes: r.clinical_notes || '',
-          lastVitals: r.last_vitals_time || '11:00',
+          lastVitals: r.last_vitals_time || '07:30',
           hr: r.hr ?? 75,
           bp: r.bp || '120/80',
-          spo2: r.spo2 ?? 98,
-          temp: r.temp ?? 37.0,
+          spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2)/10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
+          temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9/5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
           rr: r.rr ?? 18,
           pain: r.pain_score ?? 0,
           ews: r.ews_score ?? 0,
@@ -1669,7 +1669,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
         { k: 'Heart Rate (HR)', v: `${t.hr} bpm` },
         { k: 'Blood Pressure (BP)', v: t.bp },
         { k: 'Oxygen Saturation (SpO₂)', v: `${t.spo2}%` },
-        { k: 'Temperature', v: `${t.temp} °C` },
+        { k: 'Temperature', v: `${t.temp}°F` },
         { k: 'Respiratory Rate (RR)', v: `${t.rr} /min` },
         { k: 'Pain Score', v: `${t.pain} / 10` },
         { k: 'Early Warning Score (EWS)', v: `${t.ews}` },
@@ -2018,7 +2018,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
                       {row.spo2}%
                     </td>
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
-                      {row.temp}°C
+                      {row.temp}°F
                     </td>
                     <td style={{ padding: '12px 14px', color: '#0f172a' }}>
                       {row.rr}

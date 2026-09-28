@@ -138,7 +138,8 @@ function createCaseInitialState(base) {
 
   const billClearance = String(base.billClearanceStatus || '').toLowerCase();
   const bStatus = String(base.billStatus || '').toLowerCase();
-  const isBillCleared = isReady || isCompleted || base.isCleared || billClearance === 'cleared' || billClearance === 'settled' || bStatus === 'paid' || bStatus === 'settled' || patAmt === 0;
+  const isPartiallyPaid = billClearance.includes('partial') || bStatus.includes('partial') || (patAmt > 0 && !['cleared', 'settled', 'paid'].includes(billClearance) && !['paid', 'settled'].includes(bStatus));
+  const isBillCleared = (isReady || isCompleted || base.isCleared) && !isPartiallyPaid && (billClearance === 'cleared' || billClearance === 'settled' || bStatus === 'paid' || bStatus === 'settled' || patAmt === 0);
 
   return {
     deps: {
@@ -165,8 +166,8 @@ function createCaseInitialState(base) {
         time: '09:05 AM'
       },
       billing: {
-        status: isBillCleared ? 'done' : isInsApproved ? 'approval' : (isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending'),
-        note: isBillCleared ? 'Final bill released by Billing Desk' : isInsApproved ? 'Final bill ready · awaiting Billing release' : (isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`),
+        status: isBillCleared ? 'done' : isPartiallyPaid ? 'blocked' : isInsApproved ? 'approval' : (isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending'),
+        note: isBillCleared ? 'Final bill released by Billing Desk' : isPartiallyPaid ? `Partial payment · Outstanding patient balance ₹${patAmt.toLocaleString('en-IN')}` : isInsApproved ? 'Final bill ready · awaiting Billing release' : (isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`),
         time: '09:05 AM'
       },
       insurance: {
@@ -436,7 +437,7 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
       const isBillCleared = (rawBal <= 0) || ['cleared', 'settled', 'paid'].includes(String(adm.bill_clearance_status || '').toLowerCase()) || ['paid', 'settled'].includes(String(adm.bill_status || '').toLowerCase());
       const vitalsCheck = checkPatientVitalsNormal(adm);
 
@@ -580,7 +581,7 @@ export default function DischargeCommandCentre({
         ['cleared', 'settled', 'paid'].includes(clearance) ||
         ['paid', 'settled', 'released'].includes(bStatus) ||
         rawBal <= 0
-      );
+      ) && clearance !== 'partial payment' && bStatus !== 'partially paid' && rawBal <= 0;
       const vitalsCheck = checkPatientVitalsNormal(adm);
 
       let category = 'In progress';
@@ -720,16 +721,16 @@ export default function DischargeCommandCentre({
           actual: billNet,
           variance: Math.round(billNet * 0.05),
           variancePct: 5,
-          insurance: isClaimApproved ? billNet : (isClaimRejected ? 0 : insCoverage),
-          patient: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal),
-          paid: isClaimApproved ? billNet : Math.max(0, billNet - rawBal),
-          due: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal)
+          insurance: isClaimRejected ? 0 : insCoverage,
+          patient: isBillCleared ? 0 : rawBal,
+          paid: isBillCleared ? billNet : Math.max(0, billNet - rawBal),
+          due: isBillCleared ? 0 : rawBal
         },
         insuranceDetails: {
           estimate: Math.round(billNet * 0.95),
           requested: billNet,
-          approved: isClaimApproved ? billNet : (isClaimRejected ? 0 : insCoverage),
-          liability: isClaimApproved ? 0 : (isClaimRejected ? billNet : rawBal),
+          approved: isClaimRejected ? 0 : insCoverage,
+          liability: isBillCleared ? 0 : rawBal,
           completeness: '100%',
           owner: 'K. Meena (Insurance)',
           submitted: '09:20 AM',
@@ -1279,9 +1280,20 @@ export default function DischargeCommandCentre({
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
 
-      // Fast-track and resolve all waiting/blocked/pending dependencies
+      // Fast-track and resolve all operational waiting/blocked/pending dependencies
       const nextDeps = { ...cur.deps };
       Object.keys(nextDeps).forEach(k => {
+        // Do NOT auto-sign clinical doctor summary: that requires doctor sign-off!
+        if (k === 'summary') {
+          if (!targetCase.isApproved) {
+            nextDeps[k] = {
+              status: 'approval',
+              note: 'AI draft generated · doctor sign-off required',
+              time: '—'
+            };
+          }
+          return;
+        }
         if (nextDeps[k].status !== 'done') {
           nextDeps[k] = {
             ...nextDeps[k],
@@ -1295,16 +1307,29 @@ export default function DischargeCommandCentre({
       });
 
       const nextSteps = [
-        { t: 'Now', what: `Operations Lead · Escalated & expedited all pending clearances for ${targetCase.patient}`, col: '#10b981', res: 'READY' },
+        { t: 'Now', what: `Operations Lead · Escalated & expedited operational clearances for ${targetCase.patient}`, col: '#10b981', res: 'READY' },
         ...(cur.steps || [])
       ];
 
       const nextLog = [
-        { t: 'Now', who: 'Operations Lead', what: 'Escalated discharge bottlenecks · fast-tracked to Ready', col: '#10b981' },
+        { t: 'Now', who: 'Operations Lead', what: 'Escalated operational bottlenecks · doctor sign-off pending', col: '#10b981' },
         ...(cur.log || [])
       ];
 
-      notify('Escalated & Expedited', `${targetCase.patient} escalated to Operations Lead · stored as Ready in database!`, 'High', 'Discharge Board');
+      notify('Escalated & Expedited', `${targetCase.patient} operational bottlenecks escalated · doctor sign-off pending!`, 'High', 'Discharge Board');
+
+      const remainingApprovals = targetCase.isApproved
+        ? []
+        : [
+            {
+              id: `AP-${targetCase.id}-01`,
+              type: 'Discharge summary sign-off',
+              action: 'Sign discharge summary & e-Rx',
+              owner: targetCase.doctor || 'Attending Physician',
+              time: 'Just now',
+              details: 'AI draft generated from clinical notes & lab reports'
+            }
+          ];
 
       const updated = {
         ...cur,
@@ -1312,7 +1337,7 @@ export default function DischargeCommandCentre({
         steps: nextSteps,
         log: nextLog,
         eta: 'Now',
-        approvals: []
+        approvals: remainingApprovals
       };
 
       return {

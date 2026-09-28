@@ -275,15 +275,49 @@ def get_nursing_tasks():
     try:
         cur = db_connector.get_dict_cursor(conn)
         cur.execute("""
-            SELECT * FROM nursing_tasks 
+            SELECT 
+                nt.id,
+                nt.bed_no,
+                nt.patient_name,
+                nt.uhid,
+                nt.task_description,
+                nt.status,
+                nt.assigned_nurse,
+                nt.clinical_notes,
+                COALESCE(TO_CHAR(vs.recorded_at, 'HH24:MI'), nt.last_vitals_time) AS last_vitals_time,
+                COALESCE(vs.heart_rate, nt.hr) AS hr,
+                CASE 
+                    WHEN vs.systolic_bp IS NOT NULL AND vs.diastolic_bp IS NOT NULL 
+                    THEN vs.systolic_bp || '/' || vs.diastolic_bp
+                    ELSE nt.bp
+                END AS bp,
+                COALESCE(ROUND(vs.oxygen_saturation::numeric, 1)::text, nt.spo2::text) AS spo2,
+                COALESCE(ROUND(vs.temperature::numeric, 2), nt.temp) AS temp,
+                COALESCE(vs.respiratory_rate, nt.rr) AS rr,
+                nt.pain_score,
+                nt.ews_score,
+                nt.fall_risk,
+                nt.diet_type,
+                nt.overdue_meds,
+                nt.flag_status,
+                nt.ward_name,
+                nt.created_at,
+                nt.completed_at
+            FROM nursing_tasks nt
+            LEFT JOIN patients p ON nt.uhid = p.patient_code
+            LEFT JOIN LATERAL (
+                SELECT * FROM vital_signs 
+                WHERE vital_signs.patient_id = p.id 
+                ORDER BY recorded_at DESC LIMIT 1
+            ) vs ON true
             ORDER BY 
                 CASE 
-                    WHEN flag_status LIKE '%Critical%' OR flag_status LIKE '%escalate%' THEN 0
-                    WHEN flag_status LIKE '%watch%' OR flag_status LIKE '%Pending%' THEN 1
+                    WHEN nt.flag_status LIKE '%Critical%' OR nt.flag_status LIKE '%escalate%' THEN 0
+                    WHEN nt.flag_status LIKE '%watch%' OR nt.flag_status LIKE '%Pending%' THEN 1
                     ELSE 2
                 END,
-                ews_score DESC,
-                id ASC;
+                nt.ews_score DESC,
+                nt.id ASC;
         """)
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
