@@ -1544,10 +1544,11 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
     }, 600);
   };
 
-  const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
-
   // IF AN AGENT IS SELECTED, RENDER AGENT BUILDER STUDIO WORKSPACE
   if (selectedAgent) {
+    const isDischargeAgent = selectedAgent.id === 'AG-19' || selectedAgent.name === 'Discharge Summary Agent';
+    const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
+
     const memoryItems = selectedAgent.memory ? [
       ['Session memory', selectedAgent.memory.session || 'On · 30 min'],
       ['Patient context', selectedAgent.memory.patient || 'Encounter-scoped'],
@@ -1630,10 +1631,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8a9096', fontSize: '11.5px', marginTop: '6px', marginBottom: '14px', flexWrap: 'wrap' }}>
               <span>{selectedAgent.id} · {selectedAgent.type} · v{selectedAgent.v} · {selectedAgent.owner}</span>
               <span style={{ color: '#cbd5e1' }}>•</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
-                Configurable · AI Administrator Access
-              </span>
+              {isDischargeAgent ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                  Configurable · AI Administrator Access
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', padding: '1px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 500 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+                  System Managed · Read Only
+                </span>
+              )}
             </div>
           </div>
 
@@ -1812,12 +1820,13 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           </div>
         )}
 
-        {/* Tab 7: Model - Fully Editable */}
+        {/* Tab 7: Model - Live Editable for Discharge Summary Agent, Read-Only for others */}
         {activeTab === 'Model' && (() => {
           const currentAgentId = selectedAgent?.id || 'AG-19';
           const currentModelConfig = agentModelConfigs[currentAgentId] || DEFAULT_MODEL_CONFIG;
 
           const handleUpdateModelField = (key, value) => {
+            if (!isDischargeAgent) return;
             setAgentModelConfigs(prev => ({
               ...prev,
               [currentAgentId]: {
@@ -1828,6 +1837,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           };
 
           const handleSaveModelConfig = () => {
+            if (!isDischargeAgent) return;
             setModelDeploying(true);
             setTimeout(() => {
               setModelDeploying(false);
@@ -1837,6 +1847,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           };
 
           const handleResetModelConfig = () => {
+            if (!isDischargeAgent) return;
             setAgentModelConfigs(prev => ({
               ...prev,
               [currentAgentId]: { ...DEFAULT_MODEL_CONFIG }
@@ -1852,53 +1863,63 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                 <div>
                   <div style={{ fontSize: '14px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     Model & Inference Engine Parameters
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
-                      Live Editable
-                    </span>
+                    {isDischargeAgent ? (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
+                        Live Editable
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: '1px solid #e2e8f0' }}>
+                        🔒 Read Only · System Locked
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
-                    Adjust foundation model routing, failover, inference parameters, and clinical governance gates for {selectedAgent?.name || 'this agent'}.
+                    {isDischargeAgent
+                      ? `Adjust foundation model routing, failover, inference parameters, and clinical governance gates for ${selectedAgent?.name || 'this agent'}.`
+                      : `Inference hyperparameters and routing for ${selectedAgent?.name || 'this agent'} are strictly governed by system architecture policies.`}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={handleResetModelConfig}
-                    style={{
-                      padding: '6px 12px',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                      borderRadius: '6px',
-                      border: '1px solid #d1d5db',
-                      background: '#fff',
-                      color: '#4b5563',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Reset Defaults
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveModelConfig}
-                    disabled={modelDeploying}
-                    style={{
-                      padding: '6px 14px',
-                      fontSize: '11.5px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: '#0f766e',
-                      color: '#fff',
-                      cursor: modelDeploying ? 'wait' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
-                    }}
-                  >
-                    {modelDeploying ? 'Deploying...' : 'Save Configuration'}
-                  </button>
-                </div>
+                {isDischargeAgent && (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={handleResetModelConfig}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '11.5px',
+                        fontWeight: 500,
+                        borderRadius: '6px',
+                        border: '1px solid #d1d5db',
+                        background: '#fff',
+                        color: '#4b5563',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Reset Defaults
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveModelConfig}
+                      disabled={modelDeploying}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#0f766e',
+                        color: '#fff',
+                        cursor: modelDeploying ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.06)'
+                      }}
+                    >
+                      {modelDeploying ? 'Deploying...' : 'Save Configuration'}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Success Save Banner */}
@@ -1921,7 +1942,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                 </div>
               )}
 
-              {/* Editable Parameter Rows */}
+              {/* Parameter Rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {/* Primary Model */}
                 <div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr)', gap: '14px', alignItems: 'center', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
@@ -1933,17 +1954,18 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.primaryModel}
                       onChange={e => handleUpdateModelField('primaryModel', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
                         fontFamily: 'ui-monospace, Menlo, monospace',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="openai/gpt-oss-120b (Groq LPU Inference)">openai/gpt-oss-120b (Groq LPU Inference)</option>
@@ -1967,16 +1989,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.llmProvider}
                       onChange={e => handleUpdateModelField('llmProvider', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="Groq Inference API & Google Gemini Engine">Groq Inference API & Google Gemini Engine</option>
@@ -1999,17 +2022,18 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.fallbackModel}
                       onChange={e => handleUpdateModelField('fallbackModel', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
                         fontFamily: 'ui-monospace, Menlo, monospace',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="gemini-3.5-flash-lite (Google Gemini)">gemini-3.5-flash-lite (Google Gemini)</option>
@@ -2037,7 +2061,8 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                         step="0.01"
                         value={currentModelConfig.temperature}
                         onChange={e => handleUpdateModelField('temperature', parseFloat(e.target.value))}
-                        style={{ flex: 1, accentColor: '#0f766e', cursor: 'pointer' }}
+                        disabled={!isDischargeAgent}
+                        style={{ flex: 1, accentColor: '#0f766e', cursor: isDischargeAgent ? 'pointer' : 'not-allowed' }}
                       />
                       <input
                         type="number"
@@ -2046,15 +2071,19 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                         step="0.01"
                         value={currentModelConfig.temperature}
                         onChange={e => handleUpdateModelField('temperature', Math.min(1, Math.max(0, parseFloat(e.target.value) || 0)))}
+                        disabled={!isDischargeAgent}
                         style={{
                           width: '65px',
                           height: '30px',
                           textAlign: 'center',
                           borderRadius: '6px',
-                          border: '1px solid #cbd5e1',
+                          border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                          background: isDischargeAgent ? '#fff' : '#f8fafc',
+                          color: isDischargeAgent ? '#0f172a' : '#475569',
                           fontSize: '12px',
                           fontFamily: 'ui-monospace, Menlo, monospace',
-                          fontWeight: 600
+                          fontWeight: 600,
+                          cursor: isDischargeAgent ? 'text' : 'not-allowed'
                         }}
                       />
                     </div>
@@ -2074,16 +2103,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.tokenLimit}
                       onChange={e => handleUpdateModelField('tokenLimit', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="4,096 tokens (Max context: 128k)">4,096 tokens (Max context: 128k)</option>
@@ -2105,16 +2135,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.latencyTarget}
                       onChange={e => handleUpdateModelField('latencyTarget', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="< 1,800 ms (Groq accelerated)">&lt; 1,800 ms (Groq accelerated)</option>
@@ -2135,16 +2166,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.executionProtocol}
                       onChange={e => handleUpdateModelField('executionProtocol', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)">Sequential 2-Step Protocol (Bill Clearance → Vital Stability → Synthesis)</option>
@@ -2165,16 +2197,17 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     <select
                       value={currentModelConfig.governanceGate}
                       onChange={e => handleUpdateModelField('governanceGate', e.target.value)}
+                      disabled={!isDischargeAgent}
                       style={{
                         width: '100%',
                         height: '34px',
                         padding: '0 10px',
                         borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#fff',
+                        border: isDischargeAgent ? '1px solid #cbd5e1' : '1px solid #e2e8f0',
+                        background: isDischargeAgent ? '#fff' : '#f8fafc',
                         fontSize: '12px',
-                        color: '#0f172a',
-                        cursor: 'pointer'
+                        color: isDischargeAgent ? '#0f172a' : '#475569',
+                        cursor: isDischargeAgent ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <option value="Mandatory Physician Review & Digital Sign-off">Mandatory Physician Review & Digital Sign-off</option>
@@ -2187,47 +2220,53 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                 </div>
               </div>
 
-              {/* Bottom Save Action Bar */}
+              {/* Bottom Action / Status Bar */}
               <div style={{ marginTop: '22px', paddingTop: '16px', borderTop: '1px solid #edf0f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ fontSize: '11.5px', color: '#6b7280' }}>
-                  Status: <span style={{ color: '#059669', fontWeight: 600 }}>Active & Synced</span> with runtime orchestrator
+                  {isDischargeAgent ? (
+                    <>Status: <span style={{ color: '#059669', fontWeight: 600 }}>Active & Synced</span> with runtime orchestrator</>
+                  ) : (
+                    <>Status: <span style={{ color: '#64748b', fontWeight: 600 }}>Locked by System Architecture Policy</span> · Read-only audit view for {selectedAgent?.owner || 'Hospital Management'}</>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={handleResetModelConfig}
-                    style={{
-                      padding: '7px 14px',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      borderRadius: '6px',
-                      border: '1px solid #d1d5db',
-                      background: '#fff',
-                      color: '#374151',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Reset Defaults
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveModelConfig}
-                    disabled={modelDeploying}
-                    style={{
-                      padding: '7px 18px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      borderRadius: '6px',
-                      border: 'none',
-                      background: '#0f766e',
-                      color: '#fff',
-                      cursor: modelDeploying ? 'wait' : 'pointer',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                    }}
-                  >
-                    {modelDeploying ? 'Deploying Changes...' : 'Save & Deploy Configuration'}
-                  </button>
-                </div>
+                {isDischargeAgent && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handleResetModelConfig}
+                      style={{
+                        padding: '7px 14px',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        borderRadius: '6px',
+                        border: '1px solid #d1d5db',
+                        background: '#fff',
+                        color: '#374151',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Reset Defaults
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveModelConfig}
+                      disabled={modelDeploying}
+                      style={{
+                        padding: '7px 18px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#0f766e',
+                        color: '#fff',
+                        cursor: modelDeploying ? 'wait' : 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                      }}
+                    >
+                      {modelDeploying ? 'Deploying Changes...' : 'Save & Deploy Configuration'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );

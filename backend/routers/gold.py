@@ -340,132 +340,92 @@ def get_live_analytics():
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 1. Patients total
         cur.execute("SELECT COUNT(*) as total FROM patients")
         total_patients = cur.fetchone()["total"]
 
-        # 2. Inpatients in dim_admission_inputs
         cur.execute("SELECT COUNT(*) as total FROM dim_admission_inputs WHERE discharge_status IS NULL OR LOWER(discharge_status) != 'discharged'")
         total_admissions = cur.fetchone()["total"]
 
-        # 3. Emergency load
         cur.execute("SELECT COUNT(*) as total FROM emergency_triage")
         total_emergency = cur.fetchone()["total"]
 
-        # 4. Outpatient visits / appointments
         cur.execute("SELECT COUNT(*) as total FROM appointments")
         total_visits = cur.fetchone()["total"]
 
-        # 5. Doctors
         cur.execute("SELECT COUNT(*) as total FROM doctors")
         total_doctors = cur.fetchone()["total"]
 
-        # 6. Financial Billed vs Paid
         cur.execute("SELECT COALESCE(SUM(net_amount), 0) as total_billed FROM bills")
         total_billed = float(cur.fetchone()["total_billed"])
 
         cur.execute("SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE payment_status = 'SUCCESS'")
         total_paid = float(cur.fetchone()["total_paid"])
 
-        # Claims reimbursement rate from insurance_claims
         cur.execute("SELECT COALESCE(SUM(claimed_amount), 0) as claimed, COALESCE(SUM(approved_amount), 0) as approved FROM insurance_claims")
         claims_row = cur.fetchone()
         claimed = float(claims_row["claimed"] or 0)
         approved = float(claims_row["approved"] or 0)
         claims_rate = round((approved / claimed * 100), 1) if claimed > 0 else 98.5
 
-        # Readmission rate (patients admitted more than once in admissions table)
-        cur.execute("""
-            SELECT 
-                COUNT(*) as total_admissions,
-                COUNT(DISTINCT patient_id) as unique_patients
-            FROM admissions
-        """)
+        cur.execute("SELECT COUNT(*) as total_admissions, COUNT(DISTINCT patient_id) as unique_patients FROM admissions")
         adm_stats = cur.fetchone()
         tot_adm = adm_stats["total_admissions"] or 1
         uniq_pat = adm_stats["unique_patients"] or 1
         readmission_rate = round(max(5.0, min(18.5, ((tot_adm - uniq_pat) / tot_adm) * 100)), 1)
 
-        # Encounter Distribution
         enc_total = (total_admissions + total_emergency + total_visits) or 1
         encounter_distribution = [
-            {
-                "label": "Inpatient Admissions",
-                "percentage": round((total_admissions / enc_total) * 100, 1),
-                "count": f"{total_admissions:,}",
-                "color": "#0284c7"
-            },
-            {
-                "label": "Emergency Department",
-                "percentage": round((total_emergency / enc_total) * 100, 1),
-                "count": f"{total_emergency:,}",
-                "color": "#f59e0b"
-            },
-            {
-                "label": "Outpatient Encounters",
-                "percentage": round((total_visits / enc_total) * 100, 1),
-                "count": f"{total_visits:,}",
-                "color": "#10b981"
-            }
+            {"label": "Inpatient Admissions", "percentage": round((total_admissions / enc_total) * 100, 1), "count": f"{total_admissions:,}", "color": "#0284c7"},
+            {"label": "Emergency Department", "percentage": round((total_emergency / enc_total) * 100, 1), "count": f"{total_emergency:,}", "color": "#f59e0b"},
+            {"label": "Outpatient Encounters", "percentage": round((total_visits / enc_total) * 100, 1), "count": f"{total_visits:,}", "color": "#10b981"}
         ]
 
-        # Insurance breakdown from insurance_claims
-        cur.execute("""
-            SELECT 
-                insurance_provider, 
-                COUNT(*) as claim_count,
-                COALESCE(SUM(claimed_amount), 0) as total_amount
-            FROM insurance_claims
-            WHERE insurance_provider IS NOT NULL
-            GROUP BY insurance_provider
-            ORDER BY claim_count DESC
-            LIMIT 5
-        """)
+        cur.execute("SELECT insurance_provider, COUNT(*) as claim_count, COALESCE(SUM(claimed_amount), 0) as total_amount FROM insurance_claims WHERE insurance_provider IS NOT NULL GROUP BY insurance_provider ORDER BY claim_count DESC LIMIT 5")
         ins_rows = cur.fetchall()
         total_claims_count = sum(r["claim_count"] for r in ins_rows) or 1
-        colors = ["#10b981", "#0284c7", "#8b5cf6", "#f43f5e", "#d97706"]
+        ins_colors = ["#10b981", "#0284c7", "#8b5cf6", "#f43f5e", "#d97706"]
         insurance_breakdown = []
         for i, r in enumerate(ins_rows):
             share_pct = round((r["claim_count"] / total_claims_count) * 100, 1)
-            insurance_breakdown.append({
-                "type": r["insurance_provider"],
-                "share": f"{share_pct}%",
-                "value": share_pct,
-                "count": f"{r['claim_count']:,} claims",
-                "amount": float(r["total_amount"]),
-                "color": colors[i % len(colors)]
-            })
+            insurance_breakdown.append({"type": r["insurance_provider"], "share": f"{share_pct}%", "value": share_pct, "count": f"{r['claim_count']:,} claims", "amount": float(r["total_amount"]), "color": ins_colors[i % len(ins_colors)]})
 
-        # Top Diagnoses from dim_admission_inputs
-        cur.execute("""
-            SELECT 
-                primary_diagnosis, 
-                COUNT(*) as encounters
-            FROM dim_admission_inputs
-            WHERE primary_diagnosis IS NOT NULL
-            GROUP BY primary_diagnosis
-            ORDER BY encounters DESC
-            LIMIT 5
-        """)
+        cur.execute("SELECT primary_diagnosis, COUNT(*) as encounters FROM dim_admission_inputs WHERE primary_diagnosis IS NOT NULL GROUP BY primary_diagnosis ORDER BY encounters DESC LIMIT 8")
         diag_rows = cur.fetchall()
-        top_diagnoses = []
-        icd_map = {
-            "Acute Coronary Syndrome / Chest Pain": "I20.0",
-            "Traumatic Bone Fracture": "S72.0",
-            "Bronchial Asthma (Acute Exacerbation)": "J45.901",
-            "Acute Abdominal Pain": "R10.0",
-            "Acute Febrile Illness (High Fever)": "R50.9",
-            "Acute Cerebrovascular Accident (Stroke)": "I63.9"
-        }
-        for i, r in enumerate(diag_rows):
-            diag_name = r["primary_diagnosis"]
-            code = icd_map.get(diag_name, f"ICD-{100 + i}")
-            top_diagnoses.append({
-                "code": code,
-                "name": diag_name,
-                "encounters": r["encounters"],
-                "trend": f"+{round(3.5 + (i * 1.8), 1)}%"
-            })
+        icd_map = {"Acute Coronary Syndrome / Chest Pain": "I20.0", "Traumatic Bone Fracture": "S72.0", "Bronchial Asthma (Acute Exacerbation)": "J45.901", "Acute Abdominal Pain": "R10.0", "Acute Febrile Illness (High Fever)": "R50.9", "Acute Cerebrovascular Accident (Stroke)": "I63.9"}
+        top_diagnoses = [{"code": icd_map.get(r["primary_diagnosis"], f"ICD-{100+i}"), "name": r["primary_diagnosis"], "encounters": r["encounters"], "trend": f"+{round(3.5+(i*1.8),1)}%"} for i, r in enumerate(diag_rows)]
+
+        dept_colors = ["#0284c7", "#10b981", "#8b5cf6", "#f43f5e", "#d97706", "#0ea5e9", "#22c55e", "#a855f7"]
+        try:
+            cur.execute("SELECT department, COUNT(*) as total FROM admissions WHERE department IS NOT NULL GROUP BY department ORDER BY total DESC LIMIT 8")
+            dept_rows = cur.fetchall()
+            max_dept = max((r["total"] for r in dept_rows), default=1)
+            department_breakdown = [{"department": r["department"], "count": r["total"], "percentage": round((r["total"]/max_dept)*100,1), "color": dept_colors[i % len(dept_colors)]} for i, r in enumerate(dept_rows)]
+        except Exception:
+            department_breakdown = []
+
+        try:
+            cur.execute("SELECT TO_CHAR(DATE_TRUNC('month', admission_date), 'Mon') as month_label, DATE_TRUNC('month', admission_date) as month_start, COUNT(*) as admissions FROM admissions WHERE admission_date >= NOW() - INTERVAL '6 months' GROUP BY month_start, month_label ORDER BY month_start ASC LIMIT 6")
+            trend_rows = cur.fetchall()
+            max_trend = max((r["admissions"] for r in trend_rows), default=1)
+            monthly_trend = [{"month": r["month_label"], "admissions": r["admissions"], "percentage": round((r["admissions"]/max_trend)*100,1)} for r in trend_rows]
+        except Exception:
+            monthly_trend = []
+
+        try:
+            cur.execute("SELECT COUNT(*) as total FROM beds")
+            total_beds = int(cur.fetchone()["total"] or 0)
+            bed_occupancy_rate = round((total_admissions / total_beds * 100), 1) if total_beds > 0 else 0
+        except Exception:
+            total_beds = 0
+            bed_occupancy_rate = 0
+
+        try:
+            cur.execute("SELECT attending_doctor as doctor_name, COUNT(*) as patient_count FROM admissions WHERE attending_doctor IS NOT NULL GROUP BY attending_doctor ORDER BY patient_count DESC LIMIT 5")
+            doc_rows = cur.fetchall()
+            max_doc = max((r["patient_count"] for r in doc_rows), default=1)
+            doctor_workload = [{"name": r["doctor_name"], "count": r["patient_count"], "percentage": round((r["patient_count"]/max_doc)*100,1)} for r in doc_rows]
+        except Exception:
+            doctor_workload = []
 
         return {
             "success": True,
@@ -479,11 +439,16 @@ def get_live_analytics():
                 "total_patients": total_patients,
                 "total_admissions": total_admissions,
                 "total_visits": total_visits,
-                "total_emergency": total_emergency
+                "total_emergency": total_emergency,
+                "total_beds": total_beds,
+                "bed_occupancy_rate": bed_occupancy_rate
             },
             "encounter_distribution": encounter_distribution,
             "insurance_breakdown": insurance_breakdown,
-            "top_diagnoses": top_diagnoses
+            "top_diagnoses": top_diagnoses,
+            "department_breakdown": department_breakdown,
+            "monthly_trend": monthly_trend,
+            "doctor_workload": doctor_workload
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Live analytics failed: {str(e)}")
