@@ -91,6 +91,12 @@ try:
 except Exception as e:
     print(f"Failed to load admin system router: {e}")
 
+try:
+    from routers.nursing_handover_agent import router as nursing_handover_agent_router
+    routers_to_mount.append(nursing_handover_agent_router)
+except Exception as e:
+    print(f"Failed to load nursing handover agent router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

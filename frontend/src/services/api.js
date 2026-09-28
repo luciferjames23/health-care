@@ -1198,6 +1198,71 @@ export const apiService = {
   },
 
   // =========================================================================
+  // AG-18 · NURSING HANDOVER AGENT (Groq openai/gpt-oss-120b)
+  // =========================================================================
+  async getNursingAgentStatus() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/status`);
+    if (!res.ok) throw new Error(`Error fetching nursing agent status ${res.status}`);
+    return await res.json();
+  },
+
+  async getNursingAgentBeds(params = {}) {
+    const q = new URLSearchParams();
+    if (params.status && params.status !== 'All') q.append('status', params.status);
+    if (params.ward && params.ward !== 'All') q.append('ward', params.ward);
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.offset) q.append('offset', params.offset);
+
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/beds${qs}`);
+    if (!res.ok) throw new Error(`Error fetching nursing agent beds ${res.status}`);
+    return await res.json();
+  },
+
+  async generateNursingSbar(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error generating nursing SBAR ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async batchGenerateNursingSbar(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/batch-generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error batch generating nursing SBARs ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async acknowledgeNursingHandover(handoverId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/acknowledge/${handoverId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error acknowledging handover ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/sbar`, data);
+    return data;
+  },
+
+  async getNursingAgentLogs(limit = 20) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/nursing-handover-agent/logs?limit=${limit}`);
+    if (!res.ok) throw new Error(`Error fetching nursing agent logs ${res.status}`);
+    return await res.json();
+  },
+
+  // =========================================================================
   // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
   // =========================================================================
   async getPrescriptions(params = {}, options = {}) {

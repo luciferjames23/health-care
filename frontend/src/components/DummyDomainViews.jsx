@@ -4495,11 +4495,27 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
+  const [generatingBed, setGeneratingBed] = useState(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  const loadData = async () => {
+  const showToast = (msg, isErr = false) => {
+    setToast({ msg, isErr });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const loadData = async (forceFresh = false) => {
     setLoading(true);
     try {
-      const res = await apiService.getSbarHandovers().catch(() => ({ data: [] }));
+      if (forceFresh) {
+        apiService.clearCache();
+      }
+      // Use dedicated nursing agent beds API (up to 300 to cover all active inpatients), with graceful fallback
+      const agentRes = await apiService.getNursingAgentBeds({ limit: 300 }).catch(() => null);
+      const res = (agentRes?.data && agentRes.data.length > 0)
+        ? agentRes
+        : await apiService.getSbarHandovers({ forceRefresh: forceFresh }).catch(() => ({ data: [] }));
+
       if (res?.data && Array.isArray(res.data)) {
         const mapped = res.data.map(r => ({
           id: r.id,
@@ -4507,7 +4523,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
           patient: r.patient_name || '',
           uhid: r.uhid || '',
           ageGender: r.age_gender || '',
-          ews: r.ews || '',
+          ews: r.ews || (r.ews_score != null ? `Score ${r.ews_score}` : ''),
           marDue: r.mar_due || '',
           lastHandover: r.last_handover_time || '',
           fromNurse: r.from_nurse || '',
@@ -4519,7 +4535,14 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
           sbarFull: r.sbar_full || (r.situation ? `S: ${r.situation} B: ${r.background} A: ${r.assessment} R: ${r.recommendation}` : 'No handover recorded'),
           status: r.status || (r.sbar_full?.includes('No handover') ? 'Missing' : 'Stale'),
           handoverShift: r.handover_shift || 'Morning (07:00 - 15:00)',
-          acknowledged: r.acknowledged ?? false
+          acknowledged: r.acknowledged ?? false,
+          wardName: r.ward_name || '',
+          highAlertCount: r.high_alert_meds_count || 0,
+          hr: r.hr,
+          bp: r.bp,
+          spo2: r.spo2,
+          temp: r.temp,
+          rr: r.rr
         }));
         setData(mapped);
       } else {
@@ -4537,28 +4560,82 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
     loadData();
   }, []);
 
+  const handleGenerateSingle = async (row) => {
+    if (!row.bed) return;
+    setGeneratingBed(row.bed);
+    try {
+      const res = await apiService.generateNursingSbar({
+        bed_no: row.bed,
+        shift_name: row.handoverShift || 'Morning (07:00 - 15:00)'
+      });
+      showToast(`✨ SBAR drafted for ${row.bed} (${row.patient}) using openai/gpt-oss-120b on Groq!`);
+      await loadData();
+    } catch (err) {
+      console.error("AI Generation failed:", err);
+      showToast(`AI generation error: ${err.message || 'Check connection'}`, true);
+    } finally {
+      setGeneratingBed(null);
+    }
+  };
+
+  const handleBatchGenerate = async (statusFilter = null) => {
+    setBatchRunning(true);
+    try {
+      const res = await apiService.batchGenerateNursingSbar({
+        status_filter: statusFilter,
+        shift_name: 'Morning (07:00 - 15:00)',
+        limit: 15
+      });
+      const succ = res?.data?.successful_generations || 0;
+      showToast(`✨ Batch completed: ${succ} beds pre-drafted by AG-18 (openai/gpt-oss-120b)!`);
+      await loadData();
+    } catch (err) {
+      console.error("Batch SBAR generation failed:", err);
+      showToast(`Batch drafting error: ${err.message}`, true);
+    } finally {
+      setBatchRunning(false);
+    }
+  };
+
+  const handleAcknowledgeSingle = async (row) => {
+    if (!row.id) return;
+    try {
+      await apiService.acknowledgeNursingHandover(row.id, {
+        nurse_name: row.toNurse || 'Deepa Krishnan, RN'
+      });
+      showToast(`✓ Shift handover for ${row.bed} accepted & signed off by bedside nurse.`);
+      await loadData();
+    } catch (err) {
+      console.error("Acknowledgment error:", err);
+      showToast(`Sign-off error: ${err.message}`, true);
+    }
+  };
+
   const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
     const isMissing = row.status === 'Missing' || !row.situation;
     onOpenDrawer({
       title: `${row.bed ? row.bed + ' · ' : ''}${row.patient}`,
-      sub: row.lastHandover ? `Last Handover: ${row.lastHandover}` : 'No handover on file for this patient',
+      sub: row.lastHandover ? `Last Shift Handover: ${row.lastHandover}` : 'No handover on file for this patient',
       badges: [
         {
           t: row.status,
-          bg: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#f1f5f9',
-          fg: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#475569'
+          bg: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#fef3c7',
+          fg: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#b45309'
         },
-        ...(row.ews ? [{ t: `EWS: ${row.ews}`, bg: row.ews.includes('Normal') ? '#dcfce7' : '#fee2e2', fg: row.ews.includes('Normal') ? '#15803d' : '#dc2626' }] : []),
+        ...(row.highAlertCount > 0 ? [{ t: `⚠️ ${row.highAlertCount} High-Alert Meds`, bg: '#fee2e2', fg: '#b91c1c' }] : []),
+        ...(row.ews ? [{ t: `EWS: ${row.ews}`, bg: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#dcfce7' : '#fee2e2', fg: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#15803d' : '#dc2626' }] : []),
         ...(row.marDue ? [{ t: `MAR: ${row.marDue}`, bg: '#fef3c7', fg: '#b45309' }] : [])
       ],
       facts: [
-        { k: 'Bed / Ward Location', v: row.bed || 'Unassigned / Step-Down', b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'UHID', v: row.uhid || 'MER-PAT-0087101' },
-        { k: 'EWS Status', v: row.ews || 'Not Recorded' },
-        { k: 'MAR Due Status', v: row.marDue || 'All scheduled doses clear' },
-        { k: 'Last Shift Handover', v: row.lastHandover || 'None recorded' },
+        { k: 'Bed & Ward Location', v: `${row.bed || '—'} · ${row.wardName || 'Inpatient Care'}`, b: true },
+        { k: 'Patient Name & UHID', v: `${row.patient} (${row.uhid || '—'})`, b: true },
+        { k: 'Age & Gender', v: row.ageGender || 'Adult' },
+        { k: 'Handover Shift', v: row.handoverShift || 'Morning (07:00 - 15:00)' },
+        { k: 'Outgoing Nurse', v: row.fromNurse || 'Anitha Kumar, RN' },
+        { k: 'Incoming (Receiving) Nurse', v: row.toNurse || 'Deepa Krishnan, RN' },
+        { k: 'Shift Vitals & EWS', v: row.bp ? `BP ${row.bp} mmHg · HR ${row.hr} bpm · SpO2 ${row.spo2}% · Temp ${row.temp}°F · RR ${row.rr}` : 'Vitals logged on bedside monitor' },
+        { k: 'High-Alert Medications', v: row.highAlertCount > 0 ? `⚠️ ${row.highAlertCount} active (Insulin/Heparin/Vancomycin/Narcotics dual-check required)` : 'None active' },
         { k: 'Situation (S)', v: row.situation || (isMissing ? 'No situation recorded yet' : '') },
         { k: 'Background (B)', v: row.background || (isMissing ? 'No background recorded yet' : '') },
         { k: 'Assessment (A)', v: row.assessment || (isMissing ? 'No assessment recorded yet' : '') },
@@ -4566,15 +4643,27 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
       ],
       actions: [
         {
-          label: isMissing ? 'Record SBAR Handover' : 'Update SBAR Handover Note',
+          label: '✨ AI Draft with AG-18 (openai/gpt-oss-120b)',
           primary: true,
+          on: async () => {
+            await handleGenerateSingle(row);
+          }
+        },
+        {
+          label: '✓ Acknowledge & Sign Off Handover',
+          on: async () => {
+            await handleAcknowledgeSingle(row);
+          }
+        },
+        {
+          label: 'Manual Edit Note',
           on: () => {
             const sit = prompt('Enter [S] Situation:', row.situation || '');
             if (!sit) return;
             const bg = prompt('Enter [B] Background:', row.background || '');
             const ass = prompt('Enter [A] Assessment:', row.assessment || 'stable, vitals normal');
             const rec = prompt('Enter [R] Recommendation:', row.recommendation || 'continue clinical plan');
-            const nurse = prompt('Enter Your Nurse Name:', 'Sheela J');
+            const nurse = prompt('Enter Your Nurse Name:', 'Sheela J, RN');
 
             const sbarFull = `S: ${sit} B: ${bg} A: ${ass} R: ${rec}`;
             const timeStr = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${nurse}`;
@@ -4590,23 +4679,11 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
               status: 'Current'
             }).then(() => {
               loadData();
-              alert(`SBAR Handover recorded for ${row.patient}`);
+              showToast(`SBAR Handover updated for ${row.patient}`);
             }).catch(err => {
               console.error(err);
               loadData();
             });
-          }
-        },
-        {
-          label: 'Acknowledge Shift Handover',
-          on: async () => {
-            try {
-              if (row.id) await apiService.acknowledgeSbarHandover(row.id);
-              loadData();
-              alert(`Handover acknowledged for ${row.patient}`);
-            } catch (e) {
-              loadData();
-            }
           }
         }
       ]
@@ -4615,9 +4692,9 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
 
   const handleExportCSV = () => {
     if (data.length === 0) return alert('No SBAR handover records to export.');
-    const headers = ['Bed', 'Patient', 'EWS', 'MAR Due', 'Last Handover', 'SBAR (Latest)', 'Status'];
+    const headers = ['Bed', 'Patient', 'UHID', 'Ward', 'EWS', 'High-Alert', 'MAR Due', 'Last Handover', 'SBAR', 'Status'];
     const rows = data.map(d => [
-      `"${d.bed}"`, `"${d.patient}"`, `"${d.ews || '—'}"`, `"${d.marDue || '—'}"`, `"${d.lastHandover || '—'}"`, `"${d.sbarFull}"`, `"${d.status}"`
+      `"${d.bed}"`, `"${d.patient}"`, `"${d.uhid}"`, `"${d.wardName}"`, `"${d.ews || '—'}"`, `"${d.highAlertCount}"`, `"${d.marDue || '—'}"`, `"${d.lastHandover || '—'}"`, `"${d.sbarFull}"`, `"${d.status}"`
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -4633,12 +4710,13 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
   const totalPatients = data.length;
   const handoverRecordedThisShift = data.filter(d => d.status === 'Current').length;
   const noHandoverCount = data.filter(d => d.status === 'Missing' || !d.sbarFull || d.sbarFull.includes('No handover')).length;
+  const staleCount = data.filter(d => d.status === 'Stale').length;
+  const highAlertBedsCount = data.filter(d => d.highAlertCount > 0).length;
   const ewsHighCount = data.filter(d => {
     if (!d.ews) return false;
     const num = parseInt(d.ews.replace(/\D/g, ''), 10);
     return !isNaN(num) && num >= 3;
   }).length;
-  const marDueCount = data.filter(d => d.marDue && (d.marDue.includes('due') || d.marDue.includes('overdue') || parseInt(d.marDue) > 0)).length;
 
   // Filtered rows & pagination
   const filtered = data.filter(item => {
@@ -4646,6 +4724,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
     return (
       item.bed.toLowerCase().includes(q) ||
       item.patient.toLowerCase().includes(q) ||
+      item.wardName.toLowerCase().includes(q) ||
       item.ews.toLowerCase().includes(q) ||
       item.marDue.toLowerCase().includes(q) ||
       item.lastHandover.toLowerCase().includes(q) ||
@@ -4660,6 +4739,29 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '24px',
+          zIndex: 9999,
+          padding: '12px 20px',
+          borderRadius: '8px',
+          background: toast.isErr ? '#ef4444' : '#0f766e',
+          color: '#ffffff',
+          fontWeight: 600,
+          fontSize: '13px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          animation: 'fadeIn 0.2s ease-in'
+        }}>
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
       {/* Header section */}
       <div>
         <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
@@ -4668,10 +4770,10 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
-              Ward handover · SBAR · inpatients
+              Ward handover · SBAR · Inpatients
             </h1>
             <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-              Latest SBAR handover per patient with EWS and open work. Nurses record a handover from the patient row; Situation · Background · Assessment · Recommendation.
+              Autonomous shift handover pre-drafting (AG-18) with EWS and MAR verification. Nurses review pre-drafted SBAR cards at bedside in 2 minutes.
             </p>
           </div>
         </div>
@@ -4682,7 +4784,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         <div style={{ position: 'relative', minWidth: '260px' }}>
           <input
             type="text"
-            placeholder="Search by patient, bed, EWS, diagnosis..."
+            placeholder="Search by patient, bed, ward, EWS..."
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             style={{
@@ -4712,29 +4814,49 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         >
           Export CSV
         </button>
+        <button
+          type="button"
+          onClick={() => loadData(true)}
+          style={{
+            padding: '7px 14px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#f8fafc',
+            color: '#475569',
+            cursor: 'pointer'
+          }}
+        >
+          🔄 Refresh
+        </button>
       </div>
 
-      {/* 5 Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+      {/* Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Patients</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Total Beds</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Handover recorded this shift</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Current SBARs</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>No handover on file</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Stale SBARs</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{staleCount}</div>
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>EWS ≥ 3</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Missing SBARs</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>MAR due / overdue</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{marDueCount}</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>High-Alert Meds</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b91c1c' }}>{highAlertBedsCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>EWS ≥ 3</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
         </div>
       </div>
 
@@ -4743,22 +4865,24 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         <LoadingState label="Fetching live SBAR handovers from PostgreSQL..." />
       ) : (
         <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '1050px' }}>
             <thead>
               <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
-                <th style={{ padding: '12px 14px', width: '90px' }}>BED</th>
-                <th style={{ padding: '12px 14px', width: '180px' }}>PATIENT</th>
-                <th style={{ padding: '12px 14px', width: '100px' }}>EWS</th>
-                <th style={{ padding: '12px 14px', width: '100px' }}>MAR DUE</th>
-                <th style={{ padding: '12px 14px', width: '140px' }}>LAST HANDOVER</th>
-                <th style={{ padding: '12px 14px' }}>SBAR (LATEST)</th>
-                <th style={{ padding: '12px 14px', width: '90px' }}>STATUS</th>
+                <th style={{ padding: '12px 14px', width: '85px' }}>BED</th>
+                <th style={{ padding: '12px 14px', width: '160px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px', width: '85px' }}>EWS</th>
+                <th style={{ padding: '12px 14px', width: '105px' }}>HA MEDS</th>
+                <th style={{ padding: '12px 14px', width: '90px' }}>MAR DUE</th>
+                <th style={{ padding: '12px 14px', width: '130px' }}>LAST HANDOVER</th>
+                <th style={{ padding: '12px 14px' }}>SBAR SUMMARY (AI DRAFTED)</th>
+                <th style={{ padding: '12px 14px', width: '85px' }}>STATUS</th>
+                <th style={{ padding: '12px 14px', width: '140px', textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                  <td colSpan={9} style={{ padding: '60px 20px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px', marginBottom: '4px' }}>
                       Nothing matches
                     </div>
@@ -4770,6 +4894,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
               ) : (
                 paginatedRows.map(row => {
                   const isMissing = row.status === 'Missing' || !row.situation;
+                  const isGeneratingThis = generatingBed === row.bed;
                   return (
                     <tr
                       key={row.id}
@@ -4781,14 +4906,15 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
                         {row.bed || '—'}
                       </td>
-                      <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
-                        {row.patient}
+                      <td style={{ padding: '12px 14px' }}>
+                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.patient}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid} {row.wardName ? `· ${row.wardName}` : ''}</div>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         {row.ews ? (
                           <span style={{
-                            background: row.ews.includes('Normal') ? '#dcfce7' : '#fee2e2',
-                            color: row.ews.includes('Normal') ? '#15803d' : '#dc2626',
+                            background: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#dcfce7' : '#fee2e2',
+                            color: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#15803d' : '#dc2626',
                             padding: '2px 8px',
                             borderRadius: '4px',
                             fontSize: '11px',
@@ -4800,27 +4926,47 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
                           <span style={{ color: '#94a3b8' }}>—</span>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', color: row.marDue ? '#b45309' : '#94a3b8', fontWeight: row.marDue ? 600 : 400 }}>
+                      <td style={{ padding: '12px 14px' }}>
+                        {row.highAlertCount > 0 ? (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: '#fef2f2',
+                            color: '#b91c1c',
+                            border: '1px solid #fecaca',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 700
+                          }}>
+                            ⚠️ {row.highAlertCount} Alert
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Clear</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: row.marDue ? '#b45309' : '#94a3b8', fontWeight: row.marDue ? 600 : 400, fontSize: '11.5px' }}>
                         {row.marDue || '—'}
                       </td>
-                      <td style={{ padding: '12px 14px', color: row.lastHandover ? '#0f172a' : '#94a3b8', fontSize: '12px' }}>
+                      <td style={{ padding: '12px 14px', color: row.lastHandover ? '#0f172a' : '#94a3b8', fontSize: '11.5px' }}>
                         {row.lastHandover || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', lineHeight: '1.4' }}>
                         {isMissing ? (
-                          <span style={{ color: '#dc2626', fontWeight: 500 }}>
-                            No handover recorded
+                          <span style={{ color: '#dc2626', fontWeight: 500, fontSize: '11.5px' }}>
+                            ● No handover on file
                           </span>
                         ) : (
-                          <div style={{ color: '#334155', fontSize: '12px' }}>
+                          <div style={{ color: '#334155', fontSize: '11.5px', maxHeight: '42px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {row.sbarFull}
                           </div>
                         )}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{
-                          background: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#f1f5f9',
-                          color: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#475569',
+                          background: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#fef3c7',
+                          color: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#b45309',
                           padding: '2px 8px',
                           borderRadius: '4px',
                           fontSize: '11px',
@@ -4828,6 +4974,51 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
                         }}>
                           {row.status}
                         </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            disabled={isGeneratingThis}
+                            onClick={() => handleGenerateSingle(row)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 9px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              background: isGeneratingThis ? '#f1f5f9' : '#ffffff',
+                              color: '#0f766e',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: isGeneratingThis ? 'wait' : 'pointer',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                            }}
+                            title="Auto-draft SBAR with AG-18 (openai/gpt-oss-120b on Groq)"
+                          >
+                            {isGeneratingThis ? 'Drafting…' : '✨ AI Draft'}
+                          </button>
+                          {!row.acknowledged && row.status === 'Current' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAcknowledgeSingle(row)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #bbf7d0',
+                                background: '#f0fdf4',
+                                color: '#15803d',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                              }}
+                              title="Bedside Nurse Sign-off & Handover Acceptance"
+                            >
+                              Sign Off
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -4850,7 +5041,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
             gap: '12px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span>Page {currentPage} of {totalPages} · {filtered.length} live inpatient records</span>
+              <span>Page {currentPage} of {totalPages} · {filtered.length} live inpatient beds</span>
               <div style={{ display: 'flex', gap: '4px' }}>
                 <button
                   type="button"
@@ -4888,27 +5079,18 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
                 </button>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Rows per page</span>
-              {[25, 50, 100].map(sz => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => { setPageSize(sz); setPage(1); }}
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    border: pageSize === sz ? '1px solid #0f172a' : '1px solid #cbd5e1',
-                    background: pageSize === sz ? '#0f172a' : '#ffffff',
-                    color: pageSize === sz ? '#ffffff' : '#475569',
-                    fontSize: '11.5px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {sz}
-                </button>
-              ))}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                style={{ padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
             </div>
           </div>
         </div>
@@ -4916,6 +5098,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
     </div>
   );
 }
+
 
 function printMccdCertificate(row) {
   const printWindow = window.open('', '_blank', 'width=860,height=900');
