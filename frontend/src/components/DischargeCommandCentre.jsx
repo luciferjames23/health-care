@@ -87,6 +87,36 @@ export function formatTime12(timeVal) {
   return `${hoursStr}:${minutes} ${ampm}`;
 }
 
+// Clinical Vitals Evaluation Helper matching evidence-based criteria:
+// - SpO2 >= 92%
+// - HR 50 - 110 bpm
+// - Temp 95.0°F - 100.4°F
+// - SBP 90 - 160 mmHg, DBP 50 - 100 mmHg
+export const checkPatientVitalsNormal = (adm) => {
+  if (!adm) return { isNormal: true, issues: [] };
+  const temp = adm.latest_temperature != null ? parseFloat(adm.latest_temperature) : null;
+  const hr = adm.latest_heart_rate != null ? parseFloat(adm.latest_heart_rate) : null;
+  const sbp = adm.latest_systolic_bp != null ? parseFloat(adm.latest_systolic_bp) : null;
+  const dbp = adm.latest_diastolic_bp != null ? parseFloat(adm.latest_diastolic_bp) : null;
+  const spo2 = adm.latest_oxygen_saturation != null ? parseFloat(adm.latest_oxygen_saturation) : null;
+
+  const issues = [];
+  if (spo2 != null && !isNaN(spo2) && spo2 < 92.0) issues.push(`SpO2 ${spo2}% (<92%)`);
+  if (hr != null && !isNaN(hr) && (hr < 50 || hr > 110)) issues.push(`HR ${hr} bpm (50-110)`);
+  if (temp != null && !isNaN(temp)) {
+    const tempF = temp < 50 ? (temp * 9 / 5) + 32 : temp;
+    if (tempF >= 100.4) issues.push(`Fever ${tempF.toFixed(1)}°F`);
+    else if (tempF < 95.0) issues.push(`Hypothermia ${tempF.toFixed(1)}°F`);
+  }
+  if (sbp != null && !isNaN(sbp) && (sbp < 90 || sbp > 160)) issues.push(`SBP ${sbp} mmHg (90-160)`);
+  if (dbp != null && !isNaN(dbp) && (dbp < 50 || dbp > 100)) issues.push(`DBP ${dbp} mmHg (50-100)`);
+
+  return {
+    isNormal: issues.length === 0,
+    issues
+  };
+};
+
 // Helper to generate dynamic case interactive state
 function createCaseInitialState(base) {
   if (!base) return {};
@@ -107,7 +137,7 @@ function createCaseInitialState(base) {
 
   const billClearance = String(base.billClearanceStatus || '').toLowerCase();
   const bStatus = String(base.billStatus || '').toLowerCase();
-  const isBillCleared = isReady || isCompleted || billClearance === 'cleared' || bStatus === 'paid' || bStatus === 'settled' || patAmt === 0;
+  const isBillCleared = isReady || isCompleted || base.isCleared || billClearance === 'cleared' || billClearance === 'settled' || bStatus === 'paid' || bStatus === 'settled' || patAmt === 0;
 
   return {
     deps: {
@@ -117,20 +147,20 @@ function createCaseInitialState(base) {
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       vitals: {
-        status: blocker.includes('vital') ? 'blocked' : 'done',
-        note: blocker.includes('vital')
-          ? 'Vital signs observation pending (BP/SpO2 check)'
+        status: (base.isVitalsStable === false || (!isReady && !isCompleted && blocker.includes('vital'))) ? 'blocked' : 'done',
+        note: (base.isVitalsStable === false || (!isReady && !isCompleted && blocker.includes('vital')))
+          ? `Vital signs abnormal: ${base.vitalsIssues || 'Clinical observation pending'}`
           : 'Vital signs stable (BP 120/80, SpO2 98%, HR 72, Afebrile)',
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       investigations: {
-        status: blocker.includes('investigations') ? 'blocked' : 'done',
-        note: blocker.includes('investigations') ? 'Lab investigations pending verification in LIS' : 'All ordered investigations reported & verified',
+        status: !isReady && !isCompleted && blocker.includes('investigations') ? 'blocked' : 'done',
+        note: !isReady && !isCompleted && blocker.includes('investigations') ? 'Lab investigations pending verification in LIS' : 'All ordered investigations reported & verified',
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       pharmacy: {
-        status: blocker.includes('pharmacy') ? 'blocked' : 'done',
-        note: blocker.includes('pharmacy') ? 'Discharge medications dispensing in progress at Central Pharmacy' : 'Pharmacy reconciliation cleared',
+        status: isReady || isCompleted ? 'done' : blocker.includes('pharmacy') ? 'blocked' : 'done',
+        note: isReady || isCompleted ? 'Pharmacy reconciliation cleared' : (blocker.includes('pharmacy') ? 'Discharge medications dispensing in progress at Central Pharmacy' : 'Pharmacy reconciliation cleared'),
         time: '09:05 AM'
       },
       billing: {
@@ -149,16 +179,16 @@ function createCaseInitialState(base) {
         time: '09:07 AM'
       },
       transport: {
-        status: isReady || isCompleted ? 'done' : blocker.includes('transport') ? 'waiting' : 'waiting',
+        status: isReady || isCompleted ? 'done' : 'waiting',
         note: isReady || isCompleted ? 'Porter dispatched · wheelchair arranged at ward' : 'Transport slot held on standby',
         time: '09:08 AM'
       },
       summary: {
-        status: isCompleted ? 'done' : 'approval',
-        note: isCompleted
+        status: (base.isApproved || isCompleted) ? 'done' : 'approval',
+        note: (base.isApproved || isCompleted)
           ? `Signed off by ${base.doctor || 'attending consultant'}`
           : 'AI draft generated · doctor sign-off required',
-        time: isCompleted ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
+        time: (base.isApproved || isCompleted) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -167,8 +197,8 @@ function createCaseInitialState(base) {
     billStatus: isBillCleared ? 'Released' : 'Provisional',
     billInsurance: isInsApproved ? actualAmt : isInsRejected ? 0 : (isReady || isCompleted ? actualAmt : insAmt),
     billPatient: isBillCleared || isInsApproved ? 0 : (isReady || isCompleted ? 0 : patAmt),
-    approvals: isReady || isCompleted ? [] : [
-      ...(isApproval || blocker.includes('summary') ? [
+    approvals: (isCompleted || base.isApproved) ? [] : [
+      ...((isReady || isApproval || blocker.includes('summary')) ? [
         {
           id: `AP-${base.id}-01`,
           type: 'Discharge summary sign-off',
@@ -290,6 +320,10 @@ export default function DischargeCommandCentre({
       setRawAdmissions(resAdmissions?.data || []);
       setRawBeds(resBeds?.data || []);
       setRawWards(resWards?.data || []);
+      // Trigger background auto-generation for eligible cleared-bill + stable-vital patients
+      if (apiService.autoProcessReadyPatients) {
+        apiService.autoProcessReadyPatients().catch(() => {});
+      }
     } catch (err) {
       if (!isSilent) setError(err.message || 'Failed to fetch discharge candidates.');
     } finally {
@@ -376,7 +410,10 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isBillCleared = (rawBal <= 0) || ['cleared', 'settled', 'paid'].includes(String(adm.bill_clearance_status || '').toLowerCase()) || ['paid', 'settled'].includes(String(adm.bill_status || '').toLowerCase());
+      const vitalsCheck = checkPatientVitalsNormal(adm);
+
       const isReadyInDb = String(adm.discharge_status || c.discharge_status || '').toLowerCase() === 'ready';
 
       let category = 'Approval required';
@@ -387,7 +424,7 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb) {
+      } else if (isReadyInDb || isBillCleared || isApproved) {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -395,13 +432,9 @@ export default function DischargeCommandCentre({
         category = 'Approval required';
         blocker = 'summary → prescription';
         initialStatus = 'Approval required · summary';
-      } else if (rawBal === 0 || adm.bill_clearance_status === 'Cleared') {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
       } else {
         category = 'Blocked';
-        blocker = 'billing → insurance → transport';
+        blocker = 'billing → insurance';
         initialStatus = 'Blocked · billing';
       }
 
@@ -450,6 +483,10 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
+        isCleared: isBillCleared,
+        isApproved,
+        isVitalsStable: vitalsCheck.isNormal,
+        vitalsIssues: vitalsCheck.issues.join(', '),
         hasSummary: true,
         case_history: c.case_history || '',
         investigations: c.investigations || '',
@@ -506,11 +543,19 @@ export default function DischargeCommandCentre({
       const rawBal = parseFloat(adm.outstanding_balance != null ? adm.outstanding_balance : (adm.llm_input_json?.billing?.outstanding_balance || 0));
       const insCoverage = Math.max(0, billNet - rawBal);
       const clearance = String(adm.bill_clearance_status || adm.llm_input_json?.billing?.bill_clearance_status || '').toLowerCase();
+      const bStatus = String(adm.bill_status || adm.llm_input_json?.billing?.bill_status || '').toLowerCase();
       const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
       const isReadyInDb = String(adm.discharge_status || '').toLowerCase() === 'ready';
-      const claimStatus = String(adm.claim_status || adm.insurance_status || '').trim();
+      const claimStatus = String(adm.claim_status || adm.insurance_status || adm.llm_input_json?.insurance?.claims?.[0]?.claim_status || '').trim();
       const isClaimApproved = claimStatus.toLowerCase().includes('approv') || claimStatus.toLowerCase().includes('settle');
       const isClaimRejected = claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni');
+
+      const isBillCleared = (
+        ['cleared', 'settled', 'paid'].includes(clearance) ||
+        ['paid', 'settled', 'released'].includes(bStatus) ||
+        rawBal <= 0
+      );
+      const vitalsCheck = checkPatientVitalsNormal(adm);
 
       let category = 'In progress';
       let blocker = 'clinical → billing';
@@ -520,7 +565,7 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb || (isClaimApproved && clearance === 'cleared' && rawBal === 0)) {
+      } else if (isReadyInDb || (isBillCleared && (isClaimApproved || !adm.insurance_provider))) {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
@@ -528,7 +573,7 @@ export default function DischargeCommandCentre({
         category = 'Blocked';
         blocker = 'insurance';
         initialStatus = 'Blocked · insurance';
-      } else if (rawBal > 50000 && clearance !== 'cleared') {
+      } else if (rawBal > 50000 && !isBillCleared) {
         category = 'Blocked';
         blocker = 'billing → insurance';
         initialStatus = 'Blocked · billing';
@@ -620,11 +665,15 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
+        isCleared: isBillCleared,
+        isApproved: false,
+        isVitalsStable: vitalsCheck.isNormal,
+        vitalsIssues: vitalsCheck.issues.join(', '),
         hasSummary: false,
         claimStatus: claimStatus,
         insuranceStatus: claimStatus,
-        billStatus: adm.bill_status || '',
-        billClearanceStatus: adm.bill_clearance_status || '',
+        billStatus: adm.bill_status || adm.llm_input_json?.billing?.bill_status || (isBillCleared ? 'Settled' : ''),
+        billClearanceStatus: adm.bill_clearance_status || adm.llm_input_json?.billing?.bill_clearance_status || (isBillCleared ? 'Cleared' : ''),
         case_history: clinical.narrative,
         hospital_course_summary: clinical.narrative,
         investigations: clinical.investigations,
@@ -736,7 +785,7 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
-      } else if (base.category === 'Ready') {
+      } else if (base.category === 'Ready' || base.isCleared) {
         computedCategory = 'Ready';
         statusLabel = 'Ready';
         statusKind = 'ready';
@@ -898,8 +947,17 @@ export default function DischargeCommandCentre({
   }, [notify]);
 
   const handleSignDischargeSummary = (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
+    const summaryId = targetCase.rawRecord?.summary_id || targetCase.id?.replace('DIS-SUM-', '');
+    if (summaryId) {
+      apiService.updateDischargeSummary(summaryId, {
+        approval_status: 'Approved',
+        patient_id: targetCase.patient_id,
+        admission_id: targetCase.admission_id
+      }).catch(err => console.error('Failed to persist sign-off:', err));
+    }
+
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
 
@@ -1836,7 +1894,7 @@ export default function DischargeCommandCentre({
                       {a.action} · owner <strong>{a.owner}</strong>
                     </div>
 
-                    {a.type === 'Discharge summary' && (
+                    {(a.type === 'Discharge summary' || a.type === 'Discharge summary sign-off' || a.type.toLowerCase().includes('summary') || a.type.toLowerCase().includes('sign-off')) && (
                       <button
                         type="button"
                         onClick={() => handleSignDischargeSummary(dc.id)}

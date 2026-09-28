@@ -1021,40 +1021,88 @@ def _parse_id_numeric(val: Any) -> Optional[int]:
 
 def auto_process_discharge_for_ready_patient(patient_id: Optional[Union[str, int]] = None) -> List[int]:
     """
-    Automated Discharge Agent Trigger:
-    When a patient arrives in 'Ready' (or status updated to Ready / bill cleared),
-    automatically runs the clinical agent to generate and persist their discharge summary
-    into dim_generated_discharge_summaries if not already present.
+    Automated Clinical Discharge Agent Trigger:
+    When a patient clears bills (outstanding balance <= 0 or status Settled/Paid) AND their vital
+    signs are clinically normal, automatically runs the clinical agent to generate and persist their
+    discharge summary into `dim_generated_discharge_summaries` (status: 'Pending Approval') if not present.
     """
     from db_config import get_db_connection
+    import psycopg2.extras
     generated_pids = []
     try:
         conn = get_db_connection()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
         target_pids = []
         if patient_id is not None:
             pid_clean = _parse_id_numeric(patient_id)
             if pid_clean:
+                # Check if summary already exists
                 cur.execute("SELECT 1 FROM dim_generated_discharge_summaries WHERE patient_id = %s LIMIT 1;", (pid_clean,))
                 if not cur.fetchone():
-                    target_pids.append(pid_clean)
+                    # Check bill clearance & vitals normality
+                    cur.execute("""
+                        SELECT 
+                            patient_id, bill_status, bill_clearance_status, outstanding_balance,
+                            latest_temperature, latest_heart_rate, latest_systolic_bp, 
+                            latest_diastolic_bp, latest_oxygen_saturation, discharge_status
+                        FROM dim_admission_inputs
+                        WHERE patient_id = %s
+                          AND LOWER(COALESCE(discharge_status, '')) != 'discharged'
+                        LIMIT 1;
+                    """, (pid_clean,))
+                    row = cur.fetchone()
+                    if row:
+                        bal = float(row.get('outstanding_balance') or 0)
+                        b_stat = str(row.get('bill_status') or '').lower()
+                        c_stat = str(row.get('bill_clearance_status') or '').lower()
+                        is_bill_cleared = (bal <= 0 or b_stat in ('settled', 'paid', 'cleared') or c_stat in ('settled', 'cleared', 'paid'))
+                        
+                        is_stable, _ = check_patient_vitals_stability(
+                            row.get('latest_temperature'),
+                            row.get('latest_heart_rate'),
+                            row.get('latest_systolic_bp'),
+                            row.get('latest_diastolic_bp'),
+                            row.get('latest_oxygen_saturation')
+                        )
+                        if is_bill_cleared and is_stable:
+                            target_pids.append(pid_clean)
         else:
             cur.execute("""
-                SELECT a.patient_id 
+                SELECT 
+                    a.patient_id, a.bill_status, a.bill_clearance_status, a.outstanding_balance,
+                    a.latest_temperature, a.latest_heart_rate, a.latest_systolic_bp, 
+                    a.latest_diastolic_bp, a.latest_oxygen_saturation, a.discharge_status
                 FROM dim_admission_inputs a
                 LEFT JOIN dim_generated_discharge_summaries s ON a.patient_id = s.patient_id
-                WHERE LOWER(COALESCE(a.discharge_status, '')) = 'ready'
-                  AND s.patient_id IS NULL;
+                WHERE s.patient_id IS NULL
+                  AND LOWER(COALESCE(a.discharge_status, '')) != 'discharged';
             """)
             rows = cur.fetchall()
-            target_pids = [r[0] for r in rows if r[0] is not None]
+            for row in rows:
+                pid = row.get('patient_id')
+                if pid is None:
+                    continue
+                bal = float(row.get('outstanding_balance') or 0)
+                b_stat = str(row.get('bill_status') or '').lower()
+                c_stat = str(row.get('bill_clearance_status') or '').lower()
+                is_bill_cleared = (bal <= 0 or b_stat in ('settled', 'paid', 'cleared') or c_stat in ('settled', 'cleared', 'paid'))
+                
+                is_stable, _ = check_patient_vitals_stability(
+                    row.get('latest_temperature'),
+                    row.get('latest_heart_rate'),
+                    row.get('latest_systolic_bp'),
+                    row.get('latest_diastolic_bp'),
+                    row.get('latest_oxygen_saturation')
+                )
+                if is_bill_cleared and is_stable:
+                    target_pids.append(pid)
         
         cur.close()
         conn.close()
 
         if target_pids:
-            logger.info(f"Discharge Agent: Automatically generating discharge summaries for Ready patient(s): {target_pids}")
+            logger.info(f"Discharge Agent: Automatically generating discharge summaries for eligible patient(s) with cleared bills & normal vitals: {target_pids}")
             for pid in target_pids:
                 try:
                     generate_and_persist_discharge_summaries(patient_ids=[str(pid)])
@@ -2166,6 +2214,13 @@ def generate_and_save_vitals_internal(
             summary_eval = "Vital signs are stable and meet clinical discharge criteria."
         else:
             summary_eval = f"Vital signs unstable: {'; '.join(vitals_issues)}. Clinical intervention required before discharge."
+
+        # Automated Agent Trigger: If vitals are now stable and bill is cleared, auto-generate discharge summary
+        if is_stable and resolved_pid:
+            try:
+                auto_process_discharge_for_ready_patient(resolved_pid)
+            except Exception as auto_err:
+                logger.warning(f"Auto discharge generation warning on stable vitals: {auto_err}")
 
         return {
             "success": True,

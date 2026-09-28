@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { apiService } from '../services/api';
+import { apiService, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
 // Common badge and card helpers
@@ -333,12 +333,20 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 2. EMERGENCY & TRAUMA BOARD (emergency)
 // -----------------------------------------------------------------------------
-export function EmergencyView({ onOpenDrawer, onOpenModal }) {
+export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, userRole = null }) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [scopeFilter, setScopeFilter] = useState(activeDoctorName ? 'my' : 'all');
+
+  useEffect(() => {
+    setScopeFilter(activeDoctorName ? 'my' : 'all');
+  }, [activeDoctorName]);
 
   const fetchEmergencyData = async () => {
     setLoading(true);
@@ -379,14 +387,29 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
     fetchEmergencyData();
   }, []);
 
+  const myCases = useMemo(() => {
+    if (!activeDoctorName) return data;
+    return data.filter(d => matchesDoctor(d.doctor, activeDoctorName));
+  }, [data, activeDoctorName]);
+
+  const myCount = myCases.length;
+  const allCount = data.length;
+
+  const currentScopedList = useMemo(() => {
+    if (activeDoctorName && scopeFilter === 'my') {
+      return myCases;
+    }
+    return data;
+  }, [data, myCases, activeDoctorName, scopeFilter]);
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, pageSize]);
+  }, [query, pageSize, scopeFilter]);
 
   const filtered = useMemo(() => {
-    if (!query) return data;
+    if (!query) return currentScopedList;
     const q = query.toLowerCase();
-    return data.filter(d =>
+    return currentScopedList.filter(d =>
       (d.id && d.id.toLowerCase().includes(q)) ||
       (d.patient && d.patient.toLowerCase().includes(q)) ||
       (d.complaint && d.complaint.toLowerCase().includes(q)) ||
@@ -394,11 +417,11 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
       (d.acuity && d.acuity.toLowerCase().includes(q)) ||
       (d.status && d.status.toLowerCase().includes(q))
     );
-  }, [data, query]);
+  }, [currentScopedList, query]);
 
-  const untriagedCount = data.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
-  const awaitingBedCount = data.filter(d => d.status === 'Awaiting bed').length;
-  const criticalCount = data.filter(d => Boolean(d.critical && d.critical !== '—')).length;
+  const untriagedCount = currentScopedList.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
+  const awaitingBedCount = currentScopedList.filter(d => d.status === 'Awaiting bed').length;
+  const criticalCount = currentScopedList.filter(d => Boolean(d.critical && d.critical !== '—')).length;
   const erBedsFree = Math.max(0, 22 - data.length);
 
   // Pagination calculations
@@ -515,13 +538,27 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Front Office & Patients</span> › <span>Emergency Triage & Trauma Board</span>
+            <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Emergency Triage' : 'Emergency Triage & Trauma Board'}</span>
           </div>
           <h1 style={{ fontSize: '20px', fontWeight: 600, margin: '0 0 2px', color: '#15181b' }}>
-            Emergency & Trauma Board
+            {isDoctor && activeDoctorName && scopeFilter === 'my'
+              ? `Emergency & Trauma Board · ${activeDoctorName}`
+              : 'Emergency & Trauma Board'}
           </h1>
-          <div style={{ color: '#8a9096', fontSize: '11.5px' }}>
-            Ordered by clinical triage acuity (ESI 1 → 5); active emergency bay telemetry, clinician assignment, and MLC tracking.
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            {isDoctor && activeDoctorName ? (
+              <span>
+                <strong style={{ color: '#0369a1' }}>Doctor Scope: {activeDoctorName}</strong>
+                {' · '}
+                <span>
+                  {scopeFilter === 'my'
+                    ? `Showing ${myCount} active ER patient${myCount === 1 ? '' : 's'} under your care`
+                    : `Showing all ${allCount} active emergency patients across hospital bays`}
+                </span>
+              </span>
+            ) : (
+              'Ordered by clinical triage acuity (ESI 1 → 5); active emergency bay telemetry, clinician assignment, and MLC tracking.'
+            )}
           </div>
         </div>
 
@@ -548,9 +585,11 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
       {/* 4 Stat Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
         <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
-          <div style={{ fontSize: '11px', color: '#8a9096' }}>Active ER Cases</div>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>
+            {isDoctor && activeDoctorName && scopeFilter === 'my' ? 'My Active ER Cases' : 'Active ER Cases'}
+          </div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
-            {data.length}
+            {currentScopedList.length}
           </div>
         </div>
         <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
@@ -573,27 +612,94 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
         </div>
       </div>
 
-      {/* Action / Search Bar */}
+      {/* Action / Search Bar with Doctor Scope Selector */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', width: '280px' }}>
-          <input
-            type="text"
-            placeholder="Search patient, complaint, doctor, bay..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{
-              width: '100%',
-              height: '32px',
-              padding: '0 12px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '12px',
-              color: '#1e293b',
-              background: '#ffffff',
-              outline: 'none',
-              boxSizing: 'border-box'
-            }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {isDoctor && activeDoctorName && (
+            <div style={{ display: 'inline-flex', padding: '3px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('my')}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'my' ? 600 : 500,
+                  background: scopeFilter === 'my' ? '#ffffff' : 'transparent',
+                  color: scopeFilter === 'my' ? '#0f172a' : '#64748b',
+                  border: 'none',
+                  borderRadius: '4px',
+                  boxShadow: scopeFilter === 'my' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>My ER Patients</span>
+                <span style={{
+                  background: scopeFilter === 'my' ? '#0284c7' : '#cbd5e1',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  fontWeight: 700
+                }}>
+                  {myCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('all')}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'all' ? 600 : 500,
+                  background: scopeFilter === 'all' ? '#ffffff' : 'transparent',
+                  color: scopeFilter === 'all' ? '#0f172a' : '#64748b',
+                  border: 'none',
+                  borderRadius: '4px',
+                  boxShadow: scopeFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>All Hospital ER</span>
+                <span style={{
+                  background: scopeFilter === 'all' ? '#475569' : '#cbd5e1',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  fontWeight: 700
+                }}>
+                  {allCount}
+                </span>
+              </button>
+            </div>
+          )}
+
+          <div style={{ position: 'relative', width: '280px' }}>
+            <input
+              type="text"
+              placeholder="Search patient, complaint, doctor, bay..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{
+                width: '100%',
+                height: '32px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                color: '#1e293b',
+                background: '#ffffff',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -622,10 +728,16 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
       {/* Live Table */}
       {filtered.length === 0 ? (
         <EmptyState
-          title="No Emergency Cases Found"
-          description="There are currently no active emergency patients matching the search."
-          onAction={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
-          actionLabel="+ Triage & Admit Patient"
+          title={isDoctor && activeDoctorName && scopeFilter === 'my' ? `No ER Patients Under ${activeDoctorName}` : "No Emergency Cases Found"}
+          description={isDoctor && activeDoctorName && scopeFilter === 'my' ? "There are currently no active emergency patients assigned to your care." : "There are currently no active emergency patients matching the search."}
+          onAction={() => {
+            if (isDoctor && activeDoctorName && scopeFilter === 'my') {
+              setScopeFilter('all');
+            } else if (onOpenModal) {
+              onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } });
+            }
+          }}
+          actionLabel={isDoctor && activeDoctorName && scopeFilter === 'my' ? "View All Hospital ER Cases" : "+ Triage & Admit Patient"}
         />
       ) : (
         <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>

@@ -53,15 +53,19 @@ def get_prescriptions(
             params.append(status)
 
         if search and isinstance(search, str) and search.strip():
-            s = f"%{search.strip().lower()}%"
-            where_clauses.append("""(
-                LOWER(p.prescription_id::text) LIKE %s OR
-                LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
-                LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
-                LOWER(COALESCE(d.display_name, '')) LIKE %s OR
-                LOWER(COALESCE(m.medication_name, '')) LIKE %s
-            )""")
-            params.extend([s, s, s, s, s])
+            terms = [t.strip().lower() for t in search.strip().split() if t.strip()]
+            for t in terms:
+                s = f"%{t}%"
+                where_clauses.append("""(
+                    LOWER(p.prescription_id::text) LIKE %s OR
+                    LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
+                    LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
+                    LOWER(COALESCE(d.display_name, '')) LIKE %s OR
+                    LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
+                    LOWER(COALESCE(m.generic_name, '')) LIKE %s OR
+                    LOWER(COALESCE(m.brand_name, '')) LIKE %s
+                )""")
+                params.extend([s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -85,7 +89,7 @@ def get_prescriptions(
         query = f"""
             SELECT 
                 p.prescription_id as id,
-                'RX-2026-' || LPAD(p.prescription_id::text, 4, '0') as rx_number,
+                'RX-2026-' || p.prescription_id::text as rx_number,
                 p.patient_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || p.patient_id) as patient,
                 COALESCE(pat.patient_code, 'PAT-' || p.patient_id) as patient_code,
@@ -414,19 +418,21 @@ def get_pharmacy_sales(
                 params.append(f"%{status}%")
 
         if search and search.strip():
-            s = f"%{search.strip().lower()}%"
-            where_clauses.append("""(
-                LOWER(ps.sale_id::text) LIKE %s OR
-                LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
-                LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
-                LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
-                LOWER(COALESCE(w.ward_name, '')) LIKE %s OR
-                LOWER(COALESCE(b.bed_number, '')) LIKE %s OR
-                LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
-                ('ph-' || LPAD(ps.sale_id::text, 5, '0')) LIKE %s OR
-                ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
-            )""")
-            params.extend([s, s, s, s, s, s, s])
+            terms = [t.strip().lower() for t in search.strip().split() if t.strip()]
+            for t in terms:
+                s = f"%{t}%"
+                where_clauses.append("""(
+                    LOWER(ps.sale_id::text) LIKE %s OR
+                    LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
+                    LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
+                    LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
+                    LOWER(COALESCE(w.ward_name, '')) LIKE %s OR
+                    LOWER(COALESCE(b.bed_number, '')) LIKE %s OR
+                    LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
+                    ('ph-' || ps.sale_id::text) LIKE %s OR
+                    ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
+                )""")
+                params.extend([s, s, s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -451,7 +457,7 @@ def get_pharmacy_sales(
         query = f"""
             SELECT 
                 ps.sale_id as id,
-                'PH-' || LPAD(ps.sale_id::text, 5, '0') as txn_number,
+                'PH-' || ps.sale_id::text as txn_number,
                 ps.patient_id,
                 ps.prescription_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || ps.patient_id) as patient,

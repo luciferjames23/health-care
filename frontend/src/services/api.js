@@ -779,6 +779,31 @@ export const apiService = {
   },
 
   // -------------------------------------------------------------------------
+  // Auto-process Ready Patients & Generate Discharge Summaries
+  // POST /api/v1/discharge-agent/auto-process-ready
+  // -------------------------------------------------------------------------
+  async autoProcessReadyPatients(patientId = null, options = {}) {
+    const url = `${API_BASE_URL}/api/v1/discharge-agent/auto-process-ready`;
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: JSON.stringify(patientId ? { patient_id: patientId } : {}),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(url, data);
+    return data;
+  },
+
+  // -------------------------------------------------------------------------
   // Simulate Insurer Decision (Approve / Reject)
   // POST /api/v1/discharge-agent/simulate-insurer
   // -------------------------------------------------------------------------
@@ -825,9 +850,25 @@ export const apiService = {
   // -------------------------------------------------------------------------
   // Clinical Operations & Front Office Endpoints
   // -------------------------------------------------------------------------
-  async getEmergencyCases(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emergency`, {
-      ...options,
+  async getEmergencyCases(params = {}, options = {}) {
+    let actualParams = params;
+    let actualOptions = options;
+    if (params && (params.forceRefresh !== undefined || params.revalidateMs !== undefined)) {
+      actualOptions = params;
+      actualParams = {};
+    }
+    const searchParams = new URLSearchParams();
+    if (actualParams && typeof actualParams === 'object') {
+      Object.entries(actualParams).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          searchParams.append(k, v);
+        }
+      });
+    }
+    const qs = searchParams.toString();
+    const url = `${API_BASE_URL}/api/v1/clinical-ops/emergency${qs ? `?${qs}` : ''}`;
+    return await fetchCachedJson(url, {
+      ...actualOptions,
       revalidateMs: 2000
     });
   },
@@ -1122,7 +1163,8 @@ export const apiService = {
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions?${q.toString()}`, {
       ...options,
-      revalidateMs: 2000
+      forceRefresh: Boolean(params.search),
+      revalidateMs: params.search ? 0 : 2000
     });
   },
 
@@ -1159,7 +1201,8 @@ export const apiService = {
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/sales?${q.toString()}`, {
       ...options,
-      revalidateMs: 2000
+      forceRefresh: Boolean(params.search),
+      revalidateMs: params.search ? 0 : 2000
     });
   },
 

@@ -429,16 +429,16 @@ export default function App() {
               patient={selectedPatient}
               currentUser={auth}
               onOpenDischarge={() => {
-                setSelectedPatient(null);
-                handleNavigate('discharge');
+                handleNavigate('discharge', selectedPatient);
               }}
               onOpenSoap={handleOpenSoap}
               onBack={handleStepBack}
               onNavigate={(page) => {
                 if (page === 'discharge') {
-                  setSelectedPatient(null);
+                  handleNavigate('discharge', selectedPatient);
+                } else {
+                  handleNavigate(page);
                 }
-                handleNavigate(page);
               }}
               onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); handleNavigate('radiology'); }}
               onOpenDrawer={setDrawer}
@@ -558,7 +558,14 @@ export default function App() {
             />
           )}
           {activePage === 'patient-chat' && <PatientChat />}
-          {activePage === 'emergency' && <EmergencyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+          {activePage === 'emergency' && (
+            <EmergencyView
+              onOpenDrawer={setDrawer}
+              onOpenModal={setModal}
+              doctorName={role === 'Doctor' ? auth?.name : null}
+              userRole={role}
+            />
+          )}
           {activePage === 'schedules' && <DoctorSchedules />}
           {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
           {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

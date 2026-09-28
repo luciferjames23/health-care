@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
@@ -123,28 +123,58 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [totalCount, setTotalCount] = useState(0);
   const [actionLoading, setActionLoading] = useState(null);
+  const reqIdRef = useRef(0);
+
+  // Debounce search to eliminate race conditions and avoid unnecessary requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const fetchPrescriptions = async () => {
+    const reqId = ++reqIdRef.current;
     try {
       setLoading(true);
-      const res = await apiService.getPrescriptions({ status: filter, search, limit: 100 });
-      if (res && res.data) {
-        setData(res.data);
-        if (res.stats) setStats(res.stats);
-      } else {
-        setData([]);
+      const offset = (page - 1) * pageSize;
+      const res = await apiService.getPrescriptions({
+        status: filter,
+        search: debouncedSearch,
+        limit: pageSize,
+        offset: offset
+      });
+      if (reqId === reqIdRef.current) {
+        if (res && res.data) {
+          setData(res.data);
+          const serverTotal = res.total ?? (res.stats?.total_prescriptions ?? res.data.length);
+          setTotalCount(serverTotal);
+          if (res.stats) setStats(res.stats);
+        } else {
+          setData([]);
+          setTotalCount(0);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch prescriptions:', err);
+      if (reqId === reqIdRef.current) {
+        console.error('Failed to fetch prescriptions:', err);
+      }
     } finally {
-      setLoading(false);
+      if (reqId === reqIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchPrescriptions();
-  }, [filter, search]);
+  }, [filter, debouncedSearch, page, pageSize]);
 
   const handleDispense = async (rx, e) => {
     if (e) e.stopPropagation();
@@ -261,7 +291,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             <button
               key={st}
               type="button"
-              onClick={() => setFilter(st)}
+              onClick={() => { setFilter(st); setPage(1); }}
               style={{
                 padding: '5px 14px', borderRadius: '12px', fontSize: '11.5px', border: '1px solid #e2e8f0',
                 background: filter === st ? '#0f766e' : '#fff', color: filter === st ? '#fff' : '#475569',
@@ -272,16 +302,31 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search by Rx #, Patient, Doctor, or Drug..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
-        />
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            placeholder="Search by Rx #, Patient, Doctor, or Drug..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              padding: '6px 30px 6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+              width: '280px', outline: 'none'
+            }}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              style={{
+                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '12px', padding: '2px'
+              }}
+              title="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Table */}
@@ -299,7 +344,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
           </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            No prescription records found in database.
+            No prescription records found matching current query.
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -317,7 +362,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(rx => {
+              {data.map((rx, idx) => {
                 const rxNo = rx.prescription_number || rx.rx_number || rx.id;
                 const patName = rx.patient_name || rx.patient || 'Patient';
                 const patCode = rx.patient_uhid || rx.patientId || rx.patientCode || 'PAT-001';
@@ -328,10 +373,11 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
                 const dateStr = rx.prescribed_date || rx.date || '24 Sep 2026';
                 const rxStatus = rx.status || 'Prescribed';
                 const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
+                const uniqueKey = `${rx.prescriptionId || rx.id || rxNo}-${rx.patientId || ''}-${idx}`;
 
                 return (
                   <tr
-                    key={rxNo}
+                    key={uniqueKey}
                     onClick={() => handleRowClick(rx)}
                     style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
@@ -395,6 +441,96 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* Pagination Footer */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '12px 16px',
+        background: '#fff',
+        border: '1px solid #e3e6e8',
+        borderRadius: '8px',
+        fontSize: '12px',
+        color: '#64748b',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        <div>
+          Showing <strong>{totalCount > 0 ? (page - 1) * pageSize + 1 : 0}</strong>–<strong>{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount.toLocaleString('en-IN')}</strong> prescriptions
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Rows per page */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>Rows:</span>
+            {[10, 15, 25, 50].map(sz => (
+              <button
+                key={sz}
+                type="button"
+                onClick={() => { setPageSize(sz); setPage(1); }}
+                style={{
+                  height: '26px',
+                  padding: '0 8px',
+                  borderRadius: '4px',
+                  border: '1px solid',
+                  borderColor: pageSize === sz ? '#0f766e' : '#e2e8f0',
+                  background: pageSize === sz ? '#f0fdfa' : '#ffffff',
+                  color: pageSize === sz ? '#0f766e' : '#64748b',
+                  fontWeight: pageSize === sz ? 700 : 500,
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+              >
+                {sz}
+              </button>
+            ))}
+          </div>
+
+          {/* Previous / Next buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              style={{
+                height: '28px',
+                padding: '0 10px',
+                borderRadius: '5px',
+                border: '1px solid #cbd5e1',
+                background: page <= 1 ? '#f8fafc' : '#ffffff',
+                color: page <= 1 ? '#94a3b8' : '#334155',
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '11.5px'
+              }}
+            >
+              Previous
+            </button>
+            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
+              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
+            </span>
+            <button
+              type="button"
+              disabled={page >= Math.ceil(totalCount / pageSize)}
+              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+              style={{
+                height: '28px',
+                padding: '0 10px',
+                borderRadius: '5px',
+                border: '1px solid #cbd5e1',
+                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
+                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
+                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '11.5px'
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -645,27 +781,56 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [totalCount, setTotalCount] = useState(0);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 280);
+    return () => clearTimeout(handler);
+  }, [search]);
 
   const fetchSales = async () => {
+    const currentReq = ++reqIdRef.current;
     try {
       setLoading(true);
-      const res = await apiService.getPharmacySales({ status: filter, search, limit: 100 });
+      const res = await apiService.getPharmacySales({
+        status: filter,
+        search: debouncedSearch.trim(),
+        limit: pageSize,
+        offset: (page - 1) * pageSize
+      });
+      if (currentReq !== reqIdRef.current) return;
       if (res && res.data) {
         setData(res.data);
+        if (typeof res.total === 'number') {
+          setTotalCount(res.total);
+        } else {
+          setTotalCount(res.data.length);
+        }
         if (res.stats) setStats(res.stats);
       } else {
         setData([]);
+        setTotalCount(0);
       }
     } catch (err) {
+      if (currentReq !== reqIdRef.current) return;
       console.error('Failed to fetch pharmacy sales:', err);
     } finally {
-      setLoading(false);
+      if (currentReq === reqIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchSales();
-  }, [filter, search]);
+  }, [filter, debouncedSearch, page, pageSize]);
 
   const handleRowClick = (s) => {
     if (!onOpenDrawer) return;
@@ -705,7 +870,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
     });
   };
 
-  const totalSales = stats?.total_sales ?? data.length;
+  const totalSales = stats?.total_sales ?? totalCount;
   const totalRevenue = stats?.total_revenue ?? data.reduce((acc, s) => acc + (s.total_amount ?? s.totalAmount ?? 0), 0);
   const dispensedToday = stats?.dispensed_today ?? data.filter(s => (s.status || '').toLowerCase() === 'dispensed').length;
   const pendingCount = stats?.pending_delivery ?? data.filter(s => (s.status || '').toLowerCase() !== 'dispensed').length;
@@ -760,7 +925,10 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             <button
               key={st}
               type="button"
-              onClick={() => setFilter(st)}
+              onClick={() => {
+                setFilter(st);
+                setPage(1);
+              }}
               style={{
                 padding: '5px 14px', borderRadius: '12px', fontSize: '11.5px', border: '1px solid #e2e8f0',
                 background: filter === st ? '#0f766e' : '#fff', color: filter === st ? '#fff' : '#475569',
@@ -771,16 +939,30 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search by sale #, patient, Rx #..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
-        />
+        <div style={{ position: 'relative', width: '280px' }}>
+          <input
+            type="text"
+            placeholder="Search by sale #, patient, Rx #..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+              width: '100%', outline: 'none', boxSizing: 'border-box'
+            }}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              style={{
+                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '14px'
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Table */}
@@ -798,7 +980,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
           </div>
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            No pharmacy sales records found in database.
+            {debouncedSearch ? `No pharmacy sales found matching "${debouncedSearch}".` : 'No pharmacy sales records found in database.'}
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -814,7 +996,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(s => {
+              {data.map((s, idx) => {
                 const saleNo = s.sale_number || s.txn_number || s.id;
                 const patName = s.patient_name || s.patient || 'Patient';
                 const patUhid = s.patient_uhid || s.bed || s.ward || 'OPD';
@@ -826,7 +1008,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
 
                 return (
                   <tr
-                    key={saleNo}
+                    key={`${s.saleId || saleNo}-${idx}`}
                     onClick={() => handleRowClick(s)}
                     style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
@@ -870,6 +1052,92 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </tbody>
           </table>
         )}
+
+        {/* Pagination Footer */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 14px',
+          borderTop: '1px solid #e2e8f0',
+          background: '#f8fafc',
+          fontSize: '12px',
+          color: '#64748b',
+          flexWrap: 'wrap',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>
+              Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} records
+            </span>
+            <span style={{ color: '#cbd5e1' }}>|</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>Per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  fontSize: '11.5px',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {[10, 15, 25, 50].map(sz => (
+                  <option key={sz} value={sz}>{sz}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              style={{
+                height: '28px',
+                padding: '0 10px',
+                borderRadius: '5px',
+                border: '1px solid #cbd5e1',
+                background: page <= 1 ? '#f8fafc' : '#ffffff',
+                color: page <= 1 ? '#94a3b8' : '#334155',
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '11.5px'
+              }}
+            >
+              Previous
+            </button>
+            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
+              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
+            </span>
+            <button
+              type="button"
+              disabled={page >= Math.ceil(totalCount / pageSize)}
+              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+              style={{
+                height: '28px',
+                padding: '0 10px',
+                borderRadius: '5px',
+                border: '1px solid #cbd5e1',
+                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
+                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
+                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '11.5px'
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

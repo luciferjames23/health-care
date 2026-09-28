@@ -2015,7 +2015,7 @@ def get_bed_management_data(
             raw_status = str(b.get("status") or "").strip().lower()
             is_maint = raw_status in ["maintenance", "blocked", "cleaning", "reserved"]
 
-            if assigned and raw_status != "available":
+            if assigned:
                 bed_status = "Occupied"
                 occupied_count += 1
             elif is_maint:

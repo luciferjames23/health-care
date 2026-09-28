@@ -1098,10 +1098,54 @@ export default function Patient360View({
     },
   ], [p]);
 
-  const pendingApprovals = useMemo(() => [
-    { type: 'Billing release', owner: 'Billing Desk', age: p.isCleared ? 'Cleared' : '2 d 19 h' },
-    { type: 'Discharge summary', owner: p.doctor, age: p.isCleared ? 'Ready' : '2 d 19 h' },
-  ], [p]);
+  const pendingApprovals = useMemo(() => {
+    const list = [];
+
+    // 1. Billing release approval: ONLY pending if bill is NOT cleared / settled and has an outstanding balance
+    const isBillingPending = !p.isCleared && (p.outstandingBalance > 0 || String(p.clearanceStatus || '').toLowerCase() === 'pending');
+    if (isBillingPending) {
+      list.push({
+        type: 'Billing release',
+        owner: 'Billing Desk',
+        age: p.current_stay_days ? `${p.current_stay_days} d ago` : 'Pending settlement',
+        status: 'Pending',
+        action: 'billing'
+      });
+    }
+
+    // 2. Doctor clinical sign-off:
+    // When an inpatient is not discharged, and all clearances are complete / patient is ready for discharge sign-off,
+    // the attending physician's clinical sign-off is pending.
+    const isSummarySignedOrDischarged = Boolean(
+      p.isDischarged ||
+      (dischargeSummary && ['approved', 'signed'].some(s =>
+        String(dischargeSummary.approval_status || '').toLowerCase().includes(s) ||
+        String(dischargeSummary.status || '').toLowerCase().includes(s)
+      ))
+    );
+
+    const isAwaitingPhysicianSign = !isSummarySignedOrDischarged && !p.isOP && !p.isER && (
+      (p.dischargeInfo && p.dischargeInfo.toLowerCase().includes('sign-off')) ||
+      p.isCleared ||
+      String(p.status || '').toLowerCase() === 'ready' ||
+      (dischargeSummary && (
+        String(dischargeSummary.approval_status || '').toLowerCase().includes('pending') ||
+        String(dischargeSummary.status || '').toLowerCase().includes('pending')
+      ))
+    );
+
+    if (isAwaitingPhysicianSign) {
+      list.push({
+        type: 'Doctor sign-off',
+        owner: p.doctor || 'Attending Physician',
+        age: 'Awaiting signature',
+        status: 'Pending',
+        action: 'discharge'
+      });
+    }
+
+    return list;
+  }, [p, dischargeSummary]);
 
   const [clearingBill, setClearingBill] = useState(false);
 
@@ -2148,19 +2192,61 @@ export default function Patient360View({
                 </div>
               ))}
 
-              <div style={{ fontWeight: 600, margin: '10px 0 6px', fontSize: '12px', color: '#15181b' }}>Pending approvals</div>
-              {pendingApprovals.map((a, i) => (
-                <div
-                  key={i}
-                  onClick={() => onNavigate && onNavigate('approvals')}
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', padding: '4px 0', cursor: 'pointer', color: '#52585e', fontSize: '12px' }}
-                >
-                  <span>
-                    {a.type} → <span style={{ color: '#15181b', fontWeight: 500 }}>{a.owner}</span>
-                  </span>
-                  <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#8a9096' }}>{a.age}</span>
+              <div style={{ fontWeight: 600, margin: '12px 0 6px', fontSize: '12px', color: '#15181b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Pending approvals</span>
+                <span style={{ fontSize: '10.5px', fontWeight: 600, color: pendingApprovals.length === 0 ? '#15803d' : '#b45309', background: pendingApprovals.length === 0 ? '#dcfce7' : '#fef3c7', padding: '1px 6px', borderRadius: '4px' }}>
+                  {pendingApprovals.length === 0 ? '0 Pending · All Cleared' : `${pendingApprovals.length} Pending`}
+                </span>
+              </div>
+              {pendingApprovals.length === 0 ? (
+                <div style={{ fontSize: '11.5px', color: '#64748b', padding: '6px 8px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: '#16a34a', fontSize: '13px' }}>✓</span>
+                  <span>No pending approvals · All clearances complete</span>
                 </div>
-              ))}
+              ) : (
+                pendingApprovals.map((a, i) => (
+                  <div
+                    key={i}
+                    onClick={() => {
+                      if (a.action === 'discharge') {
+                        if (onOpenDischarge) onOpenDischarge();
+                        else if (onNavigate) onNavigate('discharge');
+                      } else if (onNavigate) {
+                        onNavigate(a.action === 'billing' ? 'billing' : 'approvals');
+                      }
+                    }}
+                    title={a.action === 'discharge' ? 'Click to open discharge desk and review doctor sign-off' : 'Click to view approval'}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '5px 8px',
+                      borderRadius: '6px',
+                      background: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      marginBottom: '4px',
+                      cursor: 'pointer',
+                      color: '#52585e',
+                      fontSize: '12px',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#fef3c7';
+                      e.currentTarget.style.borderColor = '#f59e0b';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#fffbeb';
+                      e.currentTarget.style.borderColor = '#fde68a';
+                    }}
+                  >
+                    <span>
+                      {a.type} → <span style={{ color: '#15181b', fontWeight: 600 }}>{a.owner}</span>
+                    </span>
+                    <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#b45309', fontWeight: 600 }}>{a.age}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -61,24 +61,30 @@ class EmergencyTriageUpdate(BaseModel):
     arrival_time: Optional[str] = None
 
 @router.get("/emergency", summary="List Emergency & Trauma Cases")
-def get_emergency_cases():
+def get_emergency_cases(doctor_name: Optional[str] = None):
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        cur.execute("""
+        where_clause = ""
+        params = []
+        if doctor_name:
+            where_clause = "WHERE doctor_name ILIKE %s"
+            params.append(f"%{doctor_name}%")
+        cur.execute(f"""
             SELECT * FROM emergency_triage 
+            {where_clause}
             ORDER BY 
                 CASE 
                     WHEN acuity = 'Not triaged' OR acuity IS NULL THEN 0
-                    WHEN acuity LIKE '%ESI-1%' THEN 1
-                    WHEN acuity LIKE '%ESI-2%' THEN 2
-                    WHEN acuity LIKE '%ESI-3%' THEN 3
-                    WHEN acuity LIKE '%ESI-4%' THEN 4
-                    WHEN acuity LIKE '%ESI-5%' THEN 5
+                    WHEN acuity LIKE '%%ESI-1%%' THEN 1
+                    WHEN acuity LIKE '%%ESI-2%%' THEN 2
+                    WHEN acuity LIKE '%%ESI-3%%' THEN 3
+                    WHEN acuity LIKE '%%ESI-4%%' THEN 4
+                    WHEN acuity LIKE '%%ESI-5%%' THEN 5
                     ELSE 6
                 END,
                 id ASC;
-        """)
+        """, tuple(params) if params else None)
         rows = cur.fetchall()
         return {
             "success": True,

@@ -22,7 +22,7 @@ export default function BedDemandView({ onSelectPatient }) {
     try {
       // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from APIs
       const [bmRes, wardsRes, dcRes] = await Promise.all([
-        apiService.getBedManagementData({}, { forceRefresh: isSilent }).catch(() => null),
+        apiService.getBedManagementData({}, { forceRefresh: true }).catch(() => null),
         apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
         apiService.getDischargedPatients().catch(() => ({ data: [] }))
       ]);
@@ -49,11 +49,16 @@ export default function BedDemandView({ onSelectPatient }) {
               const aid = b.admission_id || p?.admission_id;
 
               const isDischarged = dischargedTracker.has({ patient_id: pid, patient_number: pnum, admission_id: aid });
-              if (isDischarged || !p || b.status === 'Available') {
-                b.status = 'Available';
-                b.is_occupied = false;
-                b.assigned_patient = null;
-                b.patient = null;
+              if (isDischarged || !p) {
+                if (b.status === 'Maintenance') {
+                  b.status = 'Maintenance';
+                  b.is_occupied = false;
+                } else {
+                  b.status = 'Available';
+                  b.is_occupied = false;
+                  b.assigned_patient = null;
+                  b.patient = null;
+                }
               } else if (b.status === 'Maintenance') {
                 b.status = 'Maintenance';
                 b.is_occupied = false;
