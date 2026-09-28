@@ -5804,7 +5804,29 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     FAREWELL_KEYWORDS = ["bye", "goodbye", "good bye", "see you", "take care", "good night", "பாய்", "வணக்கம்"]
     is_farewell_msg = llm_intent_name == "GOODBYE" or any(kw in msg_clean_greeting for kw in FAREWELL_KEYWORDS)
 
-    if is_farewell_msg:
+    reg_stage_check = state.get("registration_stage") or state.get("patient_identification_stage")
+    is_in_registration_flow = (
+        state.get("active_workflow") == "REGISTRATION" or
+        state.get("conversation_state") in ["REGISTER_NEW_PATIENT", "AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+        reg_stage_check in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER", "REGISTRATION"] or
+        state.get("intent") in ["REGISTER_PATIENT", "PATIENT_REGISTRATION"] or
+        (state.get("booking_stage") or "").startswith("REGISTERING_")
+    ) and not state.get("patient_id")
+
+    if is_in_registration_flow:
+        msg_lwr = safe_msg.lower().strip()
+        cancel_words = ["cancel", "exit", "stop", "never mind", "nevermind", "main menu"]
+        if any(w in msg_lwr for w in cancel_words) or btn_id == "btn_main_menu":
+            state["active_workflow"] = None
+            state["registration_stage"] = None
+            state["patient_identification_stage"] = None
+            state["conversation_state"] = "ACTIVE"
+            state["intent"] = "GREETING"
+            detected_intent = "GREETING"
+        else:
+            detected_intent = "REGISTER_PATIENT"
+            state["intent"] = "REGISTER_PATIENT"
+    elif is_farewell_msg:
         detected_intent = "GOODBYE"
         state["intent"] = "GOODBYE"
         state["booking_stage"] = None
@@ -5842,9 +5864,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "reason":          None,
             "symptoms":        []
         }
-    elif state.get("intent") == "REGISTER_PATIENT" or (state.get("booking_stage") or "").startswith("REGISTERING_"):
-        if not any(w in safe_msg.lower().strip() for w in ["cancel", "exit", "stop", "never mind", "nevermind"]):
-            detected_intent = "REGISTER_PATIENT"
 
     # Multi-patient selection gate: intercept patient-specific intents before downstream execution
     patient_specific_intents = [

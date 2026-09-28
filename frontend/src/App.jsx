@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 import { selectAccount } from './services/accountSession';
-import { ROLE_PAGE_ACCESS } from './services/meridianData';
+import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/meridianData';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
 import AppSidebar from './components/AppSidebar';
@@ -229,6 +229,10 @@ export default function App() {
   }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
+    if (role && !isPageAllowed(role, newPage)) {
+      console.warn(`[RBAC] Access denied to page '${newPage}' for role '${role}'.`);
+      return;
+    }
     if (newPage === activePage && (newPatient === undefined || newPatient === selectedPatient)) {
       return;
     }
