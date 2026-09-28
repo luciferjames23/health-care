@@ -251,6 +251,9 @@ export function isPageAllowed(role, page) {
   if (page === 'schedules' && roleStr === 'doctor') {
     return false; // Consultant Schedules removed from Doctor Portal
   }
+  if (page === 'patient-chat' && (roleStr === 'doctor' || roleStr === 'admin' || roleStr === 'hospital management')) {
+    return false; // Patient Portal Chat removed from Doctor and Admin Portals
+  }
 
   if (role === 'Hospital Management' || role === 'Admin' || roleStr === 'admin') return true;
   const allowedList = ROLE_PAGE_ACCESS[role];
