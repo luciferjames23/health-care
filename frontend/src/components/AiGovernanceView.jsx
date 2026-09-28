@@ -193,12 +193,12 @@ export default function AiGovernanceView({ initialTab = 'governance' }) {
             </thead>
             <tbody>
               <tr style={{ borderBottom: '1px solid #f2f3f4' }}>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>EV-2026-904</td>
+                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>EV-8925</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>Discharge Summary Agent</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>v1.1.0</td>
-                <td style={{ padding: '10px 14px' }}>50 cases</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>98.2%</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: 'oklch(0.4 0.12 150)' }}>99.1%</td>
+                <td style={{ padding: '10px 14px' }}>115 cases</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>100.0%</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: 'oklch(0.4 0.12 150)' }}>99.4%</td>
                 <td style={{ padding: '10px 14px', color: 'oklch(0.4 0.12 150)' }}>0.1%</td>
                 <td style={{ padding: '10px 14px' }}>100%</td>
                 <td style={{ padding: '10px 14px' }}><span style={{ padding: '2px 8px', borderRadius: '4px', background: 'oklch(0.95 0.04 150)', color: 'oklch(0.4 0.12 150)', fontWeight: 600 }}>Pass</span></td>

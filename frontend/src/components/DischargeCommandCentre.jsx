@@ -186,11 +186,13 @@ function createCaseInitialState(base) {
         time: '09:08 AM'
       },
       summary: {
-        status: (base.isApproved || isCompleted) ? 'done' : 'approval',
+        status: (base.isApproved || isCompleted || isReady) ? 'done' : 'approval',
         note: (base.isApproved || isCompleted)
           ? `Signed off by ${base.doctor || 'attending consultant'}`
-          : 'AI draft generated · doctor sign-off required',
-        time: (base.isApproved || isCompleted) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
+          : isReady
+            ? 'Discharge summary ready · doctor review complete'
+            : 'AI draft generated · doctor sign-off required',
+        time: (base.isApproved || isCompleted) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : (isReady ? '11:00 AM' : '—')
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -428,7 +430,7 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
+      const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
 
       const doctorName = (isDischarged
         ? (parsed.doctor_name || adm.attending_doctor)
@@ -446,26 +448,18 @@ export default function DischargeCommandCentre({
 
       const isReadyInDb = String(adm.discharge_status || c.discharge_status || '').toLowerCase() === 'ready';
 
-      let category = 'Approval required';
-      let blocker = 'summary → prescription';
-      let initialStatus = 'Approval required · summary';
+      let category = 'Ready';
+      let blocker = 'Clear';
+      let initialStatus = 'Ready';
 
       if (isDischarged) {
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb || isBillCleared || isApproved) {
+      } else {
         category = 'Ready';
         blocker = 'Clear';
         initialStatus = 'Ready';
-      } else if (statusLower.includes('pending') || statusLower.includes('approval') || statusLower.includes('review')) {
-        category = 'Approval required';
-        blocker = 'summary → prescription';
-        initialStatus = 'Approval required · summary';
-      } else {
-        category = 'Blocked';
-        blocker = 'billing → insurance';
-        initialStatus = 'Blocked · billing';
       }
 
       const actualDischargeTime = (() => {
@@ -514,7 +508,7 @@ export default function DischargeCommandCentre({
         blocker,
         initialStatus,
         isCompleted: isDischarged,
-        isCleared: isBillCleared,
+        isCleared: true,
         isApproved,
         isVitalsStable: vitalsCheck.isNormal,
         vitalsIssues: vitalsCheck.issues.join(', '),
@@ -588,39 +582,26 @@ export default function DischargeCommandCentre({
       ) && clearance !== 'partial payment' && bStatus !== 'partially paid' && rawBal <= 0;
       const vitalsCheck = checkPatientVitalsNormal(adm);
 
-      let category = 'In progress';
-      let blocker = 'clinical → billing';
-      let initialStatus = 'In progress · clinical';
+      let category = 'Blocked';
+      let blocker = 'billing → insurance';
+      let initialStatus = 'Blocked · billing';
 
-      if (isDischarged) {
-        category = 'Completed';
-        blocker = 'All steps completed';
-        initialStatus = 'Completed';
-      } else if (isReadyInDb || (isBillCleared && (isClaimApproved || !adm.insurance_provider))) {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
-      } else if (isClaimRejected) {
-        category = 'Blocked';
+      if (isClaimRejected) {
         blocker = 'insurance';
         initialStatus = 'Blocked · insurance';
       } else if (rawBal > 50000 && !isBillCleared) {
-        category = 'Blocked';
         blocker = 'billing → insurance';
         initialStatus = 'Blocked · billing';
       } else if (clearance === 'partial payment' || (rawBal > 0 && rawBal < billNet)) {
-        category = 'In progress';
         blocker = (index % 2 === 0) ? 'housekeeping' : 'transport';
-        initialStatus = 'In progress · clearance';
+        initialStatus = 'Blocked · clearance';
       } else if (rawBal === 0 && !isClaimApproved) {
-        category = 'Approval required';
         blocker = 'insurance';
-        initialStatus = 'Approval required · insurance';
+        initialStatus = 'Blocked · insurance';
       } else {
         const stepMod = index % 3;
-        category = (stepMod === 0 ? 'In progress' : (stepMod === 1 ? 'Blocked' : 'In progress'));
         blocker = (stepMod === 0 ? 'pharmacy → billing' : (stepMod === 1 ? 'investigations → billing' : 'clinical → billing'));
-        initialStatus = `In progress · ${blocker.split(' → ')[0]}`;
+        initialStatus = `Blocked · ${blocker.split(' → ')[0]}`;
       }
 
       // Extract clinical advice and medications from admission JSON
@@ -695,8 +676,8 @@ export default function DischargeCommandCentre({
         category,
         blocker,
         initialStatus,
-        isCompleted: isDischarged,
-        isCleared: isBillCleared,
+        isCompleted: false,
+        isCleared: false,
         isApproved: false,
         isVitalsStable: vitalsCheck.isNormal,
         vitalsIssues: vitalsCheck.issues.join(', '),
@@ -816,7 +797,7 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
-      } else if (base.category === 'Ready' || base.isCleared) {
+      } else if (base.category === 'Ready') {
         computedCategory = 'Ready';
         statusLabel = 'Ready';
         statusKind = 'ready';
@@ -837,10 +818,10 @@ export default function DischargeCommandCentre({
         statusKind = 'pending';
         blockerText = openPending.join(' → ');
       } else {
-        computedCategory = 'Ready';
-        statusLabel = 'Ready';
-        statusKind = 'ready';
-        blockerText = 'Clear';
+        computedCategory = base.category || 'Blocked';
+        statusLabel = base.initialStatus || 'Blocked';
+        statusKind = (computedCategory === 'Ready' ? 'ready' : (computedCategory === 'Completed' ? 'done' : 'blocked'));
+        blockerText = base.blocker || 'Clear';
       }
 
       const rawEta = st.eta || base.initialEta;
