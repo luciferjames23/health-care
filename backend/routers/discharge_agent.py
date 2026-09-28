@@ -120,7 +120,7 @@ def _extract_patient_from_admission(adm: dict, pid_str: str) -> dict:
     if sbp_raw is not None and dbp_raw is not None: vitals_parts.append(f"BP: {sbp_raw}/{dbp_raw} mmHg")
     if spo2_float is not None: vitals_parts.append(f"SpO2: {spo2_float}%")
     
-    computed_vitals = ", ".join(vitals_parts) if vitals_parts else (adm.get("vital_signs_summary") or "Vitals stable")
+    computed_vitals = ", ".join(vitals_parts) if vitals_parts else (adm.get("vital_signs_summary") or "")
 
     # Secondary diagnoses
     sec_diag = adm.get("secondary_diagnoses")
@@ -263,9 +263,9 @@ def check_patient_vitals_stability(
             break
 
     # 6. Check if vitals are recorded
-    is_recorded = bool(summary_lower and summary_lower not in ["none", "null", ""]) or (
-        spo2_f is not None or hr_i is not None or temp_f is not None or sbp_i is not None
-    )
+    has_numeric_vitals = (spo2_f is not None or hr_i is not None or temp_f is not None or sbp_i is not None)
+    has_summary_measurements = bool(summary_lower and summary_lower not in ["none", "null", "", "vitals stable", "stable"] and any(c.isdigit() for c in summary_lower))
+    is_recorded = has_numeric_vitals or has_summary_measurements
     if not is_recorded:
         issues.append("Required vital signs summary missing")
 
@@ -470,7 +470,7 @@ def _evaluate_patient_eligibility(patient_identifier: str) -> Dict[str, Any]:
     notes = str(patient_info.get("clinical_notes_text") or "").strip()
 
     is_status_active = adm_status.lower() in [
-        "admitted", "in progress", "stable", "observation", "ready for discharge", "discharged", "active", "transfer"
+        "admitted", "in progress", "stable", "observation", "ready for discharge", "ready", "discharged", "active", "transfer"
     ]
     is_not_critical = not any(kw in (adm_status.lower() + " " + notes.lower()) for kw in [
         "icu hold", "code blue", "emergency surgery", "critical condition", "septic shock"

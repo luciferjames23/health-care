@@ -1500,9 +1500,42 @@ def generate_and_persist_discharge_summaries(
                 col_names=TABLE_COLS,
                 rows=rows_to_insert
             )
+
+            # Also persist permanently into discharge_summaries table
+            ds_cols = [
+                "summary_id", "admission_id", "patient_id", "doctor_id",
+                "admission_date", "discharge_date", "diagnoses", "case_history",
+                "investigations", "treatment", "primary_consultant", "discharge_advice",
+                "surgery_details", "patient_condition", "generated_at"
+            ]
+            ds_rows_to_insert = []
+            for rec in generated_records:
+                ds_vals = []
+                for col in ds_cols:
+                    val = rec.get(col)
+                    if col == "discharge_date" and val:
+                        ds_vals.append(str(val)[:10])
+                    else:
+                        ds_vals.append(_clean_val_for_pg(col, val))
+                ds_rows_to_insert.append(ds_vals)
+
+            if summary_ids and ds_rows_to_insert:
+                conn_ds = db_connector.get_connection()
+                cur_ds = conn_ds.cursor()
+                cur_ds.execute("DELETE FROM discharge_summaries WHERE summary_id = ANY(%s);", (summary_ids,))
+                conn_ds.commit()
+                cur_ds.close()
+                conn_ds.close()
+
+                db_connector.insert_batch_fast(
+                    table_name="discharge_summaries",
+                    col_names=ds_cols,
+                    rows=ds_rows_to_insert
+                )
+
             db_connector.clear_cache()
         except Exception as err:
-            print(f"PostgreSQL Gold insert notice: {str(err)}")
+            print(f"PostgreSQL Gold/Discharge insert notice: {str(err)}")
 
     pids_executed = ",".join(str(r["patient_id"]) for r in generated_records)
 

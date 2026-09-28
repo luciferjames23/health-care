@@ -1,22 +1,22 @@
-import sys, os
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + '/..'))
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import db_config
+import json
 
-def main():
-    conn = db_config.get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT table_schema, table_name 
-        FROM information_schema.tables 
-        WHERE table_schema NOT IN ('pg_catalog', 'information_schema') 
-        ORDER BY table_schema, table_name;
-    """)
-    rows = cur.fetchall()
-    print(f"Total tables: {len(rows)}")
-    for r in rows:
-        print(f"{r[0]}.{r[1]}")
-    cur.close()
-    conn.close()
+conn = db_config.get_db_connection()
+cur = conn.cursor()
 
-if __name__ == '__main__':
-    main()
+# Get all tables in all schemas
+cur.execute("""
+    SELECT table_schema, table_name, table_type 
+    FROM information_schema.tables 
+    WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+    ORDER BY table_schema, table_name;
+""")
+tables = cur.fetchall()
+print(f"Total tables/views found: {len(tables)}")
+for schema, name, ttype in tables:
+    print(f"[{schema}] {name} ({ttype})")
+
+conn.close()
