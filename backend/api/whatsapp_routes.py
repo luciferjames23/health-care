@@ -39,6 +39,7 @@ if backend_dir not in sys.path:
 
 import db_config
 import agent.agent_service as agent_service
+import agent.response_validator as response_validator
 import agent.message_aggregator as message_aggregator
 import voice.speech_to_text as speech_to_text
 import voice.text_to_speech as text_to_speech
@@ -279,19 +280,34 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         )
         t_agent_ms = int((time.monotonic() - t_agent_start) * 1000)
 
+        # Send Welcome Banner Image first if this is a welcome greeting response
+        is_welcome = (
+            agent_res.get("has_welcome_image") is True or
+            agent_res.get("intent") in ["GREETING", "WELCOME"] or
+            "welcome back" in agent_res.get("response", "").lower() or
+            "welcome to meridian" in agent_res.get("response", "").lower()
+        )
+        if is_welcome:
+            welcome_img_path = os.path.join(backend_dir, "static", "welcome_banner.jpg")
+            if os.path.exists(welcome_img_path):
+                whatsapp_client.send_image_message(sender_num, welcome_img_path)
+
         t_send_start = time.monotonic()
         if agent_res.get("interactive_buttons"):
+            agent_res = response_validator.normalize_interactive_type(agent_res)
             list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
             send_res = whatsapp_client.send_button_message(
                 sender_num,
                 agent_res["response"],
                 agent_res["interactive_buttons"],
                 list_button_title=list_title,
-                section_title=sec_title
+                section_title=sec_title,
+                interactive_type=agent_res.get("interactive_type")
             )
         else:
             send_res = whatsapp_client.send_text_message(sender_num, agent_res["response"])
         t_send_ms = int((time.monotonic() - t_send_start) * 1000)
+
 
         t_total_ms = int((time.monotonic() - t_total_start) * 1000)
         print(
@@ -425,13 +441,15 @@ def process_voice_reply(session_id: str, from_number: str, msg_id: str, audio_da
         tts_res = tts_provider.synthesize(response_text, language=final_lang)
 
         if interactive_buttons:
+            agent_res = response_validator.normalize_interactive_type(agent_res)
             list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
             send_res = whatsapp_client.send_button_message(
                 from_number,
                 response_text,
                 interactive_buttons,
                 list_button_title=list_title,
-                section_title=sec_title
+                section_title=sec_title,
+                interactive_type=agent_res.get("interactive_type")
             )
         else:
             send_res = whatsapp_client.send_text_message(from_number, response_text)

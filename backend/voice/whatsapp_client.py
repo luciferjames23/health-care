@@ -259,14 +259,80 @@ def send_welcome_message(to_number: str, template_name: str = "meridian_patient_
     return send_template_message(to_number, template_name=template_name, language_code=language_code)
 
 
+def send_image_message(to_number: str, image_url_or_path: str, caption: str = None) -> dict:
+    """
+    Send an image message to a WhatsApp number.
+    Supports either a public HTTP/HTTPS URL or local file path.
+    """
+    to_number = clean_whatsapp_number(to_number)
+    payload_mock = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "image",
+        "image": {
+            "link": image_url_or_path if image_url_or_path.startswith("http") else "http://localhost:8000/static/welcome_banner.jpg",
+            "caption": caption or ""
+        }
+    }
+
+    if is_mock_mode():
+        log_outbound_simulation("image", to_number, payload_mock)
+        return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}"}
+
+    try:
+        media_id = None
+        if not image_url_or_path.startswith("http") and os.path.exists(image_url_or_path):
+            media_id = upload_media(image_url_or_path)
+
+        url = f"{get_api_url()}/{get_phone_number_id()}/messages"
+        headers = {
+            "Authorization": f"Bearer {get_access_token()}",
+            "Content-Type": "application/json"
+        }
+
+        image_obj = {}
+        if media_id:
+            image_obj["id"] = media_id
+        else:
+            image_obj["link"] = image_url_or_path
+
+        if caption:
+            image_obj["caption"] = caption
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to_number,
+            "type": "image",
+            "image": image_obj
+        }
+
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if not res.ok:
+            parse_and_log_meta_error(res)
+        res.raise_for_status()
+        resp_data = res.json()
+        msg_id = None
+        try:
+            msg_id = resp_data.get("messages", [{}])[0].get("id")
+        except Exception:
+            pass
+        if not msg_id:
+            msg_id = f"wam.meta_image_{uuid.uuid4().hex[:12]}"
+        return {"success": True, "message_id": msg_id, "response": resp_data}
+    except Exception as e:
+        print(f"[ERROR] send_image_message failed: {e}. Falling back to simulation log.")
+        log_outbound_simulation("image", to_number, payload_mock)
+        return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}", "fallback": True}
 
 
+def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options", interactive_type: str = None) -> dict:
 
-def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options") -> dict:
     """
     Sends a Meta WhatsApp interactive button message.
     Meta API strictly limits reply buttons to max 3 items, and body text to 1024 chars.
-    If 'buttons' contains > 3 items, converts to interactive list message.
+    If 'buttons' contains > 3 items or interactive_type == 'list', converts to interactive list message.
     If text length > 1000 chars, sends full text first then short menu caption.
     """
     to_number = clean_whatsapp_number(to_number)
@@ -278,7 +344,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         send_text_message(to_number, text)
         text = "Please choose an option below:"
 
-    if len(buttons) > 3 or any(len(str(b.get("title", ""))) > 20 for b in buttons):
+    if len(buttons) > 3 or interactive_type == "list":
         rows = []
         # Meta WhatsApp Cloud API limits interactive list messages to max 10 rows total across all sections.
         for btn in buttons[:10]:
@@ -293,9 +359,9 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         return send_list_message(to_number, text, list_button_title, sections)
 
     formatted_buttons = []
-    for btn in buttons:
+    for btn in buttons[:3]:
         btn_id = btn.get("id", f"btn_{uuid.uuid4().hex[:6]}")
-        btn_title = btn.get("title", "Select")[:20]  # WhatsApp 20 char title limit
+        btn_title = str(btn.get("title", "Select"))[:20]  # WhatsApp 20 char title limit
         formatted_buttons.append({
             "type": "reply",
             "reply": {"id": btn_id, "title": btn_title}
@@ -514,10 +580,16 @@ def upload_media(file_path: str) -> str | None:
     
     # Determine content-type
     content_type = "audio/wav"
-    if file_path.endswith(".mp3"):
+    lower_path = file_path.lower()
+    if lower_path.endswith((".jpg", ".jpeg")):
+        content_type = "image/jpeg"
+    elif lower_path.endswith(".png"):
+        content_type = "image/png"
+    elif lower_path.endswith(".mp3"):
         content_type = "audio/mpeg"
-    elif file_path.endswith(".ogg"):
+    elif lower_path.endswith(".ogg"):
         content_type = "audio/ogg"
+
         
     try:
         with open(file_path, "rb") as f:

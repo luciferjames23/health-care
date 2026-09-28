@@ -11,6 +11,7 @@ if backend_dir not in sys.path:
     sys.path.append(backend_dir)
 
 import agent.agent_service as agent_service
+import agent.response_validator as response_validator
 import voice.voice_service as voice_service
 
 router = APIRouter(prefix="/api/agent", tags=["AI Agent"])
@@ -34,6 +35,8 @@ class AgentChatResponse(BaseModel):
     interactive_buttons: Optional[List[dict]] = None
     interactive_type: Optional[str] = None
     list_button_title: Optional[str] = None
+    has_welcome_image: Optional[bool] = None
+    welcome_image: Optional[str] = None
 
 @router.post("/chat", response_model=AgentChatResponse)
 def agent_chat_endpoint(payload: AgentChatRequest):
@@ -48,6 +51,7 @@ def agent_chat_endpoint(payload: AgentChatRequest):
             language_override=payload.language,
             interactive_id=btn
         )
+        res = response_validator.normalize_interactive_type(res)
         return AgentChatResponse(
             success=res["success"],
             conversation_id=res["conversation_id"],
@@ -58,8 +62,11 @@ def agent_chat_endpoint(payload: AgentChatRequest):
             tool_called=res["tool_called"],
             interactive_buttons=res.get("interactive_buttons"),
             interactive_type=res.get("interactive_type"),
-            list_button_title=res.get("list_button_title")
+            list_button_title=res.get("list_button_title"),
+            has_welcome_image=res.get("has_welcome_image"),
+            welcome_image=res.get("welcome_image")
         )
+
     except Exception as e:
         import traceback
         traceback.print_exc()

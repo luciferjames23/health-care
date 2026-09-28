@@ -8,6 +8,7 @@ interface ChatMessage {
   sender: 'PATIENT' | 'AI_AGENT' | 'SYSTEM';
   text: string;
   timestamp: string;
+  imageUrl?: string;
   isVoice?: boolean;
   voiceDuration?: string;
   audioUrl?: string; // base64 Data URI or URL
@@ -149,29 +150,50 @@ const PatientChat: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages([
-          {
-            id: 'welcome',
+        const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const initialMsgs: ChatMessage[] = [];
+
+        if (data.has_welcome_image || data.welcome_image || data.intent === 'GREETING' || (data.response && data.response.toLowerCase().includes('welcome'))) {
+          initialMsgs.push({
+            id: 'welcome_img_' + Date.now(),
             sender: 'AI_AGENT',
-            text: data.response,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            interactive_buttons: data.interactive_buttons,
-            interactive_type: data.interactive_type,
-            list_button_title: data.list_button_title
-          }
-        ]);
+            text: '',
+            imageUrl: data.welcome_image || '/welcome_banner.jpg',
+            timestamp: nowTs
+          });
+        }
+
+        initialMsgs.push({
+          id: 'welcome_text_' + Date.now(),
+          sender: 'AI_AGENT',
+          text: data.response,
+          timestamp: nowTs,
+          interactive_buttons: data.interactive_buttons,
+          interactive_type: data.interactive_type,
+          list_button_title: data.list_button_title
+        });
+
+        setMessages(initialMsgs);
         return;
       }
     } catch (e) {
       console.error(e);
     }
 
+    const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages([
       {
-        id: 'welcome',
+        id: 'welcome_img_' + Date.now(),
+        sender: 'AI_AGENT',
+        text: '',
+        imageUrl: '/welcome_banner.jpg',
+        timestamp: nowTs
+      },
+      {
+        id: 'welcome_text_' + Date.now(),
         sender: 'AI_AGENT',
         text: 'Meridian Hospital 👋\n\nWelcome to Meridian Hospital.\nHow can I help you today?',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: nowTs,
         interactive_buttons: [
           { id: 'btn_cat_appts', title: '📅 Appointments', description: 'Book, view, reschedule or cancel' },
           { id: 'btn_cat_doctors', title: '👨‍⚕️ Doctors & Services', description: 'Find doctors, departments and services' },
@@ -230,17 +252,30 @@ const PatientChat: React.FC = () => {
 
       const data = await response.json();
 
-      const aiMsg: ChatMessage = {
-        id: 'msg_ai_' + Date.now(),
+      const newAiMsgs: ChatMessage[] = [];
+      const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      if (data.has_welcome_image || data.welcome_image || data.intent === 'GREETING' || (data.response && data.response.toLowerCase().includes('welcome back'))) {
+        newAiMsgs.push({
+          id: 'msg_ai_img_' + Date.now(),
+          sender: 'AI_AGENT',
+          text: '',
+          imageUrl: data.welcome_image || '/welcome_banner.jpg',
+          timestamp: nowTs
+        });
+      }
+
+      newAiMsgs.push({
+        id: 'msg_ai_text_' + Date.now(),
         sender: 'AI_AGENT',
         text: data.response,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: nowTs,
         interactive_buttons: data.interactive_buttons,
         interactive_type: data.interactive_type,
         list_button_title: data.list_button_title
-      };
+      });
 
-      setMessages(prev => [...prev, aiMsg]);
+      setMessages(prev => [...prev, ...newAiMsgs]);
     } catch (error) {
       setTimeout(() => {
         const errorMsg: ChatMessage = {
@@ -749,6 +784,23 @@ const PatientChat: React.FC = () => {
                   boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                   position: 'relative'
                 }}>
+                  {/* Image message banner */}
+                  {m.imageUrl && (
+                    <div style={{ borderRadius: '8px', overflow: 'hidden', marginBottom: m.text ? '8px' : '0px' }}>
+                      <img
+                        src={m.imageUrl}
+                        alt="Meridian Hospital Welcome Banner"
+                        style={{
+                          width: '100%',
+                          maxHeight: '280px',
+                          objectFit: 'cover',
+                          display: 'block',
+                          borderRadius: '8px'
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Voice message indicator */}
                   {m.isVoice ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#128C7E', fontWeight: 600 }}>
@@ -756,9 +808,9 @@ const PatientChat: React.FC = () => {
                       <span>Voice message</span>
                       <span style={{ fontSize: '11px', color: '#667781', fontWeight: 'normal' }}>({m.voiceDuration})</span>
                     </div>
-                  ) : (
+                  ) : m.text ? (
                     <div>{formatMessageText(m.text)}</div>
-                  )}
+                  ) : null}
 
                   {/* Interactive List Button (for time slots) */}
                   {isAgent && m.interactive_buttons && m.interactive_buttons.length > 0 && (m.interactive_type === 'list' || m.interactive_buttons.some(b => b.id.startsWith('btn_slot_'))) && (
