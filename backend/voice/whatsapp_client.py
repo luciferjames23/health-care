@@ -327,12 +327,12 @@ def send_image_message(to_number: str, image_url_or_path: str, caption: str = No
         return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}", "fallback": True}
 
 
-def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options") -> dict:
+def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options", interactive_type: str = None) -> dict:
 
     """
     Sends a Meta WhatsApp interactive button message.
     Meta API strictly limits reply buttons to max 3 items, and body text to 1024 chars.
-    If 'buttons' contains > 3 items, converts to interactive list message.
+    If 'buttons' contains > 3 items or interactive_type == 'list', converts to interactive list message.
     If text length > 1000 chars, sends full text first then short menu caption.
     """
     to_number = clean_whatsapp_number(to_number)
@@ -344,7 +344,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         send_text_message(to_number, text)
         text = "Please choose an option below:"
 
-    if len(buttons) > 3 or any(len(str(b.get("title", ""))) > 20 for b in buttons):
+    if len(buttons) > 3 or interactive_type == "list":
         rows = []
         # Meta WhatsApp Cloud API limits interactive list messages to max 10 rows total across all sections.
         for btn in buttons[:10]:
@@ -359,9 +359,9 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         return send_list_message(to_number, text, list_button_title, sections)
 
     formatted_buttons = []
-    for btn in buttons:
+    for btn in buttons[:3]:
         btn_id = btn.get("id", f"btn_{uuid.uuid4().hex[:6]}")
-        btn_title = btn.get("title", "Select")[:20]  # WhatsApp 20 char title limit
+        btn_title = str(btn.get("title", "Select"))[:20]  # WhatsApp 20 char title limit
         formatted_buttons.append({
             "type": "reply",
             "reply": {"id": btn_id, "title": btn_title}

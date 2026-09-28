@@ -1374,8 +1374,9 @@ def handle_unknown_patient_identification_flow(
         cur = conn.cursor()
         try:
             lookup = patient_id_service.identify_patient_by_phone(reg_phone)
-            if lookup.get("found") and lookup.get("patient"):
-                p_data = lookup["patient"]
+            p_existing = lookup.get("patient") or (lookup.get("patients")[0] if lookup.get("patients") else None)
+            if lookup.get("found") and p_existing:
+                p_data = p_existing
                 pat_id = p_data["id"]
                 p_code = p_data.get("patient_code") or f"P{pat_id}"
                 full_name = format_patient_full_name(p_data.get("first_name") or reg_fields.get("first_name"), p_data.get("last_name") or reg_fields.get("last_name"), p_data.get("full_name"))
@@ -1694,10 +1695,12 @@ def handle_profile_update_flow(conversation_code: str, state: dict, message_text
 
         if not pat_id and w_num and w_num != "919999999999":
             lookup = patient_id_service.identify_patient_by_phone(w_num)
-            if lookup.get("found") and lookup.get("patient"):
-                pat_id = lookup["patient"]["id"]
-                state["patient_id"] = pat_id
-                state["entities"]["patient_id"] = pat_id
+            if lookup.get("found"):
+                p_data = lookup.get("patient") or (lookup.get("patients")[0] if lookup.get("patients") else None)
+                if p_data:
+                    pat_id = p_data["id"]
+                    state["patient_id"] = pat_id
+                    state["entities"]["patient_id"] = pat_id
 
     if not pat_id:
         state["profile_update_stage"] = None
@@ -1887,7 +1890,8 @@ def handle_profile_update_flow(conversation_code: str, state: dict, message_text
             }
 
         dup_lookup = patient_id_service.identify_patient_by_phone(norm_phone)
-        if dup_lookup.get("found") and dup_lookup.get("patient") and dup_lookup["patient"]["id"] != pat_id:
+        dup_pats = dup_lookup.get("patients") or ([dup_lookup["patient"]] if dup_lookup.get("patient") else [])
+        if dup_lookup.get("found") and any(p.get("id") != pat_id for p in dup_pats):
             resp_err = "This phone number is already registered to another patient profile."
             return {
                 "success": False,
@@ -4137,10 +4141,12 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
                 if not pat_id and w_num and w_num != "919999999999":
                     lookup = patient_id_service.identify_patient_by_phone(w_num)
-                    if lookup.get("found") and lookup.get("patient"):
-                        pat_id = lookup["patient"]["id"]
-                        state["patient_id"] = pat_id
-                        state.setdefault("entities", {})["patient_id"] = pat_id
+                    if lookup.get("found"):
+                        p_data = lookup.get("patient") or (lookup.get("patients")[0] if lookup.get("patients") else None)
+                        if p_data:
+                            pat_id = p_data["id"]
+                            state["patient_id"] = pat_id
+                            state.setdefault("entities", {})["patient_id"] = pat_id
 
             dept_id = state["entities"].get("department_id")
             if doc_id and not dept_id:
@@ -5604,11 +5610,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
             if w_num:
                 id_res = patient_id_service.identify_patient_by_phone(w_num)
-                if id_res.get("found") and id_res.get("patient"):
-                    p_data = id_res["patient"]
-                    state["patient_id"] = p_data["id"]
-                    state["entities"]["patient_id"] = p_data["id"]
-                    state["patient_info"] = p_data
+                if id_res.get("found"):
+                    p_data = id_res.get("patient")
+                    if not p_data and id_res.get("patients"):
+                        sel_id = state.get("patient_id") or state.get("selected_patient_id")
+                        if sel_id:
+                            p_data = next((p for p in id_res["patients"] if p.get("id") == sel_id), None)
+                        if not p_data:
+                            p_data = id_res["patients"][0]
+                    if p_data:
+                        state["patient_id"] = p_data["id"]
+                        state["entities"]["patient_id"] = p_data["id"]
+                        state["patient_info"] = p_data
                     conn, cur = None, None
                     conn = None
                     cur = None
@@ -6878,10 +6891,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         id_res = patient_id_service.identify_patient_by_phone(w_num)
 
         existing_patient = None
-        if id_res.get("found") and id_res.get("patient"):
-            existing_patient = id_res["patient"]
-            state["patient_id"] = existing_patient["id"]
-            state["entities"]["patient_id"] = existing_patient["id"]
+        if id_res.get("found"):
+            if id_res.get("patient"):
+                existing_patient = id_res["patient"]
+            elif id_res.get("patients"):
+                sel_id = state.get("patient_id") or state.get("selected_patient_id")
+                if sel_id:
+                    existing_patient = next((p for p in id_res["patients"] if p.get("id") == sel_id), None)
+                if not existing_patient:
+                    existing_patient = id_res["patients"][0]
+            if existing_patient:
+                state["patient_id"] = existing_patient["id"]
+                state["entities"]["patient_id"] = existing_patient["id"]
         elif state.get("patient_id"):
             conn = db_config.get_db_connection()
             cur = conn.cursor()
@@ -7618,7 +7639,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
         # Primary parent patient
         id_res = patient_id_service.identify_patient_by_phone(w_num)
-        p_dict = id_res.get("patient")
+        p_dict = id_res.get("patient") or (id_res.get("patients")[0] if id_res.get("patients") else None)
         parent_id = p_dict.get("id") if p_dict else state.get("primary_patient_id") or state.get("patient_id")
 
         rel_val = llm_route.get("relationship") or state.get("patient_relationship") or ""
@@ -7784,8 +7805,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if len(phone_digits) >= 10:
                 short_phone = phone_digits[-10:]
                 cur.execute(
-                    "SELECT patient_code, first_name, last_name FROM patients WHERE phone_number LIKE %s ORDER BY id DESC LIMIT 1;",
-                    (f"%{short_phone}%",)
+                    "SELECT patient_code, first_name, last_name FROM patients WHERE (phone LIKE %s OR whatsapp_number LIKE %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;",
+                    (f"%{short_phone}%", f"%{short_phone}%")
                 )
                 row = cur.fetchone()
                 if row:

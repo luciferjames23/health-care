@@ -11,6 +11,7 @@ if backend_dir not in sys.path:
     sys.path.append(backend_dir)
 
 import agent.agent_service as agent_service
+import agent.response_validator as response_validator
 import voice.voice_service as voice_service
 
 router = APIRouter(prefix="/api/agent", tags=["AI Agent"])
@@ -50,6 +51,7 @@ def agent_chat_endpoint(payload: AgentChatRequest):
             language_override=payload.language,
             interactive_id=btn
         )
+        res = response_validator.normalize_interactive_type(res)
         return AgentChatResponse(
             success=res["success"],
             conversation_id=res["conversation_id"],
