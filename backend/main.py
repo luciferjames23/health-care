@@ -313,3 +313,5 @@ from routers.radiology_clarifications import router as clarification_router
 app.include_router(clarification_router)
 from routers.imaging_history import router as imaging_history_router
 app.include_router(imaging_history_router)
+from routers.rag import router as rag_router
+app.include_router(rag_router)

@@ -93,13 +93,20 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         if payload:
             return payload
     
-    # Seamless authenticated session for development mode so dashboard & clinical desks always function
-    return {
-        "user_id": 1,
-        "username": "admin",
-        "role": "ADMIN",
-        "full_name": "Hospital Administrator"
-    }
+    # Dev fallback only when explicitly enabled via environment variable
+    if os.getenv("RAG_DEV_MODE", "").lower() in ("1", "true", "yes"):
+        return {
+            "user_id": 1,
+            "username": "admin",
+            "role": "ADMIN",
+            "full_name": "Hospital Administrator"
+        }
+
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Please provide a valid access token.",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
     """Dependency injection to enforce ADMIN role."""

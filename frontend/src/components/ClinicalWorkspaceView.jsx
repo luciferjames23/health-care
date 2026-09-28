@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import RagAssistantPanel from './RagAssistantPanel';
 
 export default function ClinicalWorkspaceView({
   doctorName = 'Dr. Priya Patel',
@@ -8,6 +9,7 @@ export default function ClinicalWorkspaceView({
   onSelectPatient,
   onOpenSoap,
 }) {
+  const [activeTab, setActiveTab] = useState('roster');
   const [search, setSearch] = useState('');
   const [patientList, setPatientList] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -132,56 +134,108 @@ export default function ClinicalWorkspaceView({
         </div>
       </div>
 
-      {/* Action controls & Search */}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search..."
-          style={{
-            height: '30px', width: '220px', border: '1px solid #e3e6e8',
-            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (!patientList.length) return alert('No admitted patient records to export');
-            const headers = ['Bed', 'Patient Name', 'MRN', 'Age', 'Gender', 'Diagnosis', 'Attending Doctor', 'Admission Date', 'EWS'];
-            const csvRows = [headers.join(',')];
-            patientList.forEach(p => {
-              csvRows.push([
-                `"${p.bed || ''}"`,
-                `"${p.name || ''}"`,
-                `"${p.mrn || ''}"`,
-                p.age || '',
-                `"${p.gender || ''}"`,
-                `"${(p.diagnosis || '').replace(/"/g, '""')}"`,
-                `"${p.doctor || ''}"`,
-                `"${p.admitted || ''}"`,
-                `"${p.ews || ''}"`
-              ].join(','));
-            });
-            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.setAttribute('href', url);
-            link.setAttribute('download', `admitted_patients_${new Date().toISOString().slice(0,10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }}
-          style={{
-            height: '30px', padding: '0 10px', borderRadius: '6px',
-            border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
-            display: 'flex', alignItems: 'center', gap: '5px'
-          }}
-        >
-          Export CSV
-        </button>
+      {/* View Switcher & Action controls */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'inline-flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('roster')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'roster' ? '#ffffff' : 'transparent',
+              color: activeTab === 'roster' ? '#0f172a' : '#64748b',
+              fontWeight: activeTab === 'roster' ? 700 : 500,
+              fontSize: '12px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'roster' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+            }}
+          >
+            📋 Inpatient Roster ({scopedPatientList.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('rag')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'rag' ? '#0f766e' : 'transparent',
+              color: activeTab === 'rag' ? '#ffffff' : '#0f766e',
+              fontWeight: 700,
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: activeTab === 'rag' ? '0 1px 3px rgba(15,118,110,0.2)' : 'none'
+            }}
+          >
+            <span>✦</span> Ask My Patients (AI)
+          </button>
+        </div>
+
+        {activeTab === 'roster' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search..."
+              style={{
+                height: '30px', width: '220px', border: '1px solid #e3e6e8',
+                borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (!patientList.length) return alert('No admitted patient records to export');
+                const headers = ['Bed', 'Patient Name', 'MRN', 'Age', 'Gender', 'Diagnosis', 'Attending Doctor', 'Admission Date', 'EWS'];
+                const csvRows = [headers.join(',')];
+                patientList.forEach(p => {
+                  csvRows.push([
+                    `"${p.bed || ''}"`,
+                    `"${p.name || ''}"`,
+                    `"${p.mrn || ''}"`,
+                    p.age || '',
+                    `"${p.gender || ''}"`,
+                    `"${(p.diagnosis || '').replace(/"/g, '""')}"`,
+                    `"${p.doctor || ''}"`,
+                    `"${p.admitted || ''}"`,
+                    `"${p.ews || ''}"`
+                  ].join(','));
+                });
+                const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.setAttribute('href', url);
+                link.setAttribute('download', `admitted_patients_${new Date().toISOString().slice(0,10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
+              style={{
+                height: '30px', padding: '0 10px', borderRadius: '6px',
+                border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
+                display: 'flex', alignItems: 'center', gap: '5px'
+              }}
+            >
+              Export CSV
+            </button>
+          </div>
+        )}
       </div>
 
+      {activeTab === 'rag' ? (
+        <RagAssistantPanel
+          area="doctor_workspace"
+          title="Ask My Patients"
+          placeholder="Ask questions about your assigned patients, e.g. 'Show my patients with pending X-rays', 'Which patients have abnormal labs?'"
+        />
+      ) : (
+        <>
       {error && (
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span><strong>Unable to load records:</strong> {error}</span>
@@ -338,6 +392,8 @@ export default function ClinicalWorkspaceView({
           </table>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

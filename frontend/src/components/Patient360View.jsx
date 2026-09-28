@@ -10,6 +10,7 @@ import { apiService, resolveClinicalDiagnosis } from '../services/api';
 import { financialApi } from '../services/financialApi';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
+import RagAssistantPanel from './RagAssistantPanel';
 
 export default function Patient360View({
   patient: propPatient,
@@ -874,6 +875,7 @@ export default function Patient360View({
 
   const TABS = [
     'Overview',
+    'Ask Patient Record',
     'Appointments',
     'Encounters',
     'Clinical',
@@ -2034,36 +2036,78 @@ export default function Patient360View({
         </div>
 
         {/* Patient modules */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', marginTop: '14px', fontWeight: 500, fontSize: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '4px' }}>
-          {TABS.map((t) => (
-            <span
-              key={t}
-              onClick={() => setActiveTab(t)}
-              style={{
-                padding: '8px 10px',
-                cursor: 'pointer',
-                borderBottom: activeTab === t ? '2px solid oklch(0.5 0.1 200)' : '2px solid transparent',
-                color: activeTab === t ? 'oklch(0.4 0.1 200)' : '#52585e',
-                fontWeight: activeTab === t ? 600 : 500,
-                whiteSpace: 'nowrap',
-                transition: 'color 0.15s',
-              }}
-            >
-              {t}
-              {t === 'My X-ray discussions' && discussionUnread > 0 && (
-                <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#e0f2f1', color: '#087e8b', fontSize: '10px' }}>
-                  {discussionUnread} unread
+        {(() => {
+          const TABS = [
+            'Overview',
+            'Appointments',
+            'Encounters',
+            'Clinical',
+            'Diagnoses',
+            'X-Ray',
+            'Medications',
+            'Billing',
+            'Discharge',
+            'Communications',
+            'Feedback',
+            'Documents',
+            'Consent',
+            'AI Activity',
+            'Ask Patient Record',
+            ...(canDiscussXrays ? ['My X-ray discussions'] : [])
+          ];
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', marginTop: '14px', fontWeight: 500, fontSize: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '4px' }}>
+              {TABS.map((t) => (
+                <span
+                  key={t}
+                  onClick={() => setActiveTab(t)}
+                  style={{
+                    padding: '8px 10px',
+                    cursor: 'pointer',
+                    borderBottom: activeTab === t ? '2px solid oklch(0.5 0.1 200)' : '2px solid transparent',
+                    color: activeTab === t ? 'oklch(0.4 0.1 200)' : '#52585e',
+                    fontWeight: activeTab === t ? 600 : 500,
+                    whiteSpace: 'nowrap',
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  {t === 'Ask Patient Record' ? '✦ Ask Patient Record' : t}
+                  {t === 'My X-ray discussions' && discussionUnread > 0 && (
+                    <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '10px', background: '#e0f2f1', color: '#087e8b', fontSize: '10px' }}>
+                      {discussionUnread} unread
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          ))}
-        </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       {activeTab === 'My X-ray discussions' && canDiscussXrays && (
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
           <h2 style={{ margin: '0 0 12px', fontSize: '16px' }}>My X-ray discussions</h2>
           <RadiologyClarifications key={currentUser?.username || currentUser?.user_id || 'discussions'} />
+        </div>
+      )}
+      {activeTab === 'Ask Patient Record' && (
+        <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '12px', padding: '16px' }}>
+          <RagAssistantPanel
+            area="patient360"
+            title="Ask Patient Record"
+            subtitle={`Context-Grounded Clinical AI · ${p.name}`}
+            patientId={p.id || p.patient_id}
+            admissionId={p.admission_id}
+            patientName={p.name}
+            initialPrompts={[
+              "Why is this patient still admitted?",
+              "What are the latest abnormal vital signs?",
+              "What medicines is this patient receiving?",
+              "What is pending before discharge?",
+              "Summarize this patient’s current condition.",
+              "What changed since yesterday?"
+            ]}
+          />
         </div>
       )}
 

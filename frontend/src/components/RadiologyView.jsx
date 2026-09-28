@@ -4,6 +4,7 @@ import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifi
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime } from './RadiologyShared';
+import RagAssistantPanel from './RagAssistantPanel';
 
 const POLL_MS = 5000;
 
@@ -164,7 +165,14 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     return rows;
   }, [data, filter, query, sort]);
 
-  const tabs = [['orders', 'X-ray Orders'], ['worklist', 'AI Worklist'], ['analyze', 'Analyze Study'], ['pacs', 'Demo PACS Studies'], ['clarifications', 'Clarifications']];
+  const tabs = [
+    ['orders', 'X-ray Orders'],
+    ['worklist', 'AI Worklist'],
+    ['analyze', 'Analyze Study'],
+    ['pacs', 'Demo PACS Studies'],
+    ['clarifications', 'Clarifications'],
+    ['rag', '✦ Ask Study Record']
+  ];
 
   return <div>
     <PageHeading
@@ -185,6 +193,19 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     </div>
 
     {error && <div style={{ marginBottom: 10 }}><ErrorBox error={error} /></div>}
+
+    {tab === 'rag' && (
+      <div style={{ marginTop: 8 }}>
+        <RagAssistantPanel
+          area="radiology"
+          title="Ask Study Record"
+          orderId={detail?.order_id}
+          accessionNumber={detail?.accession_number || detail?.metadata?.accession_number}
+          patientId={detail?.patient_id}
+          placeholder="Ask about radiologist conclusions, triage priority, AI findings vs confirmed reports..."
+        />
+      </div>
+    )}
 
     {tab === 'orders' && <XrayOrders radiologist />}
     {tab === 'clarifications' && <RadiologyClarifications />}
@@ -668,6 +689,16 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
           )}
         </Card>
       </div>
+    </div>
+    <div style={{ marginTop: 14 }}>
+      <RagAssistantPanel
+        area="radiology"
+        title="Ask Study Record"
+        orderId={detail.order_id}
+        accessionNumber={detail.accession_number || detail.metadata?.accession_number}
+        patientId={patId || detail.patient_id}
+        placeholder="Ask about this study's AI screening findings, radiologist conclusion, clinical indication..."
+      />
     </div>
   </div>;
 }
