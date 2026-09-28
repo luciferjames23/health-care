@@ -504,6 +504,7 @@ export default function DischargeCommandCentre({
         patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
         discharge_date: c.discharge_date || adm.discharge_date || null,
         dischargeTime: actualDischargeTime || (isDischarged ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
+        intentAt: c.intent_at || adm.intent_at || '09:00 AM',
         initialEta: dynamicEta,
         owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
@@ -1590,7 +1591,7 @@ export default function DischargeCommandCentre({
               >
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Doctor intent</div>
-                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{formatTime12(dc.intentAt)}</div>
+                  <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{formatTime12(dc.intentAt || '09:00 AM')}</div>
                 </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Age</div>
