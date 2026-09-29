@@ -7,21 +7,13 @@ from typing import Any, Dict, List, Optional
 import psycopg2
 import psycopg2.extras
 
-from radiology_ai import config
-
 logger = logging.getLogger("meridian.radiology.db")
 
 
 def get_connection():
-    """Establish and return a live PostgreSQL connection."""
-    return psycopg2.connect(
-        host=config.POSTGRES_HOST,
-        port=config.POSTGRES_PORT,
-        dbname=config.POSTGRES_DB,
-        user=config.POSTGRES_USER,
-        password=config.POSTGRES_PASSWORD,
-        connect_timeout=15,
-    )
+    """Establish and return an active PostgreSQL connection."""
+    from db_config import get_db_connection
+    return get_db_connection()
 
 
 def init_radiology_scan_table():
@@ -164,6 +156,10 @@ def list_scans(
             data_query = f"""
                 SELECT 
                     rs.scan_id,
+                    rs.order_id,
+                    COALESCE(acquisition.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
+                    ro.accession_number,
+                    acquisition.orthanc_study_id,
                     rs.patient_id,
                     rs.patient_code,
                     p.first_name,
@@ -176,6 +172,8 @@ def list_scans(
                     rs.height,
                     rs.target,
                     rs.image,
+                    rs.annotated_image,
+                    acquisition.projection,
                     rs.scan_report,
                     rs.study_id,
                     rs.display_study_id,
@@ -194,6 +192,8 @@ def list_scans(
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id
+                LEFT JOIN radiology_order_studies acquisition ON acquisition.study_key=rs.order_study_id
+                LEFT JOIN radiology_orders ro ON rs.order_id = ro.order_id
                 {where_sql}
                 ORDER BY rs.scan_id ASC
                 LIMIT %s OFFSET %s;
@@ -220,6 +220,10 @@ def get_scan_by_id(scan_id: int) -> Optional[Dict[str, Any]]:
             cur.execute("""
                 SELECT 
                     rs.scan_id,
+                    rs.order_id,
+                    COALESCE(acquisition.study_instance_uid, rs.original_patient_id) AS study_instance_uid,
+                    ro.accession_number,
+                    acquisition.orthanc_study_id,
                     rs.patient_id,
                     rs.patient_code,
                     p.first_name,
@@ -232,10 +236,28 @@ def get_scan_by_id(scan_id: int) -> Optional[Dict[str, Any]]:
                     rs.height,
                     rs.target,
                     rs.image,
+                    rs.annotated_image,
+                    acquisition.projection,
                     rs.scan_report,
+                    rs.study_id,
+                    rs.display_study_id,
+                    rs.priority,
+                    rs.opacity_detected,
+                    rs.combined_status,
+                    rs.probability,
+                    rs.findings,
+                    rs.clinical_summary,
+                    rs.assessment,
+                    rs.recommended_action,
+                    rs.review_status,
+                    rs.reviewed_at,
+                    rs.reviewed_by,
+                    rs.radiologist_finding,
                     rs.created_at
                 FROM radiology_scan rs
                 LEFT JOIN patients p ON rs.patient_id = p.id
+                LEFT JOIN radiology_order_studies acquisition ON acquisition.study_key=rs.order_study_id
+                LEFT JOIN radiology_orders ro ON rs.order_id = ro.order_id
                 WHERE rs.scan_id = %s;
             """, (scan_id,))
             row = cur.fetchone()
@@ -282,8 +304,9 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
     clean_ids = [str(x).strip() for x in original_ids if x and str(x).strip()]
     if not clean_ids:
         return {}
-    conn = get_connection()
+    conn = None
     try:
+        conn = get_connection()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT DISTINCT ON (rs.original_patient_id)
@@ -320,10 +343,14 @@ def get_patient_mapping_by_original_ids(original_ids: List[str]) -> Dict[str, Di
                 }
             return mapping
     except Exception as e:
-        logger.error("Error looking up patient mapping by original_patient_id: %s", e)
+        logger.warning("Error looking up patient mapping by original_patient_id: %s", e)
         return {}
     finally:
-        conn.close()
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def get_patient_mapping_by_original_id(original_id: str) -> Optional[Dict[str, Any]]:

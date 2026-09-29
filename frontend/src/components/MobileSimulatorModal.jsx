@@ -63,7 +63,7 @@ export default function MobileSimulatorModal({ onClose, onSelectPatient }) {
         {/* Liquid Glass iPhone frame */}
         <IOSDevice title="Ward Rounds" width={380} height={780} onBack={onClose}>
           <div style={{ padding: '8px 0 30px' }}>
-            <IOSList header={`Active Inpatients (${patients.length} Live)`}>
+            <IOSList header={`Active Inpatients (${patients.length})`}>
               {patients.map((p, i) => (
                 <IOSListRow
                   key={p.patient_id || p.name || i}
@@ -79,9 +79,9 @@ export default function MobileSimulatorModal({ onClose, onSelectPatient }) {
               ))}
             </IOSList>
 
-            <IOSList header="Live Ward Operations">
+            <IOSList header="Ward Operations">
               <IOSListRow title="Review Discharge Summaries" detail="Active cases" />
-              <IOSListRow title="Live Bed Demand" detail="Occupancy tracking" />
+              <IOSListRow title="Bed Demand" detail="Occupancy tracking" />
               <IOSListRow title="Voice Clinical Notes" detail="AI SOAP Drafts" isLast={true} />
             </IOSList>
 

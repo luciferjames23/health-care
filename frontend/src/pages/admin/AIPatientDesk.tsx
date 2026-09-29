@@ -11,6 +11,7 @@ import {
   fetchConversations, fetchIntentBreakdown, fetchConversationMessages,
   type Conversation,
 } from '../../services/dashboardApi';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const INTENT_COLORS: Record<string, string> = {
   GREETING: '#48BB78',
@@ -82,7 +83,7 @@ const AIPatientDesk: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h2>Meridian AI Patient Desk</h2>
-            <p>AI-powered conversational assistance — live data from database</p>
+            <p>AI-powered conversational assistance — data from database</p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <button className="btn btn-secondary btn-sm" onClick={loadData} disabled={loading}
@@ -194,7 +195,16 @@ const AIPatientDesk: React.FC = () => {
 
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading conversations...</div>
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading AI Patient Desk Conversations..."
+                subtitle="Retrieving real-time WhatsApp & web patient interaction streams, intents, and triage outcomes..."
+                badgeText="Live AI Desk Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={9}
+              />
+            </div>
           ) : conversations.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>No conversations found.</div>
           ) : (

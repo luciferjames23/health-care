@@ -31,6 +31,7 @@ BACKUP_PATH = BACKEND_DIR / "Patient_id.xlsx.bak"
 
 
 def run():
+    raise RuntimeError("Random patient mapping is retired. Create an X-ray order and upload through that order.")
     print(f"Loading Excel file from: {EXCEL_PATH}")
     if not EXCEL_PATH.exists():
         raise FileNotFoundError(f"Excel file not found at {EXCEL_PATH}")

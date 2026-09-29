@@ -4,6 +4,7 @@ import {
   MessageSquare, User, Phone
 } from 'lucide-react';
 import { fetchEscalations, updateEscalationStatus, type Escalation } from '../../services/dashboardApi';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const STATUS_COLORS: Record<string, { badge: string; label: string }> = {
   OPEN: { badge: 'cancelled', label: '🔴 Open' },
@@ -132,7 +133,16 @@ const EscalationPage: React.FC = () => {
         {/* Escalation Cards */}
         <div style={{ padding: '8px 0' }}>
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading escalations...</div>
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Patient Escalations..."
+                subtitle="Retrieving unresolved patient cases, triage blocks, and doctor escalation tickets..."
+                badgeText="Live Safety Sync"
+                showKpis={false}
+                tableRows={6}
+                tableColumns={6}
+              />
+            </div>
           ) : escalations.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
               <AlertTriangle size={32} style={{ marginBottom: 12, opacity: 0.3 }} />

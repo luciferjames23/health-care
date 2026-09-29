@@ -1,15 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds } from '../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import RagAssistantPanel from './RagAssistantPanel';
 
 export default function ClinicalWorkspaceView({
-  doctorName = 'Dr. Arjun Menon',
+  doctorName = 'Dr. Priya Patel',
+  userRole = 'Doctor',
   onSelectPatient,
   onOpenSoap,
 }) {
+  const [activeTab, setActiveTab] = useState('roster');
   const [search, setSearch] = useState('');
   const [patientList, setPatientList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
 
   useEffect(() => {
     async function loadInpatients() {
@@ -20,8 +27,8 @@ export default function ClinicalWorkspaceView({
       try {
         // 1. Fetch Current Admitted Patients, Discharges, beds, and wards
         const [admRes, dcRes, bedsRes, wardsRes] = await Promise.all([
-          apiService.getCurrentAdmissions().catch(() => ({ data: [] })),
-          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getBeds().catch(() => ({ data: [] })),
           apiService.getWards().catch(() => ({ data: [] }))
         ]);
@@ -60,16 +67,24 @@ export default function ClinicalWorkspaceView({
           setPatientList([]);
         }
       } catch (err) {
-        console.error("Failed to fetch live admitted patients:", err);
+        console.error("Failed to fetch admitted patients:", err);
         setError(err.message || 'Failed to connect to Admissions API');
       } finally {
         setLoading(false);
       }
     }
     loadInpatients();
-  }, [doctorName]);
+  }, [activeDoctorName]);
 
-  const filtered = patientList.filter(p => {
+  // Doctor-scoped list
+  const scopedPatientList = useMemo(() => {
+    if (!activeDoctorName) return patientList;
+    return patientList.filter(p =>
+      matchesDoctor(p.doctor || p.doctor_name || p.attending_physician, activeDoctorName)
+    );
+  }, [patientList, activeDoctorName]);
+
+  const filtered = scopedPatientList.filter(p => {
     if (!search.trim()) return true;
     const s = search.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
@@ -85,71 +100,142 @@ export default function ClinicalWorkspaceView({
            (p.doctor && p.doctor.toLowerCase().includes(s));
   });
 
+  if (loading && patientList.length === 0) {
+    return (
+      <ModuleLoadingScreen
+        title={isDoctor && activeDoctorName ? `Loading Clinical Workspace · ${activeDoctorName}...` : "Loading Clinical Workspace · All Inpatients..."}
+        subtitle="Retrieving real-time patient rosters, telemetry EWS monitoring, active beds, and attending consultants..."
+        badgeText="Live Clinical Sync"
+        showKpis={true}
+        statCount={4}
+        layout="table"
+        tableRows={7}
+        tableColumns={7}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Breadcrumb & heading */}
       <div>
         <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-          <span>Clinical Workspace</span> › <span>Clinical Workspace</span>
+          <span>Clinical Workspace</span> › <span>{isDoctor ? 'My Patients' : 'All Wards'}</span>
         </div>
         <div style={{ fontSize: '20px', fontWeight: 600 }}>
-          Clinical workspace · patients under {doctorName}
+          {isDoctor && activeDoctorName
+            ? `Clinical workspace · patients under ${activeDoctorName}`
+            : `Clinical workspace · all inpatients (${patientList.length})`}
         </div>
         <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px', maxWidth: '850px' }}>
-          Scope comes from the signed-in user ({doctorName} · Doctor), not the role label. Open a row for diagnoses, allergies, notes, orders and prescriptions. AI drafts stay drafts until a clinician signs.
+          {isDoctor && activeDoctorName
+            ? `Scope comes from the signed-in user (${activeDoctorName} · Doctor). Showing ${scopedPatientList.length} admitted patient${scopedPatientList.length === 1 ? '' : 's'} assigned to your clinical care.`
+            : `Hospital-wide clinical view. Showing all ${patientList.length} admitted patients across all hospital departments.`}
         </div>
       </div>
 
-      {/* Action controls & Search */}
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search..."
-          style={{
-            height: '30px', width: '220px', border: '1px solid #e3e6e8',
-            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (!patientList.length) return alert('No admitted patient records to export');
-            const headers = ['Bed', 'Patient Name', 'MRN', 'Age', 'Gender', 'Diagnosis', 'Attending Doctor', 'Admission Date', 'EWS'];
-            const csvRows = [headers.join(',')];
-            patientList.forEach(p => {
-              csvRows.push([
-                `"${p.bed || ''}"`,
-                `"${p.name || ''}"`,
-                `"${p.mrn || ''}"`,
-                p.age || '',
-                `"${p.gender || ''}"`,
-                `"${(p.diagnosis || '').replace(/"/g, '""')}"`,
-                `"${p.doctor || ''}"`,
-                `"${p.admitted || ''}"`,
-                `"${p.ews || ''}"`
-              ].join(','));
-            });
-            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.setAttribute('href', url);
-            link.setAttribute('download', `admitted_patients_${new Date().toISOString().slice(0,10)}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }}
-          style={{
-            height: '30px', padding: '0 10px', borderRadius: '6px',
-            border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
-            display: 'flex', alignItems: 'center', gap: '5px'
-          }}
-        >
-          Export CSV
-        </button>
+      {/* View Switcher & Action controls */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'inline-flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('roster')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'roster' ? '#ffffff' : 'transparent',
+              color: activeTab === 'roster' ? '#0f172a' : '#64748b',
+              fontWeight: activeTab === 'roster' ? 700 : 500,
+              fontSize: '12px',
+              cursor: 'pointer',
+              boxShadow: activeTab === 'roster' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
+            }}
+          >
+            📋 Inpatient Roster ({scopedPatientList.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('rag')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'rag' ? '#0f766e' : 'transparent',
+              color: activeTab === 'rag' ? '#ffffff' : '#0f766e',
+              fontWeight: 700,
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: activeTab === 'rag' ? '0 1px 3px rgba(15,118,110,0.2)' : 'none'
+            }}
+          >
+            <span>✦</span> Ask My Patients (AI)
+          </button>
+        </div>
+
+        {activeTab === 'roster' && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search..."
+              style={{
+                height: '30px', width: '220px', border: '1px solid #e3e6e8',
+                borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (!patientList.length) return alert('No admitted patient records to export');
+                const headers = ['Bed', 'Patient Name', 'MRN', 'Age', 'Gender', 'Diagnosis', 'Attending Doctor', 'Admission Date', 'EWS'];
+                const csvRows = [headers.join(',')];
+                patientList.forEach(p => {
+                  csvRows.push([
+                    `"${p.bed || ''}"`,
+                    `"${p.name || ''}"`,
+                    `"${p.mrn || ''}"`,
+                    p.age || '',
+                    `"${p.gender || ''}"`,
+                    `"${(p.diagnosis || '').replace(/"/g, '""')}"`,
+                    `"${p.doctor || ''}"`,
+                    `"${p.admitted || ''}"`,
+                    `"${p.ews || ''}"`
+                  ].join(','));
+                });
+                const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.setAttribute('href', url);
+                link.setAttribute('download', `admitted_patients_${new Date().toISOString().slice(0,10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
+              style={{
+                height: '30px', padding: '0 10px', borderRadius: '6px',
+                border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '12px',
+                display: 'flex', alignItems: 'center', gap: '5px'
+              }}
+            >
+              Export CSV
+            </button>
+          </div>
+        )}
       </div>
 
+      {activeTab === 'rag' ? (
+        <RagAssistantPanel
+          area="doctor_workspace"
+          title="Ask My Patients"
+          placeholder="Ask questions about your assigned patients, e.g. 'Show my patients with pending X-rays', 'Which patients have abnormal labs?'"
+        />
+      ) : (
+        <>
       {error && (
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', color: '#991b1b', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span><strong>Unable to load records:</strong> {error}</span>
@@ -165,33 +251,33 @@ export default function ClinicalWorkspaceView({
       {/* Summary KPI stats */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Inpatients</div>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>{isDoctor ? 'My Inpatients' : 'Active Inpatients'}</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1 }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Attending Doctor Filter</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '16px', lineHeight: 1.6, color: '#15181b', fontWeight: 600 }}>
-            {doctorName.split(' ')[1] || doctorName}
+            {isDoctor && activeDoctorName ? (activeDoctorName.split(' ')[1] || activeDoctorName) : 'All Doctors'}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Critical / Alert EWS</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.18 25)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.18 25)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.filter(p => p.ewsType === 'red' || p.ewsType === 'amber').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Active Prescriptions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: 'oklch(0.5 0.1 200)' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : patientList.filter(p => p.rx && p.rx !== '—').length}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid oklch(0.5 0.1 200)',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : scopedPatientList.filter(p => p.rx && p.rx !== '—').length}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 14px', minWidth: '110px' }}>
           <div style={{ color: '#8a9096', fontSize: '11px' }}>Data Sync</div>
           <div style={{ fontSize: '12px', lineHeight: 1.8, color: 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-            Live · Up to date
+            Active · Up to date
           </div>
         </div>
       </div>
@@ -199,9 +285,8 @@ export default function ClinicalWorkspaceView({
       {/* Patient Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading && patientList.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Currently Admitted Patients...</div>
-            <div style={{ fontSize: '12px' }}>Fetching currently admitted patients from clinical data system…</div>
+          <div style={{ padding: '12px' }}>
+            <TableSkeleton rows={7} columns={10} />
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
@@ -307,6 +392,8 @@ export default function ClinicalWorkspaceView({
           </table>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

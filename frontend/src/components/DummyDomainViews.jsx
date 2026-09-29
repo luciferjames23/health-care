@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { apiService, matchesDoctor } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -91,6 +93,50 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
   );
 }
 
+
+function LoadingState({ label = "Loading live records...", columns = 7, rows = 7 }) {
+  return (
+    <div style={{ marginTop: '8px' }}>
+      <ModuleLoadingScreen
+        title={label.replace(/ from PostgreSQL\.\.\./g, '...')}
+        subtitle="Retrieving real-time clinical and operational records..."
+        badgeText="Live Sync"
+        showKpis={false}
+        tableRows={rows}
+        tableColumns={columns}
+      />
+    </div>
+  );
+}
+
+function EmptyState({ title = "No records found", description = "There are currently no records in this module.", onAction, actionLabel = "+ Add Record" }) {
+  return (
+    <div style={{ ...cardStyle, padding: '40px 20px', textAlign: 'center' }}>
+      <div style={{ fontSize: '28px', marginBottom: '8px' }}>📋</div>
+      <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>{title}</div>
+      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', maxWidth: '380px', margin: '4px auto 14px' }}>{description}</div>
+      {onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          style={{
+            padding: '6px 14px',
+            borderRadius: '6px',
+            background: '#0284c7',
+            color: '#fff',
+            border: 'none',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StatCard({ label, value, sub, color = '#0f766e', bg = '#f0fdf4' }) {
   return (
     <div style={{ ...cardStyle, flex: 1, minWidth: '160px', padding: '12px 16px' }}>
@@ -169,7 +215,7 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Consultant Appointments & OPD Token Queue"
-        subtitle="Live out-patient consultation appointments, automated queue management, and doctor check-in desk"
+        subtitle="Out-patient consultation appointments, automated queue management, and doctor check-in desk"
         count={filtered.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'appt', title: 'New Outpatient Appointment' })}
         newLabel="+ New Appointment"
@@ -287,109 +333,693 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 2. EMERGENCY & TRAUMA BOARD (emergency)
 // -----------------------------------------------------------------------------
-const EMERGENCY_CASES = [
-  { id: 'ER-401', bay: 'Resus 1', patient: 'Ravi Teja', age: '42M', triage: 'Red', complaint: 'Acute STEMI, severe crushing chest pain', bp: '84/52', hr: 128, spo2: '89%', doctor: 'Dr. Arjun Menon', elapsed: '8m', status: 'Immediate Resuscitation' },
-  { id: 'ER-402', bay: 'Trauma 2', patient: 'Sundaram K.', age: '28M', triage: 'Red', complaint: 'RTA polytrauma, suspected pelvic fracture', bp: '98/64', hr: 114, spo2: '94%', doctor: 'Dr. Rajesh Sharma', elapsed: '14m', status: 'FAST Scan in Progress' },
-  { id: 'ER-403', bay: 'Bay 03', patient: 'Malini G.', age: '65F', triage: 'Yellow', complaint: 'Severe acute dyspnea, COPD exacerbation', bp: '142/88', hr: 98, spo2: '91%', doctor: 'Dr. Priya Narayanan', elapsed: '22m', status: 'Nebulization & BiPAP' },
-  { id: 'ER-404', bay: 'Bay 04', patient: 'Karthik Raja', age: '34M', triage: 'Yellow', complaint: 'Acute appendicular colic, guarding in RIF', bp: '124/78', hr: 82, spo2: '99%', doctor: 'Dr. Pooja Menon', elapsed: '35m', status: 'IV Analgesia & USG Pending' },
-  { id: 'ER-405', bay: 'Bay 05', patient: 'Ayesha Banu', age: '19F', triage: 'Green', complaint: 'Moderate laceration on right forearm, bleeding controlled', bp: '116/74', hr: 76, spo2: '99%', doctor: 'Dr. Vignesh K.', elapsed: '41m', status: 'Suturing Planned' },
-  { id: 'ER-406', bay: 'Bay 06', patient: 'Natarajan P.', age: '71M', triage: 'Yellow', complaint: 'Transient ischemic attack, left facial weakness resolved', bp: '168/96', hr: 78, spo2: '98%', doctor: 'Dr. Sanjay Gupta', elapsed: '48m', status: 'Urgent NCCT Brain Done' },
-];
+export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, userRole = null }) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? doctorName : null;
 
-export function EmergencyView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [scopeFilter, setScopeFilter] = useState(activeDoctorName ? 'my' : 'all');
+
+  useEffect(() => {
+    setScopeFilter(activeDoctorName ? 'my' : 'all');
+  }, [activeDoctorName]);
+
+  const fetchEmergencyData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getEmergencyCases();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bay: r.bay || 'ER Bay',
+          patient: r.patient_name,
+          age: r.age_gender,
+          triage: r.triage_level,
+          complaint: r.chief_complaint,
+          bp: r.bp,
+          hr: r.hr,
+          spo2: r.spo2,
+          doctor: r.doctor_name || 'Dr. Arjun Menon',
+          arrival: r.arrival_time || '09:30',
+          waiting: r.waiting_time || r.elapsed_time || '15 m',
+          acuity: r.acuity || (r.triage_level === 'Red' ? 'ESI-1 (clinician)' : r.triage_level === 'Yellow' ? 'ESI-2 (clinician)' : 'Not triaged'),
+          critical: r.critical_alert,
+          mlc: Boolean(r.mlc_flag),
+          status: r.clinical_status || 'Awaiting triage'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to fetch emergency cases:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmergencyData();
+  }, []);
+
+  const myCases = useMemo(() => {
+    if (!activeDoctorName) return data;
+    return data.filter(d => matchesDoctor(d.doctor, activeDoctorName));
+  }, [data, activeDoctorName]);
+
+  const myCount = myCases.length;
+  const allCount = data.length;
+
+  const currentScopedList = useMemo(() => {
+    if (activeDoctorName && scopeFilter === 'my') {
+      return myCases;
+    }
+    return data;
+  }, [data, myCases, activeDoctorName, scopeFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, pageSize, scopeFilter]);
+
+  const filtered = useMemo(() => {
+    if (!query) return currentScopedList;
+    const q = query.toLowerCase();
+    return currentScopedList.filter(d =>
+      (d.id && d.id.toLowerCase().includes(q)) ||
+      (d.patient && d.patient.toLowerCase().includes(q)) ||
+      (d.complaint && d.complaint.toLowerCase().includes(q)) ||
+      (d.doctor && d.doctor.toLowerCase().includes(q)) ||
+      (d.acuity && d.acuity.toLowerCase().includes(q)) ||
+      (d.status && d.status.toLowerCase().includes(q))
+    );
+  }, [currentScopedList, query]);
+
+  const untriagedCount = currentScopedList.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
+  const awaitingBedCount = currentScopedList.filter(d => d.status === 'Awaiting bed').length;
+  const criticalCount = currentScopedList.filter(d => Boolean(d.critical && d.critical !== '—')).length;
+  const erBedsFree = Math.max(0, 22 - data.length);
+
+  // Pagination calculations
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = useMemo(() => {
+    return filtered.slice(startIndex, startIndex + pageSize);
+  }, [filtered, startIndex, pageSize]);
+
   const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.bay} · ${row.patient} (${row.age})`,
-      sub: `Triage Level: ${row.triage} · Attending: ${row.doctor}`,
+      title: `${row.id} · ${row.patient}`,
+      sub: `Arrival: ${row.arrival} (${row.waiting}) · Acuity: ${row.acuity}`,
       badges: [
-        { t: `LEVEL ${row.triage.toUpperCase()}`, bg: row.triage === 'Red' ? '#fee2e2' : row.triage === 'Yellow' ? '#fef3c7' : '#dcfce7', fg: row.triage === 'Red' ? '#991b1b' : row.triage === 'Yellow' ? '#92400e' : '#166534' },
-        { t: row.status, bg: '#f1f5f9', fg: '#334155' }
+        { t: row.acuity, bg: row.acuity === 'Not triaged' ? '#fee2e2' : '#fef3c7', fg: row.acuity === 'Not triaged' ? '#991b1b' : '#92400e' },
+        { t: row.status, bg: '#fef3c7', fg: '#92400e' },
+        ...(row.critical ? [{ t: row.critical, bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Trauma Bay', v: row.bay, b: true },
+        { k: 'Case Identifier', v: row.id, b: true },
         { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'Age / Sex', v: row.age },
         { k: 'Chief Complaint', v: row.complaint },
-        { k: 'Vital Signs', v: `BP ${row.bp} · HR ${row.hr} bpm · SpO2 ${row.spo2}` },
-        { k: 'Elapsed Time', v: row.elapsed },
-        { k: 'Attending Doctor', v: row.doctor },
-        { k: 'Clinical Status', v: row.status }
+        { k: 'Arrival Timestamp', v: row.arrival },
+        { k: 'Waiting Duration', v: row.waiting },
+        { k: 'Assigned Clinician', v: row.doctor },
+        { k: 'Triage Acuity', v: row.acuity },
+        { k: 'Critical Result', v: row.critical || 'Normal / None' },
+        { k: 'MLC Flag', v: row.mlc ? 'Yes (Police Intimated)' : 'No' },
+        { k: 'Vital Signs', v: `BP ${row.bp || '120/80'} · HR ${row.hr || '76'} bpm · SpO2 ${row.spo2 || '99%'}` }
       ],
       actions: [
-        { label: 'Admit to Inpatient Bed', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'admit', title: `Admit ER Patient: ${row.patient}`, data: { patientId: row.id, name: row.patient, dept: 'Emergency', cls: 'ICU' } }) },
-        { label: 'Order Stat Radiology / CT' },
-        { label: 'Discharge / Transfer' }
+        {
+          label: 'Triage & Assign Acuity',
+          primary: true,
+          on: async () => {
+            const nextAcuity = row.acuity === 'Not triaged' ? 'ESI-1 (clinician)' : row.acuity;
+            const nextStatus = 'Treatment';
+            try {
+              await apiService.updateEmergencyCase(row.id, { acuity: nextAcuity, clinical_status: nextStatus });
+              setData(prev => prev.map(p => p.id === row.id ? { ...p, acuity: nextAcuity, status: nextStatus } : p));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          label: 'Mark Awaiting Bed',
+          on: async () => {
+            try {
+              await apiService.updateEmergencyCase(row.id, { clinical_status: 'Awaiting bed' });
+              setData(prev => prev.map(p => p.id === row.id ? { ...p, status: 'Awaiting bed' } : p));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        },
+        {
+          label: 'Admit to Inpatient Bed',
+          on: () => onOpenModal && onOpenModal({
+            kind: 'admit',
+            title: `Admit ER Patient: ${row.patient}`,
+            data: { patientId: row.id, name: row.patient, dept: 'Emergency', cls: 'ICU' }
+          })
+        }
       ]
     });
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Emergency & Trauma Resuscitation Board"
-        subtitle="Live emergency department triage, trauma bay occupancy, and vital resuscitation alerts"
-        count={EMERGENCY_CASES.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } })}
-        newLabel="+ Triage & Admit"
-        onExport={() => alert('Exported ER log')}
+  const exportCSV = () => {
+    const headers = ['CASE', 'PATIENT', 'ARRIVAL', 'WAITING', 'COMPLAINT', 'CLINICIAN', 'ACUITY', 'CRITICAL', 'STATUS'];
+    const rows = filtered.map(r => [
+      r.id,
+      `"${r.patient}"`,
+      r.arrival,
+      r.waiting,
+      `"${r.complaint}"`,
+      `"${r.doctor}"`,
+      `"${r.acuity}"`,
+      `"${r.critical || '—'}"`,
+      `"${r.status}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `emergency_board_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (loading && data.length === 0) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Emergency & Trauma Board..."
+        subtitle="Retrieving real-time triage acuity, emergency bay allocations, attending clinicians, and telemetry monitoring..."
+        badgeText="Live Emergency Triage Sync"
+        showKpis={true}
+        statCount={4}
+        layout="table"
+        tableRows={6}
+        tableColumns={9}
       />
+    );
+  }
 
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="RED TRIAGE (Immediate)" value="2" sub="Trauma & Resus 1 occupied" color="#dc2626" bg="#fef2f2" />
-        <StatCard label="YELLOW TRIAGE (Urgent)" value="3" sub="Within 15 min review window" color="#d97706" bg="#fffbeb" />
-        <StatCard label="GREEN TRIAGE (Standard)" value="1" sub="Minor injury & walk-in" color="#059669" bg="#f0fdf4" />
-        <StatCard label="ER Bay Occupancy" value="6 / 10" sub="4 Available emergency bays" color="#0284c7" />
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+        <div>
+          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+            <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Emergency Triage' : 'Emergency Triage & Trauma Board'}</span>
+          </div>
+          <h1 style={{ fontSize: '20px', fontWeight: 600, margin: '0 0 2px', color: '#15181b' }}>
+            {isDoctor && activeDoctorName && scopeFilter === 'my'
+              ? `Emergency & Trauma Board · ${activeDoctorName}`
+              : 'Emergency & Trauma Board'}
+          </h1>
+          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+            {isDoctor && activeDoctorName ? (
+              <span>
+                <strong style={{ color: '#0369a1' }}>Doctor Scope: {activeDoctorName}</strong>
+                {' · '}
+                <span>
+                  {scopeFilter === 'my'
+                    ? `Showing ${myCount} active ER patient${myCount === 1 ? '' : 's'} under your care`
+                    : `Showing all ${allCount} active emergency patients across hospital bays`}
+                </span>
+              </span>
+            ) : (
+              'Ordered by clinical triage acuity (ESI 1 → 5); active emergency bay telemetry, clinician assignment, and MLC tracking.'
+            )}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={exportCSV}
+          style={{
+            height: '32px',
+            padding: '0 14px',
+            borderRadius: '6px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            color: '#334155',
+            fontSize: '12px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Bay / Location</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Triage Level</th>
-              <th style={{ padding: '10px 14px' }}>Chief Presentation</th>
-              <th style={{ padding: '10px 14px' }}>Vitals</th>
-              <th style={{ padding: '10px 14px' }}>Attending Doctor</th>
-              <th style={{ padding: '10px 14px' }}>Elapsed</th>
-              <th style={{ padding: '10px 14px' }}>Current Clinical Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {EMERGENCY_CASES.map(row => (
-              <tr
-                key={row.id}
-                onClick={() => handleRowClick(row)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+      {/* 4 Stat Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>
+            {isDoctor && activeDoctorName && scopeFilter === 'my' ? 'My Active ER Cases' : 'Active ER Cases'}
+          </div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15181b', marginTop: '2px' }}>
+            {currentScopedList.length}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>Awaiting Inpatient Bed</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#0284c7', marginTop: '2px' }}>
+            {awaitingBedCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>Critical / Resuscitation</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#dc2626', marginTop: '2px' }}>
+            {criticalCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 16px', background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#8a9096' }}>ER Bays Ready</div>
+          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#15803d', marginTop: '2px' }}>
+            {erBedsFree}
+          </div>
+        </div>
+      </div>
+
+      {/* Action / Search Bar with Doctor Scope Selector */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {isDoctor && activeDoctorName && (
+            <div style={{ display: 'inline-flex', padding: '3px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('my')}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'my' ? 600 : 500,
+                  background: scopeFilter === 'my' ? '#ffffff' : 'transparent',
+                  color: scopeFilter === 'my' ? '#0f172a' : '#64748b',
+                  border: 'none',
+                  borderRadius: '4px',
+                  boxShadow: scopeFilter === 'my' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
               >
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.bay}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.age}</div>
-                </td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.triage === 'Red' ? '#fee2e2' : row.triage === 'Yellow' ? '#fef3c7' : '#dcfce7',
-                    row.triage === 'Red' ? '#991b1b' : row.triage === 'Yellow' ? '#92400e' : '#166534'
-                  )}>
-                    ● LEVEL {row.triage.toUpperCase()}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', maxWidth: '240px', color: '#1e293b' }}>{row.complaint}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  BP {row.bp} · HR {row.hr} · SpO2 {row.spo2}
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.doctor}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.elapsed}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0284c7' }}>{row.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                <span>My ER Patients</span>
+                <span style={{
+                  background: scopeFilter === 'my' ? '#0284c7' : '#cbd5e1',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  fontWeight: 700
+                }}>
+                  {myCount}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScopeFilter('all')}
+                style={{
+                  padding: '4px 12px',
+                  fontSize: '12px',
+                  fontWeight: scopeFilter === 'all' ? 600 : 500,
+                  background: scopeFilter === 'all' ? '#ffffff' : 'transparent',
+                  color: scopeFilter === 'all' ? '#0f172a' : '#64748b',
+                  border: 'none',
+                  borderRadius: '4px',
+                  boxShadow: scopeFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>All Hospital ER</span>
+                <span style={{
+                  background: scopeFilter === 'all' ? '#475569' : '#cbd5e1',
+                  color: '#ffffff',
+                  fontSize: '10px',
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  fontWeight: 700
+                }}>
+                  {allCount}
+                </span>
+              </button>
+            </div>
+          )}
+
+          <div style={{ position: 'relative', width: '280px' }}>
+            <input
+              type="text"
+              placeholder="Search patient, complaint, doctor, bay..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{
+                width: '100%',
+                height: '32px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '12px',
+                color: '#1e293b',
+                background: '#ffffff',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+        </div>
       </div>
+
+      {/* Alert Banner for untriaged cases */}
+      {untriagedCount > 0 && (
+        <div
+          style={{
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            borderRadius: '6px',
+            padding: '10px 14px',
+            color: '#b91c1c',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
+          <div>
+            ⚠️ {untriagedCount} arrival{untriagedCount === 1 ? '' : 's'} awaiting triage. Open case to triage & assign clinician.
+          </div>
+        </div>
+      )}
+
+      {/* Live Table */}
+      {filtered.length === 0 ? (
+        <EmptyState
+          title={isDoctor && activeDoctorName && scopeFilter === 'my' ? `No ER Patients Under ${activeDoctorName}` : "No Emergency Cases Found"}
+          description={isDoctor && activeDoctorName && scopeFilter === 'my' ? "There are currently no active emergency patients assigned to your care." : "There are currently no active emergency patients matching the search."}
+          onAction={() => {
+            if (isDoctor && activeDoctorName && scopeFilter === 'my') {
+              setScopeFilter('all');
+            } else if (onOpenModal) {
+              onOpenModal({ kind: 'admit', title: 'Emergency Inpatient Bed Admission', data: { dept: 'Emergency', cls: 'ICU' } });
+            }
+          }}
+          actionLabel={isDoctor && activeDoctorName && scopeFilter === 'my' ? "View All Hospital ER Cases" : "+ Triage & Admit Patient"}
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#ffffff', borderBottom: '1px solid #eef0f1', color: '#8a9096', fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>CASE</th>
+                  <th style={{ padding: '10px 14px' }}>PATIENT</th>
+                  <th style={{ padding: '10px 14px' }}>LOCATION</th>
+                  <th style={{ padding: '10px 14px' }}>ARRIVAL & WAIT</th>
+                  <th style={{ padding: '10px 14px', minWidth: '220px' }}>CHIEF COMPLAINT</th>
+                  <th style={{ padding: '10px 14px' }}>CLINICIAN</th>
+                  <th style={{ padding: '10px 14px' }}>ACUITY</th>
+                  <th style={{ padding: '10px 14px' }}>CRITICAL ALERT</th>
+                  <th style={{ padding: '10px 14px' }}>STATUS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRows.map(row => {
+                  const isRed = row.triage === 'Red' || (row.acuity && row.acuity.toLowerCase().includes('resuscitation'));
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => handleRowClick(row)}
+                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace, sans-serif', color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
+                        {row.id}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>
+                        <div>{row.patient}</div>
+                        {row.mlc && (
+                          <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 700, background: '#fee2e2', padding: '1px 5px', borderRadius: '3px' }}>
+                            MLC POLICE
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#334155', fontWeight: 500 }}>
+                        {row.bay}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>
+                        <div>{row.arrival}</div>
+                        <div style={{ fontSize: '10.5px', color: '#94a3b8' }}>{row.waiting}</div>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#0f172a' }}>
+                        <span style={{ display: 'inline-block', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.complaint}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#334155', fontWeight: 500 }}>
+                        {row.doctor}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: isRed ? '#fee2e2' : '#fef3c7',
+                          color: isRed ? '#991b1b' : '#92400e',
+                          border: isRed ? '1px solid #fecaca' : '1px solid #fde68a'
+                        }}>
+                          {row.acuity}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {row.critical && row.critical !== '—' ? (
+                          <span style={{
+                            background: '#fee2e2',
+                            color: '#dc2626',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            border: '1px solid #fecaca'
+                          }}>
+                            {row.critical}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          background: '#f1f5f9',
+                          color: '#334155',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          display: 'inline-block',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {row.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Footer */}
+          {filtered.length > 0 && (
+            <div style={{
+              padding: '10px 14px',
+              background: '#fafbfc',
+              borderTop: '1px solid #eef0f1',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> emergency cases
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[10, 15, 25, 50].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -397,75 +1027,553 @@ export function EmergencyView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 3. CONSULTANT SCHEDULES (schedules)
 // -----------------------------------------------------------------------------
-const ROASTER = [
-  { doctor: 'Dr. Arjun Menon', dept: 'Cardiology', opd: '09:00 AM - 01:00 PM', days: 'Mon, Wed, Fri', room: 'OPD 102', onCall: 'Tonight (20:00 - 08:00)', status: 'On Duty' },
-  { doctor: 'Dr. Priya Narayanan', dept: 'Internal Medicine', opd: '10:00 AM - 02:00 PM', days: 'Daily (Mon-Sat)', room: 'OPD 105', onCall: 'Weekend Coverage', status: 'On Duty' },
-  { doctor: 'Dr. Pooja Menon', dept: 'General & Lap. Surgery', opd: '11:00 AM - 03:00 PM', days: 'Tue, Thu, Sat', room: 'OPD 110', onCall: 'Emergency OT Call', status: 'In OT 2' },
-  { doctor: 'Dr. Rajesh Sharma', dept: 'Orthopedics & Trauma', opd: '09:30 AM - 01:30 PM', days: 'Mon, Tue, Thu, Fri', room: 'OPD 114', onCall: 'Primary Trauma Call', status: 'On Duty' },
-  { doctor: 'Dr. Sanjay Gupta', dept: 'Neurology', opd: '02:00 PM - 06:00 PM', days: 'Mon, Wed, Thu', room: 'OPD 108', onCall: 'Telestroke Active', status: 'Evening Clinic' },
-  { doctor: 'Dr. Anita Roy', dept: 'Pediatrics', opd: '09:00 AM - 01:00 PM', days: 'Mon-Fri', room: 'OPD 101', onCall: 'NICU Secondary', status: 'On Duty' },
-  { doctor: 'Dr. Meera Iyer', dept: 'Pulmonology', opd: '03:00 PM - 07:00 PM', days: 'Wed, Fri, Sat', room: 'OPD 107', onCall: 'ICU Bronchoscopy', status: 'On Leave' },
-];
-
 export function SchedulesView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [selectedDept, setSelectedDept] = useState('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const loadSchedules = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getConsultantSchedules({ forceRefresh: true });
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          doctor: r.doctor_name,
+          dept: r.specialty,
+          days: r.clinic_days || 'Mon Wed Fri',
+          hours: r.opd_hours || '09:00-13:00',
+          slot: r.slot_duration_mins ? `${r.slot_duration_mins} m` : '15 m',
+          room: r.room_no || 'OPD-1',
+          todayBooked: `${r.booked_today_count || 0} / ${r.total_today_slots || 16} booked`,
+          tomorrow: r.tomorrow_schedule || 'Not consulting',
+          status: r.status || 'Active',
+          onCall: r.on_call_assignment,
+          isConsultingToday: r.is_consulting_today !== false,
+          totalSlots: r.total_today_slots || 16,
+          bookedCount: r.booked_today_count || 0
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load consultant schedules:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSchedules();
+  }, []);
+
+  const departments = useMemo(() => {
+    const depts = new Set();
+    data.forEach(d => {
+      if (d.dept && d.dept.trim()) {
+        depts.add(d.dept.trim());
+      }
+    });
+    return ['All', ...Array.from(depts).sort()];
+  }, [data]);
+
+  const filtered = useMemo(() => {
+    return data.filter(d => {
+      const matchDept = selectedDept === 'All' || d.dept.toLowerCase() === selectedDept.toLowerCase();
+      const q = query.toLowerCase();
+      const matchQuery = !q ||
+        d.doctor.toLowerCase().includes(q) ||
+        d.dept.toLowerCase().includes(q) ||
+        d.room.toLowerCase().includes(q) ||
+        d.days.toLowerCase().includes(q) ||
+        d.hours.toLowerCase().includes(q);
+      return matchDept && matchQuery;
+    });
+  }, [data, selectedDept, query]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedDept, query, pageSize]);
+
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
+
+  const consultingTodayCount = data.filter(d => d.isConsultingToday && d.status === 'Active').length;
+  const onLeaveCount = data.filter(d => d.status === 'On Leave' || d.status === 'Inactive').length;
+  const totalSlotsToday = data.reduce((acc, curr) => acc + (curr.totalSlots || 0), 0);
+  const totalBookedToday = data.reduce((acc, curr) => acc + (curr.bookedCount || 0), 0);
+
   const handleDoctorClick = (d) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
       title: `${d.doctor} · ${d.dept}`,
-      sub: `Room ${d.room} · Clinic Days: ${d.days}`,
+      sub: `${d.room} · Clinic Hours: ${d.hours} (${d.days})`,
       badges: [
-        { t: d.status, bg: d.status === 'On Duty' ? '#dcfce7' : '#fee2e2', fg: d.status === 'On Duty' ? '#15803d' : '#991b1b' }
+        { t: d.status, bg: d.status === 'Active' ? '#dcfce7' : '#fee2e2', fg: d.status === 'Active' ? '#15803d' : '#991b1b' },
+        { t: `Slot: ${d.slot}`, bg: '#f1f5f9', fg: '#334155' }
       ],
       facts: [
-        { k: 'Consultant', v: d.doctor, b: true },
-        { k: 'Specialty', v: d.dept },
-        { k: 'OPD Hours', v: `${d.opd} (${d.days})` },
-        { k: 'Room Location', v: d.room },
-        { k: 'Emergency On-Call', v: d.onCall },
-        { k: 'Current Status', v: d.status }
+        { k: 'Consultant Name', v: d.doctor, b: true },
+        { k: 'Department', v: d.dept },
+        { k: 'Consultation Room', v: d.room },
+        { k: 'OPD Schedule Hours', v: d.hours },
+        { k: 'Clinic Operating Days', v: d.days },
+        { k: 'Template Slot Length', v: d.slot },
+        { k: 'Today Booking Load', v: d.todayBooked },
+        { k: 'Tomorrow Forecast', v: d.tomorrow },
+        { k: 'Emergency On-Call', v: d.onCall || 'General Hospital Call' }
       ],
       actions: [
-        { label: 'Book Appointment', primary: true, on: () => onOpenModal && onOpenModal({ kind: 'appt', title: `Book with ${d.doctor}`, data: { doctorId: d.doctor } }) },
-        { label: 'Request Shift Swap' }
+        {
+          label: 'Book Consultation Slot',
+          primary: true,
+          on: () => onOpenModal && onOpenModal({ kind: 'appt', title: `Book Appointment with ${d.doctor}`, data: { doctorId: d.doctor, dept: d.dept } })
+        },
+        {
+          label: d.status === 'Active' ? 'Mark On Leave (Block Slots)' : 'Set Active / Restore Roster',
+          on: async () => {
+            const nextStatus = d.status === 'Active' ? 'On Leave' : 'Active';
+            try {
+              if (d.id) await apiService.updateConsultantSchedule(d.id, { status: nextStatus });
+              setData(prev => prev.map(item => item.id === d.id ? { ...item, status: nextStatus } : item));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
       ]
     });
   };
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Consultant Roster & On-Call Schedules"
-        subtitle="Medical consultant clinic hours, emergency on-call rotas, and leave master"
-        count={ROASTER.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
-        newLabel="+ Add Doctor"
-        onExport={() => alert('Exported consultant roster')}
-      />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '12px' }}>
-        {ROASTER.map(d => (
-          <div
-            key={d.doctor}
-            onClick={() => handleDoctorClick(d)}
-            style={{ ...cardStyle, cursor: 'pointer', transition: 'all 0.15s' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#e3e6e8'; e.currentTarget.style.transform = 'none'; }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: '14px' }}>{d.doctor}</div>
-              <span style={pillStyle(d.status === 'On Duty' ? '#dcfce7' : d.status === 'On Leave' ? '#fee2e2' : '#fef3c7', d.status === 'On Duty' ? '#15803d' : d.status === 'On Leave' ? '#991b1b' : '#92400e')}>
-                ● {d.status}
-              </span>
-            </div>
-            <div style={{ fontSize: '11.5px', color: '#0369a1', fontWeight: 600, marginTop: '2px' }}>{d.dept} · {d.room}</div>
-            <div style={{ fontSize: '12px', color: '#334155', marginTop: '8px' }}>
-              <strong>OPD Hours:</strong> {d.opd} ({d.days})
-            </div>
-            <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '4px' }}>
-              <strong>On-Call Assignment:</strong> {d.onCall}
-            </div>
-          </div>
-        ))}
+  const exportCSV = () => {
+    const headers = ['CONSULTANT', 'DEPARTMENT', 'DAYS', 'HOURS', 'SLOT', 'ROOM', 'TODAY', 'TOMORROW', 'STATUS'];
+    const rows = filtered.map(r => [
+      `"${r.doctor}"`,
+      `"${r.dept}"`,
+      `"${r.days}"`,
+      r.hours,
+      r.slot,
+      r.room,
+      `"${r.todayBooked}"`,
+      `"${r.tomorrow}"`,
+      r.status
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `consultant_schedules_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Consultant Schedules"
+          subtitle="Synchronizing 160+ physician slot templates, OPD clinic hours, and on-call assignments..."
+          badgeText="Live Sync"
+          showKpis={true}
+          statCount={5}
+          tableRows={8}
+          tableColumns={9}
+        />
       </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle */}
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: '#0f172a', letterSpacing: '-0.02em' }}>
+          Consultant schedules
+        </h1>
+        <div style={{ color: '#64748b', fontSize: '13px', lineHeight: '1.4' }}>
+          Slot templates per consultant (days · hours · slot length · room). Booking validates day, hours, slot alignment and leave; a leave block flags every affected appointment for rescheduling.
+        </div>
+      </div>
+
+      {/* Search & Export Action */}
+      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'relative', width: '240px' }}>
+          <input
+            type="text"
+            placeholder="Search doctor, dept, room..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '34px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '12.5px',
+              color: '#1e293b',
+              background: '#ffffff',
+              outline: 'none',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={exportCSV}
+          style={{
+            height: '34px',
+            padding: '0 16px',
+            borderRadius: '6px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            color: '#334155',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* 5 Stat Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consultants</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {data.length}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Consulting today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#16a34a', marginTop: '4px' }}>
+            {consultingTodayCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>On leave</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309', marginTop: '4px' }}>
+            {onLeaveCount}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Slots today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+            {totalSlotsToday}
+          </div>
+        </div>
+        <div style={{ ...cardStyle, padding: '14px 18px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Booked today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f766e', marginTop: '4px' }}>
+            {totalBookedToday}
+          </div>
+        </div>
+      </div>
+
+      {/* Specialty Filter Pills */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '2px' }}>
+        {departments.map(dept => {
+          const isSelected = selectedDept.toLowerCase() === dept.toLowerCase();
+          const count = dept === 'All' ? data.length : data.filter(d => d.dept.toLowerCase() === dept.toLowerCase()).length;
+          return (
+            <button
+              key={dept}
+              type="button"
+              onClick={() => setSelectedDept(dept)}
+              style={{
+                borderRadius: '20px',
+                padding: '5px 14px',
+                fontSize: '12px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span>{dept}</span>
+              <span style={{
+                fontSize: '10.5px',
+                opacity: 0.85,
+                background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#64748b',
+                padding: '1px 6px',
+                borderRadius: '10px'
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live consultant schedules from PostgreSQL..." columns={9} rows={8} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Consultant Schedules Found"
+          description="There are currently no consultants matching the selected department or query."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
+          actionLabel="+ Add Consultant"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 16px' }}>CONSULTANT</th>
+                <th style={{ padding: '12px 16px' }}>DEPARTMENT</th>
+                <th style={{ padding: '12px 16px' }}>DAYS</th>
+                <th style={{ padding: '12px 16px' }}>HOURS</th>
+                <th style={{ padding: '12px 16px' }}>SLOT</th>
+                <th style={{ padding: '12px 16px' }}>ROOM</th>
+                <th style={{ padding: '12px 16px' }}>TODAY</th>
+                <th style={{ padding: '12px 16px' }}>TOMORROW</th>
+                <th style={{ padding: '12px 16px' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedRows.map(row => (
+                <tr
+                  key={row.id || row.doctor}
+                  onClick={() => handleDoctorClick(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.doctor}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.dept}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>
+                    {row.days}
+                  </td>
+                  <td style={{ padding: '12px 16px', fontFamily: 'monospace, sans-serif', color: '#334155' }}>
+                    {row.hours}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#64748b' }}>
+                    {row.slot}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#334155', fontWeight: 600 }}>
+                    {row.room}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#0f172a' }}>
+                    {row.todayBooked}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: row.tomorrow === 'Not consulting' ? '#94a3b8' : '#0f172a' }}>
+                    {row.tomorrow}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{
+                      background: row.status === 'Active' ? '#dcfce7' : '#fee2e2',
+                      color: row.status === 'Active' ? '#15803d' : '#991b1b',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> consultant schedules
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -473,380 +1581,2601 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 4. NURSING WORKSPACE (nursing)
 // -----------------------------------------------------------------------------
-const NURSING_TASKS = [
-  { bed: 'Bed 201-A', patient: 'Saanvier Parthalan', uhid: 'MER-PAT-0087227', task: 'Q4H Blood Glucose Monitoring (Pre-lunch check)', status: 'Due Now', nurse: 'Anitha Kumar', notes: 'Target BG < 160 mg/dL' },
-  { bed: 'Bed 202-B', patient: 'Kavitha Raman', uhid: 'MER-PAT-0087221', task: 'Titrate IV Heparin @ 18 ml/hr & check aPTT', status: 'In Progress', nurse: 'K. Selvi', notes: 'Check puncture site for hematoma' },
-  { bed: 'Bed 204-A', patient: 'Christoer Parthalan', uhid: 'MER-PAT-0087233', task: 'Post-op surgical dressing inspection & drain output', status: 'Completed', nurse: 'Anitha Kumar', notes: 'Drain: 25ml serosanguinous' },
-  { bed: 'Bed 205-C', patient: 'Natarajan P.', uhid: 'MER-PAT-0087235', task: 'Turn & reposition Q2H + Fall Risk Precautions', status: 'Due in 30m', nurse: 'K. Selvi', notes: 'Braden Score 13 - High Risk' },
-  { bed: 'Bed 208-A', patient: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', task: 'Administer Inj. Cefoperazone-Sulbactam 1.5g IV', status: 'Due Now', nurse: 'Anitha Kumar', notes: 'Skin test negative confirmed' },
-];
-
 export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
-  const handleTaskClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('All');
+  const [selectedWard, setSelectedWard] = useState('All Wards');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const loadNursingData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getNursingTasks({ forceRefresh: true });
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bed: r.bed_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          task: r.task_description || '',
+          status: r.status || 'Active',
+          nurse: r.assigned_nurse || '',
+          notes: r.clinical_notes || '',
+          lastVitals: r.last_vitals_time || '07:30',
+          hr: r.hr ?? 75,
+          bp: r.bp || '120/80',
+          spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2)/10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
+          temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9/5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
+          rr: r.rr ?? 18,
+          pain: r.pain_score ?? 0,
+          ews: r.ews_score ?? 0,
+          fall: r.fall_risk || 'Low / Low',
+          diet: r.diet_type || 'Standard',
+          overdueMeds: r.overdue_meds || '—',
+          flag: r.flag_status || 'Normal',
+          ward: r.ward_name || 'General Multi-Specialty Ward'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load nursing tasks:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNursingData();
+  }, []);
+
+  const wards = useMemo(() => {
+    const wSet = new Set();
+    data.forEach(d => {
+      if (d.ward && d.ward.trim()) wSet.add(d.ward.trim());
+    });
+    return ['All Wards', ...Array.from(wSet).sort()];
+  }, [data]);
+
+  const handleTaskClick = (t) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.bed} · ${row.patient}`,
-      sub: `Order: ${row.task} · Nurse: ${row.nurse}`,
+      title: `${t.bed} · ${t.patient}`,
+      sub: `Ward: ${t.ward} | UHID: ${t.uhid}`,
       badges: [
-        { t: row.status, bg: row.status === 'Due Now' ? '#fee2e2' : row.status === 'In Progress' ? '#fef3c7' : '#dcfce7', fg: row.status === 'Due Now' ? '#991b1b' : row.status === 'In Progress' ? '#92400e' : '#166534' }
+        { 
+          t: t.flag, 
+          bg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#fee2e2' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#fef3c7' : '#dcfce7', 
+          fg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#dc2626' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#92400e' : '#15803d' 
+        },
+        { 
+          t: `EWS: ${t.ews}`, 
+          bg: t.ews >= 3 ? '#fee2e2' : t.ews === 2 ? '#fef3c7' : '#f1f5f9', 
+          fg: t.ews >= 3 ? '#dc2626' : t.ews === 2 ? '#92400e' : '#475569' 
+        }
       ],
       facts: [
-        { k: 'Bed / Room', v: row.bed, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'UHID / MRN', v: row.uhid },
-        { k: 'Nursing Task', v: row.task },
-        { k: 'Current Status', v: row.status },
-        { k: 'Assigned Nurse', v: row.nurse },
-        { k: 'Clinical Instructions', v: row.notes }
+        { k: 'Bed Number', v: t.bed, b: true },
+        { k: 'Patient Name', v: t.patient, b: true },
+        { k: 'UHID', v: t.uhid },
+        { k: 'Ward / Unit', v: t.ward },
+        { k: 'Assigned Nurse', v: t.nurse },
+        { k: 'Latest Vitals Time', v: t.lastVitals },
+        { k: 'Heart Rate (HR)', v: `${t.hr} bpm` },
+        { k: 'Blood Pressure (BP)', v: t.bp },
+        { k: 'Oxygen Saturation (SpO₂)', v: `${t.spo2}%` },
+        { k: 'Temperature', v: `${t.temp}°F` },
+        { k: 'Respiratory Rate (RR)', v: `${t.rr} /min` },
+        { k: 'Pain Score', v: `${t.pain} / 10` },
+        { k: 'Early Warning Score (EWS)', v: `${t.ews}` },
+        { k: 'Fall / Pressure Risk', v: t.fall },
+        { k: 'Diet Type', v: t.diet },
+        { k: 'Overdue Meds', v: t.overdueMeds },
+        { k: 'Care Plan / Task', v: t.task },
+        { k: 'Clinical Notes', v: t.notes }
       ],
       actions: [
-        { label: 'Mark Task Completed', primary: true, on: () => alert(`Task completed for ${row.patient}`) },
-        { label: 'Record Vital Signs' }
+        {
+          label: 'Mark Task Completed',
+          primary: true,
+          on: async () => {
+            try {
+              if (t.id) await apiService.updateNursingTask(t.id, { status: 'Completed' });
+              setData(prev => prev.map(item => item.id === t.id ? { ...item, status: 'Completed' } : item));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        },
+        {
+          label: 'Acknowledge Vitals / Watch',
+          on: async () => {
+            try {
+              if (t.id) await apiService.updateNursingTask(t.id, { status: 'In Progress' });
+              setData(prev => prev.map(item => item.id === t.id ? { ...item, status: 'In Progress' } : item));
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No nursing data to export.');
+    const headers = ['Bed', 'Patient', 'UHID', 'Ward', 'Last Vitals', 'HR', 'BP', 'SpO2', 'Temp', 'RR', 'Pain', 'EWS', 'Fall/Pressure', 'Diet', 'Overdue Meds', 'Flag', 'Task', 'Nurse'];
+    const rows = filtered.map(d => [
+      d.bed, `"${d.patient}"`, d.uhid, `"${d.ward}"`, d.lastVitals, d.hr, d.bp, `${d.spo2}%`, d.temp, d.rr, d.pain, d.ews, `"${d.fall}"`, `"${d.diet}"`, `"${d.overdueMeds}"`, `"${d.flag}"`, `"${d.task}"`, `"${d.nurse}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `nursing_workspace_census_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics across whole live dataset
+  const censusCount = data.length;
+  const ewsEscalateCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('escalate') || d.flag.toLowerCase().includes('critical'))) || Number(d.ews) >= 3).length;
+  const watchCount = data.filter(d => (d.flag && (d.flag.toLowerCase().includes('watch') || d.flag.toLowerCase().includes('pending'))) || Number(d.ews) === 2).length;
+  const overdueMedsCount = data.filter(d => d.overdueMeds && d.overdueMeds !== '—' && d.overdueMeds !== '-').length;
+  const dueNowCount = data.filter(d => d.status === 'Due Now' || (d.overdueMeds && d.overdueMeds !== '—' && d.overdueMeds !== '-')).length;
+  const highFallRiskCount = data.filter(d => d.fall && d.fall.toLowerCase().includes('high')).length;
+
+  // Filter & Search Logic
+  const filtered = useMemo(() => {
+    return data.filter(item => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q ||
+        item.patient.toLowerCase().includes(q) ||
+        item.bed.toLowerCase().includes(q) ||
+        item.uhid.toLowerCase().includes(q) ||
+        item.ward.toLowerCase().includes(q) ||
+        item.nurse.toLowerCase().includes(q) ||
+        item.diet.toLowerCase().includes(q) ||
+        item.flag.toLowerCase().includes(q);
+
+      if (!matchesSearch) return false;
+
+      const matchesWard = selectedWard === 'All Wards' || item.ward.toLowerCase() === selectedWard.toLowerCase();
+      if (!matchesWard) return false;
+
+      if (selectedFilter === 'Escalate') {
+        return (item.flag && (item.flag.toLowerCase().includes('escalate') || item.flag.toLowerCase().includes('critical'))) || Number(item.ews) >= 3;
+      }
+      if (selectedFilter === 'Watch') {
+        return (item.flag && (item.flag.toLowerCase().includes('watch') || item.flag.toLowerCase().includes('pending'))) || Number(item.ews) === 2;
+      }
+      if (selectedFilter === 'Normal') {
+        return item.flag && item.flag.toLowerCase().includes('normal');
+      }
+      return true;
+    });
+  }, [data, searchQuery, selectedWard, selectedFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedWard, selectedFilter, pageSize]);
+
+  // Pagination calculations
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
+
+  const filterOptions = ['All', 'Escalate', 'Watch', 'Normal'];
+
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Nursing Workspace"
+          subtitle="Retrieving real-time ward census, vitals, EWS deterioration alerts, and medication schedules..."
+          badgeText="Live Sync"
+          showKpis={true}
+          statCount={7}
+          tableRows={8}
+          tableColumns={14}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Inpatient Nursing Station & Shift Tasks"
-        subtitle="Live ward nurse assignment, scheduled drug administration, and clinical care checklists"
-        count={NURSING_TASKS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Staff Nurse / User' })}
-        newLabel="+ Add Nurse"
-        onExport={() => alert('Exported nursing care log')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Assigned Inpatients" value="28" sub="Floor 2 Wards A & B" color="#0284c7" />
-        <StatCard label="Tasks Due Now" value="2" sub="Immediate nursing action required" color="#dc2626" />
-        <StatCard label="Infusions Running" value="9" sub="Smart syringe & IV pumps" color="#059669" />
-        <StatCard label="High Fall Risk" value="4" sub="Bed alarm & sensor pads active" color="#d97706" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle */}
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', letterSpacing: '-0.02em' }}>
+          Nursing workspace · Inpatient wards
+        </h1>
+        <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.4' }}>
+          Real-time census across all inpatient units, latest vitals with Early Warning Score (EWS), care plan risks, overdue medications, and clinical handovers.
+        </p>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Bed</th>
-              <th style={{ padding: '10px 14px' }}>Patient / UHID</th>
-              <th style={{ padding: '10px 14px' }}>Nursing Task / Order</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-              <th style={{ padding: '10px 14px' }}>Assigned Nurse</th>
-              <th style={{ padding: '10px 14px' }}>Clinical Instructions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {NURSING_TASKS.map((row, idx) => (
-              <tr key={idx} onClick={() => handleTaskClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f766e' }}>{row.bed}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1e293b' }}>{row.task}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Due Now' ? '#fee2e2' : row.status === 'In Progress' ? '#fef3c7' : '#dcfce7',
-                    row.status === 'Due Now' ? '#991b1b' : row.status === 'In Progress' ? '#92400e' : '#166534'
-                  )}>
-                    {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.nurse}</td>
-                <td style={{ padding: '10px 14px', color: '#52585e' }}>{row.notes}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '280px' }}>
+          <input
+            type="text"
+            placeholder="Search patient, bed, UHID, ward, nurse..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '34px',
+              padding: '0 12px',
+              fontSize: '12.5px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            height: '34px',
+            padding: '0 16px',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* 7 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Census (IP)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{censusCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>EWS escalate</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{ewsEscalateCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Watch</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{watchCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Medications overdue</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueMedsCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Due now</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>High fall risk</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{highFallRiskCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Handover</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a', lineHeight: '1.4', marginTop: '4px' }}>AI draft · nurse verifies</div>
+        </div>
+      </div>
+
+      {/* Ward Filter Pills */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Ward:</span>
+        {wards.map(w => {
+          const isSelected = selectedWard === w;
+          const count = w === 'All Wards' ? data.length : data.filter(d => d.ward.toLowerCase() === w.toLowerCase()).length;
+          return (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setSelectedWard(w)}
+              style={{
+                padding: '4px 12px',
+                borderRadius: '16px',
+                fontSize: '11.5px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <span>{w}</span>
+              <span style={{
+                fontSize: '10.5px',
+                opacity: 0.85,
+                background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#64748b',
+                padding: '1px 5px',
+                borderRadius: '10px'
+              }}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Acuity Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Acuity:</span>
+        {filterOptions.map(f => {
+          const isSelected = selectedFilter === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedFilter(f)}
+              style={{
+                padding: '4px 14px',
+                borderRadius: '16px',
+                fontSize: '11.5px',
+                fontWeight: isSelected ? 700 : 500,
+                border: isSelected ? '1px solid #0284c7' : '1px solid #e2e8f0',
+                background: isSelected ? '#e0f2fe' : '#ffffff',
+                color: isSelected ? '#0369a1' : '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {f}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live nursing tasks from PostgreSQL..." columns={14} rows={8} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Inpatients Found"
+          description="There are currently no patients matching the selected filter or query."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'nursing', title: 'Log Nursing Task' })}
+          actionLabel="+ Log Inpatient Task"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '1050px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>BED</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>WARD</th>
+                <th style={{ padding: '12px 14px' }}>LAST VITALS</th>
+                <th style={{ padding: '12px 14px' }}>HR</th>
+                <th style={{ padding: '12px 14px' }}>BP</th>
+                <th style={{ padding: '12px 14px' }}>SPO₂</th>
+                <th style={{ padding: '12px 14px' }}>TEMP</th>
+                <th style={{ padding: '12px 14px' }}>RR</th>
+                <th style={{ padding: '12px 14px' }}>PAIN</th>
+                <th style={{ padding: '12px 14px' }}>EWS</th>
+                <th style={{ padding: '12px 14px' }}>FALL / PRESSURE</th>
+                <th style={{ padding: '12px 14px' }}>DIET</th>
+                <th style={{ padding: '12px 14px' }}>OVERDUE MEDS</th>
+                <th style={{ padding: '12px 14px' }}>FLAG</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedRows.map(row => {
+                const isHrAlert = Number(row.hr) > 100 || Number(row.hr) < 60;
+                const isSpo2Alert = Number(row.spo2) < 95;
+                const isEwsCritical = Number(row.ews) >= 3;
+                const isEwsWatch = Number(row.ews) === 2;
+
+                const isCriticalFlag = row.flag && (row.flag.includes('Critical') || row.flag.includes('escalate'));
+                const isWatchFlag = row.flag && (row.flag.includes('Pending') || row.flag.includes('watch'));
+
+                return (
+                  <tr
+                    key={row.id || row.bed}
+                    onClick={() => handleTaskClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.bed}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                      {row.patient}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b', fontSize: '11.5px' }}>
+                      {row.ward}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#475569' }}>
+                      {row.lastVitals}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isHrAlert ? '#dc2626' : '#0f172a', fontWeight: isHrAlert ? 700 : 400 }}>
+                      {row.hr}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace, sans-serif' }}>
+                      {row.bp}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isSpo2Alert ? '#dc2626' : '#0f172a', fontWeight: isSpo2Alert ? 700 : 400 }}>
+                      {row.spo2}%
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.temp}°F
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.rr}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.pain}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: isEwsCritical ? '#dc2626' : isEwsWatch ? '#b45309' : '#0f172a', fontWeight: (isEwsCritical || isEwsWatch) ? 700 : 400 }}>
+                      {row.ews}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.fall}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.diet}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: row.overdueMeds !== '—' && row.overdueMeds !== '-' ? '#dc2626' : '#94a3b8', fontWeight: row.overdueMeds !== '—' && row.overdueMeds !== '-' ? 600 : 400 }}>
+                      {row.overdueMeds}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: isCriticalFlag ? '#fee2e2' : isWatchFlag ? '#fef3c7' : '#dcfce7',
+                        color: isCriticalFlag ? '#dc2626' : isWatchFlag ? '#92400e' : '#15803d',
+                        border: isCriticalFlag ? '1px solid #fca5a5' : isWatchFlag ? '1px solid #fde68a' : '1px solid #bbf7d0',
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {row.flag}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> inpatients
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // -----------------------------------------------------------------------------
-// 5. MEDICATION ADMINISTRATION (eMAR)
+// 5. MEDICATION ADMINISTRATION (eMAR) (emar)
 // -----------------------------------------------------------------------------
-const EMAR_SCHEDULE = [
-  { time: '08:00 AM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Inj. Regular Human Insulin', dose: '8 Units SubCut', status: 'Given', nurse: 'Anitha Kumar', signedAt: '08:05 AM' },
-  { time: '08:00 AM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Tab. Pantoprazole 40mg', dose: '1 Tab Oral before breakfast', status: 'Given', nurse: 'Anitha Kumar', signedAt: '08:06 AM' },
-  { time: '12:00 PM', patient: 'Christoer Parthalan', bed: 'Bed 204-A', med: 'Inj. Metronidazole 500mg', dose: '100ml IV Infusion over 30 mins', status: 'Due Now', nurse: 'Anitha Kumar', signedAt: '—' },
-  { time: '02:00 PM', patient: 'Kavitha Raman', bed: 'Bed 202-B', med: 'Tab. Atorvastatin 40mg', dose: '1 Tab Oral', status: 'Scheduled', nurse: 'K. Selvi', signedAt: '—' },
-  { time: '02:00 PM', patient: 'Lakshmi Narayanan', bed: 'Bed 208-A', med: 'Inj. Paracetamol 1000mg', dose: '100ml IV Infusion SOS for fever', status: 'Scheduled', nurse: 'K. Selvi', signedAt: '—' },
-  { time: '08:00 PM', patient: 'Saanvier Parthalan', bed: 'Bed 201-A', med: 'Inj. Glargine Insulin (Lantus)', dose: '14 Units SubCut at bedtime', status: 'Scheduled', nurse: 'Night Shift Nurse', signedAt: '—' },
-];
-
 export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
-  const handleEmarClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
+  const [selectedFilter, setSelectedFilter] = useState('All'); // 'All' | 'Overdue' | 'Due' | 'Scheduled' | 'Given'
+  const [selectedCardId, setSelectedCardId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const loadEmarData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getEmarRecords({ forceRefresh: true });
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          time: r.scheduled_time || '08:00 AM',
+          patient: r.patient_name || '',
+          bed: r.bed_no || '',
+          drug: r.medication_name || '',
+          route: r.dosage_route || '',
+          status: r.status || 'Scheduled',
+          stage: r.stage || 'Scheduled',
+          isHighAlert: r.is_high_alert ?? false,
+          isOverdue: r.is_overdue ?? false,
+          prescriber: r.prescribed_by || 'Dr. Amit Sharma',
+          verification: r.verification_status || 'Verified',
+          nurse: r.administered_by || '',
+          signedAt: r.signed_at || ''
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load eMAR records:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadEmarData();
+  }, []);
+
+  const handleAdminister = async (m) => {
+    try {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (m.id) {
+        await apiService.signOffEmarRecord(m.id, {
+          status: 'Given',
+          stage: 'Completed',
+          administered_by: 'Anitha Kumar, RN',
+          signed_at: timeStr
+        });
+      }
+      setData(prev => prev.map(item => item.id === m.id ? {
+        ...item,
+        status: 'Given',
+        stage: 'Completed',
+        nurse: 'Anitha Kumar, RN',
+        signedAt: timeStr
+      } : item));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleOpenDrawer = (m) => {
+    setSelectedCardId(m.id);
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.med} · ${row.dose}`,
-      sub: `Patient: ${row.patient} (${row.bed}) · Slot: ${row.time}`,
+      title: `${m.bed} · ${m.patient}`,
+      sub: `${m.drug} (${m.route})`,
       badges: [
-        { t: row.status, bg: row.status === 'Given' ? '#dcfce7' : row.status === 'Due Now' ? '#fee2e2' : '#f1f5f9', fg: row.status === 'Given' ? '#15803d' : row.status === 'Due Now' ? '#991b1b' : '#475569' }
+        {
+          t: m.stage || m.status,
+          bg: m.stage === 'Completed' || m.status === 'Given' ? '#dcfce7' : m.stage === 'Critical' || m.status === 'Overdue' ? '#fee2e2' : '#fef3c7',
+          fg: m.stage === 'Completed' || m.status === 'Given' ? '#15803d' : m.stage === 'Critical' || m.status === 'Overdue' ? '#991b1b' : '#92400e'
+        },
+        ...(m.isHighAlert ? [{ t: 'High-Alert IV', bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Medication', v: row.med, b: true },
-        { k: 'Dose & Route', v: row.dose },
-        { k: 'Patient', v: row.patient },
-        { k: 'Bed Assignment', v: row.bed },
-        { k: 'Scheduled Round', v: row.time },
-        { k: 'Administration Status', v: row.status },
-        { k: 'Nurse Sign-off', v: `${row.nurse} (${row.signedAt})` }
+        { k: 'Bed Number', v: m.bed, b: true },
+        { k: 'Patient Name', v: m.patient, b: true },
+        { k: 'Medication Name', v: m.drug, b: true },
+        { k: 'Dosage & Route', v: m.route },
+        { k: 'Scheduled Time', v: m.time },
+        { k: 'Prescribing Doctor', v: m.prescriber },
+        { k: 'Pharmacy Verification', v: m.verification },
+        { k: 'High-Alert Drug', v: m.isHighAlert ? 'Yes (Requires 2-Nurse Sign-off)' : 'Standard' },
+        { k: 'Current Stage', v: m.stage },
+        { k: 'Administered By', v: m.nurse || 'Pending Administration' },
+        { k: 'Signed At', v: m.signedAt || '—' }
       ],
       actions: [
-        { label: 'Confirm Barcode Admin', primary: true, on: () => alert(`Administered ${row.med} to ${row.patient}`) },
-        { label: 'Hold Dose / Report Allergy' }
+        {
+          label: '✓ Administer & Sign Off',
+          primary: true,
+          on: () => handleAdminister(m)
+        },
+        {
+          label: 'Mark Awaiting Pharmacy',
+          on: async () => {
+            try {
+              if (m.id) {
+                await apiService.signOffEmarRecord(m.id, { status: 'Scheduled', stage: 'Awaiting pharmacy', administered_by: '' });
+                setData(prev => prev.map(item => item.id === m.id ? { ...item, status: 'Scheduled', stage: 'Awaiting pharmacy' } : item));
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No eMAR data to export.');
+    const headers = ['Bed', 'Patient', 'Medication', 'Dosage & Route', 'Scheduled Time', 'Status', 'Stage', 'High Alert', 'Prescriber', 'Administered By', 'Signed At'];
+    const rows = filtered.map(d => [
+      d.bed, `"${d.patient}"`, `"${d.drug}"`, `"${d.route}"`, d.time, d.status, d.stage, d.isHighAlert ? 'Yes' : 'No', `"${d.prescriber}"`, `"${d.nurse}"`, d.signedAt
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `medication_administration_record_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Dynamic Metrics calculated directly from live database records
+  const overdueCount = data.filter(d => d.isOverdue || d.status === 'Overdue' || d.stage === 'Critical').length;
+  const dueNowCount = data.filter(d => d.status === 'Due Now' || (d.stage === 'Scheduled' && (d.time.includes('12:') || d.time.includes('01:')))).length;
+  const givenTodayCount = data.filter(d => d.status === 'Given' || d.stage === 'Completed').length;
+  const highAlertCount = data.filter(d => d.isHighAlert).length;
+
+  // Filter & Search Logic
+  const filtered = useMemo(() => {
+    return data.filter(item => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q ||
+        item.patient.toLowerCase().includes(q) ||
+        item.bed.toLowerCase().includes(q) ||
+        item.drug.toLowerCase().includes(q) ||
+        item.route.toLowerCase().includes(q) ||
+        item.prescriber.toLowerCase().includes(q);
+
+      if (!matchesSearch) return false;
+
+      if (selectedFilter === 'Overdue') {
+        return item.stage === 'Critical' || item.status === 'Overdue' || item.isOverdue;
+      }
+      if (selectedFilter === 'Due') {
+        return item.status === 'Due Now' || (item.stage === 'Scheduled' && (item.time.includes('12:') || item.time.includes('01:')));
+      }
+      if (selectedFilter === 'Scheduled') {
+        return item.stage === 'Scheduled';
+      }
+      if (selectedFilter === 'Given') {
+        return item.stage === 'Completed' || item.status === 'Given';
+      }
+      return true;
+    });
+  }, [data, searchQuery, selectedFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedFilter, pageSize]);
+
+  // Pagination for Table view
+  const totalRows = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = filtered.slice(startIndex, startIndex + pageSize);
+
+  // Dynamic Kanban columns with live counts
+  const columns = [
+    {
+      key: 'Scheduled',
+      label: 'Scheduled',
+      count: data.filter(d => d.stage === 'Scheduled').length,
+      bg: '#fef3c7',
+      fg: '#92400e',
+      border: '#fde68a'
+    },
+    {
+      key: 'Completed',
+      label: 'Completed',
+      count: data.filter(d => d.stage === 'Completed' || d.status === 'Given').length,
+      bg: '#dcfce7',
+      fg: '#15803d',
+      border: '#bbf7d0'
+    },
+    {
+      key: 'Critical',
+      label: 'Critical / Overdue',
+      count: data.filter(d => d.stage === 'Critical' || d.status === 'Overdue' || d.isOverdue).length,
+      bg: '#fee2e2',
+      fg: '#991b1b',
+      border: '#fca5a5'
+    },
+    {
+      key: 'Awaiting pharmacy',
+      label: 'Awaiting pharmacy',
+      count: data.filter(d => d.stage === 'Awaiting pharmacy').length,
+      bg: '#ffedd5',
+      fg: '#9a3412',
+      border: '#fed7aa'
+    }
+  ];
+
+  if (loading && data.length === 0) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <ModuleLoadingScreen
+          title="Medication Administration Record (eMAR)"
+          subtitle="Loading live electronic MAR, scheduled medication doses, and high-alert drug validations..."
+          badgeText="Live Sync"
+          showKpis={true}
+          statCount={4}
+          tableRows={8}
+          tableColumns={9}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="eMAR · Electronic Medication Administration Record"
-        subtitle="Barcode-verified drug administration rounds, nurse sign-offs, and scheduled dosages"
-        count={EMAR_SCHEDULE.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drugs', title: 'Add Drug to Formulary' })}
-        newLabel="+ Add Drug"
-        onExport={() => alert('Exported eMAR log')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Doses Due Today" value="54" sub="Round 08:00, 12:00, 18:00, 22:00" color="#0284c7" />
-        <StatCard label="Administered & Signed" value="38" sub="100% Barcode double-checked" color="#059669" />
-        <StatCard label="Pending Now" value="1" sub="Inj. Metronidazole due" color="#d97706" />
-        <StatCard label="Adverse Drug Reactions" value="0" sub="Zero allergy overrides reported" color="#475569" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontFamily: 'inherit' }}>
+      {/* Title & Subtitle */}
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0', letterSpacing: '-0.02em' }}>
+          Medication administration record (eMAR)
+        </h1>
+        <p style={{ fontSize: '13px', color: '#64748b', margin: 0, lineHeight: '1.4' }}>
+          Prescription → pharmacy verification → dispensing → eMAR → nurse administration → clinical audit. High-alert IV drugs require independent two-nurse double-check.
+        </p>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Scheduled</th>
-              <th style={{ padding: '10px 14px' }}>Patient / Bed</th>
-              <th style={{ padding: '10px 14px' }}>Medication &amp; Strength</th>
-              <th style={{ padding: '10px 14px' }}>Dose &amp; Route</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-              <th style={{ padding: '10px 14px' }}>Administered By</th>
-              <th style={{ padding: '10px 14px' }}>Sign-off Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {EMAR_SCHEDULE.map((row, idx) => (
-              <tr key={idx} onClick={() => handleEmarClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.time}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.bed}</div>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{row.med}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{row.dose}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Given' ? '#dcfce7' : row.status === 'Due Now' ? '#fee2e2' : '#f1f5f9',
-                    row.status === 'Given' ? '#15803d' : row.status === 'Due Now' ? '#991b1b' : '#475569'
-                  )}>
-                    ● {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px' }}>{row.nurse}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>{row.signedAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', width: '280px' }}>
+          <input
+            type="text"
+            placeholder="Search patient, bed, drug, route, doctor..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              height: '34px',
+              padding: '0 12px',
+              fontSize: '12.5px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            height: '34px',
+            padding: '0 16px',
+            fontSize: '12.5px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* 4 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Overdue</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{overdueCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Due now</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{dueNowCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Given today</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{givenTodayCount}</div>
+        </div>
+        <div style={{ ...cardStyle, padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>High-alert pending</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{highAlertCount}</div>
+        </div>
+      </div>
+
+      {/* View Mode Toggle & Status Filter Bar */}
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Toggle between Table & Kanban */}
+        <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('Table')}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Table' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Table' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('Kanban')}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Kanban' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Kanban' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Kanban
+          </button>
+        </div>
+
+        {/* Status Filters */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {['All', 'Overdue', 'Due', 'Scheduled', 'Given'].map(f => {
+            const isSelected = selectedFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSelectedFilter(f)}
+                style={{
+                  padding: '4px 14px',
+                  borderRadius: '16px',
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                  background: isSelected ? '#0f172a' : '#ffffff',
+                  color: isSelected ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {f}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <LoadingState label="Fetching live medication administration records from PostgreSQL..." columns={9} rows={8} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Medication Doses Found"
+          description="There are currently no medication records matching your query or filter."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'emar', title: 'Schedule Medication Dose' })}
+          actionLabel="+ Schedule Dose"
+        />
+      ) : viewMode === 'Kanban' ? (
+        /* Kanban Board View */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px', alignItems: 'start' }}>
+          {columns.map(col => {
+            const items = filtered.filter(d => {
+              if (col.key === 'Scheduled') return d.stage === 'Scheduled';
+              if (col.key === 'Completed') return d.stage === 'Completed' || d.status === 'Given';
+              if (col.key === 'Critical') return d.stage === 'Critical' || d.status === 'Overdue' || d.isOverdue;
+              if (col.key === 'Awaiting pharmacy') return d.stage === 'Awaiting pharmacy';
+              return false;
+            });
+            return (
+              <div
+                key={col.key}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  minHeight: '400px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                {/* Column Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{
+                    background: col.bg,
+                    color: col.fg,
+                    border: `1px solid ${col.border}`,
+                    padding: '3px 10px',
+                    borderRadius: '4px',
+                    fontSize: '11.5px',
+                    fontWeight: 700
+                  }}>
+                    {col.label}
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>
+                    {items.length} of {col.count}
+                  </span>
+                </div>
+
+                {/* Cards List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
+                  {items.map(card => {
+                    const isCardSelected = selectedCardId === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => handleOpenDrawer(card)}
+                        style={{
+                          background: '#ffffff',
+                          border: isCardSelected ? '1.5px solid #0d9488' : '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          boxShadow: isCardSelected ? '0 0 0 1px rgba(13, 148, 136, 0.15)' : '0 1px 2px rgba(0,0,0,0.03)',
+                          transition: 'transform 0.1s, border-color 0.15s, box-shadow 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isCardSelected) {
+                            e.currentTarget.style.borderColor = '#94a3b8';
+                            e.currentTarget.style.boxShadow = '0 3px 6px rgba(0,0,0,0.06)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isCardSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                          <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px' }}>
+                            {card.bed}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>
+                            {card.time}
+                          </span>
+                        </div>
+                        <div style={{ color: '#1e293b', fontSize: '12.5px', marginBottom: '3px', fontWeight: 600 }}>
+                          {card.patient}
+                        </div>
+                        <div style={{ color: '#475569', fontSize: '11.5px', lineHeight: '1.3', marginBottom: '4px' }}>
+                          {card.drug} · {card.route}
+                        </div>
+                        {card.isHighAlert && (
+                          <span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: '3px', fontSize: '10.5px', fontWeight: 700 }}>
+                            High-Alert IV
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {items.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '24px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                      No doses in this lane
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Table View */
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>BED</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>MEDICATION</th>
+                <th style={{ padding: '12px 14px' }}>DOSAGE & ROUTE</th>
+                <th style={{ padding: '12px 14px' }}>SCHEDULED TIME</th>
+                <th style={{ padding: '12px 14px' }}>STAGE / STATUS</th>
+                <th style={{ padding: '12px 14px' }}>HIGH ALERT</th>
+                <th style={{ padding: '12px 14px' }}>ADMINISTERED BY / SIGN-OFF</th>
+                <th style={{ padding: '12px 14px' }}>ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedRows.map(row => (
+                <tr
+                  key={row.id}
+                  onClick={() => handleOpenDrawer(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.bed}
+                  </td>
+                  <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                    {row.patient}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 600 }}>
+                    {row.drug}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.route}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                    {row.time}
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.stage === 'Completed' || row.status === 'Given' ? '#dcfce7' : row.stage === 'Critical' || row.status === 'Overdue' ? '#fee2e2' : row.stage === 'Awaiting pharmacy' ? '#ffedd5' : '#fef3c7',
+                      color: row.stage === 'Completed' || row.status === 'Given' ? '#15803d' : row.stage === 'Critical' || row.status === 'Overdue' ? '#991b1b' : row.stage === 'Awaiting pharmacy' ? '#9a3412' : '#92400e',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.stage || row.status}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    {row.isHighAlert ? (
+                      <span style={{ background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>
+                        High-Alert
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>Standard</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.nurse ? `${row.nurse} (${row.signedAt})` : 'Pending'}
+                  </td>
+                  <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
+                    {row.status !== 'Given' && row.stage !== 'Completed' && (
+                      <button
+                        type="button"
+                        onClick={() => handleAdminister(row)}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          background: '#059669',
+                          color: '#ffffff',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✓ Administer
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Pagination Footer */}
+          {totalRows > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              borderTop: '1px solid #e2e8f0',
+              background: '#f8fafc',
+              flexWrap: 'wrap',
+              gap: '10px',
+              fontSize: '12px',
+              color: '#64748b'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> medication doses
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: '24px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid',
+                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                        color: pageSize === sz ? '#0369a1' : '#64748b',
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  ‹ Prev
+                </button>
+
+                {/* Page Numbers */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
+                  .reduce((acc, p, i, arr) => {
+                    if (i > 0 && p - arr[i - 1] > 1) {
+                      acc.push('ellipsis-' + p);
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, idx) => {
+                    if (typeof item === 'string') {
+                      return (
+                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isCurrent = item === safeCurrentPage;
+                    return (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        style={{
+                          height: '28px',
+                          minWidth: '28px',
+                          padding: '0 6px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
+                          background: isCurrent ? '#0284c7' : '#ffffff',
+                          color: isCurrent ? '#ffffff' : '#475569',
+                          fontWeight: isCurrent ? 700 : 500,
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: '28px',
+                    padding: '0 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: 500
+                  }}
+                >
+                  Next ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: '28px',
+                    width: '28px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
+                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // -----------------------------------------------------------------------------
-// 6. OT & SURGERY SUITE (surgery & otschedule)
+// 6. OT & SURGERY (surgeries)
 // -----------------------------------------------------------------------------
-const SURGERY_CASES = [
-  { ot: 'OT-01 (Cardiac)', patient: 'Kavitha Raman', procedure: 'Coronary Angiography & Stenting', surgeon: 'Dr. Arjun Menon', anesthetist: 'Dr. K. Nair', stage: 'In PACU Recovery', start: '08:30 AM', end: '10:15 AM' },
-  { ot: 'OT-02 (General)', patient: 'Christoer Parthalan', procedure: 'Emergency Laparoscopic Appendectomy', surgeon: 'Dr. Pooja Menon', anesthetist: 'Dr. K. Nair', stage: 'Surgical Incision', start: '10:00 AM', end: 'Est 11:30 AM' },
-  { ot: 'OT-03 (Orthopedics)', patient: 'Sundaram K.', procedure: 'ORIF Patella & Tension Band Wiring', surgeon: 'Dr. Rajesh Sharma', anesthetist: 'Dr. Geetha V.', stage: 'Pre-op Anesthesia Induction', start: '10:45 AM', end: 'Est 12:45 PM' },
-  { ot: 'OT-04 (Maternity/Gyn)', patient: 'Revathi S.', procedure: 'Elective Lower Segment Cesarean Section', surgeon: 'Dr. Anita Roy', anesthetist: 'Dr. Geetha V.', stage: 'Scheduled Next (12:00 PM)', start: '12:00 PM', end: 'Est 01:15 PM' },
-];
-
 export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
-  const handleSurgeryClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
+  const [selectedFilter, setSelectedFilter] = useState('All');
+  const [selectedCardId, setSelectedCardId] = useState(null);
+
+  const loadSurgeryData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getSurgeryCases();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          code: r.case_number || `SUR-2026-${400 + r.id}`,
+          ot: r.ot_suite || '',
+          patient: r.patient_name || '',
+          procedure: r.procedure_name || '',
+          surgeon: r.lead_surgeon || '',
+          anesthetist: r.anesthetist || '',
+          intraopStage: r.intraop_stage || '',
+          stage: r.stage || 'Scheduled',
+          start: r.start_time || '',
+          end: r.end_time || '',
+          status: r.status || 'Active',
+          consent: r.consent_status || 'Obtained',
+          isEmergency: r.is_emergency ?? false,
+          isDelayed: r.is_delayed ?? false,
+          bloodReserved: r.blood_reserved || '2 PRBC Reserved',
+          sterileVerified: r.sterile_set_verified ?? true,
+          pacuBed: r.pacu_bed || ''
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load surgery cases:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSurgeryData();
+  }, []);
+
+  const handleRowClick = (s) => {
+    setSelectedCardId(s.id);
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.ot} · ${row.procedure}`,
-      sub: `Surgeon: ${row.surgeon} · Anesthetist: ${row.anesthetist}`,
+      title: `${s.code} · ${s.patient}`,
+      sub: `${s.procedure} (${s.ot})`,
       badges: [
-        { t: row.stage, bg: row.stage.includes('PACU') ? '#dcfce7' : '#fee2e2', fg: row.stage.includes('PACU') ? '#15803d' : '#991b1b' }
+        {
+          t: s.stage,
+          bg: s.stage === 'Completed' ? '#dcfce7' : s.stage === 'In progress' ? '#fef3c7' : s.stage === 'Recovery (PACU)' ? '#e0e7ff' : '#f1f5f9',
+          fg: s.stage === 'Completed' ? '#15803d' : s.stage === 'In progress' ? '#92400e' : s.stage === 'Recovery (PACU)' ? '#3730a3' : '#334155'
+        },
+        ...(s.isEmergency ? [{ t: 'Emergency', bg: '#fee2e2', fg: '#dc2626' }] : []),
+        ...(s.isDelayed ? [{ t: 'Delayed', bg: '#fee2e2', fg: '#dc2626' }] : [])
       ],
       facts: [
-        { k: 'Operating Theatre', v: row.ot, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'Surgical Procedure', v: row.procedure },
-        { k: 'Lead Surgeon', v: row.surgeon },
-        { k: 'Anesthetist', v: row.anesthetist },
-        { k: 'Intra-Op Stage', v: row.stage },
-        { k: 'Timing', v: `${row.start} → ${row.end}` }
+        { k: 'Surgery Case Number', v: s.code, b: true },
+        { k: 'Patient Name', v: s.patient, b: true },
+        { k: 'Surgical Procedure', v: s.procedure, b: true },
+        { k: 'Operating Suite / Room', v: s.ot },
+        { k: 'Lead Surgeon', v: s.surgeon },
+        { k: 'Anesthetist', v: s.anesthetist },
+        { k: 'Current Intra-op Stage', v: s.intraopStage },
+        { k: 'Consent Status', v: s.consent },
+        { k: 'Blood Bank Cross-Match', v: s.bloodReserved },
+        { k: 'Sterile Instrument Tray', v: s.sterileVerified ? 'Verified & Autoclaved' : 'Pending Verification' },
+        { k: 'PACU Recovery Bay', v: s.pacuBed || 'Awaiting PACU Handover' },
+        { k: 'Operating Hours', v: `${s.start} → ${s.end}` }
       ],
       actions: [
-        { label: 'Check into PACU', primary: true, on: () => alert(`Transferred ${row.patient} to PACU`) },
-        { label: 'Print WHO Checklist' }
+        ...(s.stage === 'Requested' ? [{
+          label: 'Approve Surgery Booking',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Approved', status: 'Approved' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Approved', status: 'Approved' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Approved' ? [{
+          label: 'Schedule OT Slot & Allocate Team',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Scheduled', status: 'Scheduled' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Scheduled', status: 'Scheduled' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Scheduled' ? [{
+          label: 'Call Patient to Pre-op Bay',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { stage: 'Pre-op', status: 'Pre-op' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, stage: 'Pre-op', status: 'Pre-op' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.consent !== 'Obtained' ? [{
+          label: 'Sign & Verify Surgical Consent',
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, { consent_status: 'Obtained' });
+                setData(prev => prev.map(item => item.id === s.id ? { ...item, consent: 'Obtained' } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Pre-op' ? [{
+          label: 'Transfer Patient to Operating Suite (Start)',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'In progress',
+                  intraop_stage: 'Patient on Table / Under Anesthesia',
+                  status: 'In OT'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'In progress',
+                  intraopStage: 'Patient on Table / Under Anesthesia',
+                  status: 'In OT'
+                } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'In progress' ? [{
+          label: 'Transition to PACU Recovery',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'Recovery (PACU)',
+                  intraop_stage: 'In PACU Recovery',
+                  status: 'In PACU'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'Recovery (PACU)',
+                  intraopStage: 'In PACU Recovery',
+                  status: 'In PACU'
+                } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        ...(s.stage === 'Recovery (PACU)' ? [{
+          label: 'Discharge PACU to Inpatient Ward / Complete',
+          primary: true,
+          on: async () => {
+            try {
+              if (s.id) {
+                await apiService.updateSurgeryCase(s.id, {
+                  stage: 'Completed',
+                  intraop_stage: 'Procedure Completed & Handed Over',
+                  status: 'Completed'
+                });
+                setData(prev => prev.map(item => item.id === s.id ? {
+                  ...item,
+                  stage: 'Completed',
+                  intraopStage: 'Procedure Completed & Handed Over',
+                  status: 'Completed'
+                } : item));
+              }
+            } catch (e) { console.error(e); }
+          }
+        }] : []),
+        {
+          label: 'Refresh Status from Database',
+          on: loadSurgeryData
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No surgery cases to export.');
+    const headers = ['Case #', 'Patient', 'Procedure', 'OT Suite', 'Surgeon', 'Anesthetist', 'Stage', 'Consent', 'Blood Reserved', 'Start Time', 'End Time'];
+    const rows = data.map(d => [
+      d.code, `"${d.patient}"`, `"${d.procedure}"`, `"${d.ot}"`, `"${d.surgeon}"`, `"${d.anesthetist}"`, `"${d.stage}"`, `"${d.consent}"`, `"${d.bloodReserved}"`, d.start, d.end
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `ot_surgery_roster_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Dynamic Metric counts derived directly from live database records
+  const todaysCasesCount = data.length;
+  const inOtNowCount = data.filter(d => d.stage === 'In progress' || d.status === 'In OT').length;
+  const awaitingConsentCount = data.filter(d => (d.consent || '').toLowerCase().includes('awaiting') || (d.consent || '').toLowerCase().includes('pending')).length;
+  const delayedCount = data.filter(d => Boolean(d.isDelayed)).length;
+  const emergencyCount = data.filter(d => Boolean(d.isEmergency)).length;
+
+  // 5 Operational Theaters & Cath Labs
+  const theaterRooms = useMemo(() => [
+    { name: 'OT-1 (Cardiac)', suiteKey: 'OT-1' },
+    { name: 'OT-2 (General)', suiteKey: 'OT-2' },
+    { name: 'OT-3 (Ortho)', suiteKey: 'OT-3' },
+    { name: 'OT-4 (Emergency)', suiteKey: 'OT-4' },
+    { name: 'Cath Lab 1', suiteKey: 'Cath Lab' }
+  ], []);
+
+  // Theater live statuses dynamically computed from live database records
+  const theaterCards = useMemo(() => {
+    return theaterRooms.map(room => {
+      const suiteCases = data.filter(d => d.ot && (d.ot.includes(room.suiteKey) || room.suiteKey.includes(d.ot)));
+      const activeCase = suiteCases.find(d => d.stage === 'In progress' || d.status === 'In OT');
+      const pacuCase = suiteCases.find(d => d.stage === 'Recovery (PACU)');
+      const preopCase = suiteCases.find(d => d.stage === 'Pre-op');
+      const scheduledCase = suiteCases.find(d => d.stage === 'Scheduled');
+
+      if (activeCase) {
+        return {
+          name: room.name,
+          status: `In use · free ${activeCase.end || 'soon'}`,
+          sub: `${activeCase.procedure} (${activeCase.patient})`,
+          color: '#0f172a'
+        };
+      }
+      if (pacuCase) {
+        return {
+          name: room.name,
+          status: `Cleaning · free ${pacuCase.end || 'soon'}`,
+          sub: `Turnover after PACU transfer`,
+          color: '#b45309'
+        };
+      }
+      if (preopCase) {
+        return {
+          name: room.name,
+          status: `Pre-op · start ${preopCase.start || 'soon'}`,
+          sub: `${preopCase.procedure} (${preopCase.patient})`,
+          color: '#2563eb'
+        };
+      }
+      if (scheduledCase) {
+        return {
+          name: room.name,
+          status: `Scheduled · ${scheduledCase.start || 'today'}`,
+          sub: `${scheduledCase.procedure} (${scheduledCase.patient})`,
+          color: '#475569'
+        };
+      }
+      return {
+        name: room.name,
+        status: `Available · Standby`,
+        sub: `Ready for booking`,
+        color: '#15803d'
+      };
+    });
+  }, [data, theaterRooms]);
+
+  const activeTheatersCount = theaterCards.filter(c => c.status.startsWith('In use') || c.status.startsWith('Cleaning') || c.status.startsWith('Pre-op')).length;
+  const otUtilisation = `${Math.round((activeTheatersCount / (theaterRooms.length || 1)) * 100)}%`;
+
+  // Filtering
+  const filtered = data.filter(item => {
+    const matchesSearch =
+      item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.procedure.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.surgeon.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.ot.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'In OT') return item.stage === 'In progress' || item.status === 'In OT';
+    if (selectedFilter === 'Recovery (PACU)') return item.stage === 'Recovery (PACU)';
+    if (selectedFilter === 'Completed') return item.stage === 'Completed';
+    if (selectedFilter === 'Pre-op') return item.stage === 'Pre-op';
+    if (selectedFilter === 'Scheduled') return item.stage === 'Scheduled';
+    if (selectedFilter === 'Requested') return item.stage === 'Requested';
+    if (selectedFilter === 'Approved') return item.stage === 'Approved';
+    if (selectedFilter === 'Cancelled') return item.stage === 'Cancelled';
+    return true;
+  });
+
+  const filterOptions = ['All', 'Requested', 'Approved', 'Scheduled', 'Pre-op', 'In OT', 'Recovery (PACU)', 'Completed', 'Cancelled'];
+
+  const kanbanColumns = useMemo(() => [
+    { key: 'Requested', label: 'Requested', count: data.filter(d => d.stage === 'Requested').length, bg: '#faf5ff', fg: '#6b21a8', border: '#e9d5ff' },
+    { key: 'Approved', label: 'Approved', count: data.filter(d => d.stage === 'Approved').length, bg: '#eff6ff', fg: '#1e40af', border: '#bfdbfe' },
+    { key: 'Scheduled', label: 'Scheduled', count: data.filter(d => d.stage === 'Scheduled').length, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Pre-op', label: 'Pre-op', count: data.filter(d => d.stage === 'Pre-op').length, bg: '#e0e7ff', fg: '#3730a3', border: '#c7d2fe' },
+    { key: 'In progress', label: 'In progress', count: data.filter(d => d.stage === 'In progress' || d.status === 'In OT').length, bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    { key: 'Recovery (PACU)', label: 'Recovery (PACU)', count: data.filter(d => d.stage === 'Recovery (PACU)').length, bg: '#e0f2fe', fg: '#0369a1', border: '#bae6fd' },
+    { key: 'Completed', label: 'Completed', count: data.filter(d => d.stage === 'Completed').length, bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' }
+  ], [data]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Operating Theatres & Surgical Suite"
-        subtitle="Live OT suite tracking, intra-operative milestones, anesthesia records, and PACU recovery"
-        count={SURGERY_CASES.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Surgical Service / OT Procedure' })}
-        newLabel="+ Schedule OT Case"
-        onExport={() => alert('Exported OT ledger')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Active Theatre Rooms" value="3 / 4" sub="OT 1, OT 2, OT 3 In Progress" color="#0284c7" />
-        <StatCard label="Cases Slated Today" value="9" sub="4 Completed · 3 Active · 2 Next" color="#059669" />
-        <StatCard label="In Recovery (PACU)" value="1" sub="Kavitha Raman - Aldrete Score 9" color="#d97706" />
-        <StatCard label="Emergency OT Ready" value="OT-05" sub="Cleaned & sterile emergency reserve" color="#475569" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › OT & Surgery
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              OT & surgery
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Request → approval → scheduling → pre-op → consent (surgeon) → anaesthesia → OT → procedure → PACU → post-op → billing · sterile set and reserved blood are hard gates
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>OT Suite</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Surgical Procedure</th>
-              <th style={{ padding: '10px 14px' }}>Lead Surgeon</th>
-              <th style={{ padding: '10px 14px' }}>Anesthetist</th>
-              <th style={{ padding: '10px 14px' }}>Stage</th>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SURGERY_CASES.map((row, idx) => (
-              <tr key={idx} onClick={() => handleSurgeryClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0369a1' }}>{row.ot}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
-                <td style={{ padding: '10px 14px', color: '#0f172a' }}>{row.procedure}</td>
-                <td style={{ padding: '10px 14px' }}>{row.surgeon}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.anesthetist}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.stage.includes('Incision') ? '#fee2e2' :
-                    row.stage.includes('PACU') ? '#dcfce7' : '#fef3c7',
-                    row.stage.includes('Incision') ? '#991b1b' :
-                    row.stage.includes('PACU') ? '#15803d' : '#92400e'
-                  )}>
-                    ● {row.stage}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  {row.start} → {row.end}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* Top Metric Cards (Row 1) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Today's cases</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{todaysCasesCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>In OT now</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{inOtNowCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Awaiting consent</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{awaitingConsentCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Delayed</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{delayedCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Emergency</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{emergencyCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT utilisation today</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{otUtilisation}</div>
+        </div>
+      </div>
+
+      {/* Secondary Theater Live Status Cards (Row 2) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+        {theaterCards.map((card, idx) => (
+          <div key={idx} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
+            <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>{card.name}</div>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: card.color, marginTop: '2px' }}>{card.status}</div>
+            {card.sub && (
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {card.sub}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* View Mode Toggle & Status Filter Bar */}
+      <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Toggle between Table & Kanban */}
+        <div style={{ display: 'flex', border: '1px solid #cbd5e1', borderRadius: '6px', overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('Table')}
+            style={{
+              padding: '5px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Table' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Table' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('Kanban')}
+            style={{
+              padding: '5px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              border: 'none',
+              background: viewMode === 'Kanban' ? '#0f172a' : '#ffffff',
+              color: viewMode === 'Kanban' ? '#ffffff' : '#475569',
+              cursor: 'pointer'
+            }}
+          >
+            Kanban
+          </button>
+        </div>
+
+        {/* Status Filter Tabs */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {filterOptions.map(f => {
+            const isSelected = selectedFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSelectedFilter(f)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                  background: isSelected ? '#0f172a' : '#ffffff',
+                  color: isSelected ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {f}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <LoadingState label="Fetching live OT suite cases from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Surgical Cases Found"
+          description="There are currently no surgical cases matching your query or filter."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'ot_bookings', title: 'Schedule OT Surgery' })}
+          actionLabel="+ Schedule Surgery"
+        />
+      ) : viewMode === 'Kanban' ? (
+        /* Kanban Board View */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', alignItems: 'start' }}>
+          {kanbanColumns.map(col => {
+            const items = filtered.filter(d => d.stage === col.key || (col.key === 'In progress' && (d.stage === 'In progress' || d.status === 'In OT')));
+            return (
+              <div
+                key={col.key}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  minHeight: '380px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}
+              >
+                {/* Column Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{
+                    background: col.bg,
+                    color: col.fg,
+                    border: `1px solid ${col.border}`,
+                    padding: '3px 10px',
+                    borderRadius: '4px',
+                    fontSize: '11.5px',
+                    fontWeight: 700
+                  }}>
+                    {col.label}
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
+                    {col.count}
+                  </span>
+                </div>
+
+                {/* Cards List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {items.map(card => {
+                    const isSelected = selectedCardId === card.id;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => handleRowClick(card)}
+                        style={{
+                          background: '#ffffff',
+                          border: isSelected ? '1.5px solid #0d9488' : '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                          transition: 'transform 0.1s, border-color 0.15s, box-shadow 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#94a3b8';
+                            e.currentTarget.style.boxShadow = '0 3px 6px rgba(0,0,0,0.06)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                          }
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12.5px', marginBottom: '2px' }}>
+                          {card.code}
+                        </div>
+                        <div style={{ color: '#334155', fontSize: '12px', marginBottom: '2px', fontWeight: 500 }}>
+                          {card.patient}
+                        </div>
+                        <div style={{ color: '#64748b', fontSize: '11.5px', lineHeight: '1.3' }}>
+                          {card.procedure}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {items.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '24px 10px', color: '#94a3b8', fontSize: '12px' }}>
+                      No cases in this stage
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Table View */
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>CASE #</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>PROCEDURE</th>
+                <th style={{ padding: '12px 14px' }}>OT SUITE</th>
+                <th style={{ padding: '12px 14px' }}>LEAD SURGEON</th>
+                <th style={{ padding: '12px 14px' }}>ANESTHETIST</th>
+                <th style={{ padding: '12px 14px' }}>STAGE</th>
+                <th style={{ padding: '12px 14px' }}>CONSENT</th>
+                <th style={{ padding: '12px 14px' }}>TIMELINE</th>
+                <th style={{ padding: '12px 14px' }}>ACTION</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => (
+                <tr
+                  key={row.id}
+                  onClick={() => handleRowClick(row)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                    {row.code}
+                  </td>
+                  <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                    {row.patient}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 600 }}>
+                    {row.procedure}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0284c7', fontWeight: 600 }}>
+                    {row.ot}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#334155' }}>
+                    {row.surgeon}
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                    {row.anesthetist}
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.stage === 'Completed' ? '#dcfce7' : row.stage === 'In progress' ? '#fef3c7' : row.stage === 'Recovery (PACU)' ? '#e0e7ff' : '#f1f5f9',
+                      color: row.stage === 'Completed' ? '#15803d' : row.stage === 'In progress' ? '#92400e' : row.stage === 'Recovery (PACU)' ? '#3730a3' : '#334155',
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {row.stage}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px' }}>
+                    <span style={{
+                      background: row.consent === 'Obtained' ? '#dcfce7' : '#fef3c7',
+                      color: row.consent === 'Obtained' ? '#15803d' : '#92400e',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      fontWeight: 600
+                    }}>
+                      {row.consent}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                    {row.start} → {row.end}
+                  </td>
+                  <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
+                    {row.stage !== 'Completed' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            if (row.id) {
+                              await apiService.updateSurgeryCase(row.id, {
+                                stage: 'Completed',
+                                intraop_stage: 'Procedure Completed',
+                                status: 'Completed'
+                              });
+                              setData(prev => prev.map(item => item.id === row.id ? { ...item, stage: 'Completed' } : item));
+                            }
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✓ Complete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
+}
+
+function printBloodRequisitionSlip(b) {
+  const printWindow = window.open('', '_blank', 'width=800,height=850');
+  if (!printWindow) {
+    alert('Popup blocker prevented print window from opening. Please allow popups.');
+    return;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Blood Requisition - ${b.unitId}</title>
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 36px; color: #1e293b; line-height: 1.5; }
+        .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 14px; margin-bottom: 20px; }
+        .title { font-size: 17px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin: 0 0 6px; letter-spacing: 0.04em; }
+        .sub { font-size: 12px; color: #475569; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+        th, td { border: 1px solid #cbd5e1; padding: 10px 14px; text-align: left; }
+        th { background: #f8fafc; color: #475569; width: 35%; font-weight: 600; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 12px; }
+        .sign { display: flex; justify-content: space-between; margin-top: 50px; }
+        .sign-b { text-align: center; width: 220px; }
+        .line { border-top: 1px solid #475569; margin-bottom: 6px; }
+        .btn { background: #0f172a; color: #fff; border: none; padding: 8px 18px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; margin-bottom: 16px; }
+        @media print { .no-print { display: none !important; } body { margin: 20px; } }
+      </style>
+    </head>
+    <body>
+      <div class="no-print" style="text-align: right;">
+        <button class="btn" onclick="window.print()">🖨️ Print Requisition Slip</button>
+      </div>
+      <div class="header">
+        <div class="title">Blood Component Transfusion & Compatibility Requisition</div>
+        <div class="sub">Department of Transfusion Medicine & Blood Center</div>
+      </div>
+      <table>
+        <tr>
+          <th>Requisition / Unit ID</th>
+          <td><strong>${b.unitId}</strong></td>
+        </tr>
+        <tr>
+          <th>Patient Name</th>
+          <td><strong>${b.reservedFor || 'Unassigned / General Stock'}</strong></td>
+        </tr>
+        <tr>
+          <th>Blood Group & Rh</th>
+          <td><span style="font-size: 16px; font-weight: 800; color: #b91c1c;">${b.group}</span></td>
+        </tr>
+        <tr>
+          <th>Component Type</th>
+          <td><strong>${b.component}</strong></td>
+        </tr>
+        <tr>
+          <th>Indication / Procedure</th>
+          <td>${b.screening}</td>
+        </tr>
+        <tr>
+          <th>Requisition Info</th>
+          <td>${b.collected}</td>
+        </tr>
+        <tr>
+          <th>Expiry / Target Hour</th>
+          <td>${b.expiry}</td>
+        </tr>
+        <tr>
+          <th>Storage Location</th>
+          <td>${b.storage}</td>
+        </tr>
+        <tr>
+          <th>Compatibility & Status</th>
+          <td><span class="badge" style="background: #dcfce7; color: #15803d;">${b.status}</span></td>
+        </tr>
+      </table>
+      <div class="sign">
+        <div class="sign-b">
+          <div class="line"></div>
+          <div><strong>Blood Bank Medical Officer</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Transfusion Medicine Service</div>
+        </div>
+        <div class="sign-b" style="border: 2px dashed #cbd5e1; padding: 10px; border-radius: 4px;">
+          <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Transfusion Medicine Division</div>
+          <div style="font-size: 10px; color: #64748b;">Authenticated Official Seal</div>
+        </div>
+        <div class="sign-b">
+          <div class="line"></div>
+          <div><strong>Transfusion Nurse / Ward Incharge</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Bedside Verification Sign-off</div>
+        </div>
+      </div>
+      <script>
+        window.onload = function() {
+          setTimeout(function() { window.print(); }, 400);
+        };
+      </script>
+    </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
 }
 
 // -----------------------------------------------------------------------------
 // 7. BLOOD BANK (bloodbank)
 // -----------------------------------------------------------------------------
-const BLOOD_INVENTORY = [
-  { group: 'O Positive (O+)', prbc: 18, ffp: 12, platelets: 6, reserved: 3, status: 'Adequate' },
-  { group: 'A Positive (A+)', prbc: 14, ffp: 8, platelets: 4, reserved: 2, status: 'Adequate' },
-  { group: 'B Positive (B+)', prbc: 16, ffp: 10, platelets: 5, reserved: 1, status: 'Adequate' },
-  { group: 'AB Positive (AB+)', prbc: 6, ffp: 4, platelets: 2, reserved: 0, status: 'Adequate' },
-  { group: 'O Negative (O-)', prbc: 3, ffp: 2, platelets: 1, reserved: 2, status: 'Critical Reserve' },
-  { group: 'A Negative (A-)', prbc: 4, ffp: 2, platelets: 1, reserved: 0, status: 'Low Stock' },
-  { group: 'B Negative (B-)', prbc: 2, ffp: 1, platelets: 0, reserved: 1, status: 'Critical Reserve' },
-];
-
 export function BloodBankView({ onOpenDrawer, onOpenModal }) {
-  const handleBbClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('All');
+
+  const loadBloodData = async () => {
+    setLoading(true);
+    try {
+      const res = await apiService.getBloodInventory();
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          unitId: r.unit_id || '',
+          group: r.blood_group || '',
+          component: r.component_type || '',
+          collected: r.collected_info || '',
+          expiry: r.expiry_info || '',
+          screening: r.screening_notes || '',
+          storage: r.storage_location || '—',
+          reservedFor: r.reserved_for || '—',
+          status: r.status || 'Active · available'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load blood inventory:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBloodData();
+  }, []);
+
+  const handleRowClick = (b) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `Blood Inventory: ${row.group}`,
-      sub: `PRBC: ${row.prbc} units · FFP: ${row.ffp} units · Platelets: ${row.platelets} bags`,
+      title: `${b.unitId} · ${b.group} ${b.component}`,
+      sub: `Reserved For: ${b.reservedFor} | Storage: ${b.storage}`,
       badges: [
-        { t: row.status, bg: row.status === 'Adequate' ? '#dcfce7' : '#fee2e2', fg: row.status === 'Adequate' ? '#15803d' : '#991b1b' }
+        {
+          t: b.status,
+          bg: b.status.includes('available') || b.status === 'Completed' ? '#dcfce7' : b.status.includes('reserved') ? '#f1f5f9' : b.status.includes('requested') || b.status === 'Quarantine' ? '#fef3c7' : '#fee2e2',
+          fg: b.status.includes('available') || b.status === 'Completed' ? '#15803d' : b.status.includes('reserved') ? '#475569' : b.status.includes('requested') || b.status === 'Quarantine' ? '#92400e' : '#dc2626'
+        }
       ],
       facts: [
-        { k: 'ABO / Rh Group', v: row.group, b: true },
-        { k: 'Packed Cells (PRBC)', v: `${row.prbc} units` },
-        { k: 'Fresh Frozen Plasma', v: `${row.ffp} units` },
-        { k: 'Platelets Concentrate', v: `${row.platelets} bags` },
-        { k: 'Reserved for Active OT', v: `${row.reserved} units` },
-        { k: 'Stock Disposition', v: row.status }
+        { k: 'Unit / Requisition ID', v: b.unitId, b: true },
+        { k: 'ABO & Rh Blood Group', v: b.group, b: true },
+        { k: 'Blood Component', v: b.component, b: true },
+        { k: 'Collection / Request Info', v: b.collected },
+        { k: 'Expiry / Target Time', v: b.expiry },
+        { k: 'Screening & Cross-Match', v: b.screening },
+        { k: 'Cold-Chain Storage Location', v: b.storage },
+        { k: 'Reserved Patient', v: b.reservedFor },
+        { k: 'Status', v: b.status }
       ],
       actions: [
-        { label: 'Issue Units to OT', primary: true, on: () => alert(`Issued unit of ${row.group} to OT`) },
-        { label: 'Notify Voluntary Donors' }
+        {
+          label: 'Issue Blood Unit for Transfusion',
+          primary: true,
+          on: async () => {
+            try {
+              if (b.unitId) {
+                await apiService.updateBloodUnit(b.unitId, { status: 'Transfused · Completed' });
+                const updated = { ...b, status: 'Transfused · Completed' };
+                setData(prev => prev.map(item => item.unitId === b.unitId ? updated : item));
+                handleRowClick(updated);
+              }
+            } catch (e) {
+              console.error(e);
+              alert('Error updating blood unit in database');
+            }
+          }
+        },
+        {
+          label: 'Cross-Match & Reserve Unit',
+          on: async () => {
+            try {
+              if (b.unitId) {
+                await apiService.updateBloodUnit(b.unitId, { status: 'Cross-matched · reserved' });
+                const updated = { ...b, status: 'Cross-matched · reserved' };
+                setData(prev => prev.map(item => item.unitId === b.unitId ? updated : item));
+                handleRowClick(updated);
+              }
+            } catch (e) {
+              console.error(e);
+              alert('Error updating blood unit in database');
+            }
+          }
+        },
+        {
+          label: '🖨️ Print Transfusion Requisition Slip',
+          on: () => printBloodRequisitionSlip(b)
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No blood bank data to export.');
+    const headers = ['Unit ID', 'Blood Group', 'Component', 'Collected', 'Expiry', 'Screening Notes', 'Storage Location', 'Reserved For', 'Status'];
+    const rows = data.map(d => [
+      d.unitId, d.group, d.component, `"${d.collected}"`, `"${d.expiry}"`, `"${d.screening}"`, `"${d.storage}"`, `"${d.reservedFor}"`, `"${d.status}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `blood_bank_inventory_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Dynamic Metrics derived directly from live database records
+  const requestsOpenCount = data.filter(d => d.unitId.startsWith('BR-') && !d.status.includes('Completed') && !d.status.includes('Transfused')).length;
+  const availableUnitsCount = data.filter(d => d.status.includes('available')).length;
+  const reservedCount = data.filter(d => d.status.includes('reserved')).length;
+  const quarantineCount = data.filter(d => d.status.includes('Quarantine')).length;
+  const expiredCount = data.filter(d => d.status.includes('Expired') || d.status.includes('Discarded')).length;
+  const oNegAvailableCount = data.filter(d => d.group === 'O-' && d.status.includes('available')).length;
+
+  // Dynamic Requisition Notice Banner
+  const activeRequestsBanner = useMemo(() => {
+    const reqs = data.filter(d => d.unitId.startsWith('BR-'));
+    if (reqs.length === 0) return 'No active requisitions pending.';
+    return reqs.slice(0, 4).map(r => `${r.unitId} · ${r.reservedFor} · ${r.group} ${r.component} · ${r.status}`).join(' | ');
+  }, [data]);
+
+  // Filter & Search
+  const filtered = data.filter(item => {
+    const matchesSearch =
+      item.unitId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.group.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.component.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.screening.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.storage.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.reservedFor.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.status.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'Available') return item.status.includes('available');
+    if (selectedFilter === 'Reserved') return item.status.includes('reserved');
+    if (selectedFilter === 'Issued') return item.status.includes('Issued');
+    if (selectedFilter === 'Transfused') return item.status === 'Completed' || item.status.includes('Transfused');
+    if (selectedFilter === 'Quarantine') return item.status === 'Quarantine';
+    if (selectedFilter === 'Expired') return item.status === 'Expired';
+    if (selectedFilter === 'Discarded') return item.status === 'Discarded';
+    return true;
+  });
+
+  const filterOptions = ['All', 'Available', 'Reserved', 'Issued', 'Transfused', 'Quarantine', 'Expired', 'Discarded'];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Blood Bank Component Inventory & Cross-Match"
-        subtitle="Licensed blood bank storage, component separation units, cross-match reservations and voluntary donor registry"
-        count={BLOOD_INVENTORY.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendors', title: 'Add Blood Bank Supplier / Donor Org' })}
-        newLabel="+ Request Units"
-        onExport={() => alert('Exported blood bank inventory')}
-      />
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Total Packed Cells (PRBC)" value="63 Units" sub="4°C Monitored Refrigeration" color="#dc2626" />
-        <StatCard label="Fresh Frozen Plasma" value="39 Units" sub="-30°C Cryopreserved" color="#0284c7" />
-        <StatCard label="Platelet Concentrates" value="19 Bags" sub="Agitator incubator 22°C" color="#d97706" />
-        <StatCard label="Active Cross-Match Requests" value="9 Units" sub="2 Units reserved for OT-03" color="#059669" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Blood Bank
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Blood bank
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Request → compatibility → cross-match → reserve → issue → transfusion → reaction record → traceability · expired units are discarded, never issued
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Blood Group</th>
-              <th style={{ padding: '10px 14px' }}>PRBC Units</th>
-              <th style={{ padding: '10px 14px' }}>FFP Units</th>
-              <th style={{ padding: '10px 14px' }}>Platelet Bags</th>
-              <th style={{ padding: '10px 14px' }}>Reserved for Surgery</th>
-              <th style={{ padding: '10px 14px' }}>Stock Alert</th>
-              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {BLOOD_INVENTORY.map(row => (
-              <tr key={row.group} onClick={() => handleBbClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, fontSize: '13px' }}>{row.group}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.prbc} units</td>
-                <td style={{ padding: '10px 14px' }}>{row.ffp} units</td>
-                <td style={{ padding: '10px 14px' }}>{row.platelets} bags</td>
-                <td style={{ padding: '10px 14px', color: '#0369a1' }}>{row.reserved} units</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Critical Reserve' ? '#fee2e2' : row.status === 'Low Stock' ? '#fef3c7' : '#dcfce7',
-                    row.status === 'Critical Reserve' ? '#991b1b' : row.status === 'Low Stock' ? '#92400e' : '#166534'
-                  )}>
-                    ● {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <button type="button" onClick={() => alert(`Initiated donor call / request for ${row.group}`)} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>
-                    Request Stock
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
       </div>
+
+      {/* Cyan / Light Blue Requisition Notice Banner */}
+      <div style={{
+        background: '#ecfeff',
+        border: '1px solid #a5f3fc',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        color: '#0e7490',
+        fontSize: '12.5px',
+        fontWeight: 500,
+        lineHeight: '1.4'
+      }}>
+        <strong>Requests:</strong> {activeRequestsBanner} — click any request in the table below to cross-match or issue for transfusion.
+      </div>
+
+      {/* 6 Top Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Requests open</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{requestsOpenCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Available units</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{availableUnitsCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Reserved</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{reservedCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Quarantine (screening)</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{quarantineCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Expired / wastage</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{expiredCount}</div>
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>O- available</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#15803d' }}>{oNegAvailableCount}</div>
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {filterOptions.map(f => {
+          const isSelected = selectedFilter === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setSelectedFilter(f)}
+              style={{
+                padding: '5px 14px',
+                borderRadius: '16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: isSelected ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              {f}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Live Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live blood bank units from PostgreSQL..." />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No Blood Units Found"
+          description="There are currently no blood units matching your query or filter."
+          onAction={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'blood_requests', title: 'Raise Emergency Blood Requisition' })}
+          actionLabel="+ Request Blood"
+        />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '980px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>UNIT</th>
+                <th style={{ padding: '12px 14px' }}>GROUP</th>
+                <th style={{ padding: '12px 14px' }}>COMPONENT</th>
+                <th style={{ padding: '12px 14px' }}>COLLECTED</th>
+                <th style={{ padding: '12px 14px' }}>EXPIRY</th>
+                <th style={{ padding: '12px 14px' }}>SCREENING</th>
+                <th style={{ padding: '12px 14px' }}>STORAGE</th>
+                <th style={{ padding: '12px 14px' }}>RESERVED FOR</th>
+                <th style={{ padding: '12px 14px' }}>STATUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(row => {
+                const isCrossMatched = row.status.includes('Cross-matched');
+                const isRequested = row.status.includes('requested');
+                const isCompleted = row.status === 'Completed';
+                const isAvailable = row.status.includes('available');
+                const isQuarantine = row.status === 'Quarantine';
+                const isExpired = row.status === 'Expired';
+                const isDiscarded = row.status === 'Discarded';
+
+                return (
+                  <tr
+                    key={row.id || row.unitId}
+                    onClick={() => handleRowClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.unitId}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.group}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155', fontWeight: 500 }}>
+                      {row.component}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: row.collected.includes('REQUEST') ? '#0f172a' : '#64748b', fontWeight: row.collected.includes('REQUEST') ? 600 : 400 }}>
+                      {row.collected}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                      {row.expiry}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155' }}>
+                      {row.screening}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                      {row.storage}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontWeight: row.reservedFor !== '—' ? 600 : 400 }}>
+                      {row.reservedFor}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: isAvailable || isCompleted ? '#dcfce7' : isCrossMatched ? '#f1f5f9' : isRequested ? '#fef3c7' : isQuarantine ? '#fef9c3' : isExpired ? '#fee2e2' : '#e2e8f0',
+                        color: isAvailable || isCompleted ? '#15803d' : isCrossMatched ? '#475569' : isRequested ? '#92400e' : isQuarantine ? '#854d0e' : isExpired ? '#991b1b' : '#475569',
+                        padding: '3px 10px',
+                        borderRadius: '4px',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        display: 'inline-block',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {row.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -964,22 +4293,25 @@ const BILLING_RECORDS = [
 export function BillingView({ onOpenDrawer, onOpenModal }) {
   const handleBillClick = (row) => {
     if (!onOpenDrawer) return;
+    const tot = Number(row.total) || 0;
+    const tpa = Number(row.tpa) || 0;
+    const ptShare = Number(row.patientShare) || 0;
     onOpenDrawer({
-      title: `${row.inv} · ${row.patient}`,
-      sub: `Gross: ₹${row.total.toLocaleString()} · Insurance: ₹${row.tpa.toLocaleString()} · Due: ₹${row.patientShare.toLocaleString()}`,
+      title: `${row.inv || 'INV'} · ${row.patient || 'Patient'}`,
+      sub: `Gross: ₹${tot.toLocaleString()} · Insurance: ₹${tpa.toLocaleString()} · Due: ₹${ptShare.toLocaleString()}`,
       badges: [
-        { t: row.status, bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
+        { t: row.status || 'Active', bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
       ],
       facts: [
         { k: 'Invoice Number', v: row.inv, b: true },
         { k: 'Patient Name', v: row.patient, b: true },
         { k: 'UHID / MRN', v: row.uhid },
         { k: 'Admission Encounter', v: row.adm },
-        { k: 'Total Gross Amount', v: `₹${row.total.toLocaleString()}` },
-        { k: 'Insurance / TPA Share', v: `₹${row.tpa.toLocaleString()}` },
-        { k: 'Patient Co-Pay Balance', v: `₹${row.patientShare.toLocaleString()}` },
+        { k: 'Total Gross Amount', v: `₹${tot.toLocaleString()}` },
+        { k: 'Insurance / TPA Share', v: `₹${tpa.toLocaleString()}` },
+        { k: 'Patient Co-Pay Balance', v: `₹${ptShare.toLocaleString()}` },
         { k: 'Pharmacy Clearance', v: row.pharmacyClear ? 'Cleared' : 'Pending' },
-        { k: 'Financial Status', v: row.status }
+        { k: 'Financial Status', v: row.status || 'Active' }
       ],
       actions: [
         { label: 'Issue Discharge Gate Pass', primary: true, on: () => alert(`Gate pass issued for ${row.patient}`) },
@@ -1027,9 +4359,9 @@ export function BillingView({ onOpenDrawer, onOpenModal }) {
                   <div style={{ fontWeight: 600 }}>{row.patient}</div>
                   <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
                 </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{row.total.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#059669' }}>₹{row.tpa.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>₹{row.patientShare.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{(Number(row.total) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#059669' }}>₹{(Number(row.tpa) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>₹{(Number(row.patientShare) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   {row.pharmacyClear ? <span style={{ color: '#059669', fontWeight: 700 }}>✓ Cleared</span> : <span style={{ color: '#d97706', fontWeight: 600 }}>⏳ Due</span>}
                 </td>
@@ -1079,9 +4411,9 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
         { k: 'Patient Name', v: row.patient, b: true },
         { k: 'TPA / Insurer', v: row.tpa },
         { k: 'Policy Number', v: row.policy },
-        { k: 'Sum Insured', v: `₹${row.sumInsured.toLocaleString()}` },
-        { k: 'Initial Auth', v: `₹${row.initialAuth.toLocaleString()}` },
-        { k: 'Final Claimed', v: `₹${row.finalClaimed.toLocaleString()}` },
+        { k: 'Sum Insured', v: `₹${(Number(row.sumInsured) || 0).toLocaleString()}` },
+        { k: 'Initial Auth', v: `₹${(Number(row.initialAuth) || 0).toLocaleString()}` },
+        { k: 'Final Claimed', v: `₹${(Number(row.finalClaimed) || 0).toLocaleString()}` },
         { k: 'Turnaround Time', v: row.turnaround },
         { k: 'Pre-auth Status', v: row.status }
       ],
@@ -1135,7 +4467,7 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient}</td>
                 <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 600 }}>{row.tpa}</td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{row.policy}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>₹{row.finalClaimed.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700 }}>₹{(Number(row.finalClaimed) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
                     row.status.includes('Approved') ? '#dcfce7' : row.status.includes('Query') ? '#fee2e2' : '#fef3c7',
@@ -1157,169 +4489,1231 @@ export function InsuranceView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 11. SBAR WARD HANDOVER (sbar)
 // -----------------------------------------------------------------------------
-const SBAR_DATA = [
-  { bed: 'Bed 201-A', patient: 'Saanvier Parthalan, 84F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Type 2 DM with DKA, 3 days inpatient, blood sugar normalized (118 mg/dL).', background: 'Admitted with random BG 384 mg/dL. IV insulin infusion transitioned to subcutaneous regimen.', assessment: 'Hemodynamically stable, ketones negative. Billing cleared. Awaiting final discharge summary sign-off.', recommendation: 'Ensure patient takes light breakfast. Deliver discharge medication package once physician signs summary.' },
-  { bed: 'Bed 202-B', patient: 'Kavitha Raman, 58F', nurse: 'Anitha Kumar -> Selvi K.', situation: 'Post-PTCA Day 2, femoral puncture site stable, dual antiplatelets active.', background: 'Presented with acute angina and hs-Troponin 53.2 pg/mL. Stented with drug-eluting stent in LAD.', assessment: 'No chest pain, puncture site clean. TPA final approval pending.', recommendation: 'Maintain telemetry monitoring until noon. Follow up with MediAssist coordinator.' },
-];
-
 export function SbarView({ onOpenDrawer, onOpenModal }) {
-  const handleSbarClick = (item) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(1);
+  const [generatingBed, setGeneratingBed] = useState(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg, isErr = false) => {
+    setToast({ msg, isErr });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const loadData = async (forceFresh = false) => {
+    setLoading(true);
+    try {
+      if (forceFresh) {
+        apiService.clearCache();
+      }
+      // Use dedicated nursing agent beds API (up to 300 to cover all active inpatients), with graceful fallback
+      const agentRes = await apiService.getNursingAgentBeds({ limit: 300 }).catch(() => null);
+      const res = (agentRes?.data && agentRes.data.length > 0)
+        ? agentRes
+        : await apiService.getSbarHandovers({ forceRefresh: forceFresh }).catch(() => ({ data: [] }));
+
+      if (res?.data && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          bed: r.bed_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          ageGender: r.age_gender || '',
+          ews: r.ews || (r.ews_score != null ? `Score ${r.ews_score}` : ''),
+          marDue: r.mar_due || '',
+          lastHandover: r.last_handover_time || '',
+          fromNurse: r.from_nurse || '',
+          toNurse: r.to_nurse || '',
+          situation: r.situation || '',
+          background: r.background || '',
+          assessment: r.assessment || '',
+          recommendation: r.recommendation || '',
+          sbarFull: r.sbar_full || (r.situation ? `S: ${r.situation} B: ${r.background} A: ${r.assessment} R: ${r.recommendation}` : 'No handover recorded'),
+          status: r.status || (r.sbar_full?.includes('No handover') ? 'Missing' : 'Stale'),
+          handoverShift: r.handover_shift || 'Morning (07:00 - 15:00)',
+          acknowledged: r.acknowledged ?? false,
+          wardName: r.ward_name || '',
+          highAlertCount: r.high_alert_meds_count || 0,
+          hr: r.hr,
+          bp: r.bp,
+          spo2: r.spo2,
+          temp: r.temp,
+          rr: r.rr
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load SBAR handovers:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleGenerateSingle = async (row) => {
+    if (!row.bed) return;
+    setGeneratingBed(row.bed);
+    try {
+      const res = await apiService.generateNursingSbar({
+        bed_no: row.bed,
+        shift_name: row.handoverShift || 'Morning (07:00 - 15:00)'
+      });
+      showToast(`✨ SBAR drafted for ${row.bed} (${row.patient}) using openai/gpt-oss-120b on Groq!`);
+      await loadData();
+    } catch (err) {
+      console.error("AI Generation failed:", err);
+      showToast(`AI generation error: ${err.message || 'Check connection'}`, true);
+    } finally {
+      setGeneratingBed(null);
+    }
+  };
+
+  const handleBatchGenerate = async (statusFilter = null) => {
+    setBatchRunning(true);
+    try {
+      const res = await apiService.batchGenerateNursingSbar({
+        status_filter: statusFilter,
+        shift_name: 'Morning (07:00 - 15:00)',
+        limit: 15
+      });
+      const succ = res?.data?.successful_generations || 0;
+      showToast(`✨ Batch completed: ${succ} beds pre-drafted by AG-18 (openai/gpt-oss-120b)!`);
+      await loadData();
+    } catch (err) {
+      console.error("Batch SBAR generation failed:", err);
+      showToast(`Batch drafting error: ${err.message}`, true);
+    } finally {
+      setBatchRunning(false);
+    }
+  };
+
+  const handleAcknowledgeSingle = async (row) => {
+    if (!row.id) return;
+    try {
+      await apiService.acknowledgeNursingHandover(row.id, {
+        nurse_name: row.toNurse || 'Deepa Krishnan, RN'
+      });
+      showToast(`✓ Shift handover for ${row.bed} accepted & signed off by bedside nurse.`);
+      await loadData();
+    } catch (err) {
+      console.error("Acknowledgment error:", err);
+      showToast(`Sign-off error: ${err.message}`, true);
+    }
+  };
+
+  const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
+    const isMissing = row.status === 'Missing' || !row.situation;
     onOpenDrawer({
-      title: `${item.bed} · ${item.patient}`,
-      sub: `Handover by: ${item.nurse}`,
-      badges: [{ t: 'SBAR Handover', bg: '#e0f2fe', fg: '#0369a1' }],
+      title: `${row.bed ? row.bed + ' · ' : ''}${row.patient}`,
+      sub: row.lastHandover ? `Last Shift Handover: ${row.lastHandover}` : 'No handover on file for this patient',
+      badges: [
+        {
+          t: row.status,
+          bg: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#fef3c7',
+          fg: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#b45309'
+        },
+        ...(row.highAlertCount > 0 ? [{ t: `⚠️ ${row.highAlertCount} High-Alert Meds`, bg: '#fee2e2', fg: '#b91c1c' }] : []),
+        ...(row.ews ? [{ t: `EWS: ${row.ews}`, bg: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#dcfce7' : '#fee2e2', fg: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#15803d' : '#dc2626' }] : []),
+        ...(row.marDue ? [{ t: `MAR: ${row.marDue}`, bg: '#fef3c7', fg: '#b45309' }] : [])
+      ],
       facts: [
-        { k: 'Bed Assignment', v: item.bed, b: true },
-        { k: 'Patient Name', v: item.patient, b: true },
-        { k: 'Handover Nurses', v: item.nurse },
-        { k: 'Situation (S)', v: item.situation },
-        { k: 'Background (B)', v: item.background },
-        { k: 'Assessment (A)', v: item.assessment },
-        { k: 'Recommendation (R)', v: item.recommendation }
+        { k: 'Bed & Ward Location', v: `${row.bed || '—'} · ${row.wardName || 'Inpatient Care'}`, b: true },
+        { k: 'Patient Name & UHID', v: `${row.patient} (${row.uhid || '—'})`, b: true },
+        { k: 'Age & Gender', v: row.ageGender || 'Adult' },
+        { k: 'Handover Shift', v: row.handoverShift || 'Morning (07:00 - 15:00)' },
+        { k: 'Outgoing Nurse', v: row.fromNurse || 'Anitha Kumar, RN' },
+        { k: 'Incoming (Receiving) Nurse', v: row.toNurse || 'Deepa Krishnan, RN' },
+        { k: 'Shift Vitals & EWS', v: row.bp ? `BP ${row.bp} mmHg · HR ${row.hr} bpm · SpO2 ${row.spo2}% · Temp ${row.temp}°F · RR ${row.rr}` : 'Vitals logged on bedside monitor' },
+        { k: 'High-Alert Medications', v: row.highAlertCount > 0 ? `⚠️ ${row.highAlertCount} active (Insulin/Heparin/Vancomycin/Narcotics dual-check required)` : 'None active' },
+        { k: 'Situation (S)', v: row.situation || (isMissing ? 'No situation recorded yet' : '') },
+        { k: 'Background (B)', v: row.background || (isMissing ? 'No background recorded yet' : '') },
+        { k: 'Assessment (A)', v: row.assessment || (isMissing ? 'No assessment recorded yet' : '') },
+        { k: 'Recommendation (R)', v: row.recommendation || (isMissing ? 'No recommendation recorded yet' : '') }
       ],
       actions: [
-        { label: 'Acknowledge Shift Handover', primary: true, on: () => alert(`Handover acknowledged for ${item.patient}`) },
-        { label: 'Print SBAR Card' }
+        {
+          label: '✨ AI Draft with AG-18 (openai/gpt-oss-120b)',
+          primary: true,
+          on: async () => {
+            await handleGenerateSingle(row);
+          }
+        },
+        {
+          label: '✓ Acknowledge & Sign Off Handover',
+          on: async () => {
+            await handleAcknowledgeSingle(row);
+          }
+        },
+        {
+          label: 'Manual Edit Note',
+          on: () => {
+            const sit = prompt('Enter [S] Situation:', row.situation || '');
+            if (!sit) return;
+            const bg = prompt('Enter [B] Background:', row.background || '');
+            const ass = prompt('Enter [A] Assessment:', row.assessment || 'stable, vitals normal');
+            const rec = prompt('Enter [R] Recommendation:', row.recommendation || 'continue clinical plan');
+            const nurse = prompt('Enter Your Nurse Name:', 'Sheela J, RN');
+
+            const sbarFull = `S: ${sit} B: ${bg} A: ${ass} R: ${rec}`;
+            const timeStr = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${nurse}`;
+
+            apiService.updateSbarHandover(row.id, {
+              situation: sit,
+              background: bg,
+              assessment: ass,
+              recommendation: rec,
+              sbar_full: sbarFull,
+              from_nurse: nurse,
+              last_handover_time: timeStr,
+              status: 'Current'
+            }).then(() => {
+              loadData();
+              showToast(`SBAR Handover updated for ${row.patient}`);
+            }).catch(err => {
+              console.error(err);
+              loadData();
+            });
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No SBAR handover records to export.');
+    const headers = ['Bed', 'Patient', 'UHID', 'Ward', 'EWS', 'High-Alert', 'MAR Due', 'Last Handover', 'SBAR', 'Status'];
+    const rows = data.map(d => [
+      `"${d.bed}"`, `"${d.patient}"`, `"${d.uhid}"`, `"${d.wardName}"`, `"${d.ews || '—'}"`, `"${d.highAlertCount}"`, `"${d.marDue || '—'}"`, `"${d.lastHandover || '—'}"`, `"${d.sbarFull}"`, `"${d.status}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `ward_sbar_handovers_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics calculation
+  const totalPatients = data.length;
+  const handoverRecordedThisShift = data.filter(d => d.status === 'Current').length;
+  const noHandoverCount = data.filter(d => d.status === 'Missing' || !d.sbarFull || d.sbarFull.includes('No handover')).length;
+  const staleCount = data.filter(d => d.status === 'Stale').length;
+  const highAlertBedsCount = data.filter(d => d.highAlertCount > 0).length;
+  const ewsHighCount = data.filter(d => {
+    if (!d.ews) return false;
+    const num = parseInt(d.ews.replace(/\D/g, ''), 10);
+    return !isNaN(num) && num >= 3;
+  }).length;
+
+  // Filtered rows & pagination
+  const filtered = data.filter(item => {
+    const q = searchQuery.toLowerCase();
+    return (
+      item.bed.toLowerCase().includes(q) ||
+      item.patient.toLowerCase().includes(q) ||
+      item.wardName.toLowerCase().includes(q) ||
+      item.ews.toLowerCase().includes(q) ||
+      item.marDue.toLowerCase().includes(q) ||
+      item.lastHandover.toLowerCase().includes(q) ||
+      item.sbarFull.toLowerCase().includes(q) ||
+      item.status.toLowerCase().includes(q)
+    );
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Ward Clinical Handover · SBAR Protocol"
-        subtitle="Situation, Background, Assessment, Recommendation shift-to-shift nurse and doctor handover cards"
-        count={SBAR_DATA.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Add SBAR Shift Handover Note', text: 'Enter patient bed, current status, and key clinical handoff recommendations:' })}
-        newLabel="+ New Handover"
-        onExport={() => alert('Exported SBAR handover log')}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {SBAR_DATA.map((item, idx) => (
-          <div
-            key={idx}
-            onClick={() => handleSbarClick(item)}
-            style={{ ...cardStyle, cursor: 'pointer', transition: 'border-color 0.15s, transform 0.1s' }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = 'oklch(0.5 0.1 200)'}
-            onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginBottom: '12px' }}>
-              <div>
-                <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f766e' }}>{item.bed}</span>
-                <strong style={{ fontSize: '14px', color: '#0f172a', marginLeft: '8px' }}>{item.patient}</strong>
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Handover: <strong>{item.nurse}</strong>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '24px',
+          zIndex: 9999,
+          padding: '12px 20px',
+          borderRadius: '8px',
+          background: toast.isErr ? '#ef4444' : '#0f766e',
+          color: '#ffffff',
+          fontWeight: 600,
+          fontSize: '13px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          animation: 'fadeIn 0.2s ease-in'
+        }}>
+          <span>{toast.msg}</span>
+        </div>
+      )}
+
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Ward Handover (SBAR)
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Ward handover · SBAR · Inpatients
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Autonomous shift handover pre-drafting (AG-18) with EWS and MAR verification. Nurses review pre-drafted SBAR cards at bedside in 2 minutes.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search by patient, bed, ward, EWS..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
+        <button
+          type="button"
+          onClick={() => loadData(true)}
+          style={{
+            padding: '7px 14px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#f8fafc',
+            color: '#475569',
+            cursor: 'pointer'
+          }}
+        >
+          🔄 Refresh
+        </button>
+      </div>
+
+      {/* Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Total Beds</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '56px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Current SBARs</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Stale SBARs</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{staleCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Missing SBARs</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>High-Alert Meds</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#b91c1c' }}>{highAlertBedsCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>EWS ≥ 3</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
+          )}
+        </div>
+      </div>
+
+      {/* Data Table */}
+      {loading ? (
+        <LoadingState label="Fetching live SBAR handovers from PostgreSQL..." />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '1050px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px', width: '85px' }}>BED</th>
+                <th style={{ padding: '12px 14px', width: '160px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px', width: '85px' }}>EWS</th>
+                <th style={{ padding: '12px 14px', width: '105px' }}>HA MEDS</th>
+                <th style={{ padding: '12px 14px', width: '90px' }}>MAR DUE</th>
+                <th style={{ padding: '12px 14px', width: '130px' }}>LAST HANDOVER</th>
+                <th style={{ padding: '12px 14px' }}>SBAR SUMMARY (AI DRAFTED)</th>
+                <th style={{ padding: '12px 14px', width: '85px' }}>STATUS</th>
+                <th style={{ padding: '12px 14px', width: '140px', textAlign: 'center' }}>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px', marginBottom: '4px' }}>
+                      Nothing matches
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '12.5px' }}>
+                      No handover records match this search. Clear the search input.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                paginatedRows.map(row => {
+                  const isMissing = row.status === 'Missing' || !row.situation;
+                  const isGeneratingThis = generatingBed === row.bed;
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => handleRowClick(row)}
+                      style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                        {row.bed || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{row.patient}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid} {row.wardName ? `· ${row.wardName}` : ''}</div>
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        {row.ews ? (
+                          <span style={{
+                            background: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#dcfce7' : '#fee2e2',
+                            color: row.ews.includes('Normal') || row.ews.includes('0') || row.ews.includes('1') ? '#15803d' : '#dc2626',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600
+                          }}>
+                            {row.ews}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        {row.highAlertCount > 0 ? (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: '#fef2f2',
+                            color: '#b91c1c',
+                            border: '1px solid #fecaca',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 700
+                          }}>
+                            ⚠️ {row.highAlertCount} Alert
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '11px' }}>Clear</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: row.marDue ? '#b45309' : '#94a3b8', fontWeight: row.marDue ? 600 : 400, fontSize: '11.5px' }}>
+                        {row.marDue || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: row.lastHandover ? '#0f172a' : '#94a3b8', fontSize: '11.5px' }}>
+                        {row.lastHandover || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', lineHeight: '1.4' }}>
+                        {isMissing ? (
+                          <span style={{ color: '#dc2626', fontWeight: 500, fontSize: '11.5px' }}>
+                            ● No handover on file
+                          </span>
+                        ) : (
+                          <div style={{ color: '#334155', fontSize: '11.5px', maxHeight: '42px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {row.sbarFull}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{
+                          background: row.status === 'Current' ? '#dcfce7' : row.status === 'Missing' ? '#fee2e2' : '#fef3c7',
+                          color: row.status === 'Current' ? '#15803d' : row.status === 'Missing' ? '#dc2626' : '#b45309',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: 600
+                        }}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            disabled={isGeneratingThis}
+                            onClick={() => handleGenerateSingle(row)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 9px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              background: isGeneratingThis ? '#f1f5f9' : '#ffffff',
+                              color: '#0f766e',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: isGeneratingThis ? 'wait' : 'pointer',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                            }}
+                            title="Auto-draft SBAR with AG-18 (openai/gpt-oss-120b on Groq)"
+                          >
+                            {isGeneratingThis ? 'Drafting…' : '✨ AI Draft'}
+                          </button>
+                          {!row.acknowledged && row.status === 'Current' && (
+                            <button
+                              type="button"
+                              onClick={() => handleAcknowledgeSingle(row)}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #bbf7d0',
+                                background: '#f0fdf4',
+                                color: '#15803d',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer'
+                              }}
+                              title="Bedside Nurse Sign-off & Handover Acceptance"
+                            >
+                              Sign Off
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+
+          {/* Footer Info Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderTop: '1px solid #e2e8f0',
+            background: '#ffffff',
+            fontSize: '12px',
+            color: '#64748b',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span>Page {currentPage} of {totalPages} · {filtered.length} live inpatient beds</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: currentPage <= 1 ? '#cbd5e1' : '#334155',
+                    cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600
+                  }}
+                >
+                  ◀ Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  style={{
+                    padding: '3px 9px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: currentPage >= totalPages ? '#cbd5e1' : '#334155',
+                    cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600
+                  }}
+                >
+                  Next ▶
+                </button>
               </div>
             </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', fontSize: '12px', lineHeight: 1.5 }}>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #0284c7' }}>
-                <strong style={{ color: '#0284c7', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[S] Situation</strong>
-                {item.situation}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #64748b' }}>
-                <strong style={{ color: '#475569', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[B] Background</strong>
-                {item.background}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #d97706' }}>
-                <strong style={{ color: '#d97706', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[A] Assessment</strong>
-                {item.assessment}
-              </div>
-              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', borderLeft: '3px solid #059669' }}>
-                <strong style={{ color: '#059669', textTransform: 'uppercase', fontSize: '11px', display: 'block', marginBottom: '4px' }}>[R] Recommendation</strong>
-                {item.recommendation}
-              </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span>Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                style={{ padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// 12. DEATH & MLC REGISTER (deathmlc)
-// -----------------------------------------------------------------------------
-const MLC_RECORDS = [
-  { mlcNo: 'MLC-2026-042', date: '14 Sept 2026', patient: 'Sundaram K.', age: '28M', type: 'Road Traffic Accident', station: 'Yelagiri Hills PS', io: 'SI Karunakaran', injuryReport: 'Polytrauma, fracture patella, blunt chest injury', status: 'Police Intimated & Acknowledged' },
-  { mlcNo: 'MLC-2026-041', date: '11 Sept 2026', patient: 'Ayesha Banu', age: '19F', type: 'Workplace Industrial Injury', station: 'Tirupattur Town PS', io: 'HC Natarajan', injuryReport: 'Deep flexor tendon laceration right forearm', status: 'Wound Certificate Issued' },
-  { mlcNo: 'MLC-2026-040', date: '06 Sept 2026', patient: 'Ramesh V.', age: '52M', type: 'Suspected Accidental Poisoning', station: 'Jolarpettai PS', io: 'SI Murugan', injuryReport: 'Organophosphate compound smell, gastric lavage done', status: 'Discharged - Investigation Closed' },
-];
 
+function printMccdCertificate(row) {
+  const printWindow = window.open('', '_blank', 'width=860,height=900');
+  if (!printWindow) {
+    alert('Popup blocker prevented print window from opening. Please allow popups.');
+    return;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>MCCD Form 4 - ${row.patient}</title>
+      <style>
+        body {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          margin: 40px;
+          color: #1e293b;
+          line-height: 1.5;
+        }
+        .header {
+          text-align: center;
+          border-bottom: 2px solid #0f172a;
+          padding-bottom: 16px;
+          margin-bottom: 24px;
+        }
+        .cert-title {
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 6px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+        .cert-act {
+          font-size: 12px;
+          color: #475569;
+          font-style: italic;
+          margin: 0;
+        }
+        .reg-badge {
+          display: inline-block;
+          background: #f1f5f9;
+          border: 1px solid #cbd5e1;
+          padding: 4px 12px;
+          border-radius: 4px;
+          font-weight: 700;
+          font-size: 13px;
+          margin-top: 10px;
+        }
+        .grid-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+          font-size: 13px;
+        }
+        .grid-table th, .grid-table td {
+          border: 1px solid #cbd5e1;
+          padding: 10px 14px;
+          text-align: left;
+        }
+        .grid-table th {
+          background: #f8fafc;
+          width: 32%;
+          color: #475569;
+          font-weight: 600;
+        }
+        .cause-box {
+          background: #f8fafc;
+          border: 1.5px solid #cbd5e1;
+          border-radius: 6px;
+          padding: 16px;
+          margin: 20px 0;
+        }
+        .cause-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0f172a;
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+        }
+        .cause-item {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 8px;
+          font-size: 13px;
+        }
+        .cause-label {
+          font-weight: 700;
+          color: #334155;
+          min-width: 170px;
+        }
+        .declaration {
+          font-size: 12px;
+          color: #334155;
+          font-style: italic;
+          margin: 24px 0 36px;
+          padding: 12px 16px;
+          border-left: 3px solid #0284c7;
+          background: #f0f9ff;
+        }
+        .sign-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          margin-top: 48px;
+          padding-top: 16px;
+        }
+        .sign-block {
+          text-align: center;
+          min-width: 200px;
+        }
+        .sign-line {
+          border-top: 1px solid #475569;
+          margin-bottom: 6px;
+        }
+        .print-btn {
+          background: #0f172a;
+          color: #fff;
+          border: none;
+          padding: 10px 24px;
+          font-size: 14px;
+          font-weight: 600;
+          border-radius: 6px;
+          cursor: pointer;
+          margin-bottom: 20px;
+        }
+        @media print {
+          .no-print { display: none !important; }
+          body { margin: 20px; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="no-print" style="text-align: right;">
+        <button class="print-btn" onclick="window.print()">🖨️ Print Certificate</button>
+      </div>
+
+      <div class="header">
+        <div class="cert-title">FORM NO. 4 / 4A: MEDICAL CERTIFICATE OF CAUSE OF DEATH (MCCD)</div>
+        <div class="cert-act">(Issued in accordance with the Registration of Births & Deaths Act, 1969 - Section 10/17)</div>
+        <div class="reg-badge">Statutory Register No: ${row.regNo}</div>
+      </div>
+
+      <table class="grid-table">
+        <tr>
+          <th>Deceased Patient Name</th>
+          <td><strong>${row.patient}</strong></td>
+          <th>Patient UHID / MRN</th>
+          <td><code>${row.uhid || 'PAT-RECORD'}</code></td>
+        </tr>
+        <tr>
+          <th>Department / Unit</th>
+          <td>${row.dept}</td>
+          <th>Date & Time of Death</th>
+          <td><strong>${row.time}</strong></td>
+        </tr>
+        <tr>
+          <th>MCCD Certificate Status</th>
+          <td><span style="color: #15803d; font-weight: 700;">✓ Form 4 & 4A Certified</span></td>
+          <th>Medico-Legal (MLC)</th>
+          <td>${row.isMlc ? '<strong style="color: #dc2626;">Yes · MLC Inquest Requisitioned</strong>' : 'No (Natural Medical Event)'}</td>
+        </tr>
+        <tr>
+          <th>Body Custody / Location</th>
+          <td colspan="3">${row.body}</td>
+        </tr>
+      </table>
+
+      <div class="cause-box">
+        <div class="cause-title">Medical Cause of Death Statement</div>
+        <div class="cause-item">
+          <div class="cause-label">I. Immediate Cause (Line A):</div>
+          <div><strong>${row.cause}</strong></div>
+        </div>
+        <div class="cause-item">
+          <div class="cause-label">II. Antecedent Cause (Line B):</div>
+          <div>${row.secondary || 'Pre-existing chronic sequelae leading to primary illness'}</div>
+        </div>
+        <div class="cause-item">
+          <div class="cause-label">III. Contributing Condition:</div>
+          <div>Cardiopulmonary compromise during critical inpatient management</div>
+        </div>
+      </div>
+
+      <div class="declaration">
+        "I hereby certify that I attended the deceased during his/her last illness and that the death took place on the date and hour stated above. To the best of my knowledge and medical opinion, the cause of death stated above is true."
+      </div>
+
+      <div class="sign-row">
+        <div class="sign-block">
+          <div class="sign-line"></div>
+          <div><strong>${row.doctor}</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Certifying Consultant / Medical Officer</div>
+          <div style="font-size: 11px; color: #64748b;">Reg No: TN-MC-54819</div>
+        </div>
+
+        <div class="sign-block" style="border: 2px dashed #94a3b8; padding: 12px; border-radius: 6px;">
+          <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Medical Records Division</div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 4px;">Institutional Registry & Vital Statistics</div>
+          <div style="font-size: 10px; color: #64748b;">Authenticated Copy</div>
+        </div>
+
+        <div class="sign-block">
+          <div class="sign-line"></div>
+          <div><strong>Medical Superintendent</strong></div>
+          <div style="font-size: 11px; color: #64748b;">Authorized Signatory</div>
+          <div style="font-size: 11px; color: #64748b;">Date: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+        </div>
+      </div>
+
+      <script>
+        window.onload = function() {
+          setTimeout(function() {
+            window.print();
+          }, 400);
+        };
+      </script>
+    </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+// -----------------------------------------------------------------------------
+// 12. DEATH & MLC REGISTER (death_mlc)
+// -----------------------------------------------------------------------------
 export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
-  const handleMlcClick = (row) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const deathRes = await apiService.getDeathRecords().catch(() => ({ data: [] }));
+      if (deathRes?.data && Array.isArray(deathRes.data)) {
+        const mapped = deathRes.data.map(r => ({
+          id: r.id,
+          regNo: r.death_reg_no || '',
+          patient: r.patient_name || '',
+          uhid: r.uhid || '',
+          dept: r.department || 'Emergency',
+          time: r.date_time_of_death || '',
+          cause: r.primary_cause_of_death || '',
+          secondary: r.secondary_cause || '',
+          doctor: r.certifying_doctor || '',
+          isMlc: r.is_mlc ?? false,
+          mlcDetails: r.mlc_details || (r.is_mlc ? 'Yes · Medico-Legal' : 'No'),
+          certificate: r.mccd_status || 'Pending',
+          body: r.mortuary_bay || r.body_handed_over_to || 'Mortuary Bay',
+          bill: r.bill_status || 'Compassionate Review · Closed'
+        }));
+        setData(mapped);
+      } else {
+        setData([]);
+      }
+    } catch (e) {
+      console.error("Failed to load Death & MLC records:", e);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleRowClick = (row) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
-      title: `${row.mlcNo} · ${row.patient}`,
-      sub: `Incident: ${row.type} · Police Station: ${row.station}`,
-      badges: [{ t: row.status, bg: '#e0f2fe', fg: '#0369a1' }],
+      title: `${row.regNo} · ${row.patient}`,
+      sub: `Department: ${row.dept} | Time of Death: ${row.time}`,
+      badges: [
+        {
+          t: row.certificate,
+          bg: row.certificate.includes('Issued') ? '#dcfce7' : '#fee2e2',
+          fg: row.certificate.includes('Issued') ? '#15803d' : '#991b1b'
+        },
+        ...(row.isMlc ? [{ t: 'MLC Record', bg: '#fee2e2', fg: '#dc2626' }] : [])
+      ],
       facts: [
-        { k: 'MLC Record No', v: row.mlcNo, b: true },
-        { k: 'Registration Date', v: row.date },
-        { k: 'Patient Details', v: `${row.patient} (${row.age})` },
-        { k: 'Incident Nature', v: row.type },
-        { k: 'Jurisdiction Station', v: row.station },
-        { k: 'Investigating Officer', v: row.io },
-        { k: 'Wound / Trauma Report', v: row.injuryReport },
-        { k: 'Statutory Status', v: row.status }
+        { k: 'Statutory Register No', v: row.regNo, b: true },
+        { k: 'Deceased Patient Name', v: row.patient, b: true },
+        { k: 'Department', v: row.dept },
+        { k: 'Date & Time of Death', v: row.time },
+        { k: 'Primary Cause (MCCD)', v: row.cause, b: true },
+        { k: 'Secondary / Contributing Cause', v: row.secondary || 'None' },
+        { k: 'Certifying Doctor', v: row.doctor },
+        { k: 'Medico-Legal (MLC) Status', v: row.mlcDetails },
+        { k: 'Body Custody / Mortuary', v: row.body },
+        { k: 'Billing Review', v: row.bill }
       ],
       actions: [
-        { label: 'Issue Wound Certificate', primary: true, on: () => alert(`Wound certificate generated for ${row.mlcNo}`) },
-        { label: 'Print Police Intimation Form' }
+        {
+          label: '🖨️ Print MCCD Form 4 Certificate',
+          primary: true,
+          on: () => {
+            printMccdCertificate(row);
+          }
+        },
+        {
+          label: 'Authorize Body Release Handover',
+          on: async () => {
+            try {
+              const nextCustody = row.isMlc ? 'Released to Police Escort (MLC)' : 'Released to Family';
+              await apiService.updateDeathRecord(row.regNo, {
+                mortuary_bay: nextCustody,
+                body_handed_over_to: row.isMlc ? 'Police Sub-Inspector / Inquest Team' : 'Authorized Next of Kin / Nominee'
+              });
+              const updatedRow = { ...row, body: nextCustody };
+              setData(prev => prev.map(item => item.regNo === row.regNo ? updatedRow : item));
+              handleRowClick(updatedRow);
+            } catch (e) {
+              console.error(e);
+              alert('Error updating body release status in database');
+            }
+          }
+        }
       ]
     });
   };
 
+  const handleExportCSV = () => {
+    if (data.length === 0) return alert('No statutory death/MLC records to export.');
+    const headers = ['Register No', 'Patient', 'Department', 'Time of Death', 'Primary Cause', 'MLC', 'Certificate Status', 'Body Custody', 'Bill Status'];
+    const rows = data.map(d => [
+      d.regNo, `"${d.patient}"`, `"${d.dept}"`, `"${d.time}"`, `"${d.cause}"`, `"${d.mlcDetails}"`, `"${d.certificate}"`, `"${d.body}"`, `"${d.bill}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `death_and_mlc_register_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Metrics
+  const deathsCount = data.length;
+  const certPendingCount = data.filter(d => !d.certificate.includes('Issued')).length;
+  const mlcCount = data.filter(d => d.isMlc || d.mlcDetails.toLowerCase().includes('yes')).length;
+  const bodyInMortuaryCount = data.filter(d => d.body.toLowerCase().includes('mortuary') || d.body.toLowerCase().includes('bay')).length;
+
+  // Filtering
+  const filtered = data.filter(item => {
+    return (
+      item.regNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.dept.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.cause.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.doctor.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.mlcDetails.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.certificate.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Medico-Legal Case (MLC) & Statutory Register"
-        subtitle="Police intimations, accident wound certificates, post-mortem tracking, and statutory medico-legal compliance"
-        count={MLC_RECORDS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Register Medico-Legal Case (MLC)', text: 'Specify incident details, patient identity, attending CMO, and police station intimation number:' })}
-        newLabel="+ Register MLC"
-        onExport={() => alert('Exported MLC register')}
-      />
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>MLC Number</th>
-              <th style={{ padding: '10px 14px' }}>Date</th>
-              <th style={{ padding: '10px 14px' }}>Patient / Age</th>
-              <th style={{ padding: '10px 14px' }}>Incident Type</th>
-              <th style={{ padding: '10px 14px' }}>Police Station / IO</th>
-              <th style={{ padding: '10px 14px' }}>Clinical Injury Description</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MLC_RECORDS.map(row => (
-              <tr
-                key={row.mlcNo}
-                onClick={() => handleMlcClick(row)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>{row.mlcNo}</td>
-                <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.date}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{row.patient} ({row.age})</td>
-                <td style={{ padding: '10px 14px' }}>{row.type}</td>
-                <td style={{ padding: '10px 14px' }}>{row.station} · {row.io}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{row.injuryReport}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle('#e0f2fe', '#0369a1')}>
-                    ● {row.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Header section */}
+      <div>
+        <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+          – Back · Clinical Workspace › Death & MLC Register
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: '0 0 4px 0' }}>
+              Death & MLC register
+            </h1>
+            <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
+              Statutory registers. Death → certificate (Form 4 / MCCD) by the certifying doctor → body release by Front Office (police clearance first for MLC) → bill closed under compassionate review by Billing. Nothing here can be deleted.
+            </p>
+          </div>
+        </div>
       </div>
+
+      {/* Search & Export bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', minWidth: '260px' }}>
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '7px 14px',
+              fontSize: '13px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              outline: 'none',
+              background: '#ffffff'
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCSV}
+          style={{
+            padding: '7px 16px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            background: '#ffffff',
+            color: '#334155',
+            cursor: 'pointer'
+          }}
+        >
+          Export CSV
+        </button>
+      </div>
+
+      {/* Cyan / Light Blue Notice Banner */}
+      <div style={{
+        background: '#ecfeff',
+        border: '1px solid #a5f3fc',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        color: '#0e7490',
+        fontSize: '12.5px',
+        fontWeight: 500,
+        lineHeight: '1.4'
+      }}>
+        No deaths recorded in this session. A Doctor records an outcome from the Clinical workspace or an ER case ("Death &lt;cause&gt;", add MLC if medico-legal).
+      </div>
+
+      {/* 4 Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Deaths recorded</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{deathsCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Certificate pending</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{certPendingCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>MLC</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{mlcCount}</div>
+          )}
+        </div>
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Body in mortuary</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{bodyInMortuaryCount}</div>
+          )}
+        </div>
+      </div>
+
+      {/* Live Data Table / Empty State Container */}
+      {loading ? (
+        <LoadingState label="Fetching statutory records from PostgreSQL..." />
+      ) : (
+        <div style={{ ...cardStyle, padding: 0, overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px', textAlign: 'left', minWidth: '950px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <th style={{ padding: '12px 14px' }}>REGISTER</th>
+                <th style={{ padding: '12px 14px' }}>PATIENT</th>
+                <th style={{ padding: '12px 14px' }}>DEPT</th>
+                <th style={{ padding: '12px 14px' }}>TIME</th>
+                <th style={{ padding: '12px 14px' }}>CAUSE (AS RECORDED)</th>
+                <th style={{ padding: '12px 14px' }}>MLC</th>
+                <th style={{ padding: '12px 14px' }}>CERTIFICATE</th>
+                <th style={{ padding: '12px 14px' }}>BODY</th>
+                <th style={{ padding: '12px 14px' }}>BILL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '60px 20px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '14px', marginBottom: '4px' }}>
+                      Nothing matches
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '12.5px' }}>
+                      No records for this filter or search. Clear the search or choose "All".
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map(row => (
+                  <tr
+                    key={row.id || row.regNo}
+                    onClick={() => handleRowClick(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
+                      {row.regNo}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontWeight: 600, color: '#0f172a' }}>
+                      {row.patient}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155' }}>
+                      {row.dept}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a', fontFamily: 'monospace' }}>
+                      {row.time}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#334155', maxWidth: '280px' }}>
+                      {row.cause}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: row.isMlc ? '#dc2626' : '#64748b', fontWeight: row.isMlc ? 600 : 400 }}>
+                      {row.mlcDetails}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <span style={{
+                        background: row.certificate.includes('Issued') ? '#dcfce7' : '#fee2e2',
+                        color: row.certificate.includes('Issued') ? '#15803d' : '#991b1b',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}>
+                        {row.certificate}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#64748b' }}>
+                      {row.body}
+                    </td>
+                    <td style={{ padding: '12px 14px', color: '#0f172a' }}>
+                      {row.bill}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+
+          {/* Footer Pagination / Info Bar */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderTop: '1px solid #e2e8f0',
+            background: '#ffffff',
+            fontSize: '12px',
+            color: '#64748b'
+          }}>
+            <div>
+              Page 1 of 1 · {filtered.length} records · click a header to sort, a row for detail and actions
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Rows</span>
+              {[25, 50, 100].map(sz => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setPageSize(sz)}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: pageSize === sz ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                    background: pageSize === sz ? '#0f172a' : '#ffffff',
+                    color: pageSize === sz ? '#ffffff' : '#475569',
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {sz}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1438,9 +5832,9 @@ export function ClaimsView({ onOpenDrawer, onOpenModal }) {
         { k: 'Insurance Company', v: row.insurer },
         { k: 'TPA Network', v: row.tpa },
         { k: 'Pre-auth Approval No', v: row.auth },
-        { k: 'Gross Claimed', v: `₹${row.requested.toLocaleString()}` },
-        { k: 'TPA Sanctioned', v: `₹${row.approved.toLocaleString()}` },
-        { k: 'Disallowed / Co-Pay Due', v: `₹${row.liability.toLocaleString()}` },
+        { k: 'Gross Claimed', v: `₹${(Number(row.requested) || 0).toLocaleString()}` },
+        { k: 'TPA Sanctioned', v: `₹${(Number(row.approved) || 0).toLocaleString()}` },
+        { k: 'Disallowed / Co-Pay Due', v: `₹${(Number(row.liability) || 0).toLocaleString()}` },
         { k: 'Current Status', v: row.status }
       ],
       actions: [
@@ -1523,9 +5917,9 @@ export function ClaimsView({ onOpenDrawer, onOpenModal }) {
                   <div style={{ fontSize: '11px', color: '#64748b' }}>{row.tpa}</div>
                 </td>
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.auth}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{row.requested.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#059669', fontWeight: 600 }}>₹{row.approved.toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#dc2626', fontWeight: 700 }}>₹{row.liability.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{(Number(row.requested) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#059669', fontWeight: 600 }}>₹{(Number(row.approved) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', color: '#dc2626', fontWeight: 700 }}>₹{(Number(row.liability) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
                     row.status === 'Settled' ? '#dcfce7' : row.status === 'Submitted' ? '#e0f2fe' : '#fef3c7',
@@ -1563,8 +5957,9 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
 
   const handleTxnClick = (row) => {
     if (!onOpenDrawer) return;
+    const amt = Number(row.amount) || 0;
     onOpenDrawer({
-      title: `${row.id} · ₹${row.amount.toLocaleString()}`,
+      title: `${row.id} · ₹${amt.toLocaleString()}`,
       sub: `Payer: ${row.patient} · Tender: ${row.mode}`,
       badges: [{ t: row.status, bg: '#dcfce7', fg: '#15803d' }],
       facts: [
@@ -1573,7 +5968,7 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
         { k: 'Linked Bill / Batch', v: row.bill },
         { k: 'Tender Mode', v: row.mode },
         { k: 'Transaction Time', v: row.time },
-        { k: 'Collected Amount', v: `₹${row.amount.toLocaleString()}` },
+        { k: 'Collected Amount', v: `₹${amt.toLocaleString()}` },
         { k: 'Settlement Status', v: row.status }
       ],
       actions: [
@@ -1650,7 +6045,7 @@ export function FinanceDashboardView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{row.bill}</td>
                 <td style={{ padding: '10px 14px' }}>{row.mode}</td>
                 <td style={{ padding: '10px 14px', color: '#64748b' }}>{row.time}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#059669' }}>₹{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#059669' }}>₹{(Number(row.amount) || 0).toLocaleString()}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle('#dcfce7', '#15803d')}>
                     ✓ {row.status}
@@ -1804,17 +6199,7 @@ export function DataDomainView({ domain = 'Patient', onOpenDrawer, onOpenModal }
     isBeforeAfter ? 'Pre vs Post AI Intervention Outcomes & SLA Impact' :
     `${domain} Data View`;
 
-  const subtitle = `Direct query view of health_care.gold.${
-    isPatient ? 'dim_patients' :
-    isOps ? 'fact_hospital_operations' :
-    isClinical ? 'fact_clinical_observations' :
-    isFinancial ? 'fact_financial_ledger' :
-    isQuality ? 'dq_rules_evaluator' :
-    isForecasting ? 'pred_census_forecast' :
-    isScenario ? 'sim_capacity_scenarios' :
-    isBeforeAfter ? 'outcomes_sla_benchmark' :
-    'gold_table'
-  }`;
+  const subtitle = 'Live operational view of hospital enterprise clinical and administrative records.';
 
   const rows = isPatient ? [
     { c1: 'MER-PAT-0087221', c2: 'Kavitha Raman', c3: '58 / Female', c4: 'AB Positive', c5: 'Cardiology', c6: '98401-22910', c7: 'Active IP' },
@@ -1998,319 +6383,20 @@ export function ExceptionsView({ onOpenDrawer, onOpenModal }) {
 }
 
 // ----------------------------------------------------
-// PHARMACY & SUPPLY CHAIN VIEWS
+// PHARMACY & SUPPLY CHAIN VIEWS (Live PostgreSQL Database)
 // ----------------------------------------------------
 
-export const DUMMY_PRESCRIPTIONS = [
-  { id: 'RX-2026-0041', patientId: 'MER-2026-007733', patient: 'Murugan Selvam', drug: 'Aspirin 75 mg + Clopidogrel 75 mg', dose: '75 mg PO OD', days: '30 d · 60 tab', doctor: 'Dr. Priya Venkatesh', checks: ['Clear · antiplatelet protocol verified'], verifiedBy: 'S. Devi, RPh', status: 'Prescribed' },
-  { id: 'RX-2026-0042', patientId: 'MER-2026-008421', patient: 'Kavitha Raman', drug: 'Enoxaparin Injection 40 mg', dose: '40 mg SC OD', days: '5 d · 5 amp', doctor: 'Dr. Arjun Menon', checks: ['Clear · renal function normal'], verifiedBy: 'S. Devi, RPh', status: 'Verified' },
-  { id: 'RX-2026-0043', patientId: 'MER-2026-009104', patient: 'Fathima Begum', drug: 'Meropenem Injection 1 g', dose: '1 g IV TDS', days: '7 d · 21 vial', doctor: 'Dr. Rajesh Kannan', checks: ['⚠ High-alert antibiotic'], verifiedBy: '—', status: 'Stock-out' },
-  { id: 'RX-2026-0044', patientId: 'MER-2026-005098', patient: 'Meenakshi Sundaram', drug: 'Ondansetron 4 mg Tab', dose: '4 mg PO BD', days: '3 d · 6 tab', doctor: 'Dr. Priya Venkatesh', checks: ['Clear · pre-chemo antiemetic'], verifiedBy: 'K. Meena, RPh', status: 'Dispensed' },
-  { id: 'RX-2026-0045', patientId: 'MER-2026-003319', patient: 'R. Sundar', drug: 'Atorvastatin 40 mg', dose: '40 mg PO HS', days: '30 d · 30 tab', doctor: 'Dr. Arjun Menon', checks: ['Clear · lipid management'], verifiedBy: 'S. Devi, RPh', status: 'Prescribed' },
-  { id: 'RX-2026-0046', patientId: 'MER-2026-001290', patient: 'Anitha Kumar', drug: 'Paracetamol 650 mg', dose: '650 mg PO QDS', days: '3 d · 12 tab', doctor: 'Dr. Sanjay Gupta', checks: ['Clear · PRN fever'], verifiedBy: 'K. Meena, RPh', status: 'Dispensed' },
-];
+export {
+  PrescriptionsView,
+  DrugMasterView,
+  PharmacyView,
+  InventoryView,
+  StoresView,
+  ProcurementView,
+  VendorsView,
+  CssdView
+} from './PharmacySupplyViews';
 
-export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
-  const [filter, setFilter] = useState('All');
-  const filtered = DUMMY_PRESCRIPTIONS.filter(r => filter === 'All' || r.status === filter);
-
-  const handleRowClick = (r) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `Rx: ${r.drug}`,
-      sub: `${r.id} · ${r.patient} · Prescribed by ${r.doctor}`,
-      badges: [{ t: r.status, bg: r.status === 'Dispensed' ? '#dcfce7' : r.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', fg: r.status === 'Dispensed' ? '#15803d' : r.status === 'Stock-out' ? '#b91c1c' : '#3730a3' }],
-      facts: [
-        { k: 'Dosage & Route', v: r.dose },
-        { k: 'Duration & Quantity', v: r.days },
-        { k: 'Safety & Interaction', v: r.checks[0] },
-        { k: 'Verification', v: r.verifiedBy },
-        { k: 'Patient UHID', v: r.patientId }
-      ],
-      actions: [
-        { label: 'Verify & Dispense', primary: true, on: () => alert(`Pharmacist verification confirmed for ${r.id}`) },
-        { label: 'Print MAR Label', on: () => alert(`MAR label queued for ${r.patient}`) }
-      ]
-    });
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Prescriptions & Pharmacy Orders"
-        subtitle="Prescription → pharmacist verification (allergy · interaction · controlled-drug checks) → dispense from mapped stock item with batch & expiry → MAR rows"
-        count={DUMMY_PRESCRIPTIONS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'prescription', title: 'New Prescription Entry' })}
-        newLabel="+ Prescribe Medication"
-        onExport={() => alert('Exported prescriptions CSV')}
-      />
-
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
-        {[
-          ['Awaiting verification', '4', '#d97706'],
-          ['Verified · to dispense', '12', '#2563eb'],
-          ['Stock-out', '1', '#dc2626'],
-          ['Safety flags open', '2', '#dc2626'],
-          ['Dispensed today', '38', '#16a34a'],
-        ].map(([k, v, c]) => (
-          <div key={k} style={{ ...cardStyle, padding: '12px 16px' }}>
-            <div style={{ fontSize: '11px', color: '#8a9096' }}>{k}</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: c, marginTop: '2px' }}>{v}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filter Tabs */}
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-        {['All', 'Prescribed', 'Verified', 'Dispensed', 'Stock-out'].map(st => (
-          <button
-            key={st}
-            type="button"
-            onClick={() => setFilter(st)}
-            style={{
-              padding: '4px 12px', borderRadius: '12px', fontSize: '11.5px', border: '1px solid #e3e6e8',
-              background: filter === st ? '#15181b' : '#fff', color: filter === st ? '#fff' : '#52585e', cursor: 'pointer'
-            }}
-          >
-            {st}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Rx ID</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Drug</th>
-              <th style={{ padding: '10px 14px' }}>Dose · Route · Freq</th>
-              <th style={{ padding: '10px 14px' }}>Days · Qty</th>
-              <th style={{ padding: '10px 14px' }}>Prescriber</th>
-              <th style={{ padding: '10px 14px' }}>Safety</th>
-              <th style={{ padding: '10px 14px' }}>Verified By</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(r => (
-              <tr
-                key={r.id}
-                onClick={() => handleRowClick(r)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600 }}>{r.id}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{r.patient}</td>
-                <td style={{ padding: '10px 14px' }}>{r.drug}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{r.dose}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{r.days}</td>
-                <td style={{ padding: '10px 14px' }}>{r.doctor}</td>
-                <td style={{ padding: '10px 14px', color: r.checks[0].includes('⚠') ? '#dc2626' : '#15803d' }}>{r.checks[0]}</td>
-                <td style={{ padding: '10px 14px' }}>{r.verifiedBy}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(r.status === 'Dispensed' ? '#dcfce7' : r.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', r.status === 'Dispensed' ? '#15803d' : r.status === 'Stock-out' ? '#b91c1c' : '#3730a3')}>
-                    {r.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-export const DUMMY_DRUGS = [
-  { id: 'DRUG-01', generic: 'Paracetamol', brand: 'Dolo 650', form: 'Tablet', strength: '650 mg', schedule: 'OTC', route: 'Oral', stockItem: 'TAB-PAR-650 (2,400 tab)', highAlert: false, interactions: 'None major', active: true },
-  { id: 'DRUG-02', generic: 'Enoxaparin Sodium', brand: 'Clexane', form: 'Injection', strength: '40 mg / 0.4 mL', schedule: 'Sch H', route: 'SC', stockItem: 'INJ-ENOX-40 (180 amp)', highAlert: true, interactions: 'Heparin, Warfarin, NSAIDs', active: true },
-  { id: 'DRUG-03', generic: 'Meropenem', brand: 'Meronem', form: 'Injection', strength: '1 g', schedule: 'Sch H1', route: 'IV', stockItem: 'INJ-MERO-1G (12 vial)', highAlert: true, interactions: 'Valproic acid', active: true },
-  { id: 'DRUG-04', generic: 'Atorvastatin', brand: 'Atorva 40', form: 'Tablet', strength: '40 mg', schedule: 'Sch H', route: 'Oral', stockItem: 'TAB-ATOR-40 (850 tab)', highAlert: false, interactions: 'Clarithromycin', active: true },
-  { id: 'DRUG-05', generic: 'Tramadol HCl', brand: 'Tramazac', form: 'Injection', strength: '50 mg / mL', schedule: 'Sch X', route: 'IV/IM', stockItem: 'INJ-TRAM-50 (45 amp)', highAlert: true, interactions: 'SSRIs, MAOIs, CNS depressants', active: true },
-  { id: 'DRUG-06', generic: 'Metformin HCl', brand: 'Glycomet 500', form: 'Tablet', strength: '500 mg', schedule: 'Sch H', route: 'Oral', stockItem: 'TAB-MET-500 (1,900 tab)', highAlert: false, interactions: 'Iodinated contrast media', active: true },
-];
-
-export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
-  const [filter, setFilter] = useState('All');
-  const filtered = DUMMY_DRUGS.filter(d => filter === 'All' || d.form === filter);
-
-  const handleRowClick = (d) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `${d.generic} (${d.brand})`,
-      sub: `${d.id} · ${d.form} ${d.strength} · Schedule ${d.schedule}`,
-      badges: [{ t: d.active ? 'Active Formulary' : 'Inactive', bg: '#dcfce7', fg: '#15803d' }, ...(d.highAlert ? [{ t: 'High Alert', bg: '#fee2e2', fg: '#b91c1c' }] : [])],
-      facts: [
-        { k: 'Route', v: d.route },
-        { k: 'Mapped Inventory Item', v: d.stockItem },
-        { k: 'Schedule Classification', v: d.schedule },
-        { k: 'Known Drug Interactions', v: d.interactions },
-      ],
-      actions: [
-        { label: 'Check Live Inventory', primary: true, on: () => alert(`Central stock check for ${d.generic}: 420 units available`) },
-        { label: 'Edit Formulary Parameters', on: () => onOpenModal && onOpenModal({ kind: 'reason', title: 'Edit Drug Master', text: `Modify formulation or interaction alerts for ${d.generic}:` }) }
-      ]
-    });
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Drug Master & Formulary Catalog"
-        subtitle="142 formulary entries · generic, brand, form, strength, schedule (H / OTC / X), route, mapped inventory item, high-alert flag, interaction pairs"
-        count={DUMMY_DRUGS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drug', title: 'Add Formulary Drug Master' })}
-        newLabel="+ Add Formulary Drug"
-        onExport={() => alert('Exported drug formulary')}
-      />
-
-      {/* Stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
-        {[
-          ['Formulary entries', '142', '#0f766e'],
-          ['High-alert medications', '18', '#dc2626'],
-          ['Controlled (Sch X)', '6', '#d97706'],
-          ['Unmapped to stock', '2', '#dc2626'],
-        ].map(([k, v, c]) => (
-          <div key={k} style={{ ...cardStyle, padding: '12px 16px' }}>
-            <div style={{ fontSize: '11px', color: '#8a9096' }}>{k}</div>
-            <div style={{ fontSize: '20px', fontWeight: 700, color: c, marginTop: '2px' }}>{v}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>ID</th>
-              <th style={{ padding: '10px 14px' }}>Generic</th>
-              <th style={{ padding: '10px 14px' }}>Brand</th>
-              <th style={{ padding: '10px 14px' }}>Form · Strength</th>
-              <th style={{ padding: '10px 14px' }}>Schedule</th>
-              <th style={{ padding: '10px 14px' }}>Route</th>
-              <th style={{ padding: '10px 14px' }}>Stock Item</th>
-              <th style={{ padding: '10px 14px' }}>High Alert</th>
-              <th style={{ padding: '10px 14px' }}>Interactions</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(d => (
-              <tr
-                key={d.id}
-                onClick={() => handleRowClick(d)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{d.id}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{d.generic}</td>
-                <td style={{ padding: '10px 14px' }}>{d.brand}</td>
-                <td style={{ padding: '10px 14px' }}>{d.form} · {d.strength}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{d.schedule}</span></td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{d.route}</td>
-                <td style={{ padding: '10px 14px', fontSize: '11.5px', color: '#0f766e' }}>{d.stockItem}</td>
-                <td style={{ padding: '10px 14px' }}>{d.highAlert ? <span style={pillStyle('#fee2e2', '#b91c1c')}>High alert</span> : '—'}</td>
-                <td style={{ padding: '10px 14px', color: '#52585e' }}>{d.interactions}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Active</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-export const DUMMY_PHARMACY_TXNS = [
-  { id: 'PH-91100', patient: 'Fathima Begum (O-207)', drug: 'Enoxaparin 40 mg', qty: 2, ward: 'Ortho Ward', time: '11:18', status: 'Stock-out' },
-  { id: 'PH-91099', patient: 'Murugan Selvam (C-104)', drug: 'Aspirin 75 mg', qty: 30, ward: 'Cardiac Ward', time: '11:05', status: 'Dispensed' },
-  { id: 'PH-91098', patient: 'Kavitha Raman (C-102)', drug: 'Atorvastatin 40 mg', qty: 15, ward: 'Cardiac Ward', time: '10:48', status: 'Dispensed' },
-  { id: 'PH-91097', patient: 'Ganesan T (S-301)', drug: 'Tramadol 50 mg Inj', qty: 2, ward: 'Surgical ICU', time: '10:30', status: 'Pending' },
-  { id: 'PH-91096', patient: 'Meenakshi Sundaram (O-205)', drug: 'Ondansetron 4 mg', qty: 6, ward: 'Oncology', time: '10:12', status: 'Dispensed' },
-  { id: 'PH-91095', patient: 'Anitha Kumar (M-101)', drug: 'Paracetamol 650 mg', qty: 10, ward: 'Medical Ward', time: '09:50', status: 'Returned' },
-];
-
-export function PharmacyView({ onOpenDrawer, onOpenModal }) {
-  const [filter, setFilter] = useState('All');
-  const filtered = DUMMY_PHARMACY_TXNS.filter(t => filter === 'All' || t.status === filter);
-
-  const handleRowClick = (p) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `${p.drug} · ${p.patient}`,
-      sub: `${p.id} · ${p.ward} · Recorded ${p.time}`,
-      badges: [{ t: p.status, bg: p.status === 'Dispensed' ? '#dcfce7' : p.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', fg: p.status === 'Dispensed' ? '#15803d' : p.status === 'Stock-out' ? '#b91c1c' : '#3730a3' }],
-      facts: [
-        { k: 'Quantity Requested', v: `${p.qty} units` },
-        { k: 'Ward Location', v: p.ward },
-        { k: 'Batch & Expiry', v: `B${p.id.slice(-4)} · 03/2027` },
-        { k: 'Discharge Dependency', v: p.status === 'Stock-out' ? 'BLOCKING DISCHARGE · Transfer required' : 'Cleared' }
-      ],
-      actions: p.status === 'Stock-out' ? [
-        { label: 'Transfer from Central Pharmacy', primary: true, on: () => alert(`Initiated rapid stock transfer for ${p.drug} to ${p.ward}`) }
-      ] : [
-        { label: 'Dispense & Deduct Stock', primary: true, on: () => alert(`Dispensed transaction ${p.id}`) }
-      ]
-    });
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Central Pharmacy Operations"
-        subtitle="Discharge medication clearance and stock-outs feed the discharge dependency graph directly"
-        count={DUMMY_PHARMACY_TXNS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'pharmacy', title: 'New Pharmacy Dispense Record' })}
-        newLabel="+ Dispense Order"
-        onExport={() => alert('Exported pharmacy transactions')}
-      />
-
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Txn ID</th>
-              <th style={{ padding: '10px 14px' }}>Patient</th>
-              <th style={{ padding: '10px 14px' }}>Drug</th>
-              <th style={{ padding: '10px 14px' }}>Qty</th>
-              <th style={{ padding: '10px 14px' }}>Ward</th>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(p => (
-              <tr
-                key={p.id}
-                onClick={() => handleRowClick(p)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600 }}>{p.id}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{p.patient}</td>
-                <td style={{ padding: '10px 14px' }}>{p.drug}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p.qty}</td>
-                <td style={{ padding: '10px 14px' }}>{p.ward}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p.time}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(p.status === 'Dispensed' ? '#dcfce7' : p.status === 'Stock-out' ? '#fee2e2' : '#e0e7ff', p.status === 'Dispensed' ? '#15803d' : p.status === 'Stock-out' ? '#b91c1c' : '#3730a3')}>
-                    {p.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 // ----------------------------------------------------
 // PEOPLE VIEWS
@@ -2326,14 +6412,53 @@ export const DUMMY_HR_QUERIES = [
 ];
 
 export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      const res = await apiService.getAdminData('hr-dashboard', {
+        search,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize
+      });
+      if (res && res.data) {
+        setData(res.data);
+        setTotalCount(res.total ?? res.data.length);
+      } else {
+        setData([]);
+        setTotalCount(0);
+      }
+    } catch (err) {
+      console.error("Failed to load HR dashboard data:", err);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [search, currentPage, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const startRow = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const endRow = Math.min(currentPage * pageSize, totalCount);
+
   const handleRowClick = (q) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
       title: `HR Query · ${q.employee}`,
       sub: `Submitted at ${q.time} · Confidence ${q.conf}`,
-      badges: [{ t: q.conf.startsWith('4') ? 'Escalated' : 'AI Resolved', bg: q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', fg: q.conf.startsWith('4') ? '#b91c1c' : '#15803d' }],
+      badges: [{ t: q.conf && q.conf.startsWith('4') ? 'Escalated' : 'AI Resolved', bg: q.conf && q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', fg: q.conf && q.conf.startsWith('4') ? '#b91c1c' : '#15803d' }],
       facts: [
         { k: 'Employee', v: q.employee },
+        { k: 'Department', v: q.department },
         { k: 'Natural Language Query', v: q.question },
         { k: 'Knowledge Source Citation', v: q.source },
         { k: 'Agent Outcome', v: q.outcome }
@@ -2350,47 +6475,261 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
       <Header
         title="HR & Employee Service"
         subtitle="Employee Service Agent answers from governed HR knowledge (Leave Policy v5.0, Payroll FAQ). Low-confidence queries route to HR leads."
-        count={DUMMY_HR_QUERIES.length}
+        count={totalCount}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: 'Ask Employee Service Copilot', text: 'Enter staff HR question (leave, benefits, allowances):' })}
         newLabel="+ Submit HR Query"
         onExport={() => alert('Exported HR query logs')}
       />
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
+        </div>
+        <input
+          type="text"
+          placeholder="Search in HR & Employee Service..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+          style={{
+            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+            width: '280px', outline: 'none'
+          }}
+        />
+      </div>
+
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-              <th style={{ padding: '10px 14px' }}>Employee</th>
-              <th style={{ padding: '10px 14px' }}>Question</th>
-              <th style={{ padding: '10px 14px' }}>Source Citation</th>
-              <th style={{ padding: '10px 14px' }}>Confidence</th>
-              <th style={{ padding: '10px 14px' }}>Outcome</th>
-            </tr>
-          </thead>
-          <tbody>
-            {DUMMY_HR_QUERIES.map((q, i) => (
-              <tr
-                key={i}
-                onClick={() => handleRowClick(q)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
-                <td style={{ padding: '10px 14px' }}>{q.question}</td>
-                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
-                    {q.outcome}
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading HR & Employee Service Copilot..."
+              subtitle="Retrieving real-time staff queries, HR knowledge policies, and AI confidence evaluations..."
+              badgeText="Live PostgreSQL Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={7}
+            />
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            No HR query records found.
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Time</th>
+                  <th style={{ padding: '10px 14px' }}>Employee</th>
+                  <th style={{ padding: '10px 14px' }}>Department</th>
+                  <th style={{ padding: '10px 14px' }}>Question</th>
+                  <th style={{ padding: '10px 14px' }}>Source Citation</th>
+                  <th style={{ padding: '10px 14px' }}>Confidence</th>
+                  <th style={{ padding: '10px 14px' }}>Outcome</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((q, i) => (
+                  <tr
+                    key={q.id || i}
+                    onClick={() => handleRowClick(q)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
+                    <td style={{ padding: '10px 14px' }}>{q.department}</td>
+                    <td style={{ padding: '10px 14px' }}>{q.question}</td>
+                    <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(q.conf && q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf && q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
+                        {q.outcome}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination Footer */}
+            {totalCount > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: '#fafbfc',
+                borderTop: '1px solid #eef0f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span>
+                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
                   </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                    {[10, 20, 50, 100].map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                        style={{
+                          height: '24px',
+                          padding: '0 8px',
+                          borderRadius: '4px',
+                          border: '1px solid',
+                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                          color: pageSize === sz ? '#0369a1' : '#64748b',
+                          fontWeight: pageSize === sz ? 700 : 500,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    « First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                    let pageNum = idx + 1;
+                    if (totalPages > 5) {
+                      if (currentPage <= 3) {
+                        pageNum = idx + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + idx;
+                      } else {
+                        pageNum = currentPage - 2 + idx;
+                      }
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        style={{
+                          height: '28px',
+                          width: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
+                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
+                          color: currentPage === pageNum ? '#ffffff' : '#475569',
+                          fontWeight: currentPage === pageNum ? 700 : 500,
+                          fontSize: '11.5px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2410,6 +6749,109 @@ export const DUMMY_NOTIFICATIONS = [
 ];
 
 export function NotificationsView({ onOpenDrawer, onOpenModal }) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [criticalCount, setCriticalCount] = useState(0);
+  const [search, setSearch] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const loadNotifications = async (silent = false) => {
+    try {
+      if (!silent) setLoading(true);
+      const res = await apiService.getNotifications({
+        search: search.trim() || undefined,
+        priority: priorityFilter !== 'All' ? priorityFilter : undefined,
+        status: statusFilter !== 'All' ? statusFilter : undefined,
+        limit: pageSize,
+        offset: (page - 1) * pageSize
+      });
+      if (res && res.success) {
+        setNotifications(res.data || []);
+        setTotalCount(res.total || 0);
+        setUnreadCount(res.unread_count || 0);
+        setCriticalCount(res.critical_count || 0);
+      }
+    } catch (err) {
+      console.error('Error fetching dynamic notifications:', err);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Reset to page 1 on filter or search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search, priorityFilter, statusFilter, pageSize]);
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(() => loadNotifications(true), 15000);
+    const handleUpdate = () => loadNotifications(true);
+    window.addEventListener('hc_api_updated', handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
+  }, [search, priorityFilter, statusFilter, page, pageSize]);
+
+  const handleMarkAllRead = async () => {
+    if (isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      // Optimistic update
+      setNotifications(prev => prev.map(n => ({ ...n, unread: false, state: 'Read' })));
+      setUnreadCount(0);
+      await apiService.markAllNotificationsRead();
+      loadNotifications(true);
+    } catch (err) {
+      console.error('Error marking all notifications read:', err);
+      loadNotifications(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleMarkSingleRead = async (notifId) => {
+    try {
+      setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, unread: false, state: 'Read' } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      await apiService.markNotificationRead(notifId);
+      loadNotifications(true);
+    } catch (err) {
+      console.error(`Error marking notification ${notifId} read:`, err);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (!notifications.length) return;
+    const headers = ['ID', 'Time', 'Priority', 'Title', 'Details', 'Source Service', 'State'];
+    const rows = notifications.map(n => [
+      `"${n.id}"`,
+      `"${n.time}"`,
+      `"${n.pri}"`,
+      `"${(n.title || '').replace(/"/g, '""')}"`,
+      `"${(n.detail || '').replace(/"/g, '""')}"`,
+      `"${(n.src || '').replace(/"/g, '""')}"`,
+      `"${n.state}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `hospital_notifications_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleRowClick = (n) => {
     if (!onOpenDrawer) return;
     onOpenDrawer({
@@ -2420,65 +6862,366 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
         { k: 'Notification Message', v: n.detail },
         { k: 'Source System', v: n.src },
         { k: 'Priority Level', v: n.pri },
-        { k: 'Read Status', v: n.unread ? 'Unread · High Attention' : 'Acknowledged' }
+        { k: 'Read Status', v: n.unread ? 'Unread · Attention Required' : 'Acknowledged / Read' },
+        ...(n.created_at ? [{ k: 'Logged Timestamp', v: new Date(n.created_at).toLocaleString('en-IN') }] : [])
       ],
       actions: [
-        { label: 'Mark as Acknowledged', primary: true, on: () => alert(`Notification ${n.id} acknowledged`) },
+        ...(n.unread ? [{
+          label: 'Mark as Acknowledged / Read',
+          primary: true,
+          on: () => {
+            handleMarkSingleRead(n.id);
+          }
+        }] : []),
         { label: 'Deep Link to Workflow', on: () => alert(`Opening correlated workflow for ${n.id}`) }
       ]
     });
   };
 
+  // Generate page numbers array with windowing
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, page - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
+  const startRecord = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
+  const endRecord = Math.min(page * pageSize, totalCount);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Hospital Notification Centre"
-        subtitle="26 unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations"
-        count={26}
-        onNew={() => alert('All notifications marked as read')}
-        newLabel="Mark All Read"
-        onExport={() => alert('Exported notifications log')}
+        subtitle={`${unreadCount} unread platform notifications · clinical safety alerts, agent approvals, SLA breaches and statutory escalations`}
+        count={totalCount}
+        onNew={handleMarkAllRead}
+        newLabel={isSubmitting ? "Updating..." : "Mark All Read"}
+        onExport={handleExportCSV}
       />
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Time</th>
-              <th style={{ padding: '10px 14px' }}>Priority</th>
-              <th style={{ padding: '10px 14px' }}>Title</th>
-              <th style={{ padding: '10px 14px' }}>Clinical / Operational Details</th>
-              <th style={{ padding: '10px 14px' }}>Source Service</th>
-              <th style={{ padding: '10px 14px' }}>State</th>
-            </tr>
-          </thead>
-          <tbody>
-            {DUMMY_NOTIFICATIONS.map(n => (
-              <tr
-                key={n.id}
-                onClick={() => handleRowClick(n)}
-                style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                onMouseLeave={e => e.currentTarget.style.background = n.unread ? 'rgba(254, 242, 242, 0.25)' : 'transparent'}
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Search Input */}
+          <div style={{ position: 'relative', width: '260px' }}>
+            <input
+              type="text"
+              placeholder="Search notifications, alerts, IDs..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '7px 12px 7px 30px',
+                fontSize: '12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                background: '#ffffff'
+              }}
+            />
+            <span style={{ position: 'absolute', left: '10px', top: '7px', fontSize: '13px', color: '#94a3b8' }}>🔍</span>
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                style={{ position: 'absolute', right: '8px', top: '7px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}
               >
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{n.time}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : '#f1f5f9', n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : '#475569')}>
-                    {n.pri}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{n.title}</td>
-                <td style={{ padding: '10px 14px', color: '#334155' }}>{n.detail}</td>
-                <td style={{ padding: '10px 14px', color: '#0f766e' }}>{n.src}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
-                    {n.unread ? 'Unread' : 'Read'}
-                  </span>
-                </td>
-              </tr>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Priority Filters */}
+          <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '6px' }}>
+            {['All', 'Critical', 'High', 'Medium', 'Low'].map(pri => (
+              <button
+                key={pri}
+                onClick={() => setPriorityFilter(pri)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: priorityFilter === pri ? '#ffffff' : 'transparent',
+                  color: priorityFilter === pri ? (pri === 'Critical' ? '#b91c1c' : '#0f172a') : '#64748b',
+                  boxShadow: priorityFilter === pri ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                {pri}
+              </button>
             ))}
-          </tbody>
-        </table>
+          </div>
+
+          {/* Status Filter */}
+          <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '3px', borderRadius: '6px' }}>
+            {['All', 'Unread', 'Read'].map(st => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: statusFilter === st ? '#ffffff' : 'transparent',
+                  color: statusFilter === st ? '#0f172a' : '#64748b',
+                  boxShadow: statusFilter === st ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                }}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: '12px', color: '#64748b' }}>
+          Showing <strong>{startRecord} - {endRecord}</strong> of <strong>{totalCount}</strong> records ({unreadCount} unread)
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <TableSkeleton rows={pageSize} />
+        ) : notifications.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: '28px', marginBottom: '8px' }}>🔕</div>
+            <div style={{ fontWeight: 600, color: '#1e293b' }}>No notifications found</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>
+              {search || priorityFilter !== 'All' || statusFilter !== 'All'
+                ? 'Try clearing the active filters or search terms.'
+                : 'All platform and clinical notifications are acknowledged.'}
+            </div>
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '10px 14px' }}>Time</th>
+                  <th style={{ padding: '10px 14px' }}>Priority</th>
+                  <th style={{ padding: '10px 14px' }}>Title</th>
+                  <th style={{ padding: '10px 14px' }}>Clinical / Operational Details</th>
+                  <th style={{ padding: '10px 14px' }}>Source Service</th>
+                  <th style={{ padding: '10px 14px' }}>State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {notifications.map(n => (
+                  <tr
+                    key={n.id}
+                    onClick={() => handleRowClick(n)}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      cursor: 'pointer',
+                      background: n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'}
+                  >
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: n.unread ? 700 : 400 }}>{n.time}</td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(
+                        n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : n.pri === 'Medium' ? '#e0e7ff' : '#f1f5f9',
+                        n.pri === 'Critical' ? '#b91c1c' : n.pri === 'High' ? '#b45309' : n.pri === 'Medium' ? '#3730a3' : '#475569'
+                      )}>
+                        {n.pri}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 14px', fontWeight: n.unread ? 700 : 600, color: n.unread ? '#0f172a' : '#334155' }}>
+                      {n.title}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#334155', maxWidth: '380px' }}>
+                      {n.detail}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 500 }}>
+                      {n.src}
+                    </td>
+                    <td style={{ padding: '10px 14px' }}>
+                      <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
+                        {n.unread ? 'Unread' : 'Read'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination Controls */}
+            {totalCount > 0 && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 16px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                fontSize: '12px',
+                color: '#64748b',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <span>
+                    Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{totalCount}</strong> notifications
+                  </span>
+                  
+                  {/* Rows Per Page Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Rows:</span>
+                    <select
+                      value={pageSize}
+                      onChange={e => setPageSize(Number(e.target.value))}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: '11.5px',
+                        borderRadius: '4px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#334155',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {[10, 15, 25, 50].map(sz => (
+                        <option key={sz} value={sz}>{sz}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Page Navigation Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPage(1)}
+                    disabled={page <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      fontWeight: 600
+                    }}
+                  >
+                    « First
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {getPageNumbers().map(pageNum => (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setPage(pageNum)}
+                      style={{
+                        height: '28px',
+                        minWidth: '28px',
+                        padding: '0 6px',
+                        borderRadius: '5px',
+                        border: '1px solid',
+                        borderColor: page === pageNum ? '#0284c7' : '#e2e8f0',
+                        background: page === pageNum ? '#0284c7' : '#ffffff',
+                        color: page === pageNum ? '#ffffff' : '#475569',
+                        fontWeight: page === pageNum ? 700 : 500,
+                        fontSize: '11.5px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {pageNum}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPage(totalPages)}
+                    disabled={page >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: page >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      fontWeight: 600
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2591,51 +7334,662 @@ export function ReportsView({ onOpenDrawer, onOpenModal }) {
 // ----------------------------------------------------
 
 export function AdminSystemView({ module = 'Integration Architecture', onOpenDrawer, onOpenModal }) {
+  const [data, setData] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Map module name to backend admin endpoint
+  const endpointMap = {
+    'Integration Architecture': 'integration-arch',
+    'Interface Connectors (HL7 / FHIR / ASTM)': 'integration-arch',
+    'Integrations': 'integration-arch',
+    'User Accounts & MFA Security': 'users',
+    'Users': 'users',
+    'Roles': 'roles',
+    'RBAC & ABAC Policy Permission Matrix': 'permissions',
+    'Permissions': 'permissions',
+    'Clinical Departments & Specialty Services': 'departments',
+    'Departments': 'departments',
+    'Services': 'services',
+    'Insurers': 'insurers',
+    'Payment Methods': 'payment-methods',
+    'Facilities & Housekeeping Bed Management': 'facilities',
+    'Facilities': 'facilities',
+    'Patient Identity Resolution & Consent Master': 'identity',
+    'Identity': 'identity',
+    // PEOPLE DOMAINS
+    'Employee Master Directory': 'employees',
+    'Employees': 'employees',
+    'Biometric Attendance & Overtime': 'attendance',
+    'Attendance': 'attendance',
+    'Staff Credentialing & Medical Licensing': 'credentials',
+    'Staff Credentials': 'credentials',
+    'Predictive Nurse & Staff Roster': 'staff',
+    'Staff Roster': 'staff',
+    'Staff Dining & Canteen Operations': 'canteen',
+    'Canteen': 'canteen',
+    'HR & Employee Service': 'hr-dashboard',
+    'HR': 'hr-dashboard'
+  };
+
+  const endpoint = endpointMap[module] || 'integration-arch';
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const res = await apiService.getAdminData(endpoint, {
+        search,
+        limit: pageSize,
+        offset: (currentPage - 1) * pageSize
+      });
+      if (res && res.data) {
+        setData(res.data);
+        setTotalCount(res.total ?? res.data.length);
+      } else {
+        setData([]);
+        setTotalCount(0);
+      }
+    } catch (err) {
+      console.error(`Failed to fetch live admin data for ${module}:`, err);
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [module, search, currentPage, pageSize]);
+
+  // Reset to page 1 on module change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [module]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const startRow = totalCount > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const endRow = Math.min(currentPage * pageSize, totalCount);
+
+  const handleRowClick = (item) => {
+    if (!onOpenDrawer) return;
+    const title = item.component || item.name || item.staff_name || item.role_name || item.department_name || item.service_name || item.provider_name || item.method_name || item.ward_name || item.token_id || module;
+    const sub = item.protocol || item.email || item.designation || item.description || item.code || item.shift || item.type || item.location || 'Live PostgreSQL Connected Configuration';
+    
+    const facts = Object.entries(item)
+      .filter(([k]) => !['id', 'password_hash'].includes(k))
+      .slice(0, 8)
+      .map(([k, v]) => ({
+        k: k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        v: typeof v === 'boolean' ? (v ? 'Enabled' : 'Disabled') : String(v || '—'),
+        b: ['name', 'staff_name', 'component', 'code', 'uhid', 'staff_code', 'token_id'].includes(k)
+      }));
+
+    onOpenDrawer({
+      title,
+      sub,
+      badges: [{ t: item.status || item.health || 'Operational', bg: '#dcfce7', fg: '#15803d' }],
+      facts,
+      actions: [
+        {
+          label: 'Edit Configuration',
+          primary: true,
+          on: () => onOpenModal && onOpenModal({ kind: 'reason', title: `Edit ${title}`, text: `Update configuration parameters for ${title}:` })
+        }
+      ]
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title={module}
-        subtitle="Governed enterprise infrastructure · connected live to clinical data foundation"
-        count={8}
+        subtitle="Governed enterprise infrastructure · connected directly to live PostgreSQL database foundation"
+        count={totalCount}
         onNew={() => onOpenModal && onOpenModal({ kind: 'reason', title: `Configure ${module}`, text: `Modify settings or credentials for ${module}:` })}
         newLabel="+ Add Configuration"
-        onExport={() => alert(`Exported ${module} configuration`)}
+        onExport={() => alert(`Exported ${module} live configuration from database`)}
       />
 
+      {/* Filter and Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
+          <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
+        </div>
+        <input
+          type="text"
+          placeholder={`Search in ${module}...`}
+          value={search}
+          onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+          style={{
+            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
+            width: '280px', outline: 'none'
+          }}
+        />
+      </div>
+
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Component</th>
-              <th style={{ padding: '10px 14px' }}>Protocol</th>
-              <th style={{ padding: '10px 14px' }}>Direction</th>
-              <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
-              <th style={{ padding: '10px 14px' }}>Fallback Mode</th>
-              <th style={{ padding: '10px 14px' }}>Health</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              ['HMS (Hospital Management System)', 'REST / HL7 v2', 'Bidirectional', 'Real-time (WebSocket)', 'Local SQLite queue', 'Healthy'],
-              ['EMR Clinical Progress Notes', 'FHIR R4 / JSON', 'Read · Draft write', '1 min pull', 'Clinician direct input', 'Healthy'],
-              ['LIS (Laboratory Information System)', 'ASTM 1394 / TCP', 'Read-only', 'Real-time analyzer push', 'Manual entry fallback', 'Healthy'],
-              ['RIS / PACS Imaging & Studies', 'DICOM / DIMSE', 'Read-only', 'On study complete', 'Radiology workstation', 'Healthy'],
-              ['Insurance & TPA Clearinghouse', 'National Health Claims (NHCX)', 'Bidirectional', '3 min polling', 'Web portal manual', 'Healthy'],
-              ['Central Formulary & Pharmacy', 'REST API', 'Bidirectional', 'Live transaction', 'Paper MAR contingency', 'Healthy'],
-              ['WhatsApp Patient Notification Gateway', 'Meta Cloud API', 'Outbound / Inbound', 'Instant', 'SMS fallback', 'Healthy'],
-              ['Clinical Data Foundation Views', 'Clinical SQL Service', 'Registry Ingestion', '5 min interval sync', 'Read replica cache', 'Healthy'],
-            ].map(([c, p, d, f, fb, h], i) => (
-              <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{c}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{p}</td>
-                <td style={{ padding: '10px 14px' }}>{d}</td>
-                <td style={{ padding: '10px 14px' }}>{f}</td>
-                <td style={{ padding: '10px 14px', color: '#52585e' }}>{fb}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {h}</span></td>
+        {loading && data.length === 0 ? (
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title={`Loading ${module}...`}
+              subtitle={`Retrieving real-time ${module.toLowerCase()} records from PostgreSQL database...`}
+              badgeText="Live PostgreSQL Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            No records found for {module}.
+          </div>
+        ) : (
+          <>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                {endpoint === 'integration-arch' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Component</th>
+                    <th style={{ padding: '10px 14px' }}>Protocol</th>
+                    <th style={{ padding: '10px 14px' }}>Direction</th>
+                    <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
+                    <th style={{ padding: '10px 14px' }}>Live Records / Metrics</th>
+                    <th style={{ padding: '10px 14px' }}>Health</th>
+                  </>
+                ) : endpoint === 'users' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>User Name</th>
+                    <th style={{ padding: '10px 14px' }}>Role</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Email</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'employees' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                    <th style={{ padding: '10px 14px' }}>Role / Type</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Email / Contact</th>
+                    <th style={{ padding: '10px 14px' }}>Joining Date</th>
+                    <th style={{ padding: '10px 14px' }}>Salary</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'attendance' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Shift Schedule</th>
+                    <th style={{ padding: '10px 14px' }}>Check In</th>
+                    <th style={{ padding: '10px 14px' }}>Check Out</th>
+                    <th style={{ padding: '10px 14px' }}>Work Hours</th>
+                    <th style={{ padding: '10px 14px' }}>Overtime</th>
+                    <th style={{ padding: '10px 14px' }}>Biometric Device</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'credentials' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Clinician Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Designation</th>
+                    <th style={{ padding: '10px 14px' }}>Council Reg No</th>
+                    <th style={{ padding: '10px 14px' }}>Licensing Authority</th>
+                    <th style={{ padding: '10px 14px' }}>License Expiry</th>
+                    <th style={{ padding: '10px 14px' }}>CME Credits</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'staff' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Assigned Unit / Ward</th>
+                    <th style={{ padding: '10px 14px' }}>Shift Timing</th>
+                    <th style={{ padding: '10px 14px' }}>Duty Role</th>
+                    <th style={{ padding: '10px 14px' }}>SBAR Handover</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'canteen' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Token ID</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Meal Category</th>
+                    <th style={{ padding: '10px 14px' }}>Dining Time</th>
+                    <th style={{ padding: '10px 14px' }}>Subsidy</th>
+                    <th style={{ padding: '10px 14px' }}>Staff Co-Pay</th>
+                    <th style={{ padding: '10px 14px' }}>Payment Mode</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'roles' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Role Name</th>
+                    <th style={{ padding: '10px 14px' }}>Description</th>
+                    <th style={{ padding: '10px 14px' }}>Active Members</th>
+                    <th style={{ padding: '10px 14px' }}>Permissions Scope</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'permissions' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Module / Domain</th>
+                    <th style={{ padding: '10px 14px' }}>Admin</th>
+                    <th style={{ padding: '10px 14px' }}>Doctor</th>
+                    <th style={{ padding: '10px 14px' }}>Nurse</th>
+                    <th style={{ padding: '10px 14px' }}>Pharmacist</th>
+                    <th style={{ padding: '10px 14px' }}>Billing</th>
+                  </>
+                ) : endpoint === 'departments' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Code</th>
+                    <th style={{ padding: '10px 14px' }}>Department Name</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Doctors</th>
+                    <th style={{ padding: '10px 14px' }}>Wards</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'services' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Service Code</th>
+                    <th style={{ padding: '10px 14px' }}>Service Name</th>
+                    <th style={{ padding: '10px 14px' }}>Category</th>
+                    <th style={{ padding: '10px 14px' }}>Department</th>
+                    <th style={{ padding: '10px 14px' }}>Standard Charge</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'insurers' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Insurance Provider</th>
+                    <th style={{ padding: '10px 14px' }}>Claims Count</th>
+                    <th style={{ padding: '10px 14px' }}>Total Claimed</th>
+                    <th style={{ padding: '10px 14px' }}>Total Approved</th>
+                    <th style={{ padding: '10px 14px' }}>Settlement Rate</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'payment-methods' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Payment Method</th>
+                    <th style={{ padding: '10px 14px' }}>Channel</th>
+                    <th style={{ padding: '10px 14px' }}>Txn Count</th>
+                    <th style={{ padding: '10px 14px' }}>Total Collected</th>
+                    <th style={{ padding: '10px 14px' }}>Success Rate</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : endpoint === 'facilities' ? (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>Ward / Unit</th>
+                    <th style={{ padding: '10px 14px' }}>Type</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Rooms</th>
+                    <th style={{ padding: '10px 14px' }}>Beds</th>
+                    <th style={{ padding: '10px 14px' }}>Housekeeping</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                ) : (
+                  <>
+                    <th style={{ padding: '10px 14px' }}>UHID</th>
+                    <th style={{ padding: '10px 14px' }}>Patient Name</th>
+                    <th style={{ padding: '10px 14px' }}>Gender</th>
+                    <th style={{ padding: '10px 14px' }}>Blood Group</th>
+                    <th style={{ padding: '10px 14px' }}>Phone</th>
+                    <th style={{ padding: '10px 14px' }}>Location</th>
+                    <th style={{ padding: '10px 14px' }}>Status</th>
+                  </>
+                )}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((item, i) => (
+                <tr
+                  key={item.id || i}
+                  onClick={() => handleRowClick(item)}
+                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  {endpoint === 'integration-arch' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.component}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.protocol}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.direction}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.frequency}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 500, color: '#0f766e' }}>{item.records}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.health}</span></td>
+                    </>
+                  ) : endpoint === 'users' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'Active' ? '#dcfce7' : '#fee2e2', item.status === 'Active' ? '#15803d' : '#b91c1c')}>{item.status}</span></td>
+                    </>
+                  ) : endpoint === 'employees' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.joining_date}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#16a34a' }}>{item.salary_display}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'attendance' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#15803d', fontWeight: 600 }}>{item.check_in}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.check_out}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.work_hours}</td>
+                      <td style={{ padding: '10px 14px', color: item.overtime_hours !== '0.0 hrs' ? '#dc2626' : '#64748b', fontWeight: 600 }}>{item.overtime_hours}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.biometric_device}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'credentials' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.designation}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>{item.council_reg_number}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.licensing_authority}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.license_expiry}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.cme_credits}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.verification_status}</span></td>
+                    </>
+                  ) : endpoint === 'staff' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.assigned_unit}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.duty_role}</span></td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#15803d', fontWeight: 600 }}>✓ {item.handover_status}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'On Duty' ? '#dcfce7' : '#f1f5f9', item.status === 'On Duty' ? '#15803d' : '#475569')}>{item.status}</span></td>
+                    </>
+                  ) : endpoint === 'canteen' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#0f766e' }}>{item.token_id}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.staff_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.meal_category}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.dining_time}</td>
+                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.subsidy_rate}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.co_pay}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.payment_mode}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                    </>
+                  ) : endpoint === 'roles' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.role_name || item.name}</td>
+                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.description || 'Role Definition'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.member_count || 0)} users</td>
+                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.permissions_summary || 'Standard access'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                    </>
+                  ) : endpoint === 'permissions' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.module || 'System Domain'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>{item.admin || 'Full Control'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.doctor || 'Read / Write'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#fef3c7', '#b45309')}>{item.nurse || 'Administer'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{item.pharmacist || 'Dispense'}</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f8fafc', '#64748b')}>{item.billing || 'Billing View'}</span></td>
+                    </>
+                  ) : endpoint === 'departments' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.department_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.department_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.type || 'Clinical'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Main Hospital'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.doctor_count || 0)}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.ward_count || 0)}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                    </>
+                  ) : endpoint === 'services' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.service_code}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.service_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.category || 'Clinical'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.department || 'General'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.charge_display || `₹${Number(item.standard_charge || 0).toFixed(2)}`}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status || 'Active'}</span></td>
+                    </>
+                  ) : endpoint === 'insurers' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.provider_name || 'Insurance Partner'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.claim_count) || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.claimed_display || `₹${(Number(item.total_claimed) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#16a34a', fontWeight: 600 }}>{item.approved_display || `₹${(Number(item.total_approved) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#2563eb' }}>{item.approval_rate || '95.0%'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active Partner</span></td>
+                    </>
+                  ) : endpoint === 'payment-methods' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.method_name || 'Payment Channel'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.channel || 'Digital / Counter'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.txn_count) || 0).toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.collected_display || `₹${(Number(item.total_collected) || 0).toLocaleString('en-IN')}`}</td>
+                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.success_rate || '100%'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Operational</span></td>
+                    </>
+                  ) : endpoint === 'facilities' ? (
+                    <>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.ward_name || item.facility || 'Ward'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.ward_type || 'Inpatient'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.floor || 'Floor 1'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.room_count || 0)} rooms</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.bed_count || 0)} beds</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Sanitized</span></td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Operational</span></td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.uhid || item.patient_code || 'PAT-001'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.patient_name || 'Patient'}</td>
+                      <td style={{ padding: '10px 14px' }}>{item.gender || '—'}</td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.blood_group || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.phone || '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Chennai, Tamil Nadu'}</td>
+                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Verified</span></td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+            {/* Pagination Footer */}
+            {totalCount > 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: '#fafbfc',
+                borderTop: '1px solid #eef0f1',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span>
+                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
+                    {[10, 20, 50, 100].map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                        style={{
+                          height: '24px',
+                          padding: '0 8px',
+                          borderRadius: '4px',
+                          border: '1px solid',
+                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
+                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
+                          color: pageSize === sz ? '#0369a1' : '#64748b',
+                          fontWeight: pageSize === sz ? 700 : 500,
+                          fontSize: '11px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage <= 1}
+                    title="First Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    « First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    title="Previous Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
+                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                    let pageNum = idx + 1;
+                    if (totalPages > 5) {
+                      if (currentPage <= 3) {
+                        pageNum = idx + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + idx;
+                      } else {
+                        pageNum = currentPage - 2 + idx;
+                      }
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setCurrentPage(pageNum)}
+                        style={{
+                          height: '28px',
+                          width: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid',
+                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
+                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
+                          color: currentPage === pageNum ? '#ffffff' : '#475569',
+                          fontWeight: currentPage === pageNum ? 700 : 500,
+                          fontSize: '11.5px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    title="Next Page"
+                    style={{
+                      height: '28px',
+                      padding: '0 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11.5px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage >= totalPages}
+                    title="Last Page"
+                    style={{
+                      height: '28px',
+                      minWidth: '28px',
+                      padding: '0 6px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0',
+                      background: '#ffffff',
+                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
+                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    Last »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

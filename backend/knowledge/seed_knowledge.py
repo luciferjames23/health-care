@@ -7,12 +7,12 @@ Idempotent seed script for Meridian Hospital knowledge base.
 - Seeds 13 knowledge documents (one per category)
 - Seeds corresponding knowledge chunks
 - Uses ON CONFLICT DO UPDATE — safe to re-run multiple times
-- All content is marked as POC SAMPLE INFORMATION in the source field
+- All content is marked as SAMPLE INFORMATION in the source field
 
 Run:
     python knowledge/seed_knowledge.py
 
-Step 5.1 — Meridian Hospital POC
+Step 5.1 — Meridian Hospital
 """
 
 import sys
@@ -110,7 +110,7 @@ def upsert_chunk(cur, document_id, chunk_number, content, metadata=None):
 
 
 def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
-    """Build the full list of knowledge documents and their chunks from live DB data."""
+    """Build the full list of knowledge documents and their chunks from DB data."""
 
     dept_list = "\n".join([f"  • {d['name']}: {d['description']}" for d in departments])
     dept_names = ", ".join([d["name"] for d in departments])
@@ -204,7 +204,7 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
                         f"Meridian Hospital OPD (Outpatient Department) consultation schedules:\n\n"
                         f"{schedule_list}\n\n"
                         f"Appointment slots are available every 30 minutes during scheduled hours. "
-                        f"The AI Patient Desk shows live availability and can book a slot instantly."
+                        f"The AI Patient Desk shows real-time availability and can book a slot instantly."
                     ),
                     "meta": {"category": "OPD_TIMINGS"}
                 },
@@ -480,7 +480,7 @@ def run_seed():
     cur = conn.cursor()
 
     try:
-        print("Reading live database data...")
+        print("Reading database data...")
         departments = get_departments(conn)
         doctors = get_doctors(conn)
         schedules = get_schedules(conn)

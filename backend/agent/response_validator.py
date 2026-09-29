@@ -77,6 +77,50 @@ def validate_doctor_department_match(doctor_id: Optional[int], department_id: Op
         conn.close()
 
 
+def normalize_interactive_type(response_payload: Dict[str, Any], state: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Centralized WhatsApp Interactive-Response Decision Rule:
+    - 1-3 actionable options & not explicit slot list workflow:
+        interactive_type = 'button' (Reply Buttons)
+    - >3 options OR explicit list workflow (time slots, >3 doctors, >3 depts, etc.):
+        interactive_type = 'list' (Interactive List)
+    - 0 options:
+        interactive_type = None
+
+    Preserves exact action IDs, titles, business logic, and handlers.
+    """
+    if not isinstance(response_payload, dict):
+        return response_payload
+
+    buttons = response_payload.get("interactive_buttons")
+    if not buttons or not isinstance(buttons, list) or len(buttons) == 0:
+        response_payload["interactive_type"] = None
+        if state is not None and isinstance(state, dict):
+            state["interactive_type"] = None
+        return response_payload
+
+    explicit_type = response_payload.get("interactive_type") or (state.get("interactive_type") if state and isinstance(state, dict) else None)
+
+    # Time slot selection buttons or explicit slot list workflows
+    is_slot_workflow = any(
+        isinstance(b, dict) and str(b.get("id", "")).startswith("btn_slot_") 
+        for b in buttons
+    )
+
+    if explicit_type == "list" or is_slot_workflow or len(buttons) > 3:
+        target_type = "list"
+    elif 1 <= len(buttons) <= 3:
+        target_type = "button"
+    else:
+        target_type = "list"
+
+    response_payload["interactive_type"] = target_type
+    if state is not None and isinstance(state, dict):
+        state["interactive_type"] = target_type
+
+    return response_payload
+
+
 def validate_pre_dispatch(state: Dict[str, Any], response_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main validator called before sending a response to WhatsApp.
@@ -93,7 +137,7 @@ def validate_pre_dispatch(state: Dict[str, Any], response_payload: Dict[str, Any
             response_payload["response"] = date_err
             response_payload["missing_information"] = ["appointment_date"]
             print(f"[RESPONSE_VALIDATOR] Blocked past/invalid appointment date: {appt_date}")
-            return response_payload
+            return normalize_interactive_type(response_payload, state)
 
     # 2. Doctor / Department Match Validation
     doc_id = entities.get("doctor_id")
@@ -105,7 +149,7 @@ def validate_pre_dispatch(state: Dict[str, Any], response_payload: Dict[str, Any
             state["entities"]["doctor_id"] = None
             response_payload["response"] = doc_err
             print(f"[RESPONSE_VALIDATOR] Blocked mismatched doctor ID {doc_id}: {doc_err}")
-            return response_payload
+            return normalize_interactive_type(response_payload, state)
 
     # 3. Post-Payment UI Cleanup Safeguard: Ensure no pre-payment action buttons remain after payment SUCCESS
     if state.get("payment_status") == "SUCCESS" and "interactive_buttons" in response_payload:
@@ -114,4 +158,6 @@ def validate_pre_dispatch(state: Dict[str, Any], response_payload: Dict[str, Any
             if not b.get("id", "").startswith("btn_pay_")
         ]
 
-    return response_payload
+    # 4. Centralized Interactive Response Normalization (Reply Buttons vs List)
+    return normalize_interactive_type(response_payload, state)
+

@@ -302,10 +302,14 @@ export interface IntentBreakdownItem {
 
 // ─── HTTP Helpers ─────────────────────────────────────────────────────────────
 
-const BASE_URL = 'http://localhost:8000';
+const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 function getAuthHeaders(): Record<string, string> {
   try {
+    const token = sessionStorage.getItem('hc_auth_token');
+    if (token) {
+      return { 'Authorization': `Bearer ${token}` };
+    }
     const userStr = sessionStorage.getItem('meridian_user');
     if (userStr) {
       const user = JSON.parse(userStr);
@@ -313,10 +317,16 @@ function getAuthHeaders(): Record<string, string> {
         return { 'Authorization': `Bearer ${user.token}` };
       }
     }
+    const hxAuthStr = sessionStorage.getItem('hx_auth');
+    if (hxAuthStr) {
+      const hxAuth = JSON.parse(hxAuthStr);
+      if (hxAuth && hxAuth.token) {
+        return { 'Authorization': `Bearer ${hxAuth.token}` };
+      }
+    }
   } catch (e) {
-    console.error('Error parsing meridian_user for auth headers:', e);
+    console.error('Error parsing auth token for dashboard headers:', e);
   }
-  // Default bearer token for unified portal session
   return { 'Authorization': 'Bearer demo-session-token' };
 }
 
@@ -339,9 +349,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
     if (!res.ok) {
       const errorMsg = typeof data?.detail === 'string' ? data.detail : (data?.error || `Server error (${res.status})`);
       console.warn(`[Dashboard API] ${path} returned ${res.status}:`, errorMsg);
-      if (res.status === 401) {
-        sessionStorage.removeItem('meridian_user');
-      }
       return null;
     }
     return data as T;
@@ -594,9 +601,32 @@ export async function deleteSchedule(scheduleId: number): Promise<boolean> {
   return data?.success ?? false;
 }
 
+export async function updateSchedule(scheduleId: number, payload: {
+  doctor_id: number;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  slot_duration_minutes?: number;
+  status?: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  const data = await apiFetch<{ success: boolean; message?: string; error?: string }>(`/api/dashboard/schedules/${scheduleId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return data ?? { success: false, error: 'Failed to update schedule' };
+}
+
+export async function updateScheduleStatus(scheduleId: number, status: string): Promise<boolean> {
+  const data = await apiFetch<{ success: boolean }>(`/api/dashboard/schedules/${scheduleId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return data?.success ?? false;
+}
+
 export async function requestDoctorOTP(identifier: string): Promise<{ success: boolean; message?: string; debug_otp?: string; error?: string }> {
   try {
-    const response = await fetch('http://localhost:8000/api/auth/forgot-password/request-otp', {
+    const response = await fetch(`${BASE_URL}/api/auth/forgot-password/request-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier }),
@@ -611,7 +641,7 @@ export async function requestDoctorOTP(identifier: string): Promise<{ success: b
 
 export async function resetDoctorPasswordWithOTP(identifier: string, otp: string, new_password: string): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
-    const response = await fetch('http://localhost:8000/api/auth/forgot-password/reset-password', {
+    const response = await fetch(`${BASE_URL}/api/auth/forgot-password/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, otp, new_password }),
@@ -777,8 +807,8 @@ export async function fetchPreAdmissions(params?: {
   if (params?.admission_date) qs.set('admission_date', params.admission_date);
   if (params?.patient_id) qs.set('patient_id', String(params.patient_id));
 
-  const data = await apiFetch<{ pre_admissions: PreAdmissionItem[] }>(`/api/dashboard/pre-admissions?${qs}`);
-  return data ?? { pre_admissions: [] };
+  const data = await apiFetch<{ pre_admissions?: PreAdmissionItem[] }>(`/api/dashboard/pre-admissions?${qs}`);
+  return { pre_admissions: Array.isArray(data?.pre_admissions) ? data.pre_admissions : [] };
 }
 
 export async function createPreAdmission(payload: NewPreAdmissionPayload): Promise<{

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ALL_ROLES, DEMO_ROLES } from '../services/meridianData';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 const FALLBACK_DB_USERS = [
   { username: 'admin', role: 'Hospital Management', name: 'System Admin', dept: 'Administration', specialization: 'Administration', title: 'Admin' },
@@ -34,11 +34,12 @@ export default function TopHeader({
   onOpenMobile,
   onAskAi,
   onOpenModal,
+  onSwitchUserPromptPassword,
 }) {
   const [askInput, setAskInput] = React.useState('');
   const [showNewMenu, setShowNewMenu] = React.useState(false);
 
-  // Dynamic real-time live clock and calendar date
+  // Dynamic real-time clock and calendar date
   const [now, setNow] = React.useState(new Date());
 
   React.useEffect(() => {
@@ -51,7 +52,9 @@ export default function TopHeader({
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const liveDateStr = `${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
-  const liveTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  const hours12 = now.getHours() % 12 || 12;
+  const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+  const liveTimeStr = `${String(hours12).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${ampm}`;
 
   const handleAskSubmit = (e) => {
     e.preventDefault();
@@ -117,16 +120,9 @@ export default function TopHeader({
 
   // Available users for current selected role
   const usersForCurrentRole = React.useMemo(() => {
-    if (!role) return combinedUsers;
-    const targetRole = role.toLowerCase();
-    const filtered = combinedUsers.filter(r => {
-      const rRole = (r.role || '').toLowerCase();
-      if (rRole === targetRole) return true;
-      if (targetRole === 'hospital management' && (rRole === 'admin' || rRole === 'hospital management')) return true;
-      return false;
-    });
-    return filtered.length > 0 ? filtered : combinedUsers;
-  }, [combinedUsers, role]);
+    const list = combinedUsers.length > 0 ? combinedUsers : (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
+    return [...list].sort((a, b) => Number(b.role === 'Radiologist') - Number(a.role === 'Radiologist'));
+  }, [combinedUsers, dbUsers]);
 
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -175,149 +171,12 @@ export default function TopHeader({
           </button>
         </form>
 
-        {/* Dynamic Real-time Live Clock */}
+        {/* Dynamic Real-time Clock */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>
           <span>{liveDateStr}</span>
           <span style={{ fontWeight: 600, color: '#15181b' }}>{liveTimeStr}</span>
         </div>
 
-        {/* + New Master Modal Action Menu */}
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={() => setShowNewMenu(v => !v)}
-            style={{
-              height: '28px', padding: '0 10px', border: 'none',
-              borderRadius: '6px', background: 'oklch(0.5 0.1 200)', color: '#fff',
-              cursor: 'pointer', fontWeight: 600, fontSize: '11.5px',
-              display: 'flex', alignItems: 'center', gap: '4px',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-            }}
-          >
-            <span>+ New</span>
-            <span style={{ fontSize: '9px' }}>▼</span>
-          </button>
-
-          {showNewMenu && (
-            <div
-              style={{
-                position: 'absolute', top: '34px', right: 0,
-                background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px',
-                boxShadow: '0 12px 28px rgba(0,0,0,0.15)', width: '210px', zIndex: 100,
-                padding: '6px 0', fontSize: '12px'
-              }}
-              onClick={() => setShowNewMenu(false)}
-            >
-              <div style={{ padding: '6px 12px', fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Operational Actions
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'appt', title: 'New Outpatient Appointment' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>📅</span> New Appointment
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'admit', title: 'Inpatient Bed Admission' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🛏️</span> Admit Inpatient
-              </div>
-
-              <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }} />
-              <div style={{ padding: '6px 12px', fontSize: '10.5px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Master Catalog Registries
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'patients', title: 'Register Patient' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>👤</span> Register Patient
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'doctors', title: 'Add Doctor / Consultant' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🩺</span> Add Doctor
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drugs', title: 'Add Drug to Formulary' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>💊</span> Add Drug
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Hospital Service' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🔬</span> Add Service
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'departments', title: 'Add Department' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🏥</span> Add Department
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'staff', title: 'Add Employee / Staff' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>👥</span> Add Employee
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendors', title: 'Add Empanelled Vendor' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🏢</span> Add Vendor
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'insurers', title: 'Add Insurer / TPA' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>🛡️</span> Add Insurer / TPA
-              </div>
-              <div
-                onClick={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'taxes', title: 'Add GST / Tax Rule' })}
-                style={{ padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <span>📑</span> Add Tax Rule
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Alerts badge */}
-        <button
-          type="button"
-          style={{ height: '28px', padding: '0 9px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px' }}
-        >
-          <span>Alerts</span>
-          <span style={{ minWidth: '18px', padding: '1px 5px', borderRadius: '9px', background: 'oklch(0.5 0.18 25)', color: '#fff', fontSize: '10px', fontWeight: 700, textAlign: 'center' }}>
-            {alertsCount}
-          </span>
-        </button>
       </div>
 
       {/* ── Row 2: Role / User / avatar / sign out / mobile ── */}
@@ -330,25 +189,23 @@ export default function TopHeader({
           <span>Role</span>
           <select
             value={role}
+            title="Select role to switch user"
             onChange={e => {
               const nextRole = e.target.value;
               setRole(nextRole);
-              const matched = combinedUsers.find(r => 
+              const matched = combinedUsers.find(r =>
                 r.role?.toLowerCase() === nextRole.toLowerCase() ||
                 (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
               );
-              if (matched && setUser) {
-                setUser({
-                  username: matched.username,
-                  name: matched.name,
-                  role: matched.role,
-                  dept: matched.dept || matched.role,
-                  specialization: matched.specialization,
-                  title: matched.title
-                });
+              if (matched && matched.username !== user?.username) {
+                if (onSwitchUserPromptPassword) {
+                  onSwitchUserPromptPassword(matched);
+                } else if (onSignOut) {
+                  onSignOut();
+                }
               }
             }}
-            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
+            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
           >
             {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
           </select>
@@ -360,22 +217,17 @@ export default function TopHeader({
           <select
             value={user?.username || (usersForCurrentRole[0]?.username)}
             onChange={e => {
-              const u = combinedUsers.find(r => r.username === e.target.value);
-              if (u && setUser) {
-                setUser({
-                  username: u.username,
-                  name: u.name,
-                  role: u.role,
-                  dept: u.dept || u.role,
-                  specialization: u.specialization,
-                  title: u.title
-                });
-                if (setRole && u.role) {
-                  setRole(u.role);
+              const selectedUsername = e.target.value;
+              const u = combinedUsers.find(r => r.username === selectedUsername);
+              if (u && u.username !== user?.username) {
+                if (onSwitchUserPromptPassword) {
+                  onSwitchUserPromptPassword(u);
+                } else if (onSignOut) {
+                  onSignOut();
                 }
               }
             }}
-            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none' }}
+            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
           >
             {usersForCurrentRole.map(r => (
               <option key={r.username} value={r.username}>
@@ -408,15 +260,6 @@ export default function TopHeader({
             Sign out
           </button>
         </div>
-
-        {/* Mobile button */}
-        <button
-          type="button"
-          onClick={onOpenMobile}
-          style={{ height: '28px', padding: '0 10px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11.5px', fontWeight: 500, color: '#15181b' }}
-        >
-          Mobile
-        </button>
       </div>
     </header>
   );

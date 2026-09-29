@@ -30,7 +30,9 @@ TRANSLATIONS = {
         "DOCTOR_NOT_AVAILABLE": "The doctor is not scheduled to work on {date}.",
         "INVALID_APPOINTMENT_SLOT": "The requested time is outside the doctor's schedule or doesn't match the slot duration.",
         "PATIENT_NOT_FOUND": "I couldn't find a matching patient record. Please provide your registered patient code.",
-        "ACCESS_DENIED": "Access denied. You cannot access another patient's appointment details."
+        "ACCESS_DENIED": "Access denied. You cannot access another patient's appointment details.",
+        "ASK_BOOKING_REASON": "Sure! I can help you book an appointment. 😊\n\nWhat health problem, symptom, or reason would you like to consult the doctor for?",
+        "NO_DOCTORS_AVAILABLE": "I can help you with {dept}. There are currently no {dept} appointments available. Would you like to check another date?"
     },
     "TAMIL": {
         "GREETING": "வணக்கம்! மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம். நான் உங்கள் AI நோயாளி உதவி முகவர். அப்பாயிண்ட்மெண்ட், மருத்துவர் இருப்பு, ரத்து செய்தல் அல்லது மாற்றுதல் மற்றும் மருத்துவமனை தகவல்களுக்கு நான் உதவ முடியும். இன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
@@ -53,7 +55,9 @@ TRANSLATIONS = {
         "EMERGENCY_GUIDANCE": "இதற்கு அவசர மருத்துவ சிகிச்சை தேவைப்படலாம். தயவுசெய்து உடனடியாக அவசர சிகிச்சையை நாடவும். நான் மருத்துவமனை தகவல்களுக்கு உதவ முடியும், ஆனால் அவசர சிகிச்சையைத் தாமதப்படுத்தக் கூடாது.",
         "HUMAN_ESCALATION": "மருத்துவமனை உதவி குழுவுடன் உங்களை இணைக்க நான் உதவ முடியும்.",
         "UNKNOWN": "மன்னிக்கவும், எனக்கு புரியவில்லை. அப்பாயிண்ட்மெண்ட்கள் அல்லது மருத்துவமனை தகவல்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
-        "LANGUAGE_CHANGED": "மொழி தமிழுக்கு மாற்றப்பட்டது."
+        "LANGUAGE_CHANGED": "மொழி தமிழுக்கு மாற்றப்பட்டது.",
+        "ASK_BOOKING_REASON": "நிச்சயமாக! அப்பாயிண்ட்மெண்ட் பதிவு செய்ய நான் உதவுகிறேன். 😊\n\nஎந்த சுகாதார பிரச்சனை, அறிகுறி அல்லது காரணத்திற்காக மருத்துவரை அணுக விரும்புகிறீர்கள்?",
+        "NO_DOCTORS_AVAILABLE": "{dept} துறைக்கு உதவ முடியும். ஆனால் தற்போது {dept} பிரிவில் மருத்துவ அப்பாயிண்ட்மெண்ட்கள் கிடைக்கவில்லை. வேறு தேதியை சரிபார்க்கவா?"
     },
     "HINDI": {
         "GREETING": "नमस्ते! मेरिडियन अस्पताल में आपका स्वागत है। मैं आपका एआई पेशेंट डेस्क असिस्टेंट हूं। मैं अपॉइंटमेंट, डॉक्टर की उपलब्धता, अपॉइंटमेंट रद्द या पुनर्निर्धारित करने और अस्पताल की जानकारी में आपकी मदद कर सकता हूं। आज मैं आपकी क्या मदद कर सकता हूं?",
@@ -76,7 +80,9 @@ TRANSLATIONS = {
         "EMERGENCY_GUIDANCE": "इसके लिए तत्काल चिकित्सा ध्यान देने की आवश्यकता हो सकती है। कृपया तुरंत आपातकालीन चिकित्सा सहायता लें। मैं अस्पताल की जानकारी में मदद कर सकता हूं, लेकिन आपातकालीन उपचार में देरी नहीं होनी चाहिए।",
         "HUMAN_ESCALATION": "मैं अस्पताल की सहायता टीम से जुड़ने में आपकी मदद कर सकता हूं।",
         "UNKNOWN": "क्षमा करें, मुझे समझ नहीं आया। मैं अपॉइंटमेंट या अस्पताल की जानकारी में आपकी क्या मदद कर सकता हूँ?",
-        "LANGUAGE_CHANGED": "भाषा बदलकर हिंदी कर दी गई है।"
+        "LANGUAGE_CHANGED": "भाषा बदलकर हिंदी कर दी गई है।",
+        "ASK_BOOKING_REASON": "ज़रूर! मैं अपॉइंटमेंट बुक करने में आपकी मदद कर सकता हूं। 😊\n\nआप किस स्वास्थ्य समस्या, लक्षण या कारण के लिए डॉक्टर से परामर्श करना चाहते हैं?",
+        "NO_DOCTORS_AVAILABLE": "मैं {dept} के लिए आपकी मदद कर सकता हूं। वर्तमान में {dept} में कोई अपॉइंटमेंट उपलब्ध नहीं है। क्या आप कोई अन्य तारीख देखना चाहेंगे?"
     },
     "TELUGU": {
         "GREETING": "నమస్తే! మెరిడియన్ హాస్పిటల్‌కు స్వాగతం. నేను మీ AI పేషెంట్ డెస్క్ అసిస్టెంట్‌ని. అపాయింట్‌మెంట్‌లు, డాక్టర్ అందుబాటు, రద్దు లేదా రీషెడ్యూల్ మరియు హాస్పిటల్ సమాచారం గురించి సహాయపడగలను. ఈ రోజు మీకు ఎలా సహాయపడాలి?",
@@ -98,7 +104,81 @@ TRANSLATIONS = {
         "EMERGENCY_GUIDANCE": "దీనికి అత్యవసర వైద్య సహాయం అవసరం కావచ్చు. దయచేసి వెంటనే అత్యవసర వైద్య సేవలను సంప్రదించండి.",
         "HUMAN_ESCALATION": "హాస్పిటల్ సపోర్ట్ టీమ్‌తో కనెక్ట్ కావడానికి నేను సహాయపడగలను.",
         "UNKNOWN": "క్షమించండి, నాకు అర్థం కాలేదు. అపాయింట్‌మెంట్‌లు లేదా హాస్పిటల్ సమాచారం గురించి మీకు ఎలా సహాయపడగలను?",
-        "LANGUAGE_CHANGED": "భాష తెలుగులోకి మార్చబడింది."
+        "LANGUAGE_CHANGED": "భాష తెలుగులోకి మార్చబడింది.",
+        "ASK_BOOKING_REASON": "తప్పకుండా! అపాయింట్‌మెంట్ బుక్ చేసుకోవడానికి నేను సహాయపడతాను. 😊\n\nమీరు ఏ ఆరోగ్య సమస్య, లక్షణం లేదా కారణం కోసం డాక్టర్‌ను సంప్రదించాలనుకుంటున్నారు?",
+        "NO_DOCTORS_AVAILABLE": "నేను {dept} కొరకు సహాయపడగలను. ప్రస్తుతం {dept} లో అపాయింట్‌మెంట్‌లు అందుబాటులో లేవు. వేరే తేదీని చూడమంటారా?"
+    },
+    "MALAYALAM": {
+        "GREETING": "നമസ്കാരം! മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം. ഞാൻ നിങ്ങളുടെ എഐ പേഷ്യന്റ് ഡെസ്ക് അസിസ്റ്റന്റ് ആണ്. അപ്പോയിന്റ്മെന്റുകൾ, ഡോക്ടറുടെ ലഭ്യത, ക്യാൻസലേഷൻ അല്ലെങ്കിൽ റീഷെഡ്യൂൾ ചെയ്യൽ, ആശുപത്രി വിവരങ്ങൾ എന്നിവയ്ക്ക് ഞാൻ സഹായിക്കാം. ഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?",
+        "ASK_PATIENT_CODE": "ദയവായി നിങ്ങളുടെ രജിസ്റ്റർ ചെയ്ത പേഷ്യന്റ് കോഡ് (ഉദാ. P001) നൽകുക.",
+        "ASK_DEPT_OR_DOCTOR": "ഏത് വിഭാഗത്തിലോ ഡോക്ടറെയോ ആണ് കാണേണ്ടത്?",
+        "ASK_DATE": "ഏത് തീയതിയിലാണ് അപ്പോയിന്റ്മെന്റ് വേണ്ടത്? (ഉദാ. ഇന്ന്, നാളെ, അടുത്ത തിങ്കൾ)",
+        "ASK_TIME": "ഏത് സമയമാണ് നിങ്ങൾക്ക് താല്പര്യം? (ഉദാ. രാവിലെ 10:00, 11:30)",
+        "SLOTS_AVAILABLE": "{date}-ൽ {doctor}-ക്ക് ഈ സമയങ്ങൾ ലഭ്യമാണ്: {slots}. ഏതാണ് താല്പര്യം?",
+        "BOOKING_SUCCESS": "അപ്പോയിന്റ്മെന്റ് വിജയകരമായി ബുക്ക് ചെയ്തിരിക്കുന്നു! ബുക്കിംഗ് ഐഡി: {booking_id}, തീയതി: {date}, സമയം: {time}, ഡോക്ടർ: {doctor}.",
+        "SLOT_UNAVAILABLE": "ക്ഷമിക്കണം, ആ സമയം ഇപ്പോൾ ലഭ്യമല്ല. മറ്റ് സമയങ്ങൾ നോക്കണോ?",
+        "ASK_BOOKING_ID": "ദയവായി ബുക്കിംഗ് ഐഡി (ഉദാ. APT10001) നൽകുക.",
+        "ASK_CANCEL_REASON": "തീർച്ചയായും. അപ്പോയിന്റ്മെന്റ് റദ്ദാക്കാനുള്ള കാരണം വ്യക്തമാക്കാമോ?",
+        "CANCEL_SUCCESS": "നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് {booking_id} വിജയകരമായി റദ്ദാക്കിയിരിക്കുന്നു.",
+        "ASK_RESCHEDULE_DATE_TIME": "പുതിയ തീയതിയും സമയവും നൽകുക (ഉദാ. നാളെ രാവിലെ 11:00 മണിക്ക്).",
+        "ASK_RESCHEDULE_REASON": "തീർച്ചയായും. മാറ്റാനുള്ള കാരണം വ്യക്തമാക്കാമോ?",
+        "RESCHEDULE_SUCCESS": "അപ്പോയിന്റ്മെന്റ് {booking_id} വിജയകരമായി {date}-ൽ {time}-ലേക്ക് മാറ്റിയിരിക്കുന്നു.",
+        "STATUS_RESPONSE": "{doctor}-യുമായുള്ള അപ്പോയിന്റ്മെന്റ് {booking_id} {date}-ൽ {time}-ൽ {status} ആണ്.",
+        "SYMPTOM_GUIDANCE": "അസുഖം ബാധിച്ചതിൽ ഖേദിക്കുന്നു. ഈ ലക്ഷണങ്ങൾക്ക് {dept} അനുയോജ്യമായിരിക്കാം. ലഭ്യമായ ഡോക്ടർമാരെ നോക്കട്ടെ?",
+        "EMERGENCY_GUIDANCE": "ഇതിന് അടിയന്തിര വൈദ്യസഹായം ആവശ്യമായി വന്നേക്കാം. ദയവായി എത്രയും വേഗം അടിയന്തിര ചികിത്സ തേടുക.",
+        "HUMAN_ESCALATION": "ആശുപത്രി സഹായ ഗ്രൂപ്പുമായി ബന്ധപ്പെടാൻ ഞാൻ സഹായിക്കാം.",
+        "UNKNOWN": "ക്ഷമിക്കണം, മനസ്സിലായില്ല. അപ്പോയിന്റ്മെന്റുകൾക്കോ ആശുപത്രി വിവരങ്ങൾക്കോ എങ്ങനെ സഹായിക്കണം?",
+        "LANGUAGE_CHANGED": "ഭാഷ മലയാളത്തിലേക്ക് മാറ്റിയിരിക്കുന്നു.",
+        "ASK_BOOKING_REASON": "തീർച്ചയായും! അപ്പോയിന്റ്മെന്റ് ബുക്ക് ചെയ്യാൻ ഞാൻ സഹായിക്കാം. 😊\n\nഏത് ആരോഗ്യ പ്രശ്നം, ലക്ഷണം അല്ലെങ്കിൽ കാരണത്താലാണ് ഡോക്ടറെ കാണാൻ ആഗ്രഹിക്കുന്നത്?",
+        "NO_DOCTORS_AVAILABLE": "{dept} വിഭാഗത്തിന് സഹായിക്കാം. ഇപ്പോൾ {dept} അപ്പോയിന്റ്മെന്റുകൾ ലഭ്യമല്ല. മറ്റ് തീയതി നോക്കണോ?"
+    },
+    "KANNADA": {
+        "GREETING": "ನಮಸ್ಕಾರ! ಮೆರಿಡಿಯನ್ ಆಸ್ಪತ್ರೆಗೆ ಸುಸ್ವಾಗತ. ನಾನು ನಿಮ್ಮ AI ಪೇಷಂಟ್ ಡೆಸ್ಕ್ ಅಸಿಸ್ಟೆಂಟ್. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಬುಕಿಂಗ್, ರದ್ದತಿ ಅಥವಾ ಮರು-ನಿಗದಿ ಮತ್ತು ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿಯ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಲ್ಲೆ. ಇಂದು ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "ASK_PATIENT_CODE": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ನೋಂದಾಯಿತ ಪೇಷಂಟ್ ಕೋಡ್ (ಉದಾ. P001) ಒದಗಿಸಿ.",
+        "ASK_DEPT_OR_DOCTOR": "ನೀವು ಯಾವ ವಿಭಾಗ ಅಥವಾ ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಲು ಬಯಸುತ್ತೀರಿ?",
+        "ASK_DATE": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗೆ ಯಾವ ದಿನಾಂಕವನ್ನು ಬಯಸುತ್ತೀರಿ? (ಉದಾ. ಇಂದು, ನಾಳೆ, ಮುಂದಿನ ಸೋಮವಾರ)",
+        "ASK_TIME": "ಯಾವ ಸಮಯವನ್ನು ಬಯಸುತ್ತೀರಿ? (ಉದಾ. ಬೆಳಿಗ್ಗೆ 10:00, 11:30)",
+        "SLOTS_AVAILABLE": "{date} ರಂದು {doctor} ರವರಿಗೆ ಈ ಸಮಯಗಳು ಲಭ್ಯವಿದೆ: {slots}. ನೀವು ಯಾವುದನ್ನು ಬಯಸುತ್ತೀರಿ?",
+        "BOOKING_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಯಶಸ್ವಿಯಾಗಿ ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ! ಬುಕಿಂಗ್ ಐಡಿ: {booking_id}, ದಿನಾಂಕ: {date}, ಸಮಯ: {time}, ವೈದ್ಯರು: {doctor}.",
+        "SLOT_UNAVAILABLE": "ಕ್ಷಮಿಸಿ, ಆ ಸಮಯ ಲಭ್ಯವಿಲ್ಲ. ಬೇರೆ ಸಮಯ ನೋಡೋಣವೇ?",
+        "ASK_BOOKING_ID": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಬುಕಿಂಗ್ ಐಡಿ (ಉದಾ. APT10001) ಒದಗಿಸಿ.",
+        "ASK_CANCEL_REASON": "ಖಂಡಿತ. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ರದ್ದುಗೊಳಿಸಲು ಕಾರಣ ತಿಳಿಸಬಹುದೇ?",
+        "CANCEL_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ಯಶಸ್ವಿಯಾಗಿ ರದ್ದುಗೊಂಡಿದೆ.",
+        "ASK_RESCHEDULE_DATE_TIME": "ದಯವಿಟ್ಟು ಹೊಸ ದಿನಾಂಕ ಮತ್ತು ಸಮಯವನ್ನು ಒದಗಿಸಿ (ಉದಾ. ನಾಳೆ ಬೆಳಿಗ್ಗೆ 11:00 ಗಂಟೆಗೆ).",
+        "ASK_RESCHEDULE_REASON": "ಖಂಡಿತ. ಮರು-ನಿಗದಿಗೊಳಿಸಲು ಕಾರಣ ತಿಳಿಸಬಹುದೇ?",
+        "RESCHEDULE_SUCCESS": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ಅನ್ನು {date} ರಂದು {time} ಕ್ಕೆ ಯಶಸ್ವಿಯಾಗಿ ಮರು-ನಿಗದಿಗೊಳಿಸಲಾಗಿದೆ.",
+        "STATUS_RESPONSE": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ {booking_id} ({doctor}) {date} ರಂದು {time} ಕ್ಕೆ ಪ್ರಸ್ತುತ {status} ಸ್ಥಿತಿಯಲ್ಲಿದೆ.",
+        "SYMPTOM_GUIDANCE": "ನಿಮಗೆ ಹುಷಾರಿಲ್ಲದಿರುವುದಕ್ಕೆ ವಿಷಾದಿಸುತ್ತೇವೆ. ಈ ರೋಗಲಕ್ಷಣಗಳಿಗೆ {dept} ಸೂಕ್ತವಾಗಿರಬಹುದು. ಲಭ್ಯವಿರುವ ವೈದ್ಯರನ್ನು ನೋಡಲೇ?",
+        "EMERGENCY_GUIDANCE": "ಇದಕ್ಕೆ ತುರ್ತು ವೈದ್ಯಕೀಯ ನೆರವು ಬೇಕಾಗಬಹುದು. ದಯವಿಟ್ಟು ತಕ್ಷಣ ತುರ್ತು ವೈದ್ಯಕೀಯ ಚಿಕಿತ್ಸೆ ಪಡೆಯಿರಿ.",
+        "HUMAN_ESCALATION": "ಆಸ್ಪತ್ರೆಯ ಸಹಾಯ ತಂಡದೊಂದಿಗೆ ಸಂಪರ್ಕ ಹೊಂದಲು ನಾನು ಸಹಾಯ ಮಾಡಬಲ್ಲೆ.",
+        "UNKNOWN": "ಕ್ಷಮಿಸಿ, ನನಗೆ ಅರ್ಥವಾಗಲಿಲ್ಲ. ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಅಥವಾ ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿಗೆ ನಾನು ಹೇಗೆ ಸಹಾಯ ಮಾಡಲಿ?",
+        "LANGUAGE_CHANGED": "ಭಾಷೆಯನ್ನು ಕನ್ನಡಕ್ಕೆ ಬದಲಾಯಿಸಲಾಗಿದೆ.",
+        "ASK_BOOKING_REASON": "ಖಂಡಿತ! ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಕಾಯ್ದಿರಿಸಲು ನಾನು ಸಹಾಯ ಮಾಡುತ್ತೇನೆ. 😊\n\nಯಾವ ಆರೋಗ್ಯ ಸಮಸ್ಯೆ, ರೋಗಲಕ್ಷಣ ಅಥವಾ ಕಾರಣಕ್ಕಾಗಿ ವೈದ್ಯರನ್ನು ಸಂಪರ್ಕಿಸಲು ಬಯಸುತ್ತೀರಿ?",
+        "NO_DOCTORS_AVAILABLE": "{dept} ವಿಭಾಗಕ್ಕೆ ನಾನು ಸಹಾಯ ಮಾಡಬಲ್ಲೆ. ಪ್ರಸ್ತುತ {dept} ನಲ್ಲಿ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು ಲಭ್ಯವಿಲ್ಲ. ಬೇರೆ ದಿನಾಂಕವನ್ನು ಪರೀಕ್ಷಿಸಬೇಕೇ?"
+    },
+    "URDU": {
+        "GREETING": "ہیلو! میریڈین ہسپتال میں آپ کا خیر مقدم ہے۔ میں آپ کا اے آئی پیشنٹ ڈیسک اسسٹنٹ ہوں۔ میں اپائنٹمنٹ، ڈاکٹر کی دستیابی، اپائنٹمنٹ کی منسوخی یا تبدیلی اور ہسپتال کی معلومات میں مدد کر سکتا ہوں۔ آج میں آپ کی کیا مدد کر سکتا ہوں؟",
+        "ASK_PATIENT_CODE": "براہ کرم اپنا رجسٹرڈ مریض کا کوڈ (جیسے P001) فراہم کریں۔",
+        "ASK_DEPT_OR_DOCTOR": "آپ کس شعبہ یا ڈاکٹر سے مشورہ کرنا چاہتے ہیں؟",
+        "ASK_DATE": "آپ اپائنٹمنٹ کے لیے کون سی تاریخ پسند کریں گے؟ (جیسے آج، کل، اگلے پیر کو)",
+        "ASK_TIME": "آپ کون سا وقت پسند کریں گے؟ (جیسے صبح 10:00 بجے، 11:30 بجے)",
+        "SLOTS_AVAILABLE": "{doctor} کے لیے {date} کو یہ وقت دستیاب ہیں: {slots}۔ آپ کون سا پسند کریں گے؟",
+        "BOOKING_SUCCESS": "آپ کا اپائنٹمنٹ کامیابی سے بک ہو گیا ہے! بکنگ آئی ڈی: {booking_id}، تاریخ: {date}، وقت: {time}، ڈاکٹر: {doctor}۔",
+        "SLOT_UNAVAILABLE": "معذرت، وہ وقت اب دستیاب نہیں ہے۔ کیا آپ کوئی دوسرا وقت چیک کرنا چاہیں گے؟",
+        "ASK_BOOKING_ID": "براہ کرم اپنی بکنگ آئی ڈی (جیسے APT10001) فراہم کریں۔",
+        "ASK_CANCEL_REASON": "جی بالکل۔ کیا میں اپائنٹمنٹ منسوخ کرنے کی وجہ جان سکتا ہوں؟",
+        "CANCEL_SUCCESS": "آپ کا اپائنٹمنٹ {booking_id} کامیابی سے منسوخ کر دیا گیا ہے۔",
+        "ASK_RESCHEDULE_DATE_TIME": "براہ کرم نیا دن اور وقت بتائیں (جیسے کل صبح 11:00 بجے)۔",
+        "ASK_RESCHEDULE_REASON": "جی بالکل۔ کیا میں اپائنٹمنٹ تبدیل کرنے کی وجہ جان سکتا ہوں؟",
+        "RESCHEDULE_SUCCESS": "آپ کا اپائنٹمنٹ {booking_id} کامیابی سے {date} کو {time} بجے کے لیے ری شیڈول کر دیا گیا ہے۔",
+        "STATUS_RESPONSE": "آپ کا اپائنٹمنٹ {booking_id} ({doctor}) کے ساتھ {date} کو {time} بجے فی الحال {status} ہے۔",
+        "SYMPTOM_GUIDANCE": "آپ کی طبیعت خرابی پر افسوس ہے۔ ان علامات کے لیے {dept} مناسب ہو سکتا ہے۔ کیا میں دستیاب ڈاکٹروں کو چیک کروں؟",
+        "EMERGENCY_GUIDANCE": "اس کے لیے فوری طبی امداد کی ضرورت ہو سکتی ہے۔ براہ کرم فوری طور پر ہنگامی طبی مدد حاصل کریں۔",
+        "HUMAN_ESCALATION": "میں ہسپتال کی سپورٹ ٹیم سے رابطہ قائم کرنے میں آپ کی مدد کر سکتا ہوں۔",
+        "UNKNOWN": "معذرت، میں سمجھ نہیں سکا۔ میں اپائنٹمنٹ یا ہسپتال کی معلومات میں آپ کی کیا مدد کر سکتا ہوں؟",
+        "LANGUAGE_CHANGED": "زبان اردو میں تبدیل کر دی گئی ہے۔",
+        "ASK_BOOKING_REASON": "جی بالکل! میں اپائنٹمنٹ بک کرنے میں آپ کی مدد کر سکتا ہوں۔ 😊\n\nآپ کس صحت کے مسئلے، علامت یا وجہ کے لیے ڈاکٹر سے مشورہ کرنا چاہتے ہیں؟",
+        "NO_DOCTORS_AVAILABLE": "میں {dept} کے لیے آپ کی مدد کر سکتا ہوں۔ فی الحال {dept} میں کوئی اپائنٹمنٹ دستیاب نہیں ہے۔ کیا آپ کوئی اور تاریخ دیکھنا چاہیں گے؟"
     },
     "MALAYALAM": {
         "GREETING": "നമസ്കാരം! മെറിഡിയൻ ആശുപത്രിയിലേക്ക് സ്വാഗതം. ഞാൻ നിങ്ങളുടെ എഐ പേഷ്യന്റ് ഡെസ്ക് അസിസ്റ്റന്റ് ആണ്. അപ്പോയിന്റ്മെന്റുകൾ, ഡോക്ടറുടെ ലഭ്യത, ക്യാൻസലേഷൻ അല്ലെങ്കിൽ റീഷെഡ്യൂൾ ചെയ്യൽ, ആശുപത്രി വിവരങ്ങൾ എന്നിവയ്ക്ക് ഞാൻ സഹായിക്കാം. ഇന്ന് ഞാൻ എങ്ങനെ സഹായിക്കണം?",
@@ -976,6 +1056,641 @@ def get_farewell_response(language: str = "ENGLISH", patient_name: str = None) -
         )
     }
     return farewells.get(lang, farewells["ENGLISH"])
+
+
+# ---------------------------------------------------------------------------
+# Centralized Localization Engine for Cards, Dynamic Department Names & Statuses
+# ---------------------------------------------------------------------------
+
+DEPARTMENT_TRANSLATIONS = {
+    "General Medicine": {
+        "TAMIL": "பொது மருத்துவம் (General Medicine)",
+        "HINDI": "सामान्य चिकित्सा (General Medicine)",
+        "TELUGU": "జనరల్ మెడిసిన్ (General Medicine)",
+        "MALAYALAM": "ജനറൽ മെഡിസിൻ (General Medicine)",
+        "KANNADA": "ಜನರಲ್ ಮೆಡಿಸಿನ್ (General Medicine)",
+        "URDU": "جنرل میڈیسن (General Medicine)"
+    },
+    "Cardiology": {
+        "TAMIL": "இருதயவியல் (Cardiology)",
+        "HINDI": "हृदय रोग विज्ञान (Cardiology)",
+        "TELUGU": "కార్డియాలజీ (Cardiology)",
+        "MALAYALAM": "കാർഡിയോളജി (Cardiology)",
+        "KANNADA": "ಕಾರ್ഡിയಾಲಜಿ (Cardiology)",
+        "URDU": "کارڈیالوجی (Cardiology)"
+    },
+    "Dermatology": {
+        "TAMIL": "தோல் மருத்துவம் (Dermatology)",
+        "HINDI": "त्वचा विज्ञान (Dermatology)",
+        "TELUGU": "డెర్మటాలజీ (Dermatology)",
+        "MALAYALAM": "ഡെർമറ്റോളജി (Dermatology)",
+        "KANNADA": "ಡೆರ್ಮಟಾಲಜಿ (Dermatology)",
+        "URDU": "ڈرمیٹالوجی (Dermatology)"
+    },
+    "Neurology": {
+        "TAMIL": "நரம்பியல் (Neurology)",
+        "HINDI": "तंत्रिका विज्ञान (Neurology)",
+        "TELUGU": "న్యూరాలజీ (Neurology)",
+        "MALAYALAM": "ന്യൂറോളജി (Neurology)",
+        "KANNADA": "ನ್ಯೂರಾಲಜಿ (Neurology)",
+        "URDU": "نیورولوجی (Neurology)"
+    },
+    "Orthopedics": {
+        "TAMIL": "எலும்பியல் (Orthopedics)",
+        "HINDI": "अस्थि रोग (Orthopedics)",
+        "TELUGU": "ఆర్థోపెడిక్స్ (Orthopedics)",
+        "MALAYALAM": "ഓർത്തോപീഡിക്സ് (Orthopedics)",
+        "KANNADA": "ಆರ್ಥೋಪೆಡಿಕ್ಸ್ (Orthopedics)",
+        "URDU": "آرتھوپیڈکس (Orthopedics)"
+    },
+    "Pediatrics": {
+        "TAMIL": "குழந்தைகள் மருத்துவம் (Pediatrics)",
+        "HINDI": "बाल चिकित्सा (Pediatrics)",
+        "TELUGU": "పీడియాట్రిక్స్ (Pediatrics)",
+        "MALAYALAM": "പീഡിയാട്രിക്സ് (Pediatrics)",
+        "KANNADA": "ಪೀಡಿಯಾಟ್ರಿಕ್ಸ್ (Pediatrics)",
+        "URDU": "پیڈیاٹرکس (Pediatrics)"
+    },
+    "Gynecology": {
+        "TAMIL": "மகளிர் மருத்துவம் (Gynecology)",
+        "HINDI": "स्त्री रोग (Gynecology)",
+        "TELUGU": "గైనకాలజీ (Gynecology)",
+        "MALAYALAM": "ഗൈനക്കോളജി (Gynecology)",
+        "KANNADA": "ಗೈನಕಾಲಜಿ (Gynecology)",
+        "URDU": "گائناکالوجی (Gynecology)"
+    },
+    "ENT": {
+        "TAMIL": "காது மூக்கு தொண்டை (ENT)",
+        "HINDI": "ईएनटी (ENT)",
+        "TELUGU": "ఇఎన్‌టి (ENT)",
+        "MALAYALAM": "ഇ.എൻ.ടി (ENT)",
+        "KANNADA": "ಇಎನ್‌ಟಿ (ENT)",
+        "URDU": "ای این ٹی (ENT)"
+    },
+    "Ophthalmology": {
+        "TAMIL": "கண் மருத்துவம் (Ophthalmology)",
+        "HINDI": "नेत्र विज्ञान (Ophthalmology)",
+        "TELUGU": "ఆప్తాల్మాలజీ (Ophthalmology)",
+        "MALAYALAM": "ഓഫ്താൽമോളജി (Ophthalmology)",
+        "KANNADA": "ಆಫ್ತಾಲ್ಮಾಲಜಿ (Ophthalmology)",
+        "URDU": "آفتھالمولوجی (Ophthalmology)"
+    },
+    "Dental": {
+        "TAMIL": "பல் மருத்துவம் (Dental)",
+        "HINDI": "दंत चिकित्सा (Dental)",
+        "TELUGU": "డెంటిస్ట్రీ (Dental)",
+        "MALAYALAM": "ഡെന്റൽ (Dental)",
+        "KANNADA": "ಡೆಂಟಲ್ (Dental)",
+        "URDU": "ڈینٹل (Dental)"
+    }
+}
+
+STATUS_TRANSLATIONS = {
+    "CONFIRMED": {
+        "TAMIL": "உறுதி செய்யப்பட்டது", "HINDI": "पुष्टि की गई", "TELUGU": "స్థిరీకరించబడింది", "MALAYALAM": "സ്ഥിരീകരിച്ചു", "KANNADA": "ಖಚಿತಪಡಿಸಲಾಗಿದೆ", "URDU": "تصدیق شدہ"
+    },
+    "BOOKED": {
+        "TAMIL": "பதிவு செய்யப்பட்டுள்ளது", "HINDI": "बुक किया गया", "TELUGU": "బుక్ చేయబడింది", "MALAYALAM": "ബുക്ക് ചെയ്തിരിക്കുന്നു", "KANNADA": "ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ", "URDU": "بک کیا گیا"
+    },
+    "CANCELLED": {
+        "TAMIL": "ரத்து செய்யப்பட்டது", "HINDI": "रद्द कर दिया गया", "TELUGU": "రద్దు చేయబడింది", "MALAYALAM": "റദ്ദാക്കിയിരിക്കുന്നു", "KANNADA": "ರದ್ದುಗೊಂಡಿದೆ", "URDU": "منسوخ کیا گیا"
+    },
+    "RESCHEDULED": {
+        "TAMIL": "மாற்றப்பட்டது", "HINDI": "पुनर्निर्धारित", "TELUGU": "రీషెడ్యూల్ చేయబడింది", "MALAYALAM": "റീഷെഡ്യൂൾ ചെയ്തിരിക്കുന്നു", "KANNADA": "ಮರು-ನಿಗದಿಗೊಳಿಸಲಾಗಿದೆ", "URDU": "ری شیڈول کیا گیا"
+    },
+    "COMPLETED": {
+        "TAMIL": "நிறைவடைந்தது", "HINDI": "पूरा हुआ", "TELUGU": "పూర్తయింది", "MALAYALAM": "പൂർത്തിയായി", "KANNADA": "ಪೂರ್ಣಗೊಂಡಿದೆ", "URDU": "مکمل ہوا"
+    },
+    "PENDING": {
+        "TAMIL": "நிலுவையில் உள்ளது", "HINDI": "लंबित", "TELUGU": "పెండింగ్‌లో ఉంది", "MALAYALAM": "പെൻഡിംഗ്", "KANNADA": "ಬಾಕಿ ಉಳಿದಿದೆ", "URDU": "زیر التواء"
+    }
+}
+
+CARD_LABELS = {
+    "ENGLISH": {
+        "appt_details_header": "📋 *Appointment Details*",
+        "booking_id": "🆔 *Booking ID*",
+        "patient_name": "👤 *Patient Name*",
+        "patient_id": "🆔 *Patient ID*",
+        "patient": "👤 *Patient*",
+        "doctor": "👨‍⚕️ *Doctor*",
+        "department": "🏥 *Department*",
+        "date": "📅 *Date*",
+        "time": "⏰ *Time*",
+        "reason": "📝 *Reason for Visit*",
+        "status": "📌 *Status*",
+        "fee": "💵 *Consultation Fee*",
+        "dob": "📅 *DOB*",
+        "gender": "🚻 *Gender*",
+        "phone": "📞 *Phone*",
+        "relationship": "👥 *Relationship*",
+        "confirm_prompt": "Please confirm your appointment:",
+        "payment_header": "💳 *Appointment Payment Verification*",
+        "amount_due": "💰 *Amount Payable*",
+        "select_payment": "Please select a payment method below:",
+        "profile_header": "👤 *Patient Profile Details*",
+        "no_appts_self": "You don't have any appointments currently.",
+        "no_appts_dep": "{target_name} doesn't have any appointments currently.",
+        "appts_header_single_self": "Here is your upcoming appointment:\n\n",
+        "appts_header_multi_self": "Here are your appointments:\n\n",
+        "appts_header_single_dep": "Here is {target_name}'s upcoming appointment:\n\n",
+        "appts_header_multi_dep": "Here are {target_name}'s appointments:\n\n"
+    },
+    "TAMIL": {
+        "appt_details_header": "📋 *அப்பாயிண்ட்மெண்ட் விவரங்கள்*",
+        "booking_id": "🆔 *முன்பதிவு ஐடி*",
+        "patient_name": "👤 *நோயாளி பெயர்*",
+        "patient_id": "🆔 *நோயாளி ஐடி*",
+        "patient": "👤 *நோயாளி*",
+        "doctor": "👨‍⚕️ *மருத்துவர்*",
+        "department": "🏥 *துறை*",
+        "date": "📅 *தேதி*",
+        "time": "⏰ *நேரம்*",
+        "reason": "📝 *காரணம்*",
+        "status": "📌 *நிலை*",
+        "fee": "💵 *ஆலோசனை கட்டணம்*",
+        "dob": "📅 *பிறந்த தேதி*",
+        "gender": "🚻 *பாலினம்*",
+        "phone": "📞 *தொலைபேசி*",
+        "relationship": "👥 *உறவு*",
+        "confirm_prompt": "தயவுசெய்து உங்கள் அப்பாயிண்ட்மெண்ட் விவரங்களை உறுதிப்படுத்தவும்:",
+        "payment_header": "💳 *அப்பாயிண்ட்மெண்ட் கட்டணம் சரிபார்ப்பு*",
+        "amount_due": "💰 *செலுத்த வேண்டிய தொகை*",
+        "select_payment": "கீழே உள்ள கட்டண முறைகளில் ஒன்றை தேர்ந்தெடுக்கவும்:",
+        "profile_header": "👤 *நோயாளி சுயவிவர விவரங்கள்*",
+        "no_appts_self": "உங்களுக்கு தற்போது எந்த அப்பாயிண்ட்மெண்ட்களும் இல்லை.",
+        "no_appts_dep": "{target_name}-க்கு தற்போது எந்த அப்பாயிண்ட்மெண்ட்களும் இல்லை.",
+        "appts_header_single_self": "இதோ உங்கள் அப்பாயிண்ட்மெண்ட் விவரங்கள்:\n\n",
+        "appts_header_multi_self": "இதோ உங்கள் அப்பாயிண்ட்மெண்ட்கள்:\n\n",
+        "appts_header_single_dep": "இதோ {target_name}-ன் அப்பாயிண்ட்மெண்ட் விவரங்கள்:\n\n",
+        "appts_header_multi_dep": "இதோ {target_name}-ன் அப்பாயிண்ட்மெண்ட்கள்:\n\n"
+    },
+    "HINDI": {
+        "appt_details_header": "📋 *अपॉइंटमेंट विवरण*",
+        "booking_id": "🆔 *बुकिंग आईडी*",
+        "patient_name": "👤 *रोगी का नाम*",
+        "patient_id": "🆔 *रोगी आईडी*",
+        "patient": "👤 *रोगी*",
+        "doctor": "👨‍⚕️ *डॉक्टर*",
+        "department": "🏥 *विभाग*",
+        "date": "📅 *तारीख*",
+        "time": "⏰ *समय*",
+        "reason": "📝 *कारण*",
+        "status": "📌 *स्थिति*",
+        "fee": "💵 *परामर्श शुल्क*",
+        "dob": "📅 *जन्म तिथि*",
+        "gender": "🚻 *लिंग*",
+        "phone": "📞 *फोन*",
+        "relationship": "👥 *संबंध*",
+        "confirm_prompt": "कृपया अपने अपॉइंटमेंट की पुष्टि करें:",
+        "payment_header": "💳 *अपॉइंटमेंट भुगतान सत्यापन*",
+        "amount_due": "💰 *देय राशि*",
+        "select_payment": "कृपया नीचे दी गई भुगतान विधियों में से चुनें:",
+        "profile_header": "👤 *रोगी प्रोफ़ाइल विवरण*",
+        "no_appts_self": "आपके पास वर्तमान में कोई अपॉइंटमेंट नहीं है।",
+        "no_appts_dep": "{target_name} के पास वर्तमान में कोई अपॉइंटमेंट नहीं है।",
+        "appts_header_single_self": "यहाँ आपका आगामी अपॉइंटमेंट है:\n\n",
+        "appts_header_multi_self": "यहाँ आपके अपॉइंटमेंट हैं:\n\n",
+        "appts_header_single_dep": "यहाँ {target_name} का आगामी अपॉइंटमेंट है:\n\n",
+        "appts_header_multi_dep": "यहाँ {target_name} के अपॉइंटमेंट हैं:\n\n"
+    },
+    "TELUGU": {
+        "appt_details_header": "📋 *అపాయింట్‌మెంట్ వివరాలు*",
+        "booking_id": "🆔 *బుకింగ్ ఐడీ*",
+        "patient_name": "👤 *పేషెంట్ పేరు*",
+        "patient_id": "🆔 *పేషెంట్ ఐడీ*",
+        "patient": "👤 *పేషెంట్*",
+        "doctor": "👨‍⚕️ *డాక్టర్*",
+        "department": "🏥 *విభాగం*",
+        "date": "📅 *తేదీ*",
+        "time": "⏰ *సమయం*",
+        "reason": "📝 *కారణం*",
+        "status": "📌 *స్థితి*",
+        "fee": "💵 *కన్సల్టేషన్ ఫీజు*",
+        "dob": "📅 *పుట్టిన తేదీ*",
+        "gender": "🚻 *లింగం*",
+        "phone": "📞 *ఫోన్*",
+        "relationship": "👥 *సంబంధం*",
+        "confirm_prompt": "దయచేసి మీ అపాయింట్‌మెంట్ వివరాలను ధృవీకరించండి:",
+        "payment_header": "💳 *అపాయింట్‌మెంట్ చెల్లింపు ధృవీకరణ*",
+        "amount_due": "💰 *చెల్లించాల్సిన మొత్తం*",
+        "select_payment": "దయచేసి క్రింది చెల్లింపు పద్ధతిని ఎంచుకోండి:",
+        "profile_header": "👤 *పేషెంట్ ప్రొఫైల్ వివరాలు*",
+        "no_appts_self": "మీకు ప్రస్తుతం ఎలాంటి అపాయింట్‌మెంట్‌లు లేవు.",
+        "no_appts_dep": "{target_name} కి ప్రస్తుతం ఎలాంటి అపాయింట్‌మెంట్‌లు లేవు.",
+        "appts_header_single_self": "ఇదిగో మీ అపాయింట్‌మెంట్ వివరాలు:\n\n",
+        "appts_header_multi_self": "ఇదిగో మీ అపాయింట్‌మెంట్‌లు:\n\n",
+        "appts_header_single_dep": "ఇదిగో {target_name} అపాయింట్‌మెంట్ వివరాలు:\n\n",
+        "appts_header_multi_dep": "ఇదిగో {target_name} అపాయింట్‌మెంట్‌లు:\n\n"
+    },
+    "MALAYALAM": {
+        "appt_details_header": "📋 *അപ്പോയിന്റ്മെന്റ് വിവരങ്ങൾ*",
+        "booking_id": "🆔 *ബുക്കിംഗ് ഐഡി*",
+        "patient_name": "👤 *പേഷ്യന്റ് പേര്*",
+        "patient_id": "🆔 *പേഷ്യന്റ് ഐഡി*",
+        "patient": "👤 *പേഷ്യന്റ്*",
+        "doctor": "👨‍⚕️ *ഡോക്ടർ*",
+        "department": "🏥 *വിഭാഗം*",
+        "date": "📅 *തീയതി*",
+        "time": "⏰ *സമയം*",
+        "reason": "📝 *കാരണം*",
+        "status": "📌 *സ്റ്റാറ്റസ്*",
+        "fee": "💵 *ഫീസ്*",
+        "dob": "📅 *ജനനത്തീയതി*",
+        "gender": "🚻 *ലിംഗഭേദം*",
+        "phone": "📞 *ഫോൺ*",
+        "relationship": "👥 *ബന്ധം*",
+        "confirm_prompt": "ദയവായി അപ്പോയിന്റ്മെന്റ് വിവരങ്ങൾ ഉറപ്പുവരുത്തുക:",
+        "payment_header": "💳 *അപ്പോയിന്റ്മെന്റ് പേയ്മെന്റ്*",
+        "amount_due": "💰 *നൽകേണ്ട തുക*",
+        "select_payment": "ദയവായി പേയ്മെന്റ് രീതി തിരഞ്ഞെടുക്കുക:",
+        "profile_header": "👤 *പേഷ്യന്റ് പ്രൊഫൈൽ*",
+        "no_appts_self": "നിങ്ങൾക്ക് ഇപ്പോൾ അപ്പോയിന്റ്മെന്റുകൾ ഒന്നുമില്ല.",
+        "no_appts_dep": "{target_name}-ന് ഇപ്പോൾ അപ്പോയിന്റ്മെന്റുകൾ ഒന്നുമില്ല.",
+        "appts_header_single_self": "നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റ് വിവരങ്ങൾ:\n\n",
+        "appts_header_multi_self": "നിങ്ങളുടെ അപ്പോയിന്റ്മെന്റുകൾ:\n\n",
+        "appts_header_single_dep": "{target_name}-ന്റെ അപ്പോയിന്റ്മെന്റ് വിവരങ്ങൾ:\n\n",
+        "appts_header_multi_dep": "{target_name}-ന്റെ അപ്പോയിന്റ്മെന്റുകൾ:\n\n"
+    },
+    "KANNADA": {
+        "appt_details_header": "📋 *ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ವಿವರಗಳು*",
+        "booking_id": "🆔 *ಬುಕಿಂಗ್ ಐಡಿ*",
+        "patient_name": "👤 *ರೋಗಿಯ ಹೆಸರು*",
+        "patient_id": "🆔 *ಪೇಷಂಟ್ ಐಡಿ*",
+        "patient": "👤 *ರೋಗಿ*",
+        "doctor": "👨‍⚕️ *ವೈದ್ಯರು*",
+        "department": "🏥 *ವಿಭಾಗ*",
+        "date": "📅 *ದಿನಾಂಕ*",
+        "time": "⏰ *ಸಮಯ*",
+        "reason": "📝 *காரಣ*",
+        "status": "📌 *ಸ್ಥಿತಿ*",
+        "fee": "💵 *ಶುಲ್ಕ*",
+        "dob": "📅 *ಹುಟ್ಟಿದ ದಿನಾಂಕ*",
+        "gender": "🚻 *ಲಿಂಗ*",
+        "phone": "📞 *ಫೋನ್*",
+        "relationship": "👥 *ಸಂಬಂಧ*",
+        "confirm_prompt": "ದಯವಿಟ್ಟು ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ವಿವರಗಳನ್ನು ಖಚಿತಪಡಿಸಿ:",
+        "payment_header": "💳 *ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಪಾವತಿ*",
+        "amount_due": "💰 *ಪಾವತಿಸಬೇಕಾದ ಮೊತ್ತ*",
+        "select_payment": "ದಯವಿಟ್ಟು ಪಾವತಿ ವಿಧಾನವನ್ನು ಆಯ್ಕೆಮಾಡಿ:",
+        "profile_header": "👤 *ರೋಗಿಯ ಪ್ರೊಫೈಲ್ ವಿವರಗಳು*",
+        "no_appts_self": "ನಿಮಗೆ ಪ್ರಸ್ತುತ ಯಾವುದೇ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳಿಲ್ಲ.",
+        "no_appts_dep": "{target_name} ರವರಿಗೆ ಪ್ರಸ್ತುತ ಯಾವುದೇ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳಿಲ್ಲ.",
+        "appts_header_single_self": "ನಿಮ್ಮ ಮುಂಬರುವ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ವಿವರಗಳು:\n\n",
+        "appts_header_multi_self": "ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು:\n\n",
+        "appts_header_single_dep": "{target_name} ರವರ ಮುಂಬರುವ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್:\n\n",
+        "appts_header_multi_dep": "{target_name} ರವರ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು:\n\n"
+    },
+    "URDU": {
+        "appt_details_header": "📋 *اپائنٹمنٹ کی تفصیلات*",
+        "booking_id": "🆔 *بکنگ آئی ڈی*",
+        "patient_name": "👤 *مریض کا نام*",
+        "patient_id": "🆔 *مریض آئی ڈی*",
+        "patient": "👤 *مریض*",
+        "doctor": "👨‍⚕️ *ڈاکٹر*",
+        "department": "🏥 *شعبہ*",
+        "date": "📅 *تاریخ*",
+        "time": "⏰ *وقت*",
+        "reason": "📝 *وجہ*",
+        "status": "📌 *صورتحال*",
+        "fee": "💵 *فیس*",
+        "dob": "📅 *تاریخ پیدائش*",
+        "gender": "🚻 *جنس*",
+        "phone": "📞 *فون*",
+        "relationship": "👥 *رشتہ*",
+        "confirm_prompt": "براہ کرم اپنے اپائنٹمنٹ کی تصدیق کریں:",
+        "payment_header": "💳 *اپائنٹمنٹ ادائیگی کی تصدیق*",
+        "amount_due": "💰 *قابل ادائیگی رقم*",
+        "select_payment": "براہ کرم نیچے دی گئی ادائیگی کے طریقہ کا انتخاب کریں:",
+        "profile_header": "👤 *مریض کا پروفائل*",
+        "no_appts_self": "آپ کی فی الحال کوئی اپائنٹمنٹ نہیں ہے۔",
+        "no_appts_dep": "{target_name} کی فی الحال کوئی اپائنٹمنٹ نہیں ہے۔",
+        "appts_header_single_self": "یہ آپ کی انے والی اپائنٹمنٹ ہے:\n\n",
+        "appts_header_multi_self": "یہ آپ کی اپائنٹمنٹس ہیں:\n\n",
+        "appts_header_single_dep": "یہ {target_name} کی انے والی اپائنٹمنٹ ہے:\n\n",
+        "appts_header_multi_dep": "یہ {target_name} کی اپائنٹمنٹس ہیں:\n\n"
+    }
+}
+
+ADDITIONAL_BUTTON_TRANSLATIONS = {
+    "btn_confirm_booking": {"ENGLISH": "Confirm Appointment", "TAMIL": "உறுதி செய்ய", "HINDI": "पुष्टि करें", "TELUGU": "ఖరారు చేయండి", "MALAYALAM": "ഉറപ്പാക്കുക", "KANNADA": "ಖಚಿತಪಡಿಸಿ", "URDU": "تصدیق کریں"},
+    "btn_confirm_appt": {"ENGLISH": "Confirm Appointment", "TAMIL": "உறுதி செய்ய", "HINDI": "पुष्टि करें", "TELUGU": "ఖరారు చేయండి", "MALAYALAM": "ഉറപ്പാക്കുക", "KANNADA": "ಖಚಿತಪಡಿಸಿ", "URDU": "تصدیق کریں"},
+    "btn_chg_details": {"ENGLISH": "Change Details", "TAMIL": "விவரங்களை மாற்ற", "HINDI": "विवरण बदलें", "TELUGU": "వివరాలు మార్చండి", "MALAYALAM": "വിവരങ്ങൾ മാറ്റുക", "KANNADA": "ವಿವರ ಬದಲಾಯಿಸಿ", "URDU": "تفصیلات تبدیل کریں"},
+    "btn_change_appt": {"ENGLISH": "Change Details", "TAMIL": "விவரங்களை மாற்ற", "HINDI": "विवरण बदलें", "TELUGU": "వివరాలు మార్చండి", "MALAYALAM": "വിവരങ്ങൾ മാറ്റുക", "KANNADA": "ವಿವರ ಬದಲಾಯಿಸಿ", "URDU": "تفصیلات تبدیل کریں"},
+    "btn_cancel_flow": {"ENGLISH": "Cancel", "TAMIL": "ரத்து செய்க", "HINDI": "रद्द करें", "TELUGU": "రద్దు చేయండి", "MALAYALAM": "റദ്ദാക്കുക", "KANNADA": "ರದ್ದುಗೊಳಿಸಿ", "URDU": "منسوخ کریں"},
+    "btn_date_custom": {"ENGLISH": "Choose Another Date", "TAMIL": "வேறு தேதி தேர்ந்தெடுக்க", "HINDI": "अन्य तारीख चुनें", "TELUGU": "మరొక తేదీ ఎంచుకోండి", "MALAYALAM": "മറ്റൊരു തീയതി നോക്കുക", "KANNADA": "ಮತ್ತೊಂದು ದಿನಾಂಕ ಆಯ್ಕೆ", "URDU": "دوسری تاریخ منتخب کریں"},
+    "btn_pay_gpay": {"ENGLISH": "Google Pay", "TAMIL": "கூகிள் பே", "HINDI": "गूगल पे", "TELUGU": "గూగుల్ పే", "MALAYALAM": "ഗൂഗിൾ പേ", "KANNADA": "ಗೂಗಲ್ ಪೇ", "URDU": "گوگل پے"},
+    "btn_pay_phonepe": {"ENGLISH": "PhonePe / UPI", "TAMIL": "போன்பே / UPI", "HINDI": "फोनपे / यूपीआई", "TELUGU": "ఫోన్‌పే / UPI", "MALAYALAM": "ഫോൺപേ / UPI", "KANNADA": "ಫೋನ್‌ಪೇ / UPI", "URDU": "فون پے / UPI"},
+    "btn_pay_desk": {"ENGLISH": "Pay at Hospital Desk", "TAMIL": "மருத்துவமனையில் செலுத்த", "HINDI": "अस्पताल में भुगतान करें", "TELUGU": "హాస్పిటల్‌లో చెల్లించండి", "MALAYALAM": "ആശുപത്രിയിൽ അടയ്ക്കുക", "KANNADA": "ಆಸ್ಪತ್ರೆಯಲ್ಲಿ ಪಾವತಿಸಿ", "URDU": "ہسپتال کاؤنٹر پر دیں"},
+    "btn_confirm_modification": {"ENGLISH": "Confirm Modification", "TAMIL": "மாற்றத்தை உறுதி செய்ய", "HINDI": "बदलाव की पुष्टि करें", "TELUGU": "మార్పును ఖరారు చేయండి", "MALAYALAM": "മാറ്റം ഉറപ്പാക്കുക", "KANNADA": "ಬದಲಾವಣೆ ಖಚಿತಪಡಿಸಿ", "URDU": "تبدیلی کی تصدیق کریں"},
+    "btn_chg_date": {"ENGLISH": "Change Date", "TAMIL": "தேதி மாற்ற", "HINDI": "तारीख बदलें", "TELUGU": "తేదీ మార్చండి", "MALAYALAM": "തീയതി മാറ്റുക", "KANNADA": "ದಿನಾಂಕ ಬದಲಾಯಿಸಿ", "URDU": "تاریخ تبدیل کریں"},
+    "btn_chg_doctor": {"ENGLISH": "Change Doctor", "TAMIL": "மருத்துவரை மாற்ற", "HINDI": "डॉक्टर बदलें", "TELUGU": "డాక్టర్ మార్చండి", "MALAYALAM": "ഡോക്ടറെ മാറ്റുക", "KANNADA": "ವೈದ್ಯರನ್ನು ಬದಲಾಯಿಸಿ", "URDU": "ڈاکٹر تبدیل کریں"},
+    "btn_switch_patient": {"ENGLISH": "Switch Patient", "TAMIL": "நோயாளியை மாற்ற", "HINDI": "रोगी बदलें", "TELUGU": "పేషెంట్ మార్చండి", "MALAYALAM": "പേഷ്യന്റ് മാറ്റുക", "KANNADA": "ರೋಗಿ ಬದಲಾಯಿಸಿ", "URDU": "مریض تبدیل کریں"},
+    "btn_back_to_my_appts": {"ENGLISH": "Back to My Appointments", "TAMIL": "எனது அப்பாயிண்ட்மெண்ட்க்கு திரும்ப", "HINDI": "मेरे अपॉइंटमेंट पर वापस", "TELUGU": "నా అపాయింట్‌మెంట్‌లకు తిరిగి", "MALAYALAM": "മടങ്ങുക", "KANNADA": "ಹಿಂತಿರುಗಿ", "URDU": "واپس مینو"}
+}
+
+for _b_id, _lang_map in ADDITIONAL_BUTTON_TRANSLATIONS.items():
+    for _l_code, _t_title in _lang_map.items():
+        if _l_code in MENU_BUTTON_TRANSLATIONS:
+            MENU_BUTTON_TRANSLATIONS[_l_code][_b_id] = _t_title
+
+
+def get_translated_department_name(dept_name: str, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if not dept_name or lang == "ENGLISH":
+        return dept_name or ""
+    if dept_name in DEPARTMENT_TRANSLATIONS:
+        return DEPARTMENT_TRANSLATIONS[dept_name].get(lang, dept_name)
+    for key, map_val in DEPARTMENT_TRANSLATIONS.items():
+        if key.lower() in dept_name.lower():
+            return map_val.get(lang, dept_name)
+    return dept_name
+
+
+def get_translated_status(status: str, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    st_upper = (status or "CONFIRMED").upper()
+    if lang == "ENGLISH" or st_upper not in STATUS_TRANSLATIONS:
+        return status or "CONFIRMED"
+    return STATUS_TRANSLATIONS[st_upper].get(lang, status)
+
+
+def format_single_appointment_card(appt_data: dict, language: str = "ENGLISH") -> str:
+    """Formats a rich WhatsApp card for an appointment localized to the target language."""
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    b_id = appt_data.get("booking_id") or "N/A"
+    p_name = appt_data.get("patient_name") or "Patient"
+    doc_name = appt_data.get("doctor_name") or "Doctor"
+    
+    raw_dept = appt_data.get("department_name") or appt_data.get("department") or "General Medicine"
+    dept_name = get_translated_department_name(raw_dept, lang)
+    
+    appt_date_raw = str(appt_data.get("appointment_date"))
+    try:
+        dt_obj = datetime.datetime.strptime(appt_date_raw, "%Y-%m-%d").date()
+        formatted_date = dt_obj.strftime("%A, %d-%b-%Y")
+    except Exception:
+        formatted_date = appt_date_raw
+
+    raw_time = str(appt_data.get("appointment_time") or "")
+    if raw_time and ("AM" not in raw_time.upper() and "PM" not in raw_time.upper()):
+        try:
+            parts = raw_time.split(":")
+            hh = int(parts[0])
+            mm = parts[1]
+            period = "AM" if hh < 12 else "PM"
+            display_h = hh if hh <= 12 else hh - 12
+            if display_h == 0:
+                display_h = 12
+            formatted_time = f"{display_h:02d}:{mm} {period}"
+        except Exception:
+            formatted_time = raw_time
+    else:
+        formatted_time = raw_time or "Scheduled"
+
+    reason = appt_data.get("patient_reason") or appt_data.get("reason") or "General Consultation"
+    raw_status = str(appt_data.get("status") or "CONFIRMED").upper()
+    status_text = get_translated_status(raw_status, lang)
+    status_icon = "✅" if raw_status in ["CONFIRMED", "ACTIVE", "COMPLETED"] else ("❌" if raw_status == "CANCELLED" else "🟡")
+
+    fee_str = ""
+    fee = appt_data.get("consultation_fee")
+    if fee is not None:
+        try:
+            fee_float = float(fee)
+            fee_val = f"₹{fee_float:.0f}" if fee_float.is_integer() else f"₹{fee_float:.2f}"
+            fee_str = f"\n{labels['fee']}: {fee_val}"
+        except Exception:
+            pass
+
+    return (
+        f"{labels['appt_details_header']}\n\n"
+        f"{labels['booking_id']}: {b_id}\n"
+        f"{labels['patient_name']}: {p_name}\n"
+        f"{labels['doctor']}: {doc_name}\n"
+        f"{labels['department']}: {dept_name}\n"
+        f"{labels['date']}: {formatted_date}\n"
+        f"{labels['time']}: {formatted_time}\n"
+        f"{labels['reason']}: {reason}\n"
+        f"{labels['status']}: {status_icon} {status_text}"
+        f"{fee_str}"
+    )
+
+
+def format_appointment_confirmation_card(details: dict, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    p_name = details.get("patient_name") or "Patient"
+    p_code = details.get("patient_code") or ""
+    dob = details.get("dob") or ""
+    gender = details.get("gender") or ""
+    reason = details.get("reason") or ""
+    dept = get_translated_department_name(details.get("department") or "", lang)
+    doctor = details.get("doctor") or ""
+    date = details.get("date") or ""
+    time = details.get("time") or ""
+    fee = details.get("fee")
+
+    lines = [
+        f"{labels['confirm_prompt']}\n",
+        f"{labels['patient']}: {p_name}"
+    ]
+    if p_code:
+        lines.append(f"{labels['patient_id']}: {p_code}")
+    if dob:
+        lines.append(f"{labels['dob']}: {dob}")
+    if gender:
+        lines.append(f"{labels['gender']}: {gender}")
+    if reason:
+        lines.append(f"{labels['reason']}: {reason}")
+    if dept:
+        lines.append(f"{labels['department']}: {dept}")
+    if doctor:
+        lines.append(f"{labels['doctor']}: {doctor}")
+    if date:
+        lines.append(f"{labels['date']}: {date}")
+    if time:
+        lines.append(f"{labels['time']}: {time}")
+    if fee is not None:
+        lines.append(f"{labels['fee']}: ₹{fee}")
+
+    return "\n".join(lines)
+
+
+def format_patient_profile_card(patient_info: dict, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    p_code = patient_info.get("patient_code") or ""
+    name = patient_info.get("name") or ""
+    phone = patient_info.get("phone") or ""
+    dob = patient_info.get("dob") or ""
+    gender = patient_info.get("gender") or ""
+
+    return (
+        f"{labels['profile_header']}\n\n"
+        f"• *Name:* {name}\n"
+        f"• *Patient ID:* `{p_code}`\n"
+        f"• *Phone:* {phone}\n"
+        f"• *DOB:* {dob}\n"
+        f"• *Gender:* {gender}"
+    )
+
+
+def format_payment_request_card(details: dict, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    b_id = details.get("booking_id") or ""
+    doctor = details.get("doctor") or ""
+    dept = get_translated_department_name(details.get("department") or "", lang)
+    date = details.get("date") or ""
+    time = details.get("time") or ""
+    amount = details.get("amount") or 0
+
+    return (
+        f"{labels['payment_header']}\n\n"
+        f"{labels['booking_id']}: {b_id}\n"
+        f"{labels['doctor']}: {doctor}\n"
+        f"{labels['department']}: {dept}\n"
+        f"{labels['date']}: {date}\n"
+        f"{labels['time']}: {time}\n"
+        f"{labels['amount_due']}: ₹{amount}\n\n"
+        f"{labels['select_payment']}"
+    )
+
+
+def get_my_appointments_header(is_dependent: bool, is_single: bool, target_name: str = "your", language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    if is_dependent:
+        key = "appts_header_single_dep" if is_single else "appts_header_multi_dep"
+        return labels[key].format(target_name=target_name)
+    else:
+        key = "appts_header_single_self" if is_single else "appts_header_multi_self"
+        return labels[key]
+
+
+def get_no_appointments_message(is_dependent: bool, target_name: str = "your", language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    if is_dependent:
+        return labels["no_appts_dep"].format(target_name=target_name)
+    else:
+        return labels["no_appts_self"]
+
+
+def format_doctor_profile_details(doc_info: dict, language: str = "ENGLISH") -> str:
+    """Formats a localized doctor profile card header."""
+    lang = (language or "ENGLISH").upper()
+    doc_name = doc_info.get("name") or doc_info.get("display_name") or "Doctor"
+    raw_dept = doc_info.get("department") or doc_info.get("department_name") or ""
+    dept_name = get_translated_department_name(raw_dept, lang)
+    
+    qual = doc_info.get("qualification")
+    exp = doc_info.get("experience_years") or doc_info.get("experience")
+    fee = doc_info.get("consultation_fee") or doc_info.get("fee")
+
+    lines = [
+        f"👨‍⚕️ *{doc_name}*"
+    ]
+    if dept_name:
+        dept_label = "🏥 *துறை*" if lang == "TAMIL" else "🏥 *विभाग*" if lang == "HINDI" else "🏥 *విభాగం*" if lang == "TELUGU" else "🏥 *വിഭാഗം*" if lang == "MALAYALAM" else "🏥 *ವಿಭಾಗ*" if lang == "KANNADA" else "🏥 *شعبہ*" if lang == "URDU" else "🏥 *Department*"
+        lines.append(f"{dept_label}: {dept_name}")
+    if qual:
+        qual_label = "🎓 *தகுதி*" if lang == "TAMIL" else "🎓 *योग्यता*" if lang == "HINDI" else "🎓 *అర్హత*" if lang == "TELUGU" else "🎓 *യോഗ്യത*" if lang == "MALAYALAM" else "🎓 *ಅರ್ಹತೆ*" if lang == "KANNADA" else "🎓 *قابلیت*" if lang == "URDU" else "🎓 *Qualification*"
+        lines.append(f"{qual_label}: {qual}")
+    if exp:
+        exp_label = "💼 *அனுபவம்*" if lang == "TAMIL" else "💼 *अनुभव*" if lang == "HINDI" else "💼 *అనుభవం*" if lang == "TELUGU" else "💼 *പരിചയം*" if lang == "MALAYALAM" else "💼 *ಅನುಭವ*" if lang == "KANNADA" else "💼 *تجربہ*" if lang == "URDU" else "💼 *Experience*"
+        exp_unit = "ஆண்டுகள்" if lang == "TAMIL" else "वर्ष" if lang == "HINDI" else "సంవత్సరాలు" if lang == "TELUGU" else "വർഷം" if lang == "MALAYALAM" else "ವರ್ಷಗಳು" if lang == "KANNADA" else "سال" if lang == "URDU" else "years"
+        lines.append(f"{exp_label}: {exp} {exp_unit}")
+    if fee is not None:
+        fee_label = "💵 *ஆலோசனை கட்டணம்*" if lang == "TAMIL" else "💵 *परामर्श शुल्क*" if lang == "HINDI" else "💵 *కన్సల్టేషన్ ఫీజు*" if lang == "TELUGU" else "💵 *ഫീസ്*" if lang == "MALAYALAM" else "💵 *ಶುಲ್ಕ*" if lang == "KANNADA" else "💵 *فیس*" if lang == "URDU" else "💵 *Consultation Fee*"
+        try:
+            fee_float = float(fee)
+            fee_val = f"₹{fee_float:.0f}" if fee_float.is_integer() else f"₹{fee_float:.2f}"
+            lines.append(f"{fee_label}: {fee_val}")
+        except Exception:
+            lines.append(f"{fee_label}: ₹{fee}")
+
+    return "\n".join(lines)
+
+
+def format_booking_success_card(details: dict, language: str = "ENGLISH") -> str:
+    lang = (language or "ENGLISH").upper()
+    if lang not in CARD_LABELS:
+        lang = "ENGLISH"
+    labels = CARD_LABELS[lang]
+
+    pay_ref = details.get("payment_reference") or ""
+    txn_ref = details.get("transaction_reference") or ""
+    p_name = details.get("patient_name") or "Patient"
+    p_code = details.get("patient_code") or ""
+    dob = details.get("dob") or ""
+    gender = details.get("gender") or ""
+    reason = details.get("reason") or ""
+    dept = get_translated_department_name(details.get("department") or "", lang)
+    doctor = details.get("doctor") or ""
+    date = details.get("date") or ""
+    time = details.get("time") or ""
+    b_id = details.get("booking_id") or ""
+
+    success_title_map = {
+        "ENGLISH": "✅ *Payment Successful & Appointment Confirmed!*",
+        "TAMIL": "✅ *முன்பதிவு மற்றும் கட்டணம் வெற்றிகரமாக உறுதிசெய்யப்பட்டது!*",
+        "HINDI": "✅ *भुगतान सफल और अपॉइंटमेंट की पुष्टि हुई!*",
+        "TELUGU": "✅ *చెల్లింపు విజయవంతమైంది & అపాయింట్‌మెంట్ ఖరారైంది!*",
+        "MALAYALAM": "✅ *പേയ്മെന്റ് വിജയകരമാണ്, അപ്പോയിന്റ്മെന്റ് ഉറപ്പാക്കി!*",
+        "KANNADA": "✅ *ಪಾವತಿ ಯಶಸ್ವಿಯಾಗಿದೆ ಮತ್ತು ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ಖಚಿತವಾಗಿದೆ!*",
+        "URDU": "✅ *ادائیگی کامیاب اور اپائنٹمنٹ کی تصدیق ہو گئی!*"
+    }
+    title = success_title_map.get(lang, success_title_map["ENGLISH"])
+
+    lines = [title, ""]
+    if pay_ref:
+        lines.append(f"Payment Ref: {pay_ref}")
+    if txn_ref:
+        lines.append(f"Txn Ref: {txn_ref}")
+    lines.append(f"{labels['patient']}: {p_name}")
+    if p_code:
+        lines.append(f"{labels['patient_id']}: {p_code}")
+    if dob:
+        lines.append(f"{labels['dob']}: {dob}")
+    if gender:
+        lines.append(f"{labels['gender']}: {gender}")
+    if reason:
+        lines.append(f"{labels['reason']}: {reason}")
+    if dept:
+        lines.append(f"{labels['department']}: {dept}")
+    if doctor:
+        lines.append(f"{labels['doctor']}: {doctor}")
+    if date:
+        lines.append(f"{labels['date']}: {date}")
+    if time:
+        lines.append(f"{labels['time']}: {time}")
+    if b_id:
+        lines.append(f"{labels['booking_id']}: {b_id}")
+
+    return "\n".join(lines)
+
+
 
 
 

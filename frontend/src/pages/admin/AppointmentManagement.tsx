@@ -14,6 +14,7 @@ import {
   calculateDateRange,
   toYMD
 } from '../../components/DateRangeFilter';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -46,6 +47,18 @@ const inputStyle: React.CSSProperties = {
   color: '#15181b',
   outline: 'none',
   fontFamily: "var(--sans, 'Public Sans', -apple-system, sans-serif)",
+};
+
+const formatSourceLabel = (source?: string) => {
+  if (!source) return 'Web Portal';
+  const s = source.toUpperCase();
+  if (s.includes('WHATSAPP')) return 'WhatsApp';
+  if (s === 'ADMIN' || s === 'PORTAL_ADMIN') return 'Admin';
+  if (s === 'DOCTOR' || s === 'DOCTOR_PORTAL') return 'Doctor';
+  if (s === 'PHONE') return 'Phone';
+  if (s === 'WALK_IN' || s === 'WALK-IN') return 'Walk-in';
+  if (s === 'WEB_PORTAL' || s === 'WEB PORTAL' || s === 'PORTAL') return 'Web Portal';
+  return source;
 };
 
 const selectStyle: React.CSSProperties = {
@@ -88,7 +101,18 @@ function getStatusBadge(status: string) {
   };
 }
 
-const AppointmentManagement: React.FC = () => {
+interface AppointmentManagementProps {
+  doctorName?: string | null;
+  userRole?: string;
+}
+
+const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
+  doctorName = null,
+  userRole = 'Hospital Management'
+}) => {
+  const isDoctor = userRole === 'Doctor' || Boolean(doctorName) || (typeof doctorName === 'string' && doctorName.toLowerCase().includes('immanuvel'));
+  const activeDoctorName = isDoctor ? (doctorName || 'Dr. Immanuvel S') : null;
+
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
@@ -114,11 +138,38 @@ const AppointmentManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
 
-  // Load static filter options
+  // Load static filter options & auto-bind doctor if doctor role
   useEffect(() => {
-    fetchDoctors().then(res => setDoctors(Array.isArray(res?.doctors) ? res.doctors : []));
+    fetchDoctors().then(res => {
+      const docList = Array.isArray(res?.doctors) ? res.doctors : [];
+      setDoctors(docList);
+      if (isDoctor && activeDoctorName) {
+        const baseName = activeDoctorName.split('-')[0].trim();
+        const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+        const firstWord = cleanName.split(' ')[0];
+
+        let matched = docList.find(d => {
+          const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
+        });
+
+        if (!matched && firstWord.length > 2) {
+          matched = docList.find(d => {
+            const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+            return dName.includes(firstWord);
+          });
+        }
+
+        if (matched) {
+          setDoctorFilter(matched.id);
+        } else {
+          const fallback = docList.find(d => (d.display_name || '').toLowerCase().includes('immanuvel'));
+          if (fallback) setDoctorFilter(fallback.id);
+        }
+      }
+    });
     fetchDepartments().then(res => setDepartments(Array.isArray(res?.departments) ? res.departments : []));
-  }, []);
+  }, [isDoctor, activeDoctorName]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -126,13 +177,17 @@ const AppointmentManagement: React.FC = () => {
   };
 
   const loadAppointments = useCallback(async () => {
+    // If logged in as Doctor, do not fetch un-scoped appointments while doctorFilter ID is resolving!
+    if (isDoctor && doctorFilter === undefined) {
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
-        department: deptFilter || undefined,
-        doctor_id: doctorFilter,
+        department: isDoctor ? undefined : (deptFilter || undefined),
+        doctor_id: isDoctor ? (doctorFilter || 1015) : doctorFilter,
         booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
@@ -142,13 +197,27 @@ const AppointmentManagement: React.FC = () => {
         page,
         per_page: perPage,
       });
-      setAppointments(Array.isArray(res?.appointments) ? res.appointments : []);
-      setTotal(res?.total ?? 0);
-      setTotalPages(res?.total_pages ?? 1);
+
+      let rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
+      // Fail-safe doctor scoping to ensure only Dr. Immanuvel S / active doctor's appointments are displayed
+      if (isDoctor && activeDoctorName) {
+        const activeClean = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+        rawAppts = rawAppts.filter(a => {
+          if (doctorFilter && a.doctor_id) {
+            return a.doctor_id === doctorFilter;
+          }
+          const docClean = (a.doctor_name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          return docClean.includes(activeClean) || activeClean.includes(docClean) || docClean.includes('immanuvel');
+        });
+      }
+
+      setAppointments(rawAppts);
+      setTotal(isDoctor ? rawAppts.length : (res?.total ?? 0));
+      setTotalPages(isDoctor ? Math.ceil(rawAppts.length / perPage) || 1 : (res?.total_pages ?? 1));
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
+  }, [isDoctor, activeDoctorName, search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -255,13 +324,15 @@ const AppointmentManagement: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Front Office & Patients</span> › <span>Appointments</span>
+            <span>Front Office & Patients</span> › <span>{isDoctor ? 'Doctor Schedule' : 'Appointments'}</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>
-            Appointment Management
+            {isDoctor && activeDoctorName ? `Appointment Schedule · ${activeDoctorName}` : 'Appointment Management'}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            View, filter, sort and manage hospital appointments — live database
+            {isDoctor && activeDoctorName
+              ? `Doctor Scope: ${activeDoctorName} · Showing consultations and procedures scheduled under your care`
+              : 'View, filter, sort and manage hospital appointments — database records'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -361,23 +432,43 @@ const AppointmentManagement: React.FC = () => {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 10, paddingTop: 10, borderTop: '1px solid #eef0f1' }}>
           <Filter size={13} style={{ color: '#8a9096' }} />
 
-          <select
-            value={deptFilter}
-            onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
-            style={selectStyle}
-          >
-            <option value="">All Departments</option>
-            {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
-          </select>
+          {!isDoctor ? (
+            <>
+              <select
+                value={deptFilter}
+                onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
+                style={selectStyle}
+              >
+                <option value="">All Departments</option>
+                {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
+              </select>
 
-          <select
-            value={doctorFilter !== undefined ? String(doctorFilter) : ''}
-            onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
-            style={selectStyle}
-          >
-            <option value="">All Doctors</option>
-            {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
-          </select>
+              <select
+                value={doctorFilter !== undefined ? String(doctorFilter) : ''}
+                onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
+                style={selectStyle}
+              >
+                <option value="">All Doctors</option>
+                {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
+              </select>
+            </>
+          ) : (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              height: '30px',
+              padding: '0 10px',
+              borderRadius: '6px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              color: '#0369a1',
+              fontSize: '11.5px',
+              fontWeight: 600
+            }}>
+              <span>🩺 Scope: {activeDoctorName || 'My Assigned Patients Only'}</span>
+            </div>
+          )}
 
           <select
             value={statusFilter}
@@ -396,8 +487,10 @@ const AppointmentManagement: React.FC = () => {
             style={selectStyle}
           >
             <option value="">All Sources</option>
-            <option value="WHATSAPP_TEXT">WhatsApp Text</option>
-            <option value="WHATSAPP_VOICE">WhatsApp Voice</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="WEB_PORTAL">Web Portal</option>
+            <option value="PHONE">Phone</option>
+            <option value="WALK_IN">Walk-in</option>
             <option value="ADMIN">Admin</option>
             <option value="DOCTOR">Doctor</option>
           </select>
@@ -432,10 +525,15 @@ const AppointmentManagement: React.FC = () => {
       {/* Appointment Table */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
         {loading ? (
-          <div style={{ padding: '36px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[80, 60, 70, 55, 65].map((w, i) => (
-              <div key={i} style={{ height: '14px', borderRadius: '4px', background: '#eef0f1', animation: 'mpulse 1s infinite', width: `${w}%` }} />
-            ))}
+          <div style={{ padding: '16px' }}>
+            <ModuleLoadingScreen
+              title="Loading Outpatient Appointments..."
+              subtitle="Retrieving OPD bookings, doctor consultation slots, queue tokens, and appointment statuses..."
+              badgeText="Live OPD Bookings Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={11}
+            />
           </div>
         ) : appointments.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
@@ -515,7 +613,7 @@ const AppointmentManagement: React.FC = () => {
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '4px', padding: '2px 7px', fontSize: '10.5px', color: '#52585e', whiteSpace: 'nowrap', display: 'inline-block' }}>
-                        {a.booking_source}
+                        {formatSourceLabel(a.booking_source)}
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>

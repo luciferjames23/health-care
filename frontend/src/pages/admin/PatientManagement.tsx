@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Filter, Eye, ChevronLeft, ChevronRight, RefreshCw, MessageSquare, UserPlus } from 'lucide-react';
 import { fetchPatients, type Patient } from '../../services/dashboardApi';
 import AddPatientModal from '../../components/AddPatientModal';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const PatientManagement: React.FC = () => {
   const navigate = useNavigate();
@@ -49,7 +50,7 @@ const PatientManagement: React.FC = () => {
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2>Patient Management</h2>
-          <p>All registered patients — live data from hospital database</p>
+          <p>All registered patients — database records</p>
         </div>
         <button
           className="btn btn-primary"
@@ -94,8 +95,15 @@ const PatientManagement: React.FC = () => {
 
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-              Loading patients...
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Patient Directory..."
+                subtitle="Retrieving real-time IP, OP, ER, and Discharged patient records..."
+                badgeText="Live Directory Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={9}
+              />
             </div>
           ) : patients.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>

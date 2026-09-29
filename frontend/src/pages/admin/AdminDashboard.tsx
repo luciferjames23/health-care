@@ -143,7 +143,7 @@ const AdminDashboard: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2>Meridian Hospital — Administration Analytics</h2>
-            <p>{greeting}, Admin · Live date-wise operational data</p>
+            <p>{greeting}, Admin · Date-wise operational data</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
@@ -229,8 +229,10 @@ const AdminDashboard: React.FC = () => {
               }}
             >
               <option value="">All Booking Sources</option>
-              <option value="WHATSAPP_TEXT">WhatsApp Text</option>
-              <option value="WHATSAPP_VOICE">WhatsApp Voice</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="WEB_PORTAL">Web Portal</option>
+              <option value="PHONE">Phone</option>
+              <option value="WALK_IN">Walk-in</option>
               <option value="ADMIN">Admin</option>
               <option value="DOCTOR">Doctor</option>
             </select>

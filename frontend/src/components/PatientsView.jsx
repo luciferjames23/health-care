@@ -1,81 +1,218 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds } from "../services/api";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, UserPlus, Check } from "lucide-react";
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
+import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
+import PatientRegistrationModal from "./PatientRegistrationModal";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
   const s = String(status).toLowerCase();
+  if (s.includes("discharge ready")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Discharge ready" };
   if (s.includes("discharge planning")) return { bg: "oklch(0.95 0.03 200)", fg: "oklch(0.4 0.1 200)", label: "Discharge planning" };
   if (s.includes("post-op") || s.includes("postop")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.45 0.13 70)", label: "Post-operative" };
   if (s.includes("fit for discharge")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Fit for discharge" };
-  if (s.includes("awaiting")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.5 0.13 70)", label: "Awaiting results" };
+  if (s.includes("awaiting")) return { bg: "oklch(0.96 0.05 80)", fg: "oklch(0.5 0.13 70)", label: status };
+  if (s.includes("confirmed") || s.includes("booked")) return { bg: "#e0f2fe", fg: "#0369a1", label: "Confirmed" };
+  if (s.includes("resuscitation") || s.includes("critical") || s.includes("icu") || s.includes("stroke")) return { bg: "#fee2e2", fg: "#b91c1c", label: status };
+  if (s.includes("triage") || s.includes("workup") || s.includes("stabilization") || s.includes("nebulization") || s.includes("resuscitation") || s.includes("treatment")) return { bg: "#fef3c7", fg: "#92400e", label: status };
   if (s.includes("stable")) return { bg: "#f6f7f8", fg: "#52585e", label: "Stable" };
   if (s.includes("signed off")) return { bg: "#f2f3f4", fg: "#8a9096", label: "Signed off" };
   if (s.includes("long stay")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.5 0.18 25)", label: "Long stay" };
-  if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: status };
-  if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: "Admitted" };
-  if (s.includes("critical") || s.includes("icu")) return { bg: "oklch(0.96 0.03 25)", fg: "oklch(0.45 0.17 25)", label: status };
+  if (s.includes("discharged")) return { bg: "#f2f3f4", fg: "#52585e", label: "Discharged" };
+  if (s.includes("admitted") || s.includes("active")) return { bg: "oklch(0.95 0.04 150)", fg: "oklch(0.4 0.12 150)", label: status.length > 20 ? "Admitted" : status };
   return { bg: "#f6f7f8", fg: "#52585e", label: status };
 }
 
-const dept = (p) => p.department || p.dept || p.ward || "\u2014";
+const dept = (p) => p.department || p.dept || p.ward || "—";
 const lang = (p) => p.language || p.preferred_language || "Tamil";
 const insurer = (p) => p.insurer || p.insurance || p.insurance_company || p.payor || "Self-pay";
 
 const GRID = "160px minmax(140px,1fr) 80px 90px 120px 150px 130px 140px";
 
-export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }) {
+export default function PatientsView({
+  onSelectPatient,
+  onOpenSoap,
+  onNavigate,
+  doctorName = null,
+  userRole = 'Hospital Management',
+  currentUser = null
+}) {
+  const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
+  const activeDoctorName = isDoctor ? (doctorName || currentUser?.name || null) : null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [admitted, setAdmitted] = useState([]);
   const [discharged, setDischarged] = useState([]);
+  const [opPatients, setOpPatients] = useState([]);
+  const [erPatients, setErPatients] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, search, activeDoctorName]);
 
   useEffect(() => {
     let alive = true;
     const loadPatients = async (isSilent = false) => {
-      if (!isSilent && admitted.length === 0 && discharged.length === 0) {
+      if (!isSilent && admitted.length === 0 && discharged.length === 0 && opPatients.length === 0 && erPatients.length === 0) {
         setLoading(true);
       }
       setError(null);
       try {
-        const [ar, dr] = await Promise.all([
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+        const [ar, dr, opRes, erRes, allDirRes] = await Promise.all([
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ALL' }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
 
-        // Only patients whose discharge has been approved or completed are discharged.
-        // If a discharge summary is only "Pending Approval" or a draft, the patient is still admitted!
         const rawDischarges = dr?.data || [];
-        const actuallyDischargedRecords = rawDischarges.filter(r => {
-          if (!r) return false;
-          const approval = String(r.approval_status || '').trim().toLowerCase();
-          const status = String(r.status || '').trim().toLowerCase();
-          return approval === 'approved' || status === 'discharged' || r.is_discharged === true;
+        const rawAdmissions = ar?.data || [];
+
+        const dischargeMapByPid = {};
+        const dischargeMapByAid = {};
+        rawDischarges.forEach(d => {
+          if (d.patient_id) dischargeMapByPid[String(d.patient_id)] = d;
+          if (d.admission_id) dischargeMapByAid[String(d.admission_id)] = d;
         });
 
-        const dischargedTracker = extractDischargedPatientIds(actuallyDischargedRecords);
-        const rawAdmissions = ar?.data || [];
-        const actualAdmitted = rawAdmissions
-          .filter(r => !dischargedTracker.has(r))
-          .map(r => ({ ...parseAdmissionLlmRecord(r), _type: "IP", _status: parseAdmissionLlmRecord(r).status || "Admitted" }));
+        const dischargedTracker = extractDischargedPatientIds(rawDischarges);
 
-        const parsedDischarged = actuallyDischargedRecords.map(r => {
+        const seenDischargedPids = new Set();
+        const parsedDischargedList = [];
+        const actualAdmitted = [];
+
+        rawAdmissions.forEach(r => {
+          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+          const pid = String(r.patient_id || r.id || '').trim();
+          const aid = String(r.admission_id || '').trim();
+
+          const isDischarged = st === 'discharged' || dischargedTracker.has(r);
+          const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
+
+          const parsed = parseAdmissionLlmRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
+          const docName = isDischarged
+            ? (matchedSummary?.primary_consultant || matchedSummary?.doctor_name || r.attending_doctor || parsed.doctor || 'Attending Physician')
+            : (r.attending_doctor || parsed.doctor || matchedSummary?.primary_consultant || matchedSummary?.doctor_name || 'Attending Physician');
+
+          if (isDischarged) {
+            if (pid) seenDischargedPids.add(pid);
+            parsedDischargedList.push({
+              ...parsed,
+              name: pName,
+              patient_name: pName,
+              patient: pName,
+              age: r.age_at_admission || parsed.age || 45,
+              sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
+              gender: r.gender || parsed.gender || 'Unknown',
+              doctor: docName,
+              diagnosis: cleanDiagnosis(matchedSummary?.diagnoses || r.primary_diagnosis || parsed.diagnosis || ''),
+              _type: "Discharged",
+              _status: "Discharged"
+            });
+          } else {
+            const isReady = String(r.discharge_status || '').trim().toLowerCase() === 'ready';
+            actualAdmitted.push({
+              ...parsed,
+              name: pName,
+              patient_name: pName,
+              doctor: docName,
+              diagnosis: cleanDiagnosis(r.primary_diagnosis || parsed.diagnosis || ''),
+              _type: "IP",
+              _status: isReady ? "Fit for discharge" : (parsed.status || "Admitted")
+            });
+          }
+        });
+
+        // 2. Add any additional finalized discharge records if not already in admissions
+        rawDischarges.forEach(r => {
+          const isApproved = String(r.approval_status || '').trim().toLowerCase() === 'approved';
+          const isExplicitDischarge = String(r.status || '').trim().toLowerCase() === 'discharged';
+          if (!isApproved && !isExplicitDischarge && !r.is_discharged) return;
+
+          const pid = String(r.patient_id || r.id || '').trim();
+          if (pid && seenDischargedPids.has(pid)) return;
+
           const d = parseDischargeSummaryRecord(r);
-          return {
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
+          const docName = r.primary_consultant || r.doctor_name || d.doctor || 'Attending Physician';
+
+          if (pid) seenDischargedPids.add(pid);
+          parsedDischargedList.push({
             ...d,
-            name: d.patient || d.name,
-            age: d.age || r.age,
+            name: pName,
+            patient_name: pName,
+            patient: pName,
+            age: d.age || r.age_at_admission || r.age || 45,
             sex: d.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : 'F'),
             gender: d.gender || r.gender || 'Unknown',
+            doctor: docName,
+            diagnosis: cleanDiagnosis(d.diagnosis || d.diagnoses || r.diagnoses || ''),
             _type: "Discharged",
             _status: "Discharged"
-          };
+          });
         });
 
+        // 3. Outpatient (OP) Records from Live Directory API
+        const parsedOp = (opRes?.data || []).map(r => ({
+          patient_id: r.patient_id,
+          id: r.patient_id,
+          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          age: r.age || 40,
+          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+          gender: r.gender || 'Male',
+          language: r.preferred_language || 'English',
+          department: r.department || 'Outpatient Clinic',
+          doctor: r.doctor || 'Consultant Doctor',
+          insurer: r.insurer || 'Direct / Outpatient',
+          status: r.status || 'CONFIRMED',
+          _status: r.status || 'CONFIRMED',
+          diagnosis: cleanDiagnosis(r.diagnosis || 'Outpatient Consultation'),
+          _type: "OP",
+          appointment_date: r.admission_date,
+          appointment_time: r.appointment_time
+        }));
+
+        // 4. Emergency (ER) Records from Live Directory API
+        const parsedEr = (erRes?.data || []).map(r => ({
+          patient_id: r.patient_id,
+          id: r.patient_id,
+          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          age: r.age || 40,
+          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+          gender: r.gender || 'Male',
+          language: r.preferred_language || 'English',
+          department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
+          doctor: r.doctor || 'Dr. Divya Verma',
+          insurer: r.insurer || 'Emergency Cover',
+          status: r.status || 'Active Triage',
+          _status: r.status || 'Active Triage',
+          diagnosis: cleanDiagnosis(r.diagnosis || 'Emergency Care'),
+          _type: "ER",
+          triage_level: r.discharge_status
+        }));
+
         setAdmitted(actualAdmitted);
-        setDischarged(parsedDischarged);
+        setDischarged(parsedDischargedList);
+        setOpPatients(parsedOp);
+        setErPatients(parsedEr);
       } catch (e) { if (alive) setError(e.message); }
       finally { if (alive) setLoading(false); }
     };
@@ -96,11 +233,82 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
     };
   }, []);
 
+  const handlePatientRegistered = (newPatient) => {
+    const pName = newPatient.name || newPatient.patient_name || `${newPatient.first_name || ''} ${newPatient.last_name || ''}`.trim() || 'Patient';
+    const uhid = newPatient.patient_code || newPatient.uhid || 'MER-PAT-XXXX';
+    setToastMessage(`Patient ${pName} successfully registered with UHID ${uhid}!`);
+    setTimeout(() => setToastMessage(null), 6000);
+
+    const formatted = {
+      ...newPatient,
+      id: newPatient.id || newPatient.patient_id,
+      patient_id: newPatient.id || newPatient.patient_id,
+      patient_code: uhid,
+      uhid: uhid,
+      patient_number: uhid,
+      name: pName,
+      patient_name: pName,
+      patient: pName,
+      age: newPatient.age || 35,
+      sex: newPatient.sex || (newPatient.gender?.toLowerCase().startsWith('f') ? 'F' : 'M'),
+      gender: newPatient.gender || 'Male',
+      department: newPatient.department || 'General Medicine',
+      doctor: newPatient.doctor || 'Attending Physician',
+      diagnosis: cleanDiagnosis(newPatient.diagnosis || 'Clinical Registration'),
+      insurer: newPatient.insurer || 'Self-Pay',
+      _status: newPatient.status || (newPatient.patient_type === 'IP' ? 'Admitted' : newPatient.patient_type === 'ER' ? 'Active Triage' : 'CONFIRMED'),
+      _type: newPatient.patient_type || 'OP'
+    };
+
+    if (newPatient.patient_type === 'IP') {
+      setAdmitted(prev => [formatted, ...prev]);
+    } else if (newPatient.patient_type === 'ER') {
+      setErPatients(prev => [formatted, ...prev]);
+    } else {
+      setOpPatients(prev => [formatted, ...prev]);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('hc_api_updated'));
+    }
+  };
+
+  const counts = useMemo(() => {
+    let baseAdmitted = admitted;
+    let baseOp = opPatients;
+    let baseEr = erPatients;
+    let baseDischarged = discharged;
+
+    if (activeDoctorName) {
+      baseAdmitted = baseAdmitted.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseOp = baseOp.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseEr = baseEr.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+      baseDischarged = baseDischarged.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+    }
+
+    return {
+      All: baseAdmitted.length + baseOp.length + baseEr.length + baseDischarged.length,
+      IP: baseAdmitted.length,
+      OP: baseOp.length,
+      ER: baseEr.length,
+      Discharged: baseDischarged.length,
+    };
+  }, [admitted, opPatients, erPatients, discharged, activeDoctorName]);
+
   const rows = useMemo(() => {
-    let list = filter === "All" ? [...admitted, ...discharged]
+    let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients, ...discharged]
       : filter === "IP" ? admitted
-      : filter === "Discharged" ? discharged
-      : admitted.filter(p => p._type === filter);
+        : filter === "OP" ? opPatients
+          : filter === "ER" ? erPatients
+            : filter === "Discharged" ? discharged
+              : [...admitted, ...opPatients, ...erPatients, ...discharged].filter(p => p._type === filter);
+
+    if (activeDoctorName) {
+      list = list.filter(p =>
+        matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)
+      );
+    }
+
     if (!search.trim()) return list;
     const s = search.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
@@ -137,16 +345,21 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
         phone.includes(s)
       );
     });
-  }, [admitted, discharged, filter, search]);
+  }, [admitted, opPatients, erPatients, discharged, filter, search, activeDoctorName]);
 
-  const total = admitted.length + discharged.length;
+  const total = admitted.length + opPatients.length + erPatients.length + discharged.length;
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const paginatedRows = rows.slice(startIndex, startIndex + pageSize);
 
   const exportCsv = () => {
     if (!rows.length) return alert("No records to export");
-    const hdr = ["UHID","Name","Age","Sex","Language","Department","Doctor","Insurer","Status"];
-    const lines = [hdr, ...rows.map(p => [p.mrn||p.patient_id||"", p.name||"", p.age||"", p.sex||"", lang(p), dept(p), p.doctor||"", insurer(p), p._status||""].map(v => `"${v}"`))]
+    const hdr = ["UHID", "Name", "Age", "Sex", "Language", "Department", "Doctor", "Insurer", "Status"];
+    const lines = [hdr, ...rows.map(p => [p.mrn || p.patient_id || "", p.name || "", p.age || "", p.sex || "", lang(p), dept(p), p.doctor || "", insurer(p), p._status || ""].map(v => `"${v}"`))]
       .map(r => r.join(",")).join("\n");
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lines],{type:"text/csv"})), download: "patients.csv" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lines], { type: "text/csv" })), download: "patients.csv" });
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
@@ -157,12 +370,17 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: "11px", color: "#8a9096", marginBottom: "4px" }}>
-            <span onClick={() => onNavigate && onNavigate("command")} style={{ cursor: "pointer", color: "oklch(0.5 0.1 200)" }}>{"\u2190 Back"}</span>
-            {" \u00b7 "}<span>Clinical Workspace</span>{" \u00b7 "}<span>Patients</span>
+            <span>Clinical Workspace</span>{" · "}<span>{isDoctor ? 'My Patients' : 'Patients'}</span>
           </div>
-          <div style={{ fontSize: "20px", fontWeight: 600 }}>Patients</div>
+          <div style={{ fontSize: "20px", fontWeight: 600 }}>
+            {isDoctor && activeDoctorName ? `Patients · ${activeDoctorName}` : 'Patients'}
+          </div>
           <div style={{ color: "#8a9096", fontSize: "11.5px", marginTop: "2px" }}>
-            {loading ? "Loading patients\u2026" : `${total} patients \u00b7 shared Patient 360 across every module`}
+            {loading
+              ? "Loading patients…"
+              : isDoctor && activeDoctorName
+                ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
+                : `${total} active patients · shared Patient 360 across every module`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -172,32 +390,60 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
             style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
           </button>
-          <button type="button" onClick={() => alert("Register patient")}
-            style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: 0, background: "oklch(0.5 0.1 200)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "12px" }}>
-            + Register patient
+          <button type="button" onClick={() => setShowRegisterModal(true)}
+            style={{ height: "30px", padding: "0 14px", borderRadius: "6px", border: 0, background: "#0284c7", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px", boxShadow: "0 1px 2px rgba(2, 132, 199, 0.2)" }}>
+            <UserPlus size={14} />
+            <span>+ Register patient</span>
           </button>
         </div>
       </div>
 
       {error && <div style={{ background: "oklch(0.96 0.03 25)", border: "1px solid oklch(0.88 0.06 25)", borderRadius: "6px", padding: "9px 12px", color: "oklch(0.45 0.17 25)", fontSize: "12px" }}>Unable to load: {error}</div>}
 
-      {/* filter pills */}
-      <div style={{ display: "flex", gap: "4px" }}>
-        {["All","IP","OP","ER","Discharged"].map(f => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
-            style={{ height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
-              background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
-              fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer" }}>
-            {f}
-          </button>
-        ))}
+      {/* filter pills + pagination summary */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {["All", "IP", "OP", "ER", "Discharged"].map(f => (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              style={{
+                height: "28px", padding: "0 12px", borderRadius: "14px", border: "1px solid #e3e6e8",
+                background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
+                fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: "6px"
+              }}>
+              <span>{f}</span>
+              <span style={{
+                background: filter === f ? "rgba(255,255,255,0.2)" : "#f1f5f9",
+                color: filter === f ? "#fff" : "#64748b",
+                padding: "1px 6px", borderRadius: "10px", fontSize: "10.5px", fontWeight: 600
+              }}>
+                {counts[f] !== undefined ? counts[f] : 0}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {totalRows > 0 && (
+          <div style={{ fontSize: "12px", color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span>
+              Showing <strong>{startIndex + 1}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* table */}
       <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
-        {loading && admitted.length === 0 && discharged.length === 0 ? (
-          <div style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {[80,60,70,55,65].map((w,i) => <div key={i} style={{ height: "14px", borderRadius: "6px", background: "#eef0f1", animation: "mpulse 1s infinite", width: w+"%" }} />)}
+        {loading && rows.length === 0 ? (
+          <div style={{ padding: "16px" }}>
+            <ModuleLoadingScreen
+              title="Loading Patient Directory..."
+              subtitle="Retrieving real-time IP, OP, ER, and Discharged patient records..."
+              badgeText="Live Directory Sync"
+              showKpis={false}
+              tableRows={8}
+              tableColumns={8}
+            />
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: "40px", textAlign: "center", color: "#8a9096" }}>
@@ -206,23 +452,27 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
           </div>
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+            <div style={{
+              display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
               color: "#8a9096", fontSize: "10.5px", textTransform: "uppercase", letterSpacing: ".04em",
-              borderBottom: "1px solid #eef0f1", minWidth: "940px" }}>
-              {["UHID","NAME","AGE \u00b7 SEX","LANGUAGE","DEPARTMENT","DOCTOR","INSURER","STATUS"].map(h => <span key={h}>{h}</span>)}
+              borderBottom: "1px solid #eef0f1", minWidth: "940px"
+            }}>
+              {["UHID", "NAME", "AGE \u00b7 SEX", "LANGUAGE", "DEPARTMENT", "DOCTOR", "INSURER", "STATUS"].map(h => <span key={h}>{h}</span>)}
             </div>
 
-            {rows.map((p, idx) => {
+            {paginatedRows.map((p, idx) => {
               const pill = getStatusPill(p._status);
-              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7,"0")}` : (p.mrn || `MER-PAT-${String(idx+1).padStart(7,"0")}`));
+              const uhid = p.patient_number || p.uhid || (p.patient_id ? `MER-PAT-${String(p.patient_id).padStart(7, "0")}` : (p.mrn || `MER-PAT-${String(startIndex + idx + 1).padStart(7, "0")}`));
               return (
                 <div key={p.id || p.patient_id || idx}
                   onClick={() => onSelectPatient && onSelectPatient(p)}
                   onMouseEnter={e => e.currentTarget.style.background = "#f6f7f8"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  style={{ display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
+                  style={{
+                    display: "grid", gridTemplateColumns: GRID, gap: "8px", padding: "8px 12px",
                     borderBottom: "1px solid #f2f3f4", alignItems: "center", cursor: "pointer",
-                    fontSize: "12px", minWidth: "940px", transition: "background 0.1s" }}>
+                    fontSize: "12px", minWidth: "940px", transition: "background 0.1s"
+                  }}>
                   <span style={{ fontFamily: "ui-monospace,Menlo,monospace", fontSize: "11px", color: "#8a9096" }}>{uhid}</span>
                   <span style={{ fontWeight: 600, color: "#15181b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "\u2014"}</span>
                   <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : (p.sex ? `\u2014 \u00b7 ${p.sex}` : "\u2014")}</span>
@@ -235,12 +485,180 @@ export default function PatientsView({ onSelectPatient, onOpenSoap, onNavigate }
               );
             })}
 
-            <div style={{ padding: "6px 12px", color: "#8a9096", fontSize: "11px", borderTop: "1px solid #f2f3f4" }}>
-              {rows.length} record{rows.length !== 1 ? "s" : ""} {"\u00b7"} click a row for Patient 360
+            {/* Pagination Controls Footer */}
+            <div style={{
+              padding: "10px 14px",
+              background: "#fafbfc",
+              borderTop: "1px solid #eef0f1",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px",
+              fontSize: "12px",
+              color: "#64748b"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                <span>
+                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> patients
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ fontSize: "11.5px", color: "#8a9096" }}>Per page:</span>
+                  {[15, 25, 50, 100].map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
+                      style={{
+                        height: "24px",
+                        padding: "0 8px",
+                        borderRadius: "4px",
+                        border: "1px solid",
+                        borderColor: pageSize === sz ? "#0284c7" : "#e2e8f0",
+                        background: pageSize === sz ? "#f0f9ff" : "#ffffff",
+                        color: pageSize === sz ? "#0369a1" : "#64748b",
+                        fontWeight: pageSize === sz ? 700 : 500,
+                        fontSize: "11px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={safeCurrentPage <= 1}
+                  title="First Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronsLeft style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  title="Previous Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronLeft style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <span style={{ padding: "0 8px", fontWeight: 600, color: "#0f172a", fontSize: "12px" }}>
+                  Page {safeCurrentPage} of {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Next Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronRight style={{ width: "14px", height: "14px" }} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={safeCurrentPage >= totalPages}
+                  title="Last Page"
+                  style={{
+                    height: "28px",
+                    width: "28px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    background: "#ffffff",
+                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
+                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#334155"
+                  }}
+                >
+                  <ChevronsRight style={{ width: "14px", height: "14px" }} />
+                </button>
+              </div>
             </div>
           </>
         )}
       </div>
+
+      {/* Patient Registration Modal with Dynamic ID & DB Integration */}
+      <PatientRegistrationModal
+        isOpen={showRegisterModal}
+        onClose={() => setShowRegisterModal(false)}
+        onPatientRegistered={handlePatientRegistered}
+        onSelectPatient={onSelectPatient}
+        doctorName={activeDoctorName}
+        userRole={userRole}
+        currentUser={currentUser}
+      />
+
+      {/* Success Notification Toast */}
+      {toastMessage && (
+        <div style={{
+          position: "fixed",
+          bottom: "24px",
+          right: "24px",
+          background: "#0f172a",
+          color: "#ffffff",
+          padding: "12px 18px",
+          borderRadius: "8px",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          zIndex: 99999,
+          fontSize: "13px",
+          animation: "fadeIn 0.2s ease-out"
+        }}>
+          <Check size={16} color="#4ade80" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -16,7 +16,7 @@ export default function AiCommandCentreView({ onNavigate }) {
             Enterprise AI Command Centre
           </div>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Live execution telemetry across all clinical and administrative agents. Every run is audited, high-risk actions are human-gated.
+            Execution telemetry across all clinical and administrative agents. Every run is audited, high-risk actions are human-gated.
           </div>
         </div>
 
@@ -77,7 +77,7 @@ export default function AiCommandCentreView({ onNavigate }) {
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #eef0f1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '13.5px' }}>Live Agent Telemetry & Fleet Status</div>
+            <div style={{ fontWeight: 700, fontSize: '13.5px' }}>Agent Telemetry & Fleet Status</div>
             <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '2px' }}>
               Click an agent to open its configuration, tools, and playground in Agent Studio.
             </div>

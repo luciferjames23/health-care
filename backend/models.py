@@ -1,4 +1,4 @@
-"""Pydantic models for the AI RCM & Bed Allocation POC backend."""
+"""Pydantic models for the AI RCM & Bed Allocation backend."""
 from pydantic import BaseModel
 from typing import List, Optional
 from enum import Enum

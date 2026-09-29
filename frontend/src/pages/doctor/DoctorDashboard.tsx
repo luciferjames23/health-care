@@ -25,9 +25,23 @@ const STATUS_COLORS: Record<string, string> = {
   NO_SHOW: '#A0AEC0',
 };
 
-const DoctorDashboard: React.FC = () => {
-  const { user } = useAuth();
+interface DoctorDashboardProps {
+  onNavigate?: (page: string, patient?: any) => void;
+  onSelectPatient?: (patient: any) => void;
+}
+
+const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectPatient }) => {
+  const { user: authContextUser } = useAuth();
   const navigate = useNavigate();
+
+  const currentUser = authContextUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+  const doctorId = currentUser?.doctorId ? Number(currentUser.doctorId) : undefined;
 
   const [dateRange, setDateRange] = useState<DateRangeValue>({
     dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
@@ -43,6 +57,10 @@ const DoctorDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
+  // Interactive View Mode & Detail Modal State
+  const [viewMode, setViewMode] = useState<'timeline' | 'table'>('timeline');
+  const [selectedApptModal, setSelectedApptModal] = useState<Appointment | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -50,33 +68,70 @@ const DoctorDashboard: React.FC = () => {
         fetchDashboardSummary({
           date_from: dateRange.dateFrom,
           date_to: dateRange.dateTo,
+          doctor_id: doctorId,
         }),
         fetchDateWiseAnalytics({
           date_from: dateRange.dateFrom,
           date_to: dateRange.dateTo,
+          doctor_id: doctorId,
         }),
         fetchAppointments({
           date_from: dateRange.dateFrom,
           date_to: dateRange.dateTo,
-          per_page: 50,
+          doctor_id: doctorId,
+          per_page: 200,
         }),
         fetchDailyView({
           date: toYMD(new Date()),
+          doctor_id: doctorId,
         }),
       ]);
       setSummary(sum);
       setAnalytics(ana);
-      setRangeAppointments(apptRes.appointments);
+      setRangeAppointments(apptRes?.appointments || []);
       setDailyView(dView);
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [dateRange, doctorId]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleViewAllInTable = () => {
+    setViewMode(prev => prev === 'timeline' ? 'table' : 'timeline');
+    if (onNavigate) {
+      onNavigate('appointments');
+    } else {
+      try { navigate('/doctor/appointments'); } catch {}
+    }
+  };
+
+  const handleViewPatientRecord = (a: Appointment) => {
+    const patObj = {
+      id: a.patient_id,
+      patient_id: a.patient_id,
+      patient_code: a.patient_code || `PAT-${a.patient_id}`,
+      name: a.patient_name,
+      patient_name: a.patient_name,
+      department_name: a.department_name,
+      phone: a.phone || '',
+    };
+
+    // Open detail modal overlay immediately
+    setSelectedApptModal(a);
+
+    // Trigger parent app navigation if passed
+    if (onSelectPatient) {
+      onSelectPatient(patObj);
+    } else if (onNavigate) {
+      onNavigate('patient360', patObj);
+    } else {
+      try { navigate(`/doctor/patient-records/${a.patient_id}`); } catch {}
+    }
+  };
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
@@ -99,7 +154,7 @@ const DoctorDashboard: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2>Meridian Hospital — Doctor Portal</h2>
-            <p>{greeting}, {user?.name} {user?.department ? `· Department: ${user?.department}` : ''}</p>
+            <p>{greeting}, {currentUser?.name || 'Doctor'} {currentUser?.department ? `· Department: ${currentUser?.department}` : ''}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
@@ -349,17 +404,215 @@ const DoctorDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Appointments Timeline in Selected Range */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header">
-          <h3>Appointments in Selected Range ({formatFriendlyDate(dateRange.dateFrom)} – {formatFriendlyDate(dateRange.dateTo)})</h3>
-          <button className="btn btn-secondary btn-sm" onClick={() => navigate('/doctor/appointments')}>
-            View All in Table →
-          </button>
+      {/* Patient Record / Clinical Detail Modal Overlay */}
+      {selectedApptModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 10, border: '1px solid #cbd5e1',
+            width: '100%', maxWidth: 580, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, borderBottom: '1px solid #f1f5f9', paddingBottom: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>
+                  {selectedApptModal.patient_name} ({selectedApptModal.patient_code})
+                </h3>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  Patient Record ID: #{selectedApptModal.patient_id} · Dept: {selectedApptModal.department_name}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedApptModal(null)}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: '#64748b', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, fontSize: 13, marginBottom: 20 }}>
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Appointment Time</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
+                  {format12HourTime(selectedApptModal.appointment_time)}
+                </div>
+                <div style={{ fontSize: 12, color: '#475569' }}>{selectedApptModal.appointment_date}</div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Booking Status</div>
+                <div style={{ marginTop: 4 }}>
+                  <span
+                    className="status-badge"
+                    style={{
+                      background: `${STATUS_COLORS[selectedApptModal.status] || '#A0AEC0'}20`,
+                      color: STATUS_COLORS[selectedApptModal.status] || '#4A5568',
+                      fontWeight: 700, fontSize: 12
+                    }}
+                  >
+                    ● {selectedApptModal.status}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0', gridColumn: 'span 2' }}>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Reason for Visit & Notes</div>
+                <div style={{ fontSize: 13, color: '#0f172a', marginTop: 4, fontWeight: 500 }}>
+                  {selectedApptModal.patient_reason ? `"${selectedApptModal.patient_reason}"` : 'Regular Clinical Checkup'}
+                </div>
+                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+                  Booking Source: {selectedApptModal.booking_source} · Duration: {selectedApptModal.duration_minutes || 30} mins
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedApptModal(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  const patObj = {
+                    id: selectedApptModal.patient_id,
+                    patient_id: selectedApptModal.patient_id,
+                    patient_code: selectedApptModal.patient_code || `PAT-${selectedApptModal.patient_id}`,
+                    name: selectedApptModal.patient_name,
+                    patient_name: selectedApptModal.patient_name,
+                  };
+                  setSelectedApptModal(null);
+                  if (onSelectPatient) onSelectPatient(patObj);
+                  else if (onNavigate) onNavigate('patient360', patObj);
+                }}
+              >
+                Open Full Patient 360 View →
+              </button>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Appointments Timeline / Table in Selected Range */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <h3>Appointments in Selected Range ({formatFriendlyDate(dateRange.dateFrom)} – {formatFriendlyDate(dateRange.dateTo)})</h3>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 6, padding: 2 }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('timeline')}
+                style={{
+                  padding: '3px 10px', fontSize: 12, borderRadius: 4, border: 'none',
+                  background: viewMode === 'timeline' ? '#fff' : 'transparent',
+                  color: viewMode === 'timeline' ? '#0f172a' : '#64748b',
+                  fontWeight: viewMode === 'timeline' ? 600 : 400,
+                  boxShadow: viewMode === 'timeline' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Timeline View
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                style={{
+                  padding: '3px 10px', fontSize: 12, borderRadius: 4, border: 'none',
+                  background: viewMode === 'table' ? '#fff' : 'transparent',
+                  color: viewMode === 'table' ? '#0f172a' : '#64748b',
+                  fontWeight: viewMode === 'table' ? 600 : 400,
+                  boxShadow: viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Table View
+              </button>
+            </div>
+
+            <button className="btn btn-secondary btn-sm" onClick={handleViewAllInTable}>
+              {viewMode === 'timeline' ? 'View All in Table →' : 'View Full Appointments Page →'}
+            </button>
+          </div>
+        </div>
+
         <div className="card-body">
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading appointments...</div>
+          ) : viewMode === 'table' ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    <th style={{ padding: '10px 12px' }}>Time & Date</th>
+                    <th style={{ padding: '10px 12px' }}>Patient Name & Code</th>
+                    <th style={{ padding: '10px 12px' }}>Department & Reason</th>
+                    <th style={{ padding: '10px 12px' }}>Booking Source</th>
+                    <th style={{ padding: '10px 12px' }}>Status</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rangeAppointments.map(a => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#0f172a' }}>
+                        {format12HourTime(a.appointment_time)}
+                        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>{a.appointment_date}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#0284c7' }}>
+                        {a.patient_name}
+                        <div style={{ fontSize: 11, color: '#64748b', fontWeight: 400 }}>{a.patient_code}</div>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#334155' }}>
+                        {a.department_name}
+                        {a.patient_reason && <div style={{ fontSize: 11, color: '#64748b' }}>Reason: "{a.patient_reason}"</div>}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569', fontSize: 12 }}>
+                        {a.booking_source}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span
+                          className="status-badge"
+                          style={{
+                            background: `${STATUS_COLORS[a.status] || '#A0AEC0'}20`,
+                            color: STATUS_COLORS[a.status] || '#4A5568',
+                            fontWeight: 600,
+                            fontSize: 11.5
+                          }}
+                        >
+                          {a.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleViewPatientRecord(a)}
+                          title="View Patient Record"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 12 }}
+                        >
+                          <Eye size={13} />
+                          <span>View Record</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {rangeAppointments.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                        No appointments found for the selected date range.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="timeline">
               {rangeAppointments.map(a => (
@@ -391,7 +644,7 @@ const DoctorDashboard: React.FC = () => {
                       <div className="timeline-actions">
                         <button
                           className="btn btn-secondary btn-sm"
-                          onClick={() => navigate(`/doctor/patient-records/${a.patient_id}`)}
+                          onClick={() => handleViewPatientRecord(a)}
                           title="View Patient Record"
                         >
                           <Eye size={13} />

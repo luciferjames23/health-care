@@ -8,14 +8,16 @@ import sys
 
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body
+from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body, Depends
 
+from api.auth_helper import require_radiologist, require_radiologist_or_doctor
 from radiology_ai import config
 from radiology_ai import db as radiology_db
 from radiology_ai.services.densenet_service import load_densenet_model
 from radiology_ai.services.inference_service import InferenceError, run_full_analysis
 from radiology_ai.services.orthanc_service import (
     OrthancError,
+    ensure_localized_series,
     get_first_instance_for_study,
     get_instance_file,
     get_studies as orthanc_get_studies,
@@ -51,14 +53,16 @@ from radiology_ai.schemas.inference import (
 
 logger = logging.getLogger("meridian.radiology.integration")
 router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"])
-pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"])
+pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"], dependencies=[Depends(require_radiologist)])
+# Scan-viewing endpoints are open to Doctors AND Radiologists; no router-level guard here.
+scans_router = APIRouter(prefix="/api/radiology", tags=["Radiology Scans"])
 
 _state = {"device": "cuda" if __import__("torch").cuda.is_available() else "cpu", "densenet_model": None, "yolo_model": None}
 _initialized = False
 
 
 def initialize_radiology() -> None:
-    """Load the existing PoC models once and start the existing PACS watcher."""
+    """Load the existing models once and start the existing PACS watcher."""
     global _initialized
     if _initialized:
         return
@@ -94,9 +98,16 @@ def _require_models() -> None:
 
 
 def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> dict:
-    ref = get_first_instance_for_study(study_id)
     orthanc_study = orthanc_get_study(study_id)
     study_instance_uid = (orthanc_study.get("MainDicomTags") or {}).get("StudyInstanceUID")
+    from routers.imaging_orders import patient_for_ordered_study
+    order = patient_for_ordered_study(study_instance_uid)
+    if not order:
+        raise HTTPException(409, 'This PACS study is not linked to an uploaded X-ray order. Use X-ray Orders to upload the requested image.')
+    existing = get_study(str(order['study_key']))
+    if existing:
+        return existing
+    ref = get_first_instance_for_study(study_id, order['orthanc_instance_id'])
     file_bytes = get_instance_file(ref.instance_id)
     result = run_full_analysis(
         file_bytes,
@@ -112,36 +123,9 @@ def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> d
         "instance_id": ref.instance_id,
         "study_instance_uid": study_instance_uid,
     }
-    save_study({
-        **result,
-        "ingested_at": ingested_at,
-        "analyzed_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": f"orthanc:{ref.instance_id}",
-    })
-
-    # Persist analysis to PostgreSQL radiology_scan table
-    try:
-        patient_tags = orthanc_study.get("PatientMainDicomTags") or {}
-        orig_id = (
-            result.get("original_patient_id")
-            or result.get("metadata", {}).get("patient_id")
-            or patient_tags.get("PatientID")
-            or study_id
-        )
-        p_id = result.get("patient_id")
-        p_code = result.get("patient_code")
-        report = result.get("interpretation", {}).get("summary") or result.get("interpretation", {}).get("assessment")
-        finding = result.get("interpretation", {}).get("finding")
-        update_study_report_in_db(
-            original_patient_id=orig_id,
-            scan_report=report,
-            patient_id=p_id,
-            patient_code=p_code,
-            review_status="Pending Review",
-            radiologist_finding=finding,
-        )
-    except Exception as e:
-        logger.warning("Could not persist PACS study to PostgreSQL: %s", e)
+    result.update(ingested_at=ingested_at, analyzed_at=datetime.now(timezone.utc).isoformat(),
+                  source_filename=f"orthanc:{ref.instance_id}")
+    save_study(result)
 
     return result
 
@@ -171,35 +155,18 @@ def model_info():
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(file: UploadFile = File(...)):
-    _require_models()
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file was uploaded.")
-    if not file.filename.lower().endswith((".dcm", ".dicom")):
-        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload a chest X-ray in DICOM (.dcm) format.")
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
-    try:
-        result = run_full_analysis(
-            file_bytes,
-            densenet_model=_state["densenet_model"],
-            yolo_model=_state["yolo_model"],
-            device=_state["device"],
-        )
-    except InferenceError as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to process this X-ray. {exc}") from exc
-    save_study({
-        **result,
-        "analyzed_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": file.filename,
-    })
-    return result
+async def analyze(file: UploadFile = File(...), _user: dict = Depends(require_radiologist)):
+    raise HTTPException(409, 'Select the patient request in X-ray Orders and upload there. Analysis starts after the order upload completes.')
 
 
 @router.get("/worklist", response_model=WorklistResponse)
-def worklist():
-    records = list_studies()
+def worklist(user: dict = Depends(require_radiologist_or_doctor)):
+    role = str(user.get("role", "")).lower()
+    is_doctor = role == "doctor"
+    doctor_user_id = user.get("user_id") if is_doctor else None
+    doctor_id = user.get("doctor_id") if is_doctor else None
+    doctor_name = user.get("name") if is_doctor else None
+    records = list_studies(doctor_user_id=doctor_user_id, doctor_id=doctor_id, doctor_name=doctor_name)
     raw_ids = [
         r.get("original_patient_id") or r.get("metadata", {}).get("patient_id") or r.get("study_id")
         for r in records
@@ -209,17 +176,43 @@ def worklist():
     return {"studies": items, "counts": compute_counts(items)}
 
 
+def authorize_study(record, user):
+    if str(user.get('role', '')).lower() == 'doctor':
+        from routers.radiology_clarifications import order_access
+        from psycopg2.extras import RealDictCursor
+        import db_config
+        with db_config.get_db_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            order_access(cur, record['order_id'], {**user, 'role': 'doctor'})
+
+
 @router.get("/studies/{study_id}", response_model=StudyDetailResponse)
-def study_detail(study_id: str):
+def study_detail(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
     record = get_study(study_id)
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    authorize_study(record, _user)
     record = enrich_study_detail(record)
     return record
 
 
+@router.post("/studies/{study_id}/ohif-localized")
+def localized_ohif(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
+    record = get_study(study_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    authorize_study(record, _user)
+    try:
+        return ensure_localized_series(record)
+    except OrthancError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/studies/{study_id}/viewed", response_model=ViewedStatusResponse)
-def viewed(study_id: str):
+def viewed(study_id: str, _user: dict = Depends(require_radiologist_or_doctor)):
+    existing = get_study(study_id)
+    if existing is None:
+        raise HTTPException(404, 'No analysis found for this study ID.')
+    authorize_study(existing, _user)
     stamp = datetime.now(timezone.utc).isoformat()
     record = mark_study_viewed(study_id, stamp)
     if record is None:
@@ -228,7 +221,7 @@ def viewed(study_id: str):
 
 
 @router.post("/studies/{study_id}/review", response_model=StudyDetailResponse)
-def review_study(study_id: str, request: ReviewStatusRequest):
+def review_study(study_id: str, request: ReviewStatusRequest, reviewer: dict = Depends(require_radiologist)):
     """Record radiologist review workflow state and revised clinical report."""
     allowed = {
         "No acute finding",
@@ -257,29 +250,14 @@ def review_study(study_id: str, request: ReviewStatusRequest):
         study_id,
         request.review_status,
         reviewed_at,
-        reviewed_by=request.reviewed_by,
+        reviewed_by=reviewer["name"],
         report=report,
         finding=finding,
     )
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
 
-    orig_id = record.get("original_patient_id") or record.get("metadata", {}).get("patient_id")
-    p_id = record.get("patient_id")
-    p_code = record.get("patient_code")
-    try:
-        update_study_report_in_db(
-            original_patient_id=orig_id,
-            scan_report=report,
-            patient_id=p_id,
-            patient_code=p_code,
-            review_status=request.review_status,
-            reviewed_by=request.reviewed_by or record.get("reviewed_by"),
-            radiologist_finding=finding,
-        )
-    except Exception as e:
-        logger.warning("Could not persist report to PostgreSQL: %s", e)
-
+    authorize_study(record, _user)
     record = enrich_study_detail(record)
     return record
 
@@ -338,13 +316,18 @@ def pacs_analyze(study_id: str):
 # Backward-compatible alias used by the integration tests/consumers.
 radiology_state = _state
 
-
 class UpdateScanRequest(BaseModel):
     image: Optional[str] = None
     scan_report: Optional[str] = None
 
 
-@router.get("/scans")
+# ── Scan-viewing endpoints (Doctor + Radiologist) ─────────────────────────────
+# These live on scans_router which has NO router-level require_radiologist guard.
+# Per-route require_radiologist_or_doctor enforces that only clinical staff can
+# read scan data; the full radiology review/worklist workflow remains locked to
+# Radiologists via the main `router` above.
+
+@scans_router.get("/scans")
 def list_scans_endpoint(
     patient_id: Optional[int] = Query(None, description="Filter by admitted patient ID"),
     patient_code: Optional[str] = Query(None, description="Filter by patient code (e.g., MER-PAT-0087374)"),
@@ -352,8 +335,9 @@ def list_scans_endpoint(
     target: Optional[int] = Query(None, description="Filter by target (1=opacity, 0=normal)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    _user: dict = Depends(require_radiologist_or_doctor),
 ):
-    """Retrieve radiology scans stored in PostgreSQL (rv_pbpkghvg)."""
+    """Retrieve radiology scans stored in PostgreSQL (accessible to Doctors and Radiologists)."""
     return radiology_db.list_scans(
         patient_id=patient_id,
         patient_code=patient_code,
@@ -364,9 +348,9 @@ def list_scans_endpoint(
     )
 
 
-@router.get("/scans/{scan_id}")
-def get_scan_endpoint(scan_id: int):
-    """Retrieve a single radiology scan by scan_id."""
+@scans_router.get("/scans/{scan_id}")
+def get_scan_endpoint(scan_id: int, _user: dict = Depends(require_radiologist_or_doctor)):
+    """Retrieve a single radiology scan by scan_id (accessible to Doctors and Radiologists)."""
     scan = radiology_db.get_scan_by_id(scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Radiology scan record not found")
@@ -374,7 +358,7 @@ def get_scan_endpoint(scan_id: int):
 
 
 @router.put("/scans/{scan_id}")
-def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest):
+def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest, _user: dict = Depends(require_radiologist)):
     """Update empty image data and/or scan report text for a radiology scan."""
     updated = radiology_db.update_scan_image_and_report(
         scan_id=scan_id,
@@ -386,8 +370,8 @@ def update_scan_endpoint(scan_id: int, payload: UpdateScanRequest):
     return {"status": "success", "scan": updated}
 
 
-@router.get("/admitted-patients")
-def get_admitted_patients_endpoint():
+@scans_router.get("/admitted-patients")
+def get_admitted_patients_endpoint(_user: dict = Depends(require_radiologist_or_doctor)):
     """List currently admitted patients available in the PostgreSQL Lakehouse."""
     patients = radiology_db.get_currently_admitted_patients()
     return {"count": len(patients), "patients": patients}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, extractDischargedPatientIds } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function BedDemandView({ onSelectPatient }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
@@ -14,14 +15,14 @@ export default function BedDemandView({ onSelectPatient }) {
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadAllBedData = useCallback(async (isSilent = false) => {
-    if (!isSilent && !bedManagement) {
+    if (!isSilent) {
       setLoading(true);
     }
     setError(null);
     try {
-      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from live APIs
+      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from APIs
       const [bmRes, wardsRes, dcRes] = await Promise.all([
-        apiService.getBedManagementData({}, { forceRefresh: isSilent }).catch(() => null),
+        apiService.getBedManagementData({}, { forceRefresh: true }).catch(() => null),
         apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
         apiService.getDischargedPatients().catch(() => ({ data: [] }))
       ]);
@@ -35,6 +36,11 @@ export default function BedDemandView({ onSelectPatient }) {
             (r.beds || []).forEach(b => {
               const p = b.assigned_patient || b.patient;
               if (p) {
+                p.name = p.name || p.patient_name || 'Inpatient';
+                p.patient_name = p.patient_name || p.name || 'Inpatient';
+                p.diagnosis = p.diagnosis || p.primary_diagnosis || 'Inpatient Observation';
+                p.primary_diagnosis = p.primary_diagnosis || p.diagnosis;
+                p.doctor = p.doctor || p.attending_doctor || 'Attending Physician';
                 b.patient = p;
                 b.assigned_patient = p;
               }
@@ -44,10 +50,18 @@ export default function BedDemandView({ onSelectPatient }) {
 
               const isDischarged = dischargedTracker.has({ patient_id: pid, patient_number: pnum, admission_id: aid });
               if (isDischarged || !p) {
-                b.status = 'Available';
+                if (b.status === 'Maintenance') {
+                  b.status = 'Maintenance';
+                  b.is_occupied = false;
+                } else {
+                  b.status = 'Available';
+                  b.is_occupied = false;
+                  b.assigned_patient = null;
+                  b.patient = null;
+                }
+              } else if (b.status === 'Maintenance') {
+                b.status = 'Maintenance';
                 b.is_occupied = false;
-                b.assigned_patient = null;
-                b.patient = null;
               } else {
                 b.status = 'Occupied';
                 b.is_occupied = true;
@@ -60,19 +74,19 @@ export default function BedDemandView({ onSelectPatient }) {
       setBedManagement(bmRes);
       setWardList(wardsRes?.data || []);
     } catch (err) {
-      console.error("Failed to load live bed management data:", err);
+      console.error("Failed to load bed management data:", err);
       setError(err.message || 'Failed to connect to Bed & Ward backend APIs');
     } finally {
       setLoading(false);
     }
-  }, [bedManagement]);
+  }, []);
 
   useEffect(() => {
     loadAllBedData();
 
     const timer = setInterval(() => {
       loadAllBedData(true);
-    }, 6000);
+    }, 15000);
 
     const handleUpdate = () => loadAllBedData(true);
     window.addEventListener('hc_api_updated', handleUpdate);
@@ -149,7 +163,7 @@ export default function BedDemandView({ onSelectPatient }) {
             // Status filter
             if (statusFilter === 'Occupied' && b.status !== 'Occupied') return false;
             if (statusFilter === 'Available' && b.status !== 'Available') return false;
-            if (statusFilter === 'Maintenance' && b.status === 'Occupied') return false;
+            if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return false;
 
             // Search query
             if (searchQuery.trim()) {
@@ -184,6 +198,7 @@ export default function BedDemandView({ onSelectPatient }) {
           if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) return;
           if (statusFilter === 'Occupied' && b.status !== 'Occupied') return;
           if (statusFilter === 'Available' && b.status !== 'Available') return;
+          if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return;
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             const matchBed = (b.bed_number || '').toLowerCase().includes(q);
@@ -237,6 +252,18 @@ export default function BedDemandView({ onSelectPatient }) {
     document.body.removeChild(link);
   };
 
+  if (loading && !bedManagement) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Hospital Ward & Bed Management..."
+        subtitle="Connecting live telemetry for Ward → Room → Bed → Patient..."
+        badgeText="Live Bed Matrix"
+        statCount={5}
+        layout="cards"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       
@@ -250,7 +277,7 @@ export default function BedDemandView({ onSelectPatient }) {
             Hospital Ward, Room & Bed Management
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Real-time live telemetry connecting <strong style={{ color: 'oklch(0.4 0.1 200)' }}>Ward → Room → Bed → Patient</strong> across all hospital wards
+            Real-time telemetry connecting <strong style={{ color: 'oklch(0.4 0.1 200)' }}>Ward → Room → Bed → Patient</strong> across all hospital wards
           </div>
         </div>
 
@@ -282,19 +309,6 @@ export default function BedDemandView({ onSelectPatient }) {
               Table View
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={loadAllBedData}
-            style={{
-              height: '30px', padding: '0 12px', borderRadius: '6px',
-              border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px',
-              fontWeight: 500, color: '#15181b', display: 'flex', alignItems: 'center', gap: '6px'
-            }}
-          >
-            <span>↻</span>
-            <span>{loading ? 'Syncing...' : 'Sync Live APIs'}</span>
-          </button>
 
           <button
             type="button"
@@ -454,7 +468,7 @@ export default function BedDemandView({ onSelectPatient }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {loading && !bedManagement ? (
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Live Ward &amp; Bed Matrix...</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Ward &amp; Bed Matrix...</div>
               <div style={{ fontSize: '12px' }}>Fetching ward, room & bed data from clinical data system…</div>
             </div>
           ) : filteredWards.length === 0 ? (

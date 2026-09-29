@@ -9,7 +9,7 @@ Responsibilities:
   - Provides hallucination guard: returns structured signal when no knowledge found
   - Tracks source context (document_id, chunk_id, category) for audit
 
-Step 5.1 — Meridian Hospital POC
+Step 5.1 — Meridian Hospital
 """
 
 import sys
@@ -118,7 +118,7 @@ def answer_knowledge_question(
     # Join into a single answer
     answer = "\n\n".join(content_parts)
 
-    # Translate English response to requested language for POC compliance
+    # Translate English response to requested language for compliance
     lang_upper = (language or "ENGLISH").upper()
     translated_answer = translate_knowledge_answer(answer, primary_category, lang_upper)
 

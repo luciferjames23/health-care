@@ -1,35 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { DEMO_PASSWORD } from '../services/meridianData';
+import { selectAccount } from '../services/accountSession';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
-const FALLBACK_DB_USERS = [
-  { username: 'admin', role: 'Admin', name: 'System Admin', dept: 'Administration', title: 'Admin' },
-  { username: 'doctor_1', role: 'Doctor', name: 'Dr. Priya Patel', dept: 'Cardiology', title: 'Cardiologist' },
-  { username: 'doctor_2', role: 'Doctor', name: 'Dr. Ravi Reddy', dept: 'Orthopedics', title: 'Orthopedist' },
-  { username: 'doctor_3', role: 'Doctor', name: 'Dr. Anjali Iyer', dept: 'Pediatrics', title: 'Pediatrician' },
-  { username: 'doctor_4', role: 'Doctor', name: 'Dr. Vikram Singh', dept: 'Neurology', title: 'Neurologist' },
-  { username: 'doctor_5', role: 'Doctor', name: 'Dr. Neha Nair', dept: 'Gynecology', title: 'Gynecologist' },
-  { username: 'doctor_6', role: 'Doctor', name: 'Dr. Suresh Menon', dept: 'Surgery', title: 'Surgeon' },
-  { username: 'doctor_7', role: 'Doctor', name: 'Dr. Divya Verma', dept: 'Emergency', title: 'ER Physician' },
-  { username: 'doctor_8', role: 'Doctor', name: 'Dr. Rahul Kumar', dept: 'Intensive Care Unit', title: 'Intensivist' },
-  { username: 'doctor_9', role: 'Doctor', name: 'Dr. Sneha Das', dept: 'Laboratory', title: 'Pathologist' },
-  { username: 'doctor_10', role: 'Doctor', name: 'Dr. Karthik Bose', dept: 'Pharmacy', title: 'Pharmacologist' },
-  { username: 'doctor_11', role: 'Doctor', name: 'Dr. Pooja Pillai', dept: 'Oncology', title: 'Oncologist' },
-  { username: 'doctor_12', role: 'Doctor', name: 'Dr. Arjun Rao', dept: 'Administration', title: 'Administrator' },
-  { username: 'doctor_13', role: 'Doctor', name: 'Dr. Meenakshi Gupta', dept: 'General Medicine', title: 'General Physician' },
-  { username: 'doctor_14', role: 'Doctor', name: 'Dr. Sanjay Jain', dept: 'Cardiology', title: 'Cardiologist' },
-  { username: 'doctor_15', role: 'Doctor', name: 'Dr. Amit Sharma', dept: 'Orthopedics', title: 'Orthopedist' },
-];
+const getPasswordForUser = (uname) => {
+  if (!uname) return 'Hospital@2026';
+  const lower = uname.toLowerCase();
+  if (lower === 'admin') return 'admin123';
+  return 'Hospital@2026';
+};
 
-export default function AuthScreen({ onLoginSuccess }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+export default function AuthScreen({
+  onLoginSuccess,
+  initialUsername = null,
+  initialInfo = ''
+}) {
+  const [username, setUsername] = useState(initialUsername || 'admin');
+  const [password, setPassword] = useState(() => getPasswordForUser(initialUsername || 'admin'));
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const [info, setInfo] = useState(initialInfo || '');
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -40,9 +33,12 @@ export default function AuthScreen({ onLoginSuccess }) {
           const data = await res.json();
           if (data.users && data.users.length > 0 && isMounted) {
             setUsersList(data.users);
-            const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
-            if (defaultUser) {
-              setUsername(defaultUser.username);
+            if (!initialUsername) {
+              const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
+              if (defaultUser) {
+                setUsername(defaultUser.username);
+                setPassword(getPasswordForUser(defaultUser.username));
+              }
             }
           }
         }
@@ -54,50 +50,53 @@ export default function AuthScreen({ onLoginSuccess }) {
     }
     loadUsers();
     return () => { isMounted = false; };
-  }, []);
+  }, [initialUsername]);
 
-  const activeUsers = usersList.length > 0 ? usersList : FALLBACK_DB_USERS;
+  useEffect(() => {
+    if (initialUsername) {
+      setUsername(initialUsername);
+      setPassword(getPasswordForUser(initialUsername));
+    }
+  }, [initialUsername]);
 
-  const handleSelectRole = (r) => {
-    setUsername(r.username);
-    setPassword(DEMO_PASSWORD);
-    setError('');
-    setInfo(`Selected ${r.role || 'Staff'} (${r.name}). Click Sign In to continue.`);
-  };
+  useEffect(() => {
+    if (initialInfo) {
+      setInfo(initialInfo);
+    }
+  }, [initialInfo]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setError('');
-    const u = username.trim().toLowerCase();
-    if (!u) {
-      setError('Please enter Employee ID or username.');
+  const activeUsers = [...usersList].sort((a, b) => {
+    const rank = user => user.role?.toLowerCase() === 'radiologist' ? 0 : user.role?.toLowerCase() === 'admin' ? 1 : 2;
+    return rank(a) - rank(b);
+  });
+
+  const selectedUser = usersList.find(u => u.username?.toLowerCase() === (username || '').trim().toLowerCase()) ||
+    usersList.find(u => u.username === initialUsername) ||
+    activeUsers[0];
+
+  const handleSignIn = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (signingIn) return;
+    const targetUsername = (username || '').trim();
+    if (!targetUsername) {
+      setError('Please enter a username.');
       return;
     }
-    if (password !== DEMO_PASSWORD && password !== 'admin' && password !== 'admin123' && password !== 'doctor123') {
-      setError('Invalid credentials. Standard password is ' + DEMO_PASSWORD);
-      return;
+    setSigningIn(true);
+    setError('');
+    const targetName = selectedUser?.name || targetUsername;
+    setInfo(`Signing in as ${targetName}…`);
+    try {
+      const user = await selectAccount(targetUsername);
+      onLoginSuccess(user);
+    } catch (err) {
+      setError(err.message || 'Unable to sign in.');
+      setInfo('');
+    } finally {
+      setSigningIn(false);
     }
-
-    const matched = activeUsers.find(
-      r => r.username.toLowerCase() === u ||
-           (r.email && r.email.toLowerCase() === u) ||
-           (r.staff_code && r.staff_code.toLowerCase() === u)
-    );
-    const roleName = matched ? (matched.role === 'Admin' ? 'Hospital Management' : matched.role) : (u.includes('admin') ? 'Hospital Management' : 'Doctor');
-    const fullName = matched ? matched.name : (u.includes('admin') ? 'System Admin' : `Doctor ${u}`);
-    const deptName = matched ? (matched.dept || 'General Medicine') : 'General Medicine';
-    const specName = matched ? (matched.specialization || matched.title || deptName) : 'General Medicine';
-
-    // Successful login
-    onLoginSuccess({
-      username: u,
-      role: roleName,
-      name: fullName,
-      dept: deptName,
-      specialization: specName,
-      title: specName,
-    });
   };
+
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', background: '#fbfbfc' }}>
@@ -136,7 +135,7 @@ export default function AuthScreen({ onLoginSuccess }) {
       {/* Right sign-in container */}
       <main style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '28px 20px' }}>
         <div style={{ width: 'min(440px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          
+
           <div style={{
             background: '#fff', border: '1px solid #e3e6e8', borderRadius: '10px',
             padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px',
@@ -145,7 +144,7 @@ export default function AuthScreen({ onLoginSuccess }) {
             <div>
               <div style={{ fontSize: '18px', fontWeight: 600 }}>Sign in</div>
               <div style={{ color: '#52585e', marginTop: '2px', lineHeight: 1.45, fontSize: '12px' }}>
-                Use your hospital Employee ID or username. Role, department and consultant scope come from your account.
+                Select an account and sign in to access clinical or hospital workspace.
               </div>
             </div>
 
@@ -169,69 +168,136 @@ export default function AuthScreen({ onLoginSuccess }) {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Employee ID or username</span>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="e.g. admin or doctor_1"
-                  style={{
-                    height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                    padding: '0 10px', fontSize: '13px', outline: 'none', background: '#fff'
-                  }}
-                />
-              </label>
+            {selectedUser && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                padding: '14px 16px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '38px', height: '38px', borderRadius: '50%',
+                    background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: '13px', flexShrink: 0
+                  }}>
+                    {selectedUser.name ? selectedUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'DR'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: '14px', color: '#15181b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedUser.name}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                      <span style={{ fontWeight: 600, color: '#0284c7' }}>{selectedUser.role}</span>
+                      {(selectedUser.specialization || selectedUser.dept) && ` · ${selectedUser.specialization || selectedUser.dept}`}
+                    </div>
+                  </div>
+                </div>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ color: '#8a9096', fontSize: '11px', fontWeight: 500 }}>Password</span>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    style={{
-                      flex: 1, height: '36px', border: '1px solid #e3e6e8', borderRadius: '6px',
-                      padding: '0 10px', fontSize: '13px', outline: 'none', minWidth: 0, background: '#fff'
-                    }}
-                  />
+                {/* Editable Username and Password fields above the Sign In button */}
+                <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '2px' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Username</span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => {
+                        setUsername(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Username"
+                      autoComplete="username"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: '#475569' }}>Password</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          color: 'oklch(0.5 0.1 200)',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0
+                        }}
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={e => {
+                        setPassword(e.target.value);
+                        setError('');
+                      }}
+                      placeholder="Password"
+                      autoComplete="current-password"
+                      style={{
+                        height: '34px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '0 10px',
+                        fontSize: '12.5px',
+                        color: '#0f172a',
+                        background: '#fff',
+                        outline: 'none',
+                        transition: 'border-color 0.15s'
+                      }}
+                      onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
+                      onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                    />
+                  </label>
+
                   <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
+                    type="submit"
+                    id="sign-in-submit-btn"
+                    disabled={signingIn}
                     style={{
-                      height: '36px', padding: '0 10px', border: '1px solid #e3e6e8',
-                      borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '11px', color: '#52585e'
+                      height: '38px',
+                      borderRadius: '6px',
+                      border: 0,
+                      background: 'oklch(0.5 0.1 200)',
+                      color: '#fff',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      marginTop: '4px',
+                      transition: 'opacity 0.15s'
                     }}
                   >
-                    {showPassword ? 'Hide' : 'Show'}
+                    {signingIn ? 'Signing in…' : `Sign in as ${selectedUser.name} →`}
                   </button>
-                </div>
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
-                <button
-                  type="button"
-                  onClick={() => alert('Password for registered accounts is: ' + DEMO_PASSWORD)}
-                  style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'oklch(0.5 0.1 200)' }}
-                >
-                  Forgot password?
-                </button>
-                <span style={{ color: '#8a9096' }}>Branch · BR-01</span>
+                </form>
               </div>
+            )}
 
-              <button
-                type="submit"
-                style={{
-                  height: '38px', borderRadius: '6px', border: 0,
-                  background: 'oklch(0.5 0.1 200)', color: '#fff',
-                  fontWeight: 600, cursor: 'pointer', fontSize: '13px',
-                  marginTop: '4px'
-                }}
-              >
-                Sign in
-              </button>
-            </form>
           </div>
 
           {/* Dynamic Users from Database Table */}
@@ -242,30 +308,40 @@ export default function AuthScreen({ onLoginSuccess }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span style={{ fontWeight: 600, fontSize: '12px' }}>Hospital Accounts &amp; Staff Directory</span>
               <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#0284c7' }}>
-                {loadingUsers ? 'loading database...' : `live table (${activeUsers.length} accounts)`}
+                {loadingUsers ? 'loading database...' : `directory (${activeUsers.length} accounts)`}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '190px', overflowY: 'auto' }}>
-              {activeUsers.slice(0, 30).map((r) => (
-                <button
-                  key={r.username}
-                  type="button"
-                  onClick={() => handleSelectRole(r)}
-                  style={{
-                    height: '28px', padding: '0 10px', borderRadius: '14px',
-                    border: '1px solid #e3e6e8', background: username === r.username ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
-                    cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s'
-                  }}
-                >
-                  <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
-                  <span style={{ color: '#52585e' }}> · {r.name}</span>
-                </button>
-              ))}
+              {activeUsers.map((r) => {
+                const isSelected = (username?.toLowerCase() === r.username?.toLowerCase() || selectedUser?.username?.toLowerCase() === r.username?.toLowerCase());
+                return (
+                  <button
+                    key={r.username}
+                    type="button"
+                    disabled={signingIn}
+                    onClick={() => {
+                      setUsername(r.username);
+                      setPassword(getPasswordForUser(r.username));
+                      setError('');
+                    }}
+                    style={{
+                      height: '28px', padding: '0 10px', borderRadius: '14px',
+                      border: isSelected ? '1.5px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                      background: isSelected ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
+                      cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s',
+                      fontWeight: isSelected ? 600 : 400
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
+                    <span style={{ color: '#52585e' }}> · {r.name}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div style={{ fontSize: '11px', color: '#8a9096', lineHeight: 1.45, marginTop: '4px' }}>
-              Select an account to load its credentials (password <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: '#15181b', fontWeight: 600 }}>{DEMO_PASSWORD}</span>). Connected directly to PostgreSQL <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>users</span> and <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>doctors</span> tables.
+              Select a doctor to request an X-ray, or select Radiologist to view incoming orders.
             </div>
           </div>
 

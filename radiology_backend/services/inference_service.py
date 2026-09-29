@@ -1,7 +1,7 @@
 """
 Combines DICOM preprocessing, DenseNet triage classification, and YOLO
 localization into a single radiology AI result. Both models run on
-every uploaded study (not conditional on each other) per the PoC spec.
+every uploaded study (not conditional on each other) per the specification.
 """
 import logging
 import uuid

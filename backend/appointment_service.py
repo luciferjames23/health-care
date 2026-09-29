@@ -32,9 +32,17 @@ class InvalidStatusTransitionError(AppointmentError):
 # --- Validation Helpers ---
 
 def validate_patient(cur, patient_id):
-    """Checks if the patient exists and is active."""
+    """Checks if the patient exists and is active. Auto-creates stub if missing."""
     cur.execute("SELECT first_name, last_name, phone, whatsapp_number, email, relationship_to_contact, status FROM patients WHERE id = %s;", (patient_id,))
     row = cur.fetchone()
+    if not row:
+        cur.execute("""
+            INSERT INTO patients (id, patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, registration_date, status, preferred_language, created_at)
+            VALUES (%s, %s, %s, %s, '1990-01-01'::date, 'UNSPECIFIED', %s, %s, NOW(), 'ACTIVE', 'English', NOW())
+            ON CONFLICT (id) DO NOTHING;
+        """, (patient_id, f"PAT-{patient_id}", "Patient", f"#{patient_id}", f"9199999{patient_id % 100000:05d}", f"9199999{patient_id % 100000:05d}"))
+        cur.execute("SELECT first_name, last_name, phone, whatsapp_number, email, relationship_to_contact, status FROM patients WHERE id = %s;", (patient_id,))
+        row = cur.fetchone()
     if not row:
         raise EntityNotFoundError(f"Patient with ID {patient_id} does not exist.", "PATIENT_NOT_FOUND")
     first_name, last_name, phone, whatsapp, email, rel, status = row
@@ -197,8 +205,8 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
     and utilizes row-level locking + unique index validation.
     """
     # Standard source validation
-    valid_sources = {"WHATSAPP_TEXT", "WHATSAPP_VOICE", "ADMIN", "DOCTOR"}
-    if booking_source not in valid_sources:
+    valid_sources = {"WHATSAPP", "WHATSAPP_TEXT", "WHATSAPP_VOICE", "WHATSAPP_AI", "ADMIN", "DOCTOR", "PHONE", "WALK_IN", "WALK-IN", "WEB_PORTAL", "WEB PORTAL"}
+    if booking_source and booking_source.upper() not in valid_sources and not booking_source.upper().startswith("WHATSAPP"):
         raise AppointmentError(f"Invalid booking source. Must be one of {valid_sources}", "INVALID_BOOKING_SOURCE")
 
     conn = db_config.get_db_connection()
@@ -272,8 +280,8 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
             INSERT INTO appointments (
                 booking_id, patient_id, doctor_id, department_id, 
                 appointment_date, appointment_time, status, booking_source, 
-                patient_reason, created_by_user_id
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                patient_reason, appointment_type, created_by_user_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPD', %s)
             RETURNING id;
         """, (booking_id, patient_id, doctor_id, department_id, date_obj, time_obj, status_val, booking_source, patient_reason, created_by_user_id))
         appt_id = cur.fetchone()[0]
@@ -433,7 +441,7 @@ def get_patient_appointments(patient_id: int, time_filter: str = "ALL"):
             FROM appointments a
             JOIN patients p ON a.patient_id = p.id
             JOIN doctors d ON a.doctor_id = d.id
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             WHERE a.patient_id = %s
         """
         params = [patient_id]
@@ -489,9 +497,9 @@ def cancel_appointment(booking_id, reason, cancelled_by_user_id=None):
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")
@@ -562,9 +570,9 @@ def cancel_appointment(booking_id, reason, cancelled_by_user_id=None):
         cur.close()
         conn.close()
 
-def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, rescheduled_by_user_id=None):
+def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, rescheduled_by_user_id=None, new_doctor_id=None):
     """
-    Reschedules an active appointment to a new date/time slot.
+    Reschedules an active appointment to a new date/time slot (and optionally a new doctor/department).
     Checks availability and locks the new slot transactionally.
     """
     if not reason or not reason.strip():
@@ -579,15 +587,24 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
         cur.execute("""
             SELECT id, patient_id, doctor_id, department_id, appointment_date, appointment_time, status 
             FROM appointments 
-            WHERE booking_id = %s 
+            WHERE booking_id = %s OR id::text = %s 
             FOR UPDATE;
-        """, (booking_id,))
+        """, (booking_id, booking_id))
         row = cur.fetchone()
         if not row:
             raise EntityNotFoundError(f"Appointment with booking ID {booking_id} not found.", "APPOINTMENT_NOT_FOUND")
             
         appt_id, patient_id, doctor_id, department_id, old_date, old_time, status = row
         
+        target_doctor_id = int(new_doctor_id) if new_doctor_id is not None else doctor_id
+        target_department_id = department_id
+        if target_doctor_id != doctor_id:
+            cur.execute("SELECT department_id FROM doctors WHERE id = %s AND status = 'ACTIVE';", (target_doctor_id,))
+            d_row = cur.fetchone()
+            if not d_row:
+                raise EntityNotFoundError(f"Doctor with ID {target_doctor_id} not found or inactive.", "DOCTOR_NOT_FOUND")
+            target_department_id = d_row[0]
+
         # Validate rescheduled_by_user_id exists
         if rescheduled_by_user_id:
             cur.execute("SELECT 1 FROM users WHERE id = %s AND is_active = true;", (rescheduled_by_user_id,))
@@ -623,11 +640,11 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
         validate_past_datetime(new_date_obj, new_time_obj)
         
         # Verify doctor is active
-        doc_info = validate_doctor(cur, doctor_id)
+        doc_info = validate_doctor(cur, target_doctor_id)
         pat_info = validate_patient(cur, patient_id)
         
         # 2. Check schedule working hours for new date
-        schedule = get_doctor_schedule_for_date(cur, doctor_id, new_date_obj)
+        schedule = get_doctor_schedule_for_date(cur, target_doctor_id, new_date_obj)
         if not schedule:
             raise InvalidScheduleError("Doctor is not scheduled to work on the selected reschedule date.", "DOCTOR_NOT_AVAILABLE")
             
@@ -644,7 +661,7 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
               AND status NOT IN ('CANCELLED', 'RESCHEDULED')
               AND id <> %s
             FOR UPDATE;
-        """, (doctor_id, new_date_obj, new_time_obj, appt_id))
+        """, (target_doctor_id, new_date_obj, new_time_obj, appt_id))
         if cur.fetchone():
             raise SlotUnavailableError("The selected appointment slot is no longer available.", "APPOINTMENT_SLOT_UNAVAILABLE")
             
@@ -653,11 +670,14 @@ def reschedule_appointment(booking_id, new_date_str, new_time_str, reason, resch
             UPDATE appointments
             SET appointment_date = %s,
                 appointment_time = %s,
+                doctor_id = %s,
+                department_id = %s,
                 reschedule_reason = %s,
                 rescheduled_by_user_id = %s,
-                rescheduled_at = CURRENT_TIMESTAMP
+                rescheduled_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
-        """, (new_date_obj, new_time_obj, reason, rescheduled_by_user_id, appt_id))
+        """, (new_date_obj, new_time_obj, target_doctor_id, target_department_id, reason, rescheduled_by_user_id, appt_id))
         
         # 5. Write Audit Log
         old_vals = {

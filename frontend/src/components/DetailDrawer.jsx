@@ -68,28 +68,30 @@ export default function DetailDrawer({ drawer, onClose, onAction }) {
               {sub}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            style={{
-              height: '30px',
-              width: '30px',
-              borderRadius: '6px',
-              border: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              color: '#64748b',
-              fontSize: '14px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                height: '30px',
+                width: '30px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                color: '#64748b',
+                fontSize: '14px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Badges */}

@@ -303,7 +303,7 @@ window.__mm2.store = (function(){
 const D = window.__mm2.data;
 const mul = s => () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const pad = n => String(n).padStart(2, '0');
-const fmt = ts => { const d = Math.floor(ts / 1440), m = ((ts % 1440) + 1440) % 1440; const hm = pad(Math.floor(m / 60)) + ':' + pad(m % 60); return d === 0 ? hm : (12 + d) + ' Sep ' + hm; };
+const fmt = ts => { const d = Math.floor(ts / 1440), m = ((ts % 1440) + 1440) % 1440; let h = Math.floor(m / 60); const min = pad(m % 60); const ampm = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; const hm = pad(h) + ':' + min + ' ' + ampm; return d === 0 ? hm : (12 + d) + ' Sep ' + hm; };
 const ago = (ts, now) => { const m = Math.max(0, now - ts); if (m < 60) return m + ' m'; if (m < 1440) return Math.floor(m / 60) + ' h ' + pad(m % 60) + ' m'; return Math.floor(m / 1440) + ' d ' + Math.floor((m % 1440) / 60) + ' h'; };
 const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
 const FIRST = ['Anbu', 'Bhavani', 'Chandran', 'Dhanalakshmi', 'Ezhil', 'Gomathi', 'Hari', 'Indira', 'Jeyaraman', 'Kalpana', 'Loganathan', 'Malar', 'Natarajan', 'Oviya', 'Pandian', 'Radha', 'Sekar', 'Thenmozhi', 'Uma', 'Velu', 'Yamuna', 'Ashok', 'Geetha', 'Iqbal', 'Jancy', 'Kumaran', 'Latha', 'Manoj', 'Nirmala', 'Ponnusamy', 'Rani', 'Sathish', 'Tamilselvi', 'Vasanthi', 'Xavier'];

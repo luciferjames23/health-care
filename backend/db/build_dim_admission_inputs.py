@@ -354,7 +354,7 @@ def run_pipeline(admitted_only=True):
     print("Loading medications & prescriptions...")
     cur.execute("""
         SELECT pr.admission_id, pr.prescription_id, pr.prescription_date,
-               pi.dosage, pi.frequency, pi.route, pi.duration, pi.instructions,
+               pi.dosage, pi.frequency, pi.route, pi.duration, pi.instructions, pi.quantity,
                m.medication_name, m.generic_name, m.category AS medication_category
         FROM prescriptions pr
         LEFT JOIN prescription_items pi ON pr.prescription_id = pi.prescription_id

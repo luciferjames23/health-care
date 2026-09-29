@@ -1,6 +1,6 @@
 """Background watcher for the Orthanc Demo PACS.
 
-The watcher is intentionally small and PoC-focused:
+The watcher is intentionally small and focused:
 - polls Orthanc for newly arrived studies,
 - records the Orthanc ingestion timestamp,
 - analyzes each Orthanc study once per backend process,

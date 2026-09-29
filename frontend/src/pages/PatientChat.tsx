@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Send, Mic, RotateCcw, AlertTriangle, Play, Square, Volume2, VolumeX, CheckCheck, Menu, X, ChevronRight
 } from 'lucide-react';
 
@@ -8,6 +8,7 @@ interface ChatMessage {
   sender: 'PATIENT' | 'AI_AGENT' | 'SYSTEM';
   text: string;
   timestamp: string;
+  imageUrl?: string;
   isVoice?: boolean;
   voiceDuration?: string;
   audioUrl?: string; // base64 Data URI or URL
@@ -75,13 +76,13 @@ const PatientChat: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [currentSection, setCurrentSection] = useState('Overview');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  
+
   // Voice Recording & Playback State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingStatus, setRecordingStatus] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
-  
+
   // Interactive Slot List Modal State
   const [slotModalOpen, setSlotModalOpen] = useState(false);
   const [slotModalButtons, setSlotModalButtons] = useState<{ id: string; title: string; description?: string }[]>([]);
@@ -97,7 +98,7 @@ const PatientChat: React.FC = () => {
   const recordingTimerRef = useRef<any>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  const BASE_URL = window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:8000' : 'http://localhost:8000';
+  const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
   // Initialize unique session
   useEffect(() => {
@@ -149,29 +150,50 @@ const PatientChat: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages([
-          {
-            id: 'welcome',
+        const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const initialMsgs: ChatMessage[] = [];
+
+        if (data.has_welcome_image || data.welcome_image || data.intent === 'GREETING' || (data.response && data.response.toLowerCase().includes('welcome'))) {
+          initialMsgs.push({
+            id: 'welcome_img_' + Date.now(),
             sender: 'AI_AGENT',
-            text: data.response,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            interactive_buttons: data.interactive_buttons,
-            interactive_type: data.interactive_type,
-            list_button_title: data.list_button_title
-          }
-        ]);
+            text: '',
+            imageUrl: data.welcome_image || '/welcome_banner.jpg',
+            timestamp: nowTs
+          });
+        }
+
+        initialMsgs.push({
+          id: 'welcome_text_' + Date.now(),
+          sender: 'AI_AGENT',
+          text: data.response,
+          timestamp: nowTs,
+          interactive_buttons: data.interactive_buttons,
+          interactive_type: data.interactive_type,
+          list_button_title: data.list_button_title
+        });
+
+        setMessages(initialMsgs);
         return;
       }
     } catch (e) {
       console.error(e);
     }
 
+    const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setMessages([
       {
-        id: 'welcome',
+        id: 'welcome_img_' + Date.now(),
+        sender: 'AI_AGENT',
+        text: '',
+        imageUrl: '/welcome_banner.jpg',
+        timestamp: nowTs
+      },
+      {
+        id: 'welcome_text_' + Date.now(),
         sender: 'AI_AGENT',
         text: 'Meridian Hospital 👋\n\nWelcome to Meridian Hospital.\nHow can I help you today?',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: nowTs,
         interactive_buttons: [
           { id: 'btn_cat_appts', title: '📅 Appointments', description: 'Book, view, reschedule or cancel' },
           { id: 'btn_cat_doctors', title: '👨‍⚕️ Doctors & Services', description: 'Find doctors, departments and services' },
@@ -200,14 +222,14 @@ const PatientChat: React.FC = () => {
 
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsgId = 'msg_' + Date.now();
-    
+
     const newUserMsg: ChatMessage = {
       id: userMsgId,
       sender: 'PATIENT',
       text: textToSend,
       timestamp
     };
-    
+
     setMessages(prev => [...prev, newUserMsg]);
     setInputText('');
     setIsTyping(true);
@@ -229,18 +251,31 @@ const PatientChat: React.FC = () => {
       }
 
       const data = await response.json();
-      
-      const aiMsg: ChatMessage = {
-        id: 'msg_ai_' + Date.now(),
+
+      const newAiMsgs: ChatMessage[] = [];
+      const nowTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      if (data.has_welcome_image || data.welcome_image || data.intent === 'GREETING' || (data.response && data.response.toLowerCase().includes('welcome back'))) {
+        newAiMsgs.push({
+          id: 'msg_ai_img_' + Date.now(),
+          sender: 'AI_AGENT',
+          text: '',
+          imageUrl: data.welcome_image || '/welcome_banner.jpg',
+          timestamp: nowTs
+        });
+      }
+
+      newAiMsgs.push({
+        id: 'msg_ai_text_' + Date.now(),
         sender: 'AI_AGENT',
         text: data.response,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: nowTs,
         interactive_buttons: data.interactive_buttons,
         interactive_type: data.interactive_type,
         list_button_title: data.list_button_title
-      };
+      });
 
-      setMessages(prev => [...prev, aiMsg]);
+      setMessages(prev => [...prev, ...newAiMsgs]);
     } catch (error) {
       setTimeout(() => {
         const errorMsg: ChatMessage = {
@@ -273,24 +308,24 @@ const PatientChat: React.FC = () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunksRef.current = [];
-        
+
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
-        
+
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             audioChunksRef.current.push(e.data);
           }
         };
-        
+
         mediaRecorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
           const audioFile = new File([audioBlob], 'microphone_voice.wav', { type: 'audio/wav' });
           sendVoiceAudio(audioFile, '🎤 Voice message');
-          
+
           stream.getTracks().forEach(track => track.stop());
         };
-        
+
         mediaRecorder.start();
         setIsRecording(true);
         setRecordingStatus('Listening...');
@@ -335,7 +370,7 @@ const PatientChat: React.FC = () => {
       }
 
       const data = await response.json();
-      
+
       const aiMsgId = 'msg_ai_' + Date.now();
       const aiMsg: ChatMessage = {
         id: aiMsgId,
@@ -346,7 +381,7 @@ const PatientChat: React.FC = () => {
       };
 
       setMessages(prev => [...prev, aiMsg]);
-      
+
       if (data.audio) {
         playAudio(data.audio, aiMsgId);
       }
@@ -371,21 +406,21 @@ const PatientChat: React.FC = () => {
     setIsRecording(true);
     setRecordingStatus('Listening...');
     setShowVoiceModal(false);
-    
+
     let seconds = 0;
     const interval = setInterval(() => {
       seconds++;
     }, 1000);
-    
+
     setTimeout(() => {
       clearInterval(interval);
       setIsRecording(false);
-      
+
       const wavHeader = new Uint8Array(44);
       const audioBlob = new Blob([wavHeader], { type: 'audio/wav' });
       const filename = `${selectedPrompt.lang.toLowerCase()}_${selectedPrompt.text.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.wav`;
       const audioFile = new File([audioBlob], filename, { type: 'audio/wav' });
-      
+
       sendVoiceAudio(audioFile, `🎤 "${selectedPrompt.text}"`);
     }, 3000);
   };
@@ -395,14 +430,14 @@ const PatientChat: React.FC = () => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
     }
-    
+
     const audio = new Audio(audioUrl);
     audioPlayerRef.current = audio;
     setPlayingAudioId(msgId);
-    
+
     audio.onended = () => setPlayingAudioId(null);
     audio.onerror = () => setPlayingAudioId(null);
-    
+
     audio.play().catch(err => {
       console.warn("Autoplay was blocked or failed:", err);
       setPlayingAudioId(null);
@@ -434,7 +469,7 @@ const PatientChat: React.FC = () => {
       position: 'relative'
     }}>
       {/* LEFT SIDEBAR - PATIENT SERVICES */}
-      <div 
+      <div
         className={`patient-sidebar ${mobileSidebarOpen ? 'open' : ''}`}
         style={{
           width: '320px',
@@ -481,7 +516,7 @@ const PatientChat: React.FC = () => {
               </div>
             </div>
             {/* Close button for mobile */}
-            <button 
+            <button
               onClick={() => setMobileSidebarOpen(false)}
               className="mobile-close-btn"
               style={{
@@ -550,19 +585,19 @@ const PatientChat: React.FC = () => {
                   {item.icon}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ 
-                    fontWeight: isActive ? 700 : 600, 
-                    fontSize: '13.5px', 
+                  <div style={{
+                    fontWeight: isActive ? 700 : 600,
+                    fontSize: '13.5px',
                     color: isActive ? '#075E54' : '#111b21',
                     lineHeight: 1.2
                   }}>
                     {item.title}
                   </div>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: '#667781', 
-                    whiteSpace: 'nowrap', 
-                    overflow: 'hidden', 
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#667781',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     marginTop: '2px'
                   }}>
@@ -629,7 +664,7 @@ const PatientChat: React.FC = () => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {/* Mobile menu toggle button */}
-            <button 
+            <button
               onClick={() => setMobileSidebarOpen(true)}
               className="mobile-menu-btn"
               style={{
@@ -670,7 +705,7 @@ const PatientChat: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <button
             onClick={resetSession}
             style={{
@@ -728,8 +763,8 @@ const PatientChat: React.FC = () => {
 
             const isAgent = m.sender === 'AI_AGENT';
             return (
-              <div 
-                key={m.id} 
+              <div
+                key={m.id}
                 style={{
                   alignSelf: isAgent ? 'flex-start' : 'flex-end',
                   maxWidth: '82%',
@@ -749,6 +784,23 @@ const PatientChat: React.FC = () => {
                   boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
                   position: 'relative'
                 }}>
+                  {/* Image message banner */}
+                  {m.imageUrl && (
+                    <div style={{ borderRadius: '8px', overflow: 'hidden', marginBottom: m.text ? '8px' : '0px' }}>
+                      <img
+                        src={m.imageUrl}
+                        alt="Meridian Hospital Welcome Banner"
+                        style={{
+                          width: '100%',
+                          maxHeight: '280px',
+                          objectFit: 'cover',
+                          display: 'block',
+                          borderRadius: '8px'
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Voice message indicator */}
                   {m.isVoice ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#128C7E', fontWeight: 600 }}>
@@ -756,9 +808,9 @@ const PatientChat: React.FC = () => {
                       <span>Voice message</span>
                       <span style={{ fontSize: '11px', color: '#667781', fontWeight: 'normal' }}>({m.voiceDuration})</span>
                     </div>
-                  ) : (
+                  ) : m.text ? (
                     <div>{formatMessageText(m.text)}</div>
-                  )}
+                  ) : null}
 
                   {/* Interactive List Button (for time slots) */}
                   {isAgent && m.interactive_buttons && m.interactive_buttons.length > 0 && (m.interactive_type === 'list' || m.interactive_buttons.some(b => b.id.startsWith('btn_slot_'))) && (
@@ -930,7 +982,7 @@ const PatientChat: React.FC = () => {
               </div>
             );
           })}
-          
+
           {isTyping && (
             <div style={{
               alignSelf: 'flex-start',
@@ -968,7 +1020,7 @@ const PatientChat: React.FC = () => {
               {recordingStatus}
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
 
@@ -998,7 +1050,7 @@ const PatientChat: React.FC = () => {
           </button>
 
           {/* Text Input */}
-          <input 
+          <input
             type="text"
             placeholder="Message Meridian Hospital..."
             value={inputText}
@@ -1108,7 +1160,7 @@ const PatientChat: React.FC = () => {
                   <div style={{ fontSize: '11.5px', opacity: 0.85 }}>Tap an available slot to book</div>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setSlotModalOpen(false)}
                 style={{
                   background: 'none',
@@ -1212,7 +1264,7 @@ const PatientChat: React.FC = () => {
               justifyContent: 'space-between'
             }}>
               <span>🎙️ Multilingual Voice Agent Simulator</span>
-              <button 
+              <button
                 onClick={() => setShowVoiceModal(false)}
                 style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', fontSize: '18px' }}
               >
@@ -1230,8 +1282,8 @@ const PatientChat: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#666', marginBottom: '6px' }}>
                   SELECT RECORDING UTTERANCE
                 </label>
-                <select 
-                  value={VOICE_PROMPTS.indexOf(selectedPrompt)} 
+                <select
+                  value={VOICE_PROMPTS.indexOf(selectedPrompt)}
                   onChange={(e) => setSelectedPrompt(VOICE_PROMPTS[Number(e.target.value)])}
                   style={{
                     width: '100%',

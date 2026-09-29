@@ -1,4 +1,5 @@
 import json
+import ast
 import datetime
 import decimal
 import uuid
@@ -6,6 +7,7 @@ import time
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2.pool import PoolError
 from typing import Optional, List, Dict, Any
 from config.config import Config
 from db.postgres_connector import PostgresConnector
@@ -63,13 +65,16 @@ class DatabricksConnector:
         return not self.is_connection_available()
 
     def get_connection(self):
-        """Returns a live PostgreSQL connection."""
+        """Returns an active PostgreSQL connection."""
         if not self.is_connection_available():
             raise RuntimeError("Database connection is in temporary cooldown. Retrying soon.")
         try:
             conn = self.pg_connector.get_connection()
             DatabricksConnector.mark_connection_healthy()
             return conn
+        except PoolError:
+            # Local contention is not a database outage.
+            raise
         except Exception as e:
             DatabricksConnector.mark_connection_failed()
             raise e
@@ -101,7 +106,7 @@ class DatabricksConnector:
         return v
 
     def resolve_table_name(self, table_name: str) -> str:
-        """Resolves alias table names to live PostgreSQL tables."""
+        """Resolves alias table names to active PostgreSQL tables."""
         t = table_name.lower().strip()
         if t == "dim_discharge_input":
             return "dim_admission_inputs"
@@ -111,12 +116,11 @@ class DatabricksConnector:
         """Retrieves exact row count for a table from PostgreSQL."""
         real_table = self.resolve_table_name(table_name)
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM {real_table};")
-            cnt = cursor.fetchone()[0]
-            cursor.close()
-            conn.close()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"SELECT COUNT(*) FROM {real_table};")
+                cnt = cursor.fetchone()[0]
+                cursor.close()
             return cnt
         except Exception:
             return 0
@@ -128,18 +132,17 @@ class DatabricksConnector:
         if cached is not None:
             return cached
 
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT t.table_name, COALESCE(s.n_live_tup, 0) AS row_count
-            FROM information_schema.tables t
-            LEFT JOIN pg_stat_user_tables s ON t.table_name = s.relname
-            WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-            ORDER BY t.table_name;
-        """)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT t.table_name, COALESCE(s.n_live_tup, 0) AS row_count
+                FROM information_schema.tables t
+                LEFT JOIN pg_stat_user_tables s ON t.table_name = s.relname
+                WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+                ORDER BY t.table_name;
+            """)
+            rows = cursor.fetchall()
+            cursor.close()
 
         result = []
         for r in rows:
@@ -163,17 +166,16 @@ class DatabricksConnector:
         if cached is not None:
             return cached
 
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT column_name, data_type, is_nullable
-            FROM information_schema.columns
-            WHERE table_name = %s AND table_schema = 'public'
-            ORDER BY ordinal_position;
-        """, (real_table,))
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_name = %s AND table_schema = 'public'
+                ORDER BY ordinal_position;
+            """, (real_table,))
+            rows = cursor.fetchall()
+            cursor.close()
 
         cols = []
         for r in rows:
@@ -188,13 +190,12 @@ class DatabricksConnector:
 
     def execute_custom_query(self, query: str) -> list:
         """Executes a custom dynamic SQL query against PostgreSQL and returns serialized dict records."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query)
-        col_names = [desc[0] for desc in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            cursor.close()
 
         records = []
         for row in rows:
@@ -228,6 +229,20 @@ class DatabricksConnector:
     @staticmethod
     def _post_process_row(table: str, row_dict: dict) -> dict:
         t = table.lower()
+        if t == "dim_admission_inputs":
+            # Some imported snapshots store Python dict text instead of JSON.
+            # Normalize at the API boundary without rewriting patient records.
+            value = row_dict.get("llm_input_json")
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except (ValueError, TypeError):
+                    try:
+                        parsed = ast.literal_eval(value)
+                    except (ValueError, SyntaxError, TypeError, RecursionError):
+                        parsed = None
+                if isinstance(parsed, dict):
+                    row_dict["llm_input_json"] = parsed
         if t == "patients":
             if "id" in row_dict and "patient_id" not in row_dict:
                 row_dict["patient_id"] = row_dict["id"]
@@ -265,16 +280,16 @@ class DatabricksConnector:
         offset_sql = f" OFFSET {int(offset)}" if offset > 0 else ""
 
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            total_rows = self.get_row_count(real_table)
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"SELECT COUNT(*) FROM {real_table};")
+                total_rows = cursor.fetchone()[0]
 
-            query = f"SELECT * FROM {real_table}{limit_sql}{offset_sql};"
-            cursor.execute(query)
-            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
-            raw_rows = cursor.fetchall()
-            cursor.close()
-            conn.close()
+                query = f"SELECT * FROM {real_table}{limit_sql}{offset_sql};"
+                cursor.execute(query)
+                col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+                raw_rows = cursor.fetchall()
+                cursor.close()
 
             rows = []
             for r in raw_rows:
@@ -324,8 +339,18 @@ class DatabricksConnector:
             for col, val in filters.items():
                 if val is not None:
                     db_col = self._map_filter_col(real_table, col)
-                    where_clauses.append(f"{db_col} = %s")
-                    params.append(val)
+                    if isinstance(val, (list, tuple, set)):
+                        val_list = list(val)
+                        if val_list:
+                            placeholders = ", ".join(["%s"] * len(val_list))
+                            where_clauses.append(f"{db_col} IN ({placeholders})")
+                            params.extend(val_list)
+                    elif isinstance(val, str) and val.startswith("!="):
+                        where_clauses.append(f"{db_col} != %s")
+                        params.append(val[2:].strip())
+                    else:
+                        where_clauses.append(f"{db_col} = %s")
+                        params.append(val)
 
         where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
         mapped_sort = self._map_filter_col(real_table, sort_by) if sort_by else None
@@ -334,19 +359,18 @@ class DatabricksConnector:
         offset_sql = f" OFFSET {int(offset)}" if offset > 0 else ""
 
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
 
-            count_query = f"SELECT COUNT(*) FROM {real_table}{where_sql};"
-            cursor.execute(count_query, params)
-            total_matching = cursor.fetchone()[0]
+                count_query = f"SELECT COUNT(*) FROM {real_table}{where_sql};"
+                cursor.execute(count_query, params)
+                total_matching = cursor.fetchone()[0]
 
-            data_query = f"SELECT * FROM {real_table}{where_sql}{sort_sql}{limit_sql}{offset_sql};"
-            cursor.execute(data_query, params)
-            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
-            raw_rows = cursor.fetchall()
-            cursor.close()
-            conn.close()
+                data_query = f"SELECT * FROM {real_table}{where_sql}{sort_sql}{limit_sql}{offset_sql};"
+                cursor.execute(data_query, params)
+                col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+                raw_rows = cursor.fetchall()
+                cursor.close()
 
             rows = []
             for r in raw_rows:
@@ -399,12 +423,11 @@ class DatabricksConnector:
         params.append(key_value)
         sql_stmt = f"UPDATE {real_table} SET {', '.join(set_clauses)} WHERE {key_field} = %s;"
 
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(sql_stmt, params)
-        conn.commit()
-        cursor.close()
-        conn.close()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql_stmt, params)
+            conn.commit()
+            cursor.close()
 
         self.clear_cache()
         updated_res = self.query_gold_table(real_table, filters={key_field: key_value}, limit=1)
@@ -418,23 +441,49 @@ class DatabricksConnector:
             "data": updated_data[0] if updated_data else None
         }
 
+    def insert_record(self, table_name: str, record: dict) -> dict:
+        """Inserts a single record into PostgreSQL using parameterized query with RETURNING *.
+        BIGSERIAL/SERIAL columns must NOT be included in the record dict — the DB generates them.
+        Returns the inserted row including the auto-generated primary key."""
+        if not record:
+            return {}
+
+        real_table = self.resolve_table_name(table_name)
+        cols = list(record.keys())
+        vals = [record[c] for c in cols]
+        cols_str = ", ".join(f'"{c}"' for c in cols)
+        placeholders = ", ".join(["%s"] * len(cols))
+        sql = f'INSERT INTO {real_table} ({cols_str}) VALUES ({placeholders}) RETURNING *;'
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql, vals)
+            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            row = cursor.fetchone()
+            conn.commit()
+            cursor.close()
+
+        if row:
+            row_dict = dict(zip(col_names, [self._serialize_val(v) for v in row]))
+            return self._post_process_row(real_table, row_dict)
+        return {}
+
     def insert_batch_fast(self, table_name: str, col_names: list, rows: list, batch_chunk_size=500):
         """Inserts batch records into PostgreSQL."""
         if not rows:
             return
 
         real_table = self.resolve_table_name(table_name)
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
 
-        cols_str = ", ".join(col_names)
-        placeholders = ", ".join(["%s"] * len(col_names))
-        insert_sql = f"INSERT INTO {real_table} ({cols_str}) VALUES ({placeholders});"
+            cols_str = ", ".join(col_names)
+            placeholders = ", ".join(["%s"] * len(col_names))
+            insert_sql = f"INSERT INTO {real_table} ({cols_str}) VALUES ({placeholders});"
 
-        psycopg2.extras.execute_batch(cursor, insert_sql, rows, page_size=batch_chunk_size)
-        conn.commit()
-        cursor.close()
-        conn.close()
+            psycopg2.extras.execute_batch(cursor, insert_sql, rows, page_size=batch_chunk_size)
+            conn.commit()
+            cursor.close()
         self.clear_cache()
 
     def run_notebook_inline(self, notebook_path: str = None) -> dict:

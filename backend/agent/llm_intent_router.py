@@ -239,6 +239,9 @@ def _call_gemini(prompt: str) -> Optional[str]:
         },
     }
 
+    if not LLM_API_KEY or os.environ.get("SKIP_REMOTE_LLM") == "true":
+        return None
+
     # Try primary model, then fallback models
     models_to_try = [model_name, "gemini-3.5-flash-lite", "gemini-2.5-flash"]
     seen = set()
@@ -259,6 +262,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
                 _log(f"Model {attempt_model} returned 404, trying gemini-1.5-flash-latest")
                 continue
             res.raise_for_status()
+
             data = res.json()
             candidates = data.get("candidates", [])
             if candidates:
@@ -944,9 +948,9 @@ def _rule_based_fallback(
                 break
 
         # Only map UNKNOWN to BOOK_APPOINTMENT if the message itself contained medical content (not pure greeting/ack)
-        has_new_medical_info = bool(rule_result.get("symptoms") or rule_result.get("doctor_preference") or (dept and any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"])))
+        has_new_medical_info = bool(dept or rule_result.get("symptoms") or rule_result.get("doctor_preference") or any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"]))
         if canonical_intent == "UNKNOWN" and has_new_medical_info:
-            if current_state.get("intent") == "DOCTOR_AVAILABILITY":
+            if dept or current_state.get("intent") == "DOCTOR_AVAILABILITY":
                 canonical_intent = "DOCTOR_AVAILABILITY"
             else:
                 canonical_intent = "BOOK_APPOINTMENT"

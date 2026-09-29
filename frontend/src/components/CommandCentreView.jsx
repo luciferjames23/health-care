@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 const Spinner = () => (
   <span style={{
@@ -16,6 +17,7 @@ const Spinner = () => (
 
 export default function CommandCentreView({ onNavigate, onAskAi }) {
   const [liveKpis, setLiveKpis] = useState(null);
+  const [execMetrics, setExecMetrics] = useState(null);
   const [liveWards, setLiveWards] = useState([]);
   const [liveExceptions, setLiveExceptions] = useState([]);
   const [liveApprovals, setLiveApprovals] = useState([]);
@@ -32,14 +34,19 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       }
       try {
         const results = await Promise.allSettled([
-          apiService.getCurrentAdmissions({}, { forceRefresh: true }),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }),
           apiService.getDischargedPatients({}, { forceRefresh: true }),
-          apiService.getBedManagementData({}, { forceRefresh: true })
+          apiService.getBedManagementData({}, { forceRefresh: true }),
+          apiService.getExecutiveKpis({}, { forceRefresh: true })
         ]);
 
         if (!isMounted) return;
 
-        const [admSettled, disSettled, bmSettled] = results;
+        const [admSettled, disSettled, bmSettled, execSettled] = results;
+
+        if (execSettled && execSettled.status === 'fulfilled' && execSettled.value?.success) {
+          setExecMetrics(execSettled.value);
+        }
 
         const isAdmRejected = admSettled.status === 'rejected';
         const isDisRejected = disSettled.status === 'rejected';
@@ -66,17 +73,36 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
         const dischargedTracker = extractDischargedPatientIds(rawDischarges);
         
         // Discharge API and admission status: remove actually discharged patients from current admissions
+        const dischargedInAdmissions = rawAdmissions.filter(p => {
+          const st = String(p.discharge_status || p.admission_status || '').trim().toLowerCase();
+          return st === 'discharged';
+        });
+
         const actualAdmissions = rawAdmissions.filter(p => {
-          const st = (p.discharge_status || p.admission_status || '').toLowerCase();
+          const st = String(p.discharge_status || p.admission_status || '').trim().toLowerCase();
           if (st === 'discharged') return false;
           return !dischargedTracker.has(p);
         });
 
-        // Only count summaries that are ACTUALLY approved / signed off as discharged patients
-        const actuallyDischargedCount = rawDischarges.filter(r => {
+        const dischargedInSummaries = rawDischarges.filter(r => {
           const st = String(r.approval_status || r.status || '').trim().toLowerCase();
           return st === 'approved' || st === 'signed' || st === 'signed off' || st === 'completed';
-        }).length;
+        });
+
+        // Compute unique discharged patients count
+        const allDischargedPids = new Set();
+        dischargedInAdmissions.forEach(p => {
+          const pid = p.patient_id != null ? String(p.patient_id) : (p.id != null ? String(p.id) : (p.admission_id ? `adm_${p.admission_id}` : ''));
+          if (pid) allDischargedPids.add(pid);
+        });
+        dischargedInSummaries.forEach(r => {
+          const pid = r.patient_id != null ? String(r.patient_id) : (r.id != null ? String(r.id) : (r.admission_id ? `adm_${r.admission_id}` : ''));
+          if (pid) allDischargedPids.add(pid);
+        });
+
+        const actuallyDischargedCount = allDischargedPids.size > 0
+          ? allDischargedPids.size
+          : (dischargedInAdmissions.length + dischargedInSummaries.length);
 
         const discharges = rawDischarges.map(parseDischargeSummaryRecord).filter(Boolean);
         const kpisObj = bmRes?.kpis || {};
@@ -115,19 +141,22 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
         setLiveWards(wardsList);
 
-        // Build live exceptions from active discharge cases
+        // Build exceptions from active discharge cases
         if (discharges.length > 0) {
-          const exList = discharges.slice(0, 5).map((c) => ({
-            ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
-            owner: c.doctor || 'Attending Physician',
-            age: 'Live Record',
-            pri: c.approval_status === 'Approved' ? 'Low' : 'High',
-            priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
-            reason: c.diagnoses ? (c.diagnoses.length > 55 ? `${c.diagnoses.slice(0, 55)}...` : c.diagnoses) : 'Clinical summary review',
-            next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
-            target: 'discharge'
-          }));
-          setLiveExceptions(exList);
+          const exList = discharges.slice(0, 5).map((c) => {
+            const cleanDiag = cleanDiagnosis(c.diagnoses || c.primary_diagnosis || c.discharge_diagnosis || '');
+            return {
+              ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
+              owner: c.doctor || 'Attending Physician',
+              age: 'Active Record',
+              pri: c.approval_status === 'Approved' ? 'Low' : 'High',
+              priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
+              reason: cleanDiag ? (cleanDiag.length > 55 ? `${cleanDiag.slice(0, 55)}...` : cleanDiag) : 'Clinical summary review',
+              next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
+              target: 'discharge'
+            };
+          });
+          setLiveExceptions(exList);;
 
           const appList = discharges.slice(0, 4).map(c => ({
             type: 'Discharge summary',
@@ -144,7 +173,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       } catch (err) {
         console.warn("Failed to load Command Centre metrics:", err);
         if (isMounted) {
-          setApiError(err.message || "Failed to load live metrics from backend API");
+          setApiError(err.message || "Failed to load metrics from backend API");
           setLiveKpis(null);
           setLiveWards([]);
           setLiveExceptions([]);
@@ -176,7 +205,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'adm', 
       t: 'Currently Admitted Patients', 
       v: liveKpis ? String(liveKpis.active_admissions) : (apiError ? '—' : null), 
-      sub: liveKpis ? `Active inpatients across ${liveKpis.total_wards} wards` : (apiError ? 'API Offline · No live data' : 'Active inpatients across all wards'), 
+      sub: liveKpis ? `Active inpatients across ${liveKpis.total_wards} wards` : (apiError ? 'API Offline · No data' : 'Active inpatients across all wards'), 
       c: 'oklch(0.5 0.1 200)', 
       target: 'clinical' 
     },
@@ -184,7 +213,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'dis', 
       t: 'Discharged Patient Records', 
       v: liveKpis ? String(liveKpis.discharged_patients) : (apiError ? '—' : null), 
-      sub: apiError ? 'API Offline · No live data' : 'Patients discharged from inpatient care', 
+      sub: apiError ? 'API Offline · No data' : 'Patients discharged from inpatient care', 
       c: 'oklch(0.4 0.12 150)', 
       target: 'discharge' 
     },
@@ -228,6 +257,71 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       c: 'oklch(0.4 0.12 150)', 
       target: 'beds' 
     },
+    // Live Database Cards with Real Operational Data
+    { 
+      id: 'appts', 
+      t: 'Appointments Recorded', 
+      v: execMetrics ? execMetrics.appointments.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'All scheduled clinical encounters in PostgreSQL', 
+      c: '#15181b', 
+      target: 'appointments' 
+    },
+    { 
+      id: 'er', 
+      t: 'Emergency Load', 
+      v: execMetrics ? execMetrics.emergency_load.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Active emergency triage & critical admissions', 
+      c: 'oklch(0.5 0.18 25)', 
+      target: 'emergency' 
+    },
+    { 
+      id: 'lab', 
+      t: 'Lab Tests & Diagnostics', 
+      v: execMetrics ? execMetrics.lab_orders.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Validated pathology orders & diagnostic results', 
+      c: '#15181b', 
+      target: 'lab' 
+    },
+    { 
+      id: 'revenue', 
+      t: 'Total Invoiced Revenue', 
+      v: execMetrics ? (execMetrics.bills.total_revenue >= 10000000 ? `₹${(execMetrics.bills.total_revenue / 10000000).toFixed(2)} Cr` : `₹${execMetrics.bills.total_revenue.toLocaleString()}`) : (apiError ? '—' : null), 
+      sub: execMetrics ? `${execMetrics.bills.count.toLocaleString()} bills · ₹${(execMetrics.bills.total_collected / 100000).toFixed(2)} L collected` : 'Bills generated in Revenue Cycle', 
+      c: 'oklch(0.5 0.1 200)', 
+      target: 'finance' 
+    },
+    { 
+      id: 'claims', 
+      t: 'Insurance Claims', 
+      v: execMetrics ? execMetrics.claims.count.toLocaleString() : (apiError ? '—' : null), 
+      sub: execMetrics ? `₹${(execMetrics.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due` : 'Claims processed with TPAs', 
+      c: '#15181b', 
+      target: 'insurance' 
+    },
+    { 
+      id: 'inventory', 
+      t: 'Pharmacy Inventory Value', 
+      v: execMetrics ? (execMetrics.inventory.valuation >= 10000000 ? `₹${(execMetrics.inventory.valuation / 10000000).toFixed(2)} Cr` : `₹${execMetrics.inventory.valuation.toLocaleString()}`) : (apiError ? '—' : null), 
+      sub: execMetrics ? `${execMetrics.inventory.count} catalog items · ${execMetrics.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation', 
+      c: '#15181b', 
+      target: 'pharmacy' 
+    },
+    { 
+      id: 'doctors', 
+      t: 'Medical Specialists', 
+      v: execMetrics ? execMetrics.doctors.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Attending doctors across 22 departments', 
+      c: '#15181b', 
+      target: 'doctors' 
+    },
+    { 
+      id: 'surgeries', 
+      t: 'OT Surgeries Scheduled', 
+      v: execMetrics ? execMetrics.surgeries.toLocaleString() : (apiError ? '—' : null), 
+      sub: 'Operating theatre procedures & cases', 
+      c: '#15181b', 
+      target: 'ot' 
+    },
   ];
 
   const displayWards = liveWards.map(w => ({
@@ -241,17 +335,30 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
   const exceptions = liveExceptions;
   const approvals = liveApprovals;
 
+  if (loading && !liveKpis && !apiError) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Executive Dashboard..."
+        subtitle="Synthesizing hospital census, ward occupancy, and operational exceptions..."
+        badgeText="Live Operations Sync"
+        statCount={5}
+        tableRows={6}
+        tableColumns={6}
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top breadcrumb & actions */}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Clinical Workspace</span> › <span>Command Centre</span>
+            <span>Clinical Workspace</span> › <span>Executive Dashboard</span>
           </div>
-          <div style={{ fontSize: '20px', fontWeight: 600 }}>Command Centre</div>
+          <div style={{ fontSize: '20px', fontWeight: 600 }}>Executive Dashboard</div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Live Clinical Operational Intelligence
+            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Clinical Operational Intelligence
           </div>
         </div>
 
@@ -297,10 +404,10 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
             <span style={{ fontSize: '18px' }}>⚠️</span>
             <div>
               <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'oklch(0.4 0.16 25)' }}>
-                Live API Offline · Backend Unreachable
+                API Offline · Backend Unreachable
               </div>
               <div style={{ fontSize: '11.5px', color: '#667085', marginTop: '2px' }}>
-                {apiError} All static mock data has been removed. Live dynamic data will display once backend responds.
+                {apiError} All static mock data has been removed. Dynamic data will display once backend responds.
               </div>
             </div>
           </div>
@@ -384,7 +491,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
             {exceptions.length === 0 ? (
               <div style={{ padding: '24px 14px', textAlign: 'center', color: '#8a9096', fontSize: '12px' }}>
-                {apiError ? '⚠️ Live discharge exceptions cannot be loaded because the API is offline.' : 'No active operational exceptions.'}
+                {apiError ? '⚠️ Discharge exceptions cannot be loaded because the API is offline.' : 'No active operational exceptions.'}
               </div>
             ) : (
               exceptions.map((it, idx) => (
@@ -420,12 +527,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
               <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.5 0.1 300)' }} />
               <span style={{ fontWeight: 600, fontSize: '12.5px' }}>Management Copilot</span>
               <span style={{ marginLeft: 'auto', font: '500 10px ui-monospace, Menlo, monospace', color: 'oklch(0.5 0.1 300)' }}>
-                {apiError ? 'OFFLINE' : 'LIVE AI'}
+                {apiError ? 'OFFLINE' : 'ONLINE'}
               </span>
             </div>
             <div style={{ lineHeight: 1.5, color: '#52585e', fontSize: '12px' }}>
               {apiError
-                ? 'Copilot telemetry is paused while the backend is unreachable. Connect the FastAPI server to resume live operational intelligence.'
+                ? 'Copilot telemetry is paused while the backend is unreachable. Connect the FastAPI server to resume operational intelligence.'
                 : 'Discharge delays are concentrated in insurance preauthorization reviews. Ward turnaround and bed releases are monitored dynamically.'}
             </div>
             <div style={{ marginTop: '8px', fontSize: '11px', color: '#8a9096' }}>
@@ -506,28 +613,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
             )}
           </div>
 
-          {/* Platform health */}
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '14px' }}>
-            <div style={{ fontWeight: 600, fontSize: '12.5px', marginBottom: '8px' }}>Platform health</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '5px 12px', color: '#52585e', fontSize: '11.5px' }}>
-              <span>Backend API</span>
-              <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? 'Offline (Port 8000)' : 'Online · Port 8000'}
-              </span>
-              <span>Clinical Records Database</span>
-              <span style={{ color: apiError ? 'oklch(0.5 0.18 25)' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? 'Unreachable' : 'Connected · Online'}
-              </span>
-              <span>Live Bed Tracker</span>
-              <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? '—' : `${liveKpis?.total_beds ?? 0} beds dynamic`}
-              </span>
-              <span>Active Inpatients</span>
-              <span style={{ color: apiError ? '#8a9096' : 'oklch(0.4 0.12 150)', fontWeight: 600 }}>
-                {apiError ? '—' : `${liveKpis?.active_admissions ?? 0} admitted`}
-              </span>
-            </div>
-          </div>
+
         </div>
       </div>
     </div>

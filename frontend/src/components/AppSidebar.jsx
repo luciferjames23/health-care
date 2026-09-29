@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { apiService } from '../services/api';
-import { ROLE_PAGE_ACCESS } from '../services/meridianData';
+import { apiService, computeDischargeCasesCount } from '../services/api';
+import { isPageAllowed, ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
   {
     title: 'FRONT OFFICE & PATIENTS',
     items: [
-      { id: 'command', label: 'Command Centre' },
+      { id: 'command', label: 'Executive Dashboard' },
       { id: 'patients', label: 'Patients' },
-      { id: 'appointments', label: 'Appointments', badge: 'Live DB' },
-      { id: 'pre-admission', label: 'Pre-Admission Desk', badge: 'Live' },
+      { id: 'appointments', label: 'Appointments' },
+      { id: 'pre-admission', label: 'Pre-Admission Desk' },
       { id: 'doctor-management', label: 'Doctor Directory' },
       { id: 'admissions', label: 'Admissions' },
       { id: 'bedboard', label: 'Bed Board' },
@@ -26,9 +26,8 @@ export const NAV_GROUPS = [
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },
       { id: 'bloodbank', label: 'Blood Bank' },
-      { id: 'discharge', label: 'Discharge', badge: '4', badgeColor: 'oklch(0.5 0.18 25)' },
+      { id: 'discharge', label: 'Discharge Desk', badge: '4', badgeColor: 'oklch(0.5 0.18 25)' },
       { id: 'deathmlc', label: 'Death & MLC Register' },
-      { id: 'otschedule', label: 'OT Schedule' },
       { id: 'sbar', label: 'Ward Handover (SBAR)' },
     ]
   },
@@ -36,9 +35,10 @@ export const NAV_GROUPS = [
     title: 'DIAGNOSTICS · LIS & IMAGING',
     items: [
       { id: 'lab', label: 'Lab Dashboard' },
+      { id: 'lab-workqueue', label: 'Lab Work Queue' },
       { id: 'criticalvalues', label: 'Results & Critical Values' },
       { id: 'diagnostics', label: 'Diagnostics' },
-      { id: 'radiology', label: 'Radiology', badge: 'Live PoC' },
+      { id: 'radiology', label: 'Radiology' },
     ]
   },
   {
@@ -55,11 +55,11 @@ export const NAV_GROUPS = [
     ]
   },
   {
-    title: 'FINANCIAL & REVENUE',
+    title: 'REVENUE CYCLE',
     items: [
-      { id: 'billing', label: 'Billing & Clearance' },
-      { id: 'insurance', label: 'Insurance & Claims' },
-      { id: 'claims', label: 'Claims Tracking' },
+      { id: 'billing', label: 'Billing' },
+      { id: 'insurance', label: 'Insurance' },
+      { id: 'claims', label: 'Claims' },
       { id: 'finance', label: 'Finance Dashboard' },
       { id: 'tax', label: 'Tax Configuration' },
     ]
@@ -79,7 +79,7 @@ export const NAV_GROUPS = [
     title: 'ADMINISTRATION',
     items: [
       { id: 'integration-arch', label: 'Integration Architecture' },
-      { id: 'escalations', label: 'Human Escalations', badge: 'Live' },
+      { id: 'escalations', label: 'Human Escalations' },
       { id: 'notifications', label: 'Notifications', badge: '26', badgeColor: 'oklch(0.45 0.17 25)' },
       { id: 'config', label: 'Configuration' },
       { id: 'reports', label: 'Reports' },
@@ -99,7 +99,7 @@ export const NAV_GROUPS = [
     title: 'AI PLATFORM',
     items: [
       { id: 'assistant', label: 'Hospital Assistant' },
-      { id: 'ai-desk', label: 'AI Patient Desk', badge: 'Live AI', badgeColor: 'oklch(0.5 0.18 150)' },
+      { id: 'ai-desk', label: 'AI Patient Desk' },
       { id: 'patient-chat', label: 'Patient Portal Chat', badge: 'Interactive' },
       { id: 'ai-command', label: 'AI Command Centre' },
       { id: 'agents', label: 'Agents' },
@@ -122,34 +122,78 @@ export const NAV_GROUPS = [
   {
     title: 'DATA',
     items: [
-      { id: 'data-patient', label: 'Patient Data' },
-      { id: 'data-ops', label: 'Operational Data' },
-      { id: 'data-clinical', label: 'Clinical Data' },
-      { id: 'data-financial', label: 'Financial Data' },
       { id: 'analytics', label: 'Analytics' },
       { id: 'forecasting', label: 'Forecasting' },
       { id: 'scenario', label: 'Scenario Simulator' },
       { id: 'beforeafter', label: 'Before vs After' },
       { id: 'data-quality', label: 'Data Quality' },
-      { id: 'tables', label: 'Schema Explorer' },
-      { id: 'explorer', label: 'Data Grid Viewer' },
-      { id: 'sql', label: 'SQL Sandbox' },
-      { id: 'settings', label: 'System Settings' },
     ]
   }
 ];
 
-export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor' }) {
-  const [dischargeCount, setDischargeCount] = useState(null);
+export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor', doctorName = null, dischargeCount: externalDischargeCount = null }) {
+  const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
 
+  // Synchronize when external dischargeCount is passed down
+  useEffect(() => {
+    if (externalDischargeCount !== null && externalDischargeCount !== undefined) {
+      setDischargeCount(externalDischargeCount);
+    }
+  }, [externalDischargeCount]);
+
+  // Listen to live discharge count updates emitted from DischargeCommandCentre
+  useEffect(() => {
+    const handleCountUpdate = (e) => {
+      const count = e.detail?.count;
+      if (count !== undefined && count !== null) {
+        setDischargeCount(count);
+      }
+    };
+    window.addEventListener('hc_discharge_count_updated', handleCountUpdate);
+    return () => window.removeEventListener('hc_discharge_count_updated', handleCountUpdate);
+  }, []);
+
+  const [notifCount, setNotifCount] = React.useState(null);
+
+  // Fetch live notifications unread count
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchNotifCount() {
+      try {
+        const res = await apiService.getNotificationCounts().catch(() => null);
+        if (isMounted && res && res.unread_count !== undefined) {
+          setNotifCount(res.unread_count);
+        }
+      } catch (e) {}
+    }
+    fetchNotifCount();
+    const timer = setInterval(fetchNotifCount, 20000);
+    const handleUpdate = () => fetchNotifCount();
+    window.addEventListener('hc_api_updated', handleUpdate);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      window.removeEventListener('hc_api_updated', handleUpdate);
+    };
+  }, []);
+
+  // Fetch discharge count dynamically combining summaries and admissions matching doctor/role
   useEffect(() => {
     let isMounted = true;
     async function fetchDischargeCount() {
       try {
-        const res = await apiService.getDischargedPatients({}, { forceRefresh: true });
+        const [resSummaries, resAdmissions] = await Promise.all([
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] }))
+        ]);
         if (!isMounted) return;
-        const total = res?.data?.length;
-        if (total !== undefined) {
+        const targetDoctor = userRole === 'Doctor' ? doctorName : null;
+        const total = computeDischargeCasesCount(
+          resSummaries?.data || [],
+          resAdmissions?.data || [],
+          targetDoctor
+        );
+        if (total !== undefined && total !== null) {
           setDischargeCount(total);
         }
       } catch (err) {
@@ -159,26 +203,60 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
     fetchDischargeCount();
 
-    const timer = setInterval(fetchDischargeCount, 6000);
+    const handleDischargeCountUpdated = (e) => {
+      if (e?.detail?.count !== undefined) {
+        setDischargeCount(e.detail.count);
+      } else {
+        fetchDischargeCount();
+      }
+    };
+
     const handleUpdate = () => fetchDischargeCount();
+
+    const timer = setInterval(fetchDischargeCount, 30000);
+    window.addEventListener('hc_discharge_count_updated', handleDischargeCountUpdated);
     window.addEventListener('hc_api_updated', handleUpdate);
 
     return () => {
       isMounted = false;
       clearInterval(timer);
+      window.removeEventListener('hc_discharge_count_updated', handleDischargeCountUpdated);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [doctorName, userRole]);
 
-  const allowedPages = ROLE_PAGE_ACCESS[userRole];
+  // Filter menu items strictly based on role RBAC matrix from Meridian Prototype V2.1
+  const visibleGroups = React.useMemo(() => {
+    if (userRole === 'Patient') return [];
+    return NAV_GROUPS.map(group => ({
+      ...group,
+      items: group.items.filter(item => {
+        return isPageAllowed(userRole, item.id);
+      })
+    })).filter(group => group.items.length > 0);
+  }, [userRole]);
 
-  const visibleGroups = NAV_GROUPS.map(group => {
-    const visibleItems = group.items.filter(item => {
-      if (allowedPages === null || allowedPages === undefined) return true;
-      return allowedPages.includes(item.id);
-    });
-    return { ...group, items: visibleItems };
-  }).filter(group => group.items.length > 0);
+  if (userRole === 'Patient' || visibleGroups.length === 0) {
+    return null;
+  }
+
+  const isItemActive = (itemId) => {
+    if (activePage === itemId) return true;
+    if (itemId === 'patients' && (activePage === 'patient360' || activePage === 'patient')) return true;
+    if (itemId === 'clinical' && (activePage === 'soap' || activePage === 'doctor-portal')) return true;
+    if (itemId === 'discharge' && (activePage === 'discharge-case' || activePage === 'discharge-agent')) return true;
+    if (itemId === 'agents' && activePage === 'agent') return true;
+    if (itemId === 'runs' && activePage === 'execution') return true;
+    if (itemId === 'approvals' && activePage === 'approval') return true;
+    if (itemId === 'assistant' && (activePage === 'chat' || activePage === 'patient-chat' || activePage === 'ask')) return true;
+    if (itemId === 'lab' && activePage === 'lab-dashboard') return true;
+    if (itemId === 'criticalvalues' && activePage === 'laboratory') return true;
+    if (itemId === 'medications' && activePage === 'mar') return true;
+    if (itemId === 'surgery' && activePage === 'ot') return true;
+    if (itemId === 'deathmlc' && activePage === 'deaths') return true;
+    if (itemId === 'sbar' && activePage === 'handover') return true;
+    return false;
+  };
 
   return (
     <nav style={{
@@ -197,10 +275,12 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
           </div>
 
           {group.items.map((item) => {
-            const isActive = activePage === item.id;
+            const isActive = isItemActive(item.id);
             const badgeText = item.id === 'discharge' 
               ? (dischargeCount !== null ? String(dischargeCount) : item.badge)
-              : item.badge;
+              : item.id === 'notifications'
+                ? (notifCount !== null ? String(notifCount) : item.badge)
+                : item.badge;
 
             return (
               <div

@@ -11,7 +11,7 @@ import db_config
 
 import copy
 
-from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone
+from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 
 def get_default_state():
     return {
@@ -71,26 +71,44 @@ def get_default_state():
         "last_bot_message": None,
     }
 
-def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_number: str = None) -> int:
+def resolve_valid_patient_id(cur, candidate_patient_id = None, whatsapp_number: str = None) -> int:
     """
     Validates candidate_patient_id against the patients table.
-    If valid, returns candidate_patient_id.
-    If invalid/stale or None, attempts to resolve an ACTIVE patient by phone or whatsapp_number using 10-digit normalization.
-    Returns valid patient_id (int) or None if no matching patient exists.
+    Supports integer IDs (9989) and string patient codes ('P9989', 'PAT-9989').
+    If valid, returns canonical integer patient_id.
+    If candidate_patient_id is None/invalid, resolves ACTIVE patient by phone or whatsapp_number.
     """
-    if candidate_patient_id is not None:
+    if candidate_patient_id is not None and str(candidate_patient_id).strip() != "":
         try:
-            cur.execute("SELECT id FROM patients WHERE id = %s;", (candidate_patient_id,))
-            if cur.fetchone():
-                return candidate_patient_id
-        except Exception:
-            pass
+            cand_str = str(candidate_patient_id).strip()
+            clean_id = None
+            if cand_str.isdigit():
+                clean_id = int(cand_str)
+            elif cand_str.upper().startswith("P") and cand_str[1:].isdigit():
+                clean_id = int(cand_str[1:])
+            elif cand_str.upper().startswith("PAT-") and cand_str[4:].isdigit():
+                clean_id = int(cand_str[4:])
+            elif cand_str.upper().startswith("PAT") and cand_str[3:].isdigit():
+                clean_id = int(cand_str[3:])
+            
+            if clean_id is not None:
+                cur.execute("SELECT id FROM patients WHERE id = %s OR patient_code = %s OR patient_code = %s;", (clean_id, cand_str, f"P{clean_id}"))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+            else:
+                cur.execute("SELECT id FROM patients WHERE patient_code = %s OR id::text = %s;", (cand_str, cand_str))
+                row = cur.fetchone()
+                if row:
+                    return row[0]
+        except Exception as e:
+            print(f"[resolve_valid_patient_id ERR] {e}")
 
     if whatsapp_number:
         try:
             cond = get_phone_query_condition()
             params = get_phone_query_params(whatsapp_number)
-            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' LIMIT 1;"
+            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;"
             cur.execute(query, params)
             row = cur.fetchone()
             if row:
@@ -107,6 +125,7 @@ def resolve_valid_patient_id(cur, candidate_patient_id: int = None, whatsapp_num
 
     return None
 
+
 def get_conversation_state(conversation_code: str, whatsapp_number: str = "919999999999", default_language: str = "ENGLISH") -> dict:
     """
     Retrieves the conversation state.
@@ -114,10 +133,10 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
     If it exists, retrieves the state from the metadata of the latest logged message.
     Validates and reconciles patient_id against the patients table.
     """
-    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code and conversation_code.startswith("WA_"):
-        parts = conversation_code.split("_")
-        if len(parts) >= 2 and parts[1].isdigit():
-            whatsapp_number = parts[1]
+    if (not whatsapp_number or whatsapp_number == "919999999999") and conversation_code:
+        extracted = extract_whatsapp_number(conversation_code)
+        if extracted and extracted != "919999999999":
+            whatsapp_number = extracted
 
     conn = db_config.get_db_connection()
     cur = conn.cursor()
@@ -154,7 +173,7 @@ def get_conversation_state(conversation_code: str, whatsapp_number: str = "91999
         # Query latest message containing state metadata
         cur.execute("""
             SELECT metadata FROM messages
-            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata ->> 'language' IS NOT NULL
+            WHERE conversation_id = %s AND metadata IS NOT NULL AND metadata::jsonb ->> 'language' IS NOT NULL
             ORDER BY id DESC LIMIT 1;
         """, (conv_db_id,))
         msg_row = cur.fetchone()
@@ -249,7 +268,7 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
             'IDENTIFY_PATIENT': 'GREETING',
             'POST_BOOKING': 'BOOK_APPOINTMENT',
             'LANGUAGE_CHANGE': 'GREETING',
-            'REGISTER_PATIENT': 'GREETING',
+            'REGISTER_PATIENT': 'REGISTER_PATIENT',
             'UNKNOWN': 'GREETING',
         }
         valid_intents = [
@@ -283,6 +302,16 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
                 LIMIT 1
             );
         """, (json.dumps(state_dict, default=str), conversation_code))
+        
+        if cur.rowcount == 0:
+            cur.execute("SELECT id FROM conversations WHERE conversation_code = %s;", (conversation_code,))
+            c_row = cur.fetchone()
+            if c_row:
+                cur.execute("""
+                    INSERT INTO messages (conversation_id, sender_type, message_type, message_text, metadata)
+                    VALUES (%s, 'SYSTEM', 'SYSTEM', 'State checkpoint', %s::jsonb);
+                """, (c_row[0], json.dumps(state_dict, default=str)))
+
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -290,3 +319,4 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
     finally:
         cur.close()
         conn.close()
+

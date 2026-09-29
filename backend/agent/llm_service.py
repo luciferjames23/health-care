@@ -29,7 +29,7 @@ LLM_API_BASE = os.getenv("LLM_API_BASE", "")
 
 
 def is_llm_active() -> bool:
-    """Returns True if LLM provider and API key are configured for live requests."""
+    """Returns True if LLM provider and API key are configured for online requests."""
     return bool(LLM_API_KEY and LLM_PROVIDER in ["gemini", "openai", "ollama", "google"])
 
 
@@ -56,6 +56,7 @@ def _call_gemini_api(prompt: str) -> Optional[str]:
         # LLM fallback to rule-based engine
         pass
     return None
+
 
 
 def _call_openai_api(prompt: str) -> Optional[str]:

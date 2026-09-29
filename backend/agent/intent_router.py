@@ -60,7 +60,7 @@ DEPARTMENT_SYMPTOM_MAP = {
         "eczema", "psoriasis", "itching", "itchying", "skin itching", "scalp", "itchy", "skin is itchy", "my skin is itchy", "itchy skin"
     ],
     "General Medicine": [
-        "fever", "fevr", "high fever", "cold", "cld", "cough", "couggh", "flu", "viral fever",
+        "fever", "fevr", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever",
         "general weakness", "body pain", "body ache", "fatigue", "vomiting",
         "diarrhea", "headache", "migraine", "stomach pain", "stomach ache",
         "nausea", "dizziness", "don't feel well", "not feeling well", "feel unwell", "unwell", "ill", "i have pain", "pain", "payn", "payning"

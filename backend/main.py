@@ -11,14 +11,91 @@ if str(BASE_DIR) not in sys.path:
 
 from config.config import Config
 from connectors.databricks_connector import DatabricksConnector
-from routers.gold import router as gold_router
-from routers.bronze import router as bronze_router
-from routers.notebook import router as notebook_router
-from routers.jobrun import router as jobrun_router
-from routers.discharge_agent import router as discharge_agent_router
-from routers.discharge_summary_llm import router as discharge_summary_llm_router
-from routers.radiology import router as radiology_router, pacs_router
-from agent.router import router as agent_router
+# Safely import and mount available routers
+routers_to_mount = []
+
+try:
+    from routers.gold import router as gold_router
+    routers_to_mount.append(gold_router)
+except Exception as e:
+    print(f"Failed to load gold router: {e}")
+
+try:
+    from routers.bronze import router as bronze_router
+    routers_to_mount.append(bronze_router)
+except Exception as e:
+    print(f"Failed to load bronze router: {e}")
+
+try:
+    from routers.notebook import router as router_notebook
+    routers_to_mount.append(router_notebook)
+except Exception as e:
+    print(f"Failed to load notebook router: {e}")
+
+try:
+    from routers.jobrun import router as jobrun_router
+    routers_to_mount.append(jobrun_router)
+except Exception as e:
+    print(f"Failed to load jobrun router: {e}")
+
+try:
+    from routers.discharge_agent import router as discharge_agent_router
+    routers_to_mount.append(discharge_agent_router)
+except Exception as e:
+    print(f"Failed to load discharge_agent router: {e}")
+
+try:
+    from routers.discharge_summary_llm import router as discharge_summary_llm_router
+    routers_to_mount.append(discharge_summary_llm_router)
+except Exception as e:
+    print(f"Failed to load discharge_summary_llm router: {e}")
+
+try:
+    from routers.radiology import router as radiology_router, pacs_router, scans_router
+    routers_to_mount.extend([radiology_router, pacs_router, scans_router])
+except ModuleNotFoundError as e:
+    if e.name in ("torch", "torchvision", "torchaudio"):
+        print("[INFO] Radiology router skipped (PyTorch optional module not installed)")
+    else:
+        print(f"Radiology router unavailable: {e}")
+except Exception as e:
+    print(f"Radiology router unavailable: {e}")
+
+try:
+    from agent.router import router as agent_router
+    routers_to_mount.append(agent_router)
+except Exception as e:
+    print(f"Failed to load agent router: {e}")
+
+try:
+    from routers.financial_revenue import router as finance_router
+    routers_to_mount.append(finance_router)
+except Exception as e:
+    print(f"Failed to load finance router: {e}")
+
+try:
+    from routers.clinical_operations import router as clinical_ops_router
+    routers_to_mount.append(clinical_ops_router)
+except Exception as e:
+    print(f"Failed to load clinical operations router: {e}")
+
+try:
+    from routers.pharmacy_supply import router as pharmacy_supply_router
+    routers_to_mount.append(pharmacy_supply_router)
+except Exception as e:
+    print(f"Failed to load pharmacy supply router: {e}")
+
+try:
+    from routers.admin_system import router as admin_system_router
+    routers_to_mount.append(admin_system_router)
+except Exception as e:
+    print(f"Failed to load admin system router: {e}")
+
+try:
+    from routers.nursing_handover_agent import router as nursing_handover_agent_router
+    routers_to_mount.append(nursing_handover_agent_router)
+except Exception as e:
+    print(f"Failed to load nursing handover agent router: {e}")
 
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
@@ -26,23 +103,43 @@ app = FastAPI(
     version="2.1.0"
 )
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(gold_router)
-app.include_router(bronze_router)
-app.include_router(notebook_router)
-app.include_router(jobrun_router)
-app.include_router(discharge_agent_router)
-app.include_router(discharge_summary_llm_router)
-app.include_router(radiology_router)
-app.include_router(pacs_router)
-app.include_router(agent_router)
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    traceback.print_exc()
+    origin = request.headers.get("origin") or "http://localhost:5173"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+for r in routers_to_mount:
+    app.include_router(r)
+
 
 # --- Prototype AI Patient Desk, Appointments & Operational Routers ---
 import api.agent_routes as proto_agent_routes
@@ -75,14 +172,33 @@ app.include_router(proto_auth_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
 
+from fastapi.staticfiles import StaticFiles
+static_dir = BASE_DIR / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
 @app.on_event("startup")
 def on_startup():
     try:
         from routers.radiology import initialize_radiology
         initialize_radiology()
+    except ModuleNotFoundError as e:
+        import logging
+        if e.name in ("torch", "torchvision", "torchaudio"):
+            logging.getLogger("uvicorn").info("Radiology auto-init skipped (PyTorch optional module not installed)")
+        else:
+            logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
+
+    try:
+        from db.init_clinical_tables import init_clinical_tables
+        init_clinical_tables()
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("Clinical tables auto-init on startup: %s", e)
 
 @app.get("/health")
 def health_alias():
@@ -202,3 +318,12 @@ def get_gold_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to compute gold summary: {str(e)}")
+
+from routers.imaging_orders import router as imaging_orders_router
+app.include_router(imaging_orders_router)
+from routers.radiology_clarifications import router as clarification_router
+app.include_router(clarification_router)
+from routers.imaging_history import router as imaging_history_router
+app.include_router(imaging_history_router)
+from routers.rag import router as rag_router
+app.include_router(rag_router)

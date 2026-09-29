@@ -12,7 +12,7 @@ Step 5.3 — Real WhatsApp Channel Layer Integration
 from fastapi import APIRouter, Query, HTTPException, Request, Response, BackgroundTasks
 
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import sys
 import os
 import uuid
@@ -39,10 +39,12 @@ if backend_dir not in sys.path:
 
 import db_config
 import agent.agent_service as agent_service
+import agent.response_validator as response_validator
 import agent.message_aggregator as message_aggregator
 import voice.speech_to_text as speech_to_text
 import voice.text_to_speech as text_to_speech
 import voice.whatsapp_client as whatsapp_client
+from utils.phone_utils import normalize_phone
 
 # Module-level aggregator singleton — 3 s debounce window
 _aggregator = message_aggregator.get_aggregator(window_seconds=1.5)
@@ -66,7 +68,7 @@ def is_duplicate_message(msg_id: str) -> bool:
     try:
         cur.execute("""
             SELECT id FROM messages 
-            WHERE metadata ->> 'whatsapp_message_id' = %s;
+            WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
         """, (msg_id,))
         return cur.fetchone() is not None
     except Exception as e:
@@ -135,14 +137,21 @@ from datetime import datetime, timezone, timedelta
 
 def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
     """Finds active conversation code for the whatsapp number or creates a new unique one."""
+    if not whatsapp_number:
+        return f"WA_919999999999_{int(time.time())}"
+
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
+        norm_wnum = normalize_phone(whatsapp_number)
         cur.execute("""
             SELECT id, conversation_code, last_message_at FROM conversations 
-            WHERE whatsapp_number = %s AND conversation_status = 'ACTIVE'
+            WHERE (
+                whatsapp_number = %s OR 
+                (whatsapp_number IS NOT NULL AND RIGHT(REGEXP_REPLACE(whatsapp_number, '[^0-9]', '', 'g'), 10) = %s AND %s <> '')
+            ) AND conversation_status = 'ACTIVE'
             ORDER BY id DESC LIMIT 1;
-        """, (whatsapp_number,))
+        """, (whatsapp_number, norm_wnum, norm_wnum))
         row = cur.fetchone()
         if row:
             conv_id, conv_code, last_msg_at = row[0], row[1], row[2]
@@ -156,6 +165,8 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
                     conn.commit()
                 else:
                     return conv_code
+            else:
+                return conv_code
 
         # Generate a unique session ID if none active
         base_code = f"WA_{whatsapp_number}"
@@ -169,14 +180,96 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
         conn.close()
 
 
+
+def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]:
+    """
+    Dynamically resolves context-aware list_button_title and section_title for Meta WhatsApp Interactive List Messages.
+    Ensures every list message displays an explicit, context-matched button label on WhatsApp UI.
+    """
+    explicit_list_title = agent_res.get("list_button_title")
+    explicit_sec_title = agent_res.get("section_title")
+    
+    intent = (agent_res.get("intent") or "").upper()
+    buttons = agent_res.get("interactive_buttons") or []
+    
+    btn_ids = [b.get("id", "") for b in buttons if isinstance(b, dict)]
+    btn_ids_str = " ".join(btn_ids).lower()
+    btn_titles_str = " ".join(b.get("title", "") for b in buttons if isinstance(b, dict)).lower()
+    comb_str = f"{intent} {btn_ids_str} {btn_titles_str}".lower()
+
+    # 1. Resolve list_button_title (must be max 20 chars per Meta WhatsApp spec)
+    list_title = explicit_list_title
+    if not list_title or list_title.strip().lower() in ["select option", "select an option", "select"]:
+        # Check Main Menu first (8 category buttons: btn_cat_appts, btn_cat_doctors, etc. or GREETING intent)
+        if intent in ["GREETING", "MAIN_MENU"] or any(k in btn_ids_str for k in ["btn_cat_appts", "btn_cat_doctors", "btn_cat_inquiries", "btn_cat_health", "btn_cat_billing", "btn_cat_voice_lang", "btn_cat_staff", "btn_cat_emergency"]):
+            list_title = "Main Menu"
+        elif any(k in btn_ids_str for k in ["btn_slot_"]) or "slot" in comb_str or any(t in btn_titles_str for t in ["10:00", "11:00", "09:00", "02:00"]):
+            list_title = "Choose a Time"
+        elif any(k in btn_ids_str for k in ["btn_date_"]) or (intent in ["BOOK_APPOINTMENT", "DOCTOR_AVAILABILITY"] and any(d in btn_titles_str for d in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])):
+            list_title = "Available Dates"
+        elif any(k in btn_ids_str for k in ["btn_dept_"]) or "department" in comb_str:
+            list_title = "Select Department"
+        elif any(k in btn_ids_str for k in ["btn_doc_"]) or "doctor" in comb_str or "dr." in btn_titles_str:
+            list_title = "Select Doctor"
+        elif any(k in btn_ids_str for k in ["btn_pay_"]) or "pay" in comb_str or "upi" in btn_titles_str or "card" in btn_titles_str:
+            list_title = "Payment Method"
+        elif any(k in btn_ids_str for k in ["btn_update_", "btn_change_profile", "btn_edit_profile"]):
+            list_title = "Select Field"
+        elif any(k in btn_ids_str for k in ["btn_my_reports", "btn_my_documents", "btn_preadmission"]):
+            list_title = "Select Record Type"
+        elif any(k in btn_ids_str for k in ["btn_cancel_", "btn_reschedule_"]):
+            list_title = "Select Action"
+        elif any(k in btn_ids_str for k in ["btn_hosp_info", "btn_reg_inq", "btn_billing_inq"]):
+            list_title = "Select Topic"
+        elif any(k in btn_ids_str for k in ["btn_change_language", "btn_lang_"]):
+            list_title = "Select Language"
+        elif any(k in btn_ids_str for k in ["btn_appt_id_"]):
+            list_title = "Select Appointment"
+        else:
+            list_title = "Main Menu"
+
+    if list_title == "Select Payment Method":
+        list_title = "Payment Method"
+    else:
+        list_title = list_title[:20]
+
+    # 2. Resolve section_title (max 24 chars per Meta WhatsApp spec)
+    sec_title = explicit_sec_title
+    if not sec_title or sec_title.strip().lower() in ["options", "select option", "select an option"]:
+        if list_title == "Main Menu":
+            sec_title = "Main Menu Options"
+        elif list_title == "Choose a Time":
+            sec_title = "Available Time Slots"
+        elif list_title == "Available Dates":
+            sec_title = "Available Booking Dates"
+        elif list_title == "Select Department":
+            sec_title = "Hospital Departments"
+        elif list_title == "Select Doctor":
+            sec_title = "Available Doctors"
+        elif list_title in ["Select Payment Method", "Payment Method"]:
+            sec_title = "Payment Gateways"
+        elif list_title == "Select Field":
+            sec_title = "Profile Attributes"
+        elif list_title == "Select Record Type":
+            sec_title = "Health Records"
+        elif list_title == "Select Action":
+            sec_title = "Appointment Actions"
+        elif list_title == "Select Topic":
+            sec_title = "Information Topics"
+        elif list_title == "Select Language":
+            sec_title = "Supported Languages"
+        else:
+            sec_title = "Menu Options"
+
+    sec_title = sec_title[:24]
+
+    return list_title, sec_title
+
+
 def process_and_send_reply(session_code: str, sender_num: str, message_id: str, body_text: str, button_id: str = None):
     t_total_start = time.monotonic()
     masked_num = f"***{sender_num[-4:]}" if sender_num and len(sender_num) >= 4 else "****"
-    if sender_num:
-        try:
-            whatsapp_client.send_typing_indicator(sender_num)
-        except Exception as _te:
-            print(f"[TYPING_INDICATOR] Error sending typing indicator: {_te}")
+
     try:
         t_agent_start = time.monotonic()
         agent_res = agent_service.process_agent_message(
@@ -187,20 +280,34 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         )
         t_agent_ms = int((time.monotonic() - t_agent_start) * 1000)
 
+        # Send Welcome Banner Image first if this is a welcome greeting response
+        is_welcome = (
+            agent_res.get("has_welcome_image") is True or
+            agent_res.get("intent") in ["GREETING", "WELCOME"] or
+            "welcome back" in agent_res.get("response", "").lower() or
+            "welcome to meridian" in agent_res.get("response", "").lower()
+        )
+        if is_welcome:
+            welcome_img_path = os.path.join(backend_dir, "static", "welcome_banner.jpg")
+            if os.path.exists(welcome_img_path):
+                whatsapp_client.send_image_message(sender_num, welcome_img_path)
+
         t_send_start = time.monotonic()
         if agent_res.get("interactive_buttons"):
-            list_title = agent_res.get("list_button_title") or "Select Option"
-            sec_title = agent_res.get("section_title") or ("Available Slots" if "slot" in str(agent_res.get("interactive_buttons")).lower() else ("Available Dates" if "date" in str(agent_res.get("interactive_buttons")).lower() else "Options"))
+            agent_res = response_validator.normalize_interactive_type(agent_res)
+            list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
             send_res = whatsapp_client.send_button_message(
                 sender_num,
                 agent_res["response"],
                 agent_res["interactive_buttons"],
                 list_button_title=list_title,
-                section_title=sec_title
+                section_title=sec_title,
+                interactive_type=agent_res.get("interactive_type")
             )
         else:
             send_res = whatsapp_client.send_text_message(sender_num, agent_res["response"])
         t_send_ms = int((time.monotonic() - t_send_start) * 1000)
+
 
         t_total_ms = int((time.monotonic() - t_total_start) * 1000)
         print(
@@ -220,6 +327,14 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         print(f"[ERROR] Background WhatsApp message dispatch failed after {t_total_ms}ms: {e}")
         import traceback
         traceback.print_exc()
+        if sender_num:
+            try:
+                whatsapp_client.send_text_message(
+                    sender_num,
+                    "I encountered an issue processing your request. Please try again or type 'main menu'."
+                )
+            except Exception as _err_send:
+                print(f"[ERROR] Failed to send fallback error reply: {_err_send}")
         return None
 
 
@@ -245,8 +360,7 @@ def process_voice_reply(session_id: str, from_number: str, msg_id: str, audio_da
     media_id = audio_data.get("id")
     temp_audio_path = None
     print(f"[VOICE_MESSAGE_RECEIVED] wamid={msg_id}, media_id={media_id}, from={from_number}")
-    whatsapp_client.mark_message_read(msg_id)
-    whatsapp_client.send_typing_indicator(from_number)
+
 
     if not media_id:
         err_msg = "Sorry, I couldn't access your voice message. Please try again."
@@ -327,7 +441,16 @@ def process_voice_reply(session_id: str, from_number: str, msg_id: str, audio_da
         tts_res = tts_provider.synthesize(response_text, language=final_lang)
 
         if interactive_buttons:
-            send_res = whatsapp_client.send_button_message(from_number, response_text, interactive_buttons)
+            agent_res = response_validator.normalize_interactive_type(agent_res)
+            list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
+            send_res = whatsapp_client.send_button_message(
+                from_number,
+                response_text,
+                interactive_buttons,
+                list_button_title=list_title,
+                section_title=sec_title,
+                interactive_type=agent_res.get("interactive_type")
+            )
         else:
             send_res = whatsapp_client.send_text_message(from_number, response_text)
 
@@ -455,11 +578,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
                 cur.execute("""
                     UPDATE messages
                     SET metadata = jsonb_set(
-                        COALESCE(metadata, '{}'::jsonb),
+                        COALESCE(metadata::jsonb, '{}'::jsonb),
                         '{whatsapp_status}',
                         to_jsonb(%s::text)
                     )
-                    WHERE metadata ->> 'whatsapp_message_id' = %s;
+                    WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
                 """, (status_upper, wamid))
                 conn.commit()
                 if status_upper == "SENT":
@@ -492,6 +615,11 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         return {"status": "ok", "detail": "Missing sender WaID"}
 
     print(f"[WHATSAPP_MESSAGE_RECEIVED] wamid={msg_id}, type={msg_type}, from={from_number}")
+
+    # Centralized Typing Indicator & Read Status Trigger (Meta WhatsApp Cloud API Requirement)
+    # Immediately marks inbound message as read AND shows typing bubble simultaneously using exact wamid.
+    if msg_id:
+        background_tasks.add_task(whatsapp_client.send_typing_indicator, msg_id)
 
     try:
         session_id = get_or_create_whatsapp_session(from_number)
@@ -530,9 +658,7 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             if not text_body:
                 return {"status": "ok", "detail": "Empty message body"}
 
-            # Fire-and-forget: don't block agent processing (~200ms saved)
-            background_tasks.add_task(whatsapp_client.mark_message_read, msg_id)
-            background_tasks.add_task(whatsapp_client.send_typing_indicator, from_number)
+
 
             if msg_type == "interactive":
                 background_tasks.add_task(process_and_send_reply, session_id, from_number, msg_id, text_body, interactive_id)
@@ -553,8 +679,8 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
             }
 
         # 2. Voice/Audio Message flow
-        elif msg_type == "audio":
-            audio_data = message_data.get("audio", {})
+        elif msg_type in ["audio", "voice"]:
+            audio_data = message_data.get("audio") or message_data.get("voice") or {}
             return process_voice_reply(session_id, from_number, msg_id, audio_data)
 
         return {"status": "ok", "detail": f"Unsupported message type: {msg_type}"}

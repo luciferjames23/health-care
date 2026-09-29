@@ -9,7 +9,7 @@ Orchestrates:
   3. Text-to-Speech: synthesize agent's response text to audio
   4. Returns playable audio & full metadata
 
-Step 5.2 — Meridian Hospital POC
+Step 5.2 — Meridian Hospital
 """
 
 import sys

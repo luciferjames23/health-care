@@ -115,7 +115,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'fact_bed
             Interactive Data Grid &amp; Query Previewer
           </h1>
           <div style={{ color: '#52585e', fontSize: '12px', marginTop: '2px' }}>
-            Query live records from hospital database tables with real-time pagination and export options.
+            Query records from hospital database tables with real-time pagination and export options.
           </div>
         </div>
 

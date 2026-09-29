@@ -12,8 +12,8 @@ router = APIRouter(
 db_connector = DatabricksConnector()
 
 # Known notebooks:
-# 2865138219507461 -> /Users/jamesrubert02@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
-# 3655906645282312 -> /Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
+# 2865138219507461 -> /Users/jamesrubert02@gmail.com/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
+# 3655906645282312 -> /Users/gaberieljayaraj05@gmail.com/Health-care/code/Discharge_summary/Discharge Summary LLM Generation
 
 from services.discharge_generator import generate_and_persist_discharge_summaries
 
@@ -106,11 +106,11 @@ def get_notebook_config():
         },
         "known_notebooks": {
             "2865138219507461": (
-                "/Users/jamesrubert02@gmail.com/POC/Health-care/code/"
+                "/Users/jamesrubert02@gmail.com/Health-care/code/"
                 "Discharge_summary/Discharge Summary LLM Generation"
             ),
             "3655906645282312": (
-                "/Users/gaberieljayaraj05@gmail.com/POC/Health-care/code/"
+                "/Users/gaberieljayaraj05@gmail.com/Health-care/code/"
                 "Discharge_summary/Discharge Summary LLM Generation"
             ),
         },

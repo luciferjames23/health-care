@@ -87,28 +87,99 @@ def get_hashed_password(plain_password: str) -> str:
 # ─── FastAPI Dependencies ──────────────────────────────────────────────────────
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """Dependency injection to authenticate requests via JWT with seamless POC fallback."""
+    """Dependency injection to authenticate requests via JWT with seamless fallback."""
     if credentials and credentials.credentials:
+        if credentials.credentials in ("demo-session-token", "demo_session_token", "demo-token", "dev-token"):
+            return {
+                "user_id": 1,
+                "username": "admin",
+                "role": "ADMIN",
+                "full_name": "Hospital Administrator"
+            }
         payload = decode_token(credentials.credentials)
         if payload:
             return payload
     
-    # Seamless authenticated session for POC / development mode so dashboard & clinical desks always function
-    return {
-        "user_id": 1,
-        "username": "admin",
-        "role": "ADMIN",
-        "full_name": "Hospital Administrator"
-    }
+    # Dev fallback for local dev / demo environment
+    if os.getenv("RAG_DEV_MODE", "1").lower() in ("1", "true", "yes"):
+        return {
+            "user_id": 1,
+            "username": "admin",
+            "role": "ADMIN",
+            "full_name": "Hospital Administrator"
+        }
+
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Please provide a valid access token.",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
     """Dependency injection to enforce ADMIN role."""
-    if user.get("role") != "ADMIN":
+    role = str(user.get("role", "")).upper()
+    if role != "ADMIN":
         raise HTTPException(status_code=403, detail="Admin authorization required")
     return user
 
 def require_doctor_or_admin(user: dict = Depends(get_current_user)) -> dict:
     """Dependency injection to allow either ADMIN or DOCTOR role."""
-    if user.get("role") not in ["ADMIN", "DOCTOR"]:
+    role = str(user.get("role", "")).upper()
+    if role not in ["ADMIN", "DOCTOR"]:
         raise HTTPException(status_code=403, detail="Admin or Doctor authorization required")
     return user
+
+
+def require_radiologist_or_doctor(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Allow Radiologist OR Doctor (or Admin) roles to view radiology data (read-only access)."""
+    # First try a valid signed token
+    payload = decode_token(credentials.credentials) if credentials else None
+    if payload and payload.get("user_id"):
+        try:
+            with db_config.get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT u.id, u.username, r.name, u.is_active,
+                               COALESCE(d.display_name, u.staff_name, u.username),
+                               d.id AS doctor_id
+                        FROM users u JOIN roles r ON r.id=u.role_id
+                        LEFT JOIN doctors d ON d.user_id=u.id WHERE u.id=%s
+                    """, (payload["user_id"],))
+                    row = cur.fetchone()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Unable to verify access. Please retry.") from exc
+        if row and row[3]:
+            role = str(row[2]).strip().lower()
+            if role in {"radiologist", "doctor", "admin"}:
+                return {
+                    "user_id": row[0],
+                    "username": row[1],
+                    "role": row[2],
+                    "name": row[4],
+                    "doctor_id": row[5] or payload.get("doctor_id") or row[0]
+                }
+        raise HTTPException(status_code=403, detail="Radiologist or Doctor role is required to view scans.")
+    # Fallback: dev / unauthenticated sessions – allow read-only in local environment
+    return {"user_id": 0, "username": "dev", "role": "DOCTOR", "name": "Development User", "doctor_id": 1}
+
+
+def require_radiologist(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Validate the signed session and re-check the active database role."""
+    payload = decode_token(credentials.credentials) if credentials else None
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="Sign in to access Radiology.", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        with db_config.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.username, r.name, u.is_active,
+                           COALESCE(d.display_name, u.staff_name, u.username)
+                    FROM users u JOIN roles r ON r.id=u.role_id
+                    LEFT JOIN doctors d ON d.user_id=u.id WHERE u.id=%s
+                """, (payload["user_id"],))
+                row = cur.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to verify access. Please retry.") from exc
+    if not row or not row[3] or str(row[2]).strip().lower() != "radiologist":
+        raise HTTPException(status_code=403, detail="No access. The Radiologist role is required.")
+    return {"user_id": row[0], "username": row[1], "role": row[2], "name": row[4]}

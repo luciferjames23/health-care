@@ -54,13 +54,28 @@ DB_PORT = os.getenv("DATABASE_PORT", os.getenv("POSTGRES_PORT", DEFAULT_PORT))
 DB_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", DEFAULT_NAME))
 DB_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", DEFAULT_USER))
 DB_PASSWORD = os.getenv("DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", DEFAULT_PASSWORD))
-DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", "require"))
+# Local development PostgreSQL may not provide TLS; remote cloud connections still require it.
+# Treat loopback addresses AND RFC-1918 private LAN addresses as non-SSL-required hosts.
+def _is_local_host(host: str) -> bool:
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
+_DEFAULT_SSLMODE = "prefer" if _is_local_host(DB_HOST) else "require"
+DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMODE))
 
 # Connection Pooling
 _pool_lock = threading.Lock()
 _connection_pool = None  # Lazy-initialized on first call
 
-_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
+_POOL_MIN = int(os.getenv("DB_POOL_MIN", "1"))
+# This database role is shared with other services and administrative clients.
+# Increase DB_POOL_MAX only when the role has spare connection capacity.
 _POOL_MAX = int(os.getenv("DB_POOL_MAX", "10"))
 
 
@@ -85,6 +100,12 @@ class _PooledConnection:
 
     def rollback(self):
         return self._conn.rollback()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     @property
     def autocommit(self):
@@ -129,29 +150,34 @@ def _get_pool(database_name=None):
                 user=DB_USER,
                 password=DB_PASSWORD,
                 sslmode=DB_SSLMODE,
+                connect_timeout=10,
             )
             print(f"[PERF] Shared PostgreSQL connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
         except Exception as exc:
-            print(f"[PERF] Failed to initialize connection pool: {exc}. Falling back to direct connections.")
+            print(f"[PERF] Connection pool init warning: {exc}, falling back to direct connections")
             _connection_pool = None
         return _connection_pool
 
 
 def get_db_connection(database_name=None):
     """
-    Returns a database connection pointing to our shared PostgreSQL Lakehouse.
-    Uses connection pooling when available.
+    Returns a database connection pointing to our PostgreSQL database.
+    Uses connection pooling when available, falling back to direct connection.
     """
-    pool = _get_pool(database_name)
-    if pool is not None:
-        try:
-            raw_conn = pool.getconn()
-            if raw_conn and not raw_conn.closed:
-                return _PooledConnection(raw_conn, pool)
-        except Exception:
-            pass  # Fallback to direct connect
-
     dbname = database_name or DB_NAME
+    try:
+        pool = _get_pool(database_name)
+        if pool is not None:
+            try:
+                raw_conn = pool.getconn()
+                if raw_conn and not raw_conn.closed:
+                    return _PooledConnection(raw_conn, pool)
+            except Exception:
+                pass  # Pool busy/exhausted — fall through to direct connection
+    except Exception:
+        pass
+
+    # Direct connection fallback
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -159,6 +185,7 @@ def get_db_connection(database_name=None):
         user=DB_USER,
         password=DB_PASSWORD,
         sslmode=DB_SSLMODE,
+        connect_timeout=10
     )
 
 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, RefreshCw, ToggleLeft, ToggleRight, Plus, X, Save, Edit3 } from 'lucide-react';
+import { Search, RefreshCw, ToggleLeft, ToggleRight, Plus, X, Save, Edit3, AlertCircle } from 'lucide-react';
 import {
   fetchDoctors, updateDoctorStatus, fetchDepartments, createDoctor, updateDoctorByAdmin,
   isValidEmail, isValidPhone,
   type Doctor, type Department, type NewDoctorPayload
 } from '../../services/dashboardApi';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const STATUS_CLASS: Record<string, string> = {
   ACTIVE: 'active',
@@ -44,6 +45,7 @@ const DoctorManagement: React.FC = () => {
 
   // Add Doctor Modal
   const [showModal, setShowModal] = useState(false);
+  const [modalError, setModalError] = useState('');
   const [form, setForm] = useState<DoctorForm>(INITIAL_FORM);
   const [formErrors, setFormErrors] = useState<Partial<DoctorForm>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -68,15 +70,23 @@ const DoctorManagement: React.FC = () => {
         department: deptFilter || undefined,
         status: statusFilter || undefined,
       });
-      setDoctors(res.doctors);
+      setDoctors(Array.isArray(res?.doctors) ? res.doctors : []);
+    } catch (e) {
+      console.error('Error fetching doctors:', e);
+      setDoctors([]);
     } finally {
       setLoading(false);
     }
   }, [search, deptFilter, statusFilter]);
 
   const loadDepartments = useCallback(async () => {
-    const res = await fetchDepartments();
-    setDepartments(res.departments);
+    try {
+      const res = await fetchDepartments();
+      setDepartments(Array.isArray(res?.departments) ? res.departments : []);
+    } catch (e) {
+      console.error('Error fetching departments:', e);
+      setDepartments([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -89,7 +99,8 @@ const DoctorManagement: React.FC = () => {
   }, [loadDoctors]);
 
   const toggleDoctorStatus = async (doctor: Doctor) => {
-    const next = doctor.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const isCurrentlyActive = (doctor.status || '').toUpperCase() === 'ACTIVE';
+    const next = isCurrentlyActive ? 'INACTIVE' : 'ACTIVE';
     const ok = await updateDoctorStatus(doctor.id, next);
     if (ok) {
       showToast(`Dr. ${doctor.display_name} → ${next}`);
@@ -102,99 +113,108 @@ const DoctorManagement: React.FC = () => {
   const getInitials = (name: string) =>
     name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
+  const isStrongPassword = (pass: string): boolean => {
+    if (!pass || pass.length < 6) return false;
+    const hasLetter = /[a-zA-Z]/.test(pass);
+    const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pass);
+    return hasLetter && hasNumberOrSymbol;
+  };
+
   const validateForm = (): boolean => {
     const errors: Partial<DoctorForm> = {};
     if (!form.first_name.trim()) {
       errors.first_name = 'First name is required';
-      showToast('❌ Please enter First Name', 'error');
+      setModalError('❌ Please enter First Name');
       setFormErrors(errors);
       return false;
     }
     if (!form.last_name.trim()) {
       errors.last_name = 'Last name is required';
-      showToast('❌ Please enter Last Name', 'error');
+      setModalError('❌ Please enter Last Name');
       setFormErrors(errors);
       return false;
     }
     if (!form.phone.trim()) {
       errors.phone = 'Phone number is required';
-      showToast('❌ Please enter Phone Number', 'error');
+      setModalError('❌ Please enter Phone Number');
       setFormErrors(errors);
       return false;
     }
     if (!isValidPhone(form.phone)) {
       errors.phone = 'Phone number must be exactly 10 digits';
-      showToast('❌ Phone number must contain exactly 10 digits (e.g. 9876543210)', 'error');
+      setModalError('❌ Phone number must contain exactly 10 digits (e.g. 9876543210)');
       setFormErrors(errors);
       return false;
     }
     if (!form.email.trim()) {
       errors.email = 'Email address is required';
-      showToast('❌ Please enter Email address', 'error');
+      setModalError('❌ Mail is invalid please enter valid mail id');
       setFormErrors(errors);
       return false;
     }
     if (!isValidEmail(form.email)) {
-      errors.email = 'Valid email address required';
-      showToast('❌ Please enter a valid Email address (e.g. doctor@meridian.com)', 'error');
+      errors.email = 'Mail is invalid please enter valid mail id';
+      setModalError('❌ Mail is invalid please enter valid mail id');
       setFormErrors(errors);
       return false;
     }
     if (!form.specialization.trim()) {
       errors.specialization = 'Specialization is required';
-      showToast('❌ Please enter Specialization', 'error');
+      setModalError('❌ Please enter Specialization');
       setFormErrors(errors);
       return false;
     }
     if (!form.qualification.trim()) {
       errors.qualification = 'Qualification is required';
-      showToast('❌ Please enter Qualification', 'error');
+      setModalError('❌ Please enter Qualification');
       setFormErrors(errors);
       return false;
     }
     if (!form.department_id) {
       errors.department_id = 'Department selection is required';
-      showToast('❌ Please select a Department', 'error');
+      setModalError('❌ Please select a Department');
       setFormErrors(errors);
       return false;
     }
     if (!form.experience_years || isNaN(Number(form.experience_years))) {
       errors.experience_years = 'Experience years required';
-      showToast('❌ Please enter valid Experience in years', 'error');
+      setModalError('❌ Please enter valid Experience in years');
       setFormErrors(errors);
       return false;
     }
     if (!form.consultation_fee || isNaN(Number(form.consultation_fee))) {
       errors.consultation_fee = 'Fee required';
-      showToast('❌ Please enter valid Consultation Fee', 'error');
+      setModalError('❌ Please enter valid Consultation Fee');
       setFormErrors(errors);
       return false;
     }
     if (!form.username.trim()) {
       errors.username = 'Username is required';
-      showToast('❌ Please enter Username', 'error');
+      setModalError('❌ Please enter Username');
       setFormErrors(errors);
       return false;
     }
     if (!form.password) {
-      errors.password = 'Password is required';
-      showToast('❌ Please enter Password', 'error');
+      errors.password = 'Strong password is required';
+      setModalError('❌ Please enter a strong password (minimum 6 characters long with letters and numbers)');
       setFormErrors(errors);
       return false;
     }
-    if (form.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters';
-      showToast('❌ Password must be at least 6 characters long', 'error');
+    if (!isStrongPassword(form.password)) {
+      errors.password = 'Password must contain letters and numbers (min 6 characters)';
+      setModalError('❌ Please enter a strong password (minimum 6 characters long with letters and numbers)');
       setFormErrors(errors);
       return false;
     }
     setFormErrors({});
+    setModalError('');
     return true;
   };
 
   const handleAddDoctor = async () => {
     if (!validateForm()) return;
     setSubmitting(true);
+    setModalError('');
     try {
       const payload: NewDoctorPayload = {
         first_name: form.first_name.trim(),
@@ -215,9 +235,12 @@ const DoctorManagement: React.FC = () => {
         setShowModal(false);
         setForm(INITIAL_FORM);
         setFormErrors({});
+        setModalError('');
         loadDoctors();
       } else {
-        showToast(`❌ ${result.error || 'Failed to create doctor'}`, 'error');
+        const errMsg = result.error || 'Failed to create doctor';
+        setModalError(`❌ ${errMsg}`);
+        showToast(`❌ ${errMsg}`, 'error');
       }
     } finally {
       setSubmitting(false);
@@ -245,15 +268,15 @@ const DoctorManagement: React.FC = () => {
   const handleUpdateDoctor = async () => {
     if (!editingDoctor) return;
     if (editForm.email && !isValidEmail(editForm.email)) {
-      showToast('❌ Please enter a valid Email address (e.g. doctor@meridian.com)', 'error');
+      showToast('❌ Mail is invalid please enter valid mail id', 'error');
       return;
     }
     if (editForm.phone && !isValidPhone(editForm.phone)) {
       showToast('❌ Phone number must contain exactly 10 digits', 'error');
       return;
     }
-    if (editForm.password && editForm.password.trim() && editForm.password.trim().length < 6) {
-      showToast('❌ Password must be at least 6 characters long', 'error');
+    if (editForm.password && editForm.password.trim() && !isStrongPassword(editForm.password.trim())) {
+      showToast('❌ Please enter a strong password (minimum 6 characters long with letters and numbers)', 'error');
       return;
     }
     setEditSubmitting(true);
@@ -294,6 +317,7 @@ const DoctorManagement: React.FC = () => {
     setShowModal(false);
     setForm(INITIAL_FORM);
     setFormErrors({});
+    setModalError('');
   };
 
   const inputStyle = (hasError?: boolean) => ({
@@ -356,7 +380,16 @@ const DoctorManagement: React.FC = () => {
 
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading doctors...</div>
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Doctor Directory..."
+                subtitle="Retrieving physician profiles, department affiliations, credentials, and schedule availability..."
+                badgeText="Live Clinician Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={9}
+              />
+            </div>
           ) : doctors.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>No doctors found.</div>
           ) : (
@@ -402,7 +435,7 @@ const DoctorManagement: React.FC = () => {
                     <td style={{ fontSize: 13, fontWeight: 500 }}>₹{Number(d.consultation_fee).toLocaleString()}</td>
                     <td style={{ fontWeight: 700, textAlign: 'center', color: 'var(--primary)' }}>{d.today_appts}</td>
                     <td>
-                      <span className={`status-badge ${STATUS_CLASS[d.status] || ''}`}>{d.status}</span>
+                      <span className={`status-badge ${STATUS_CLASS[(d.status || '').toUpperCase()] || 'active'}`}>{d.status}</span>
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -415,12 +448,12 @@ const DoctorManagement: React.FC = () => {
                           <Edit3 size={13} /> Edit
                         </button>
                         <button
-                          className={`btn btn-sm ${d.status === 'ACTIVE' ? 'btn-danger' : 'btn-success'}`}
+                          className={`btn btn-sm ${(d.status || '').toUpperCase() === 'ACTIVE' ? 'btn-danger' : 'btn-success'}`}
                           onClick={() => toggleDoctorStatus(d)}
-                          title={d.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          title={(d.status || '').toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                           style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                         >
-                          {d.status === 'ACTIVE'
+                          {(d.status || '').toUpperCase() === 'ACTIVE'
                             ? <ToggleRight size={14} />
                             : <ToggleLeft size={14} />
                           }
@@ -467,6 +500,26 @@ const DoctorManagement: React.FC = () => {
             </div>
 
             <div style={{ padding: '24px' }}>
+              {modalError && (
+                <div style={{
+                  backgroundColor: '#FFF5F5',
+                  color: '#C53030',
+                  border: '1px solid #FEB2B2',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  marginBottom: '20px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  boxShadow: '0 2px 4px rgba(229, 62, 62, 0.08)'
+                }}>
+                  <AlertCircle size={18} style={{ flexShrink: 0, color: '#E53E3E' }} />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
               <div style={{ marginBottom: 20 }}>
                 <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 12 }}>Personal Information</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -544,7 +597,8 @@ const DoctorManagement: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Password <span style={{ color: '#E53E3E' }}>*</span></label>
-                    <input type="password" style={inputStyle(!!formErrors.password)} value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Min 6 characters" />
+                    <input type="password" style={inputStyle(!!formErrors.password)} value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Letters & numbers (min 6 chars)" />
+                    {formErrors.password && <span style={{ fontSize: 11, color: '#E53E3E' }}>{formErrors.password}</span>}
                   </div>
                 </div>
               </div>
