@@ -18,6 +18,25 @@ import base64
 import uuid
 
 import db_config
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
+
+_http_session = None
+
+def get_http_session() -> requests.Session:
+    global _http_session
+    if _http_session is None:
+        s = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=25,
+            pool_maxsize=25,
+            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+        )
+        s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        _http_session = s
+    return _http_session
+
 
 def get_access_token() -> str:
     db_config.load_dotenv(override=True)
@@ -155,7 +174,7 @@ def send_typing_indicator(message_id: str) -> dict:
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=5)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=5)
         if not res.ok:
             parse_and_log_meta_error(res)
             print(f"[WhatsApp] send_typing_indicator failed with HTTP status {res.status_code}: {res.text}")
@@ -192,7 +211,7 @@ def send_text_message(to_number: str, text: str) -> dict:
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()
@@ -236,7 +255,7 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()
@@ -308,7 +327,7 @@ def send_image_message(to_number: str, image_url_or_path: str, caption: str = No
             "image": image_obj
         }
 
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()
@@ -389,7 +408,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()
@@ -464,7 +483,7 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()

@@ -115,6 +115,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_prewarm():
+    """Eliminate cold-start delays by pre-warming DB pool, HTTP session pools, and DB indexes."""
+    try:
+        import db_config
+        conn = db_config.get_db_connection()
+        conn.close()
+        print("[STARTUP_PREWARM] PostgreSQL connection pool pre-warmed.")
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] DB pool prewarm: {e}")
+
+    try:
+        import voice.whatsapp_client as whatsapp_client
+        whatsapp_client.get_http_session()
+        print("[STARTUP_PREWARM] Outbound WhatsApp HTTP session pool initialized.")
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] HTTP session prewarm: {e}")
+
+    try:
+        import scripts.apply_indexes_and_pool as apply_indexes_and_pool
+        apply_indexes_and_pool.apply_indexes()
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] Index prewarm: {e}")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     import traceback

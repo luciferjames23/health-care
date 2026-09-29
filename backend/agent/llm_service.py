@@ -37,14 +37,15 @@ def _call_gemini_api(prompt: str) -> Optional[str]:
     """Call Gemini REST API generateContent."""
     if not LLM_API_KEY:
         return None
-    model_name = LLM_MODEL if LLM_MODEL else "gemini-3.5-flash-lite"
+    import voice.whatsapp_client as whatsapp_client
+    model_name = os.getenv("LLM_MODEL", "gemini-2.0-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
     }
     try:
-        res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=8.0)
+        res = whatsapp_client.get_http_session().post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=4.0)
         res.raise_for_status()
         data = res.json()
         candidates = data.get("candidates", [])

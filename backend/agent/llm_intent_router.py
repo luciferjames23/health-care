@@ -243,7 +243,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
         return None
 
     # Try primary model, then fallback models
-    models_to_try = [model_name, "gemini-3.5-flash-lite", "gemini-2.5-flash"]
+    models_to_try = [model_name, "gemini-2.0-flash", "gemini-1.5-flash"]
     seen = set()
     for attempt_model in [m for m in models_to_try if m and not (m in seen or seen.add(m))]:
         attempt_url = (
@@ -251,11 +251,12 @@ def _call_gemini(prompt: str) -> Optional[str]:
             f"{attempt_model}:generateContent?key={LLM_API_KEY}"
         )
         try:
-            res = requests.post(
+            import voice.whatsapp_client as whatsapp_client
+            res = whatsapp_client.get_http_session().post(
                 attempt_url,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=2.0,
+                timeout=4.0,
                 verify=verify_ssl,
             )
             if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
@@ -312,7 +313,8 @@ def _call_openai(prompt: str) -> Optional[str]:
         "temperature": 0.05,
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        import voice.whatsapp_client as whatsapp_client
+        res = whatsapp_client.get_http_session().post(url, json=payload, headers=headers, timeout=4.0)
         res.raise_for_status()
         return res.json()["choices"][0]["message"]["content"]
     except Exception as exc:

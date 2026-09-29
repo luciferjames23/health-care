@@ -2143,7 +2143,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     btn_id = interactive_id or (message_text.strip() if message_text and message_text.strip().startswith("btn_") else None)
     if not btn_id and message_text:
         m_strip = message_text.strip().lower()
-        if m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "new patient", "btn_first_time", "btn_first_time_visitor"]:
+        if m_strip in ["new patient", "register new patient", "btn_new_patient"]:
+            btn_id = "btn_new_patient"
+        elif m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "btn_first_time", "btn_first_time_visitor"]:
             btn_id = "btn_first_time"
         elif m_strip in ["existing patient", "existing", "btn_existing_patient"]:
             btn_id = "btn_existing_patient"
@@ -2280,7 +2282,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # Check text replies for matching patient name or patient code linked to sender's WhatsApp number
         is_in_registration = (state.get("active_workflow") == "REGISTRATION" or 
                               state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
-                              state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"])
+                              state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+                              state.get("intent") in ["PATIENT_REGISTRATION", "NEW_PATIENT_REGISTRATION"])
         if not btn_id and message_text and not is_in_registration:
             m_txt = message_text.strip().lower()
             w_num = conversation_code.replace("WA_", "").split("_")[0]
@@ -2428,14 +2431,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     all_pats = []
     if wa_phone_lookup:
         all_pats = patient_id_service.get_all_patients_by_phone(wa_phone_lookup)
-        if len(all_pats) == 1:
+        is_registering = (state.get("active_workflow") == "REGISTRATION" or 
+                          state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
+                          state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+                          state.get("intent") in ["PATIENT_REGISTRATION", "NEW_PATIENT_REGISTRATION"])
+        if len(all_pats) == 1 and not is_registering:
             p_id = all_pats[0]["id"]
             state["patient_id"] = p_id
             state["selected_patient_id"] = p_id
             state.setdefault("entities", {})["patient_id"] = p_id
             if state.get("patient_identification_stage") not in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
                 state["patient_identification_stage"] = "COMPLETED"
-        elif len(all_pats) > 1:
+        elif len(all_pats) > 1 and not is_registering:
             sel_pid = state.get("selected_patient_id")
             if sel_pid and any(p["id"] == sel_pid for p in all_pats):
                 state["patient_id"] = sel_pid
@@ -2448,7 +2455,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # UNKNOWN / UNREGISTERED PATIENT PRIORITY GATE:
         # If WhatsApp number has 0 registered patients OR patient identification stage is NOT COMPLETED:
         # Intercept and process ALWAYS in handle_unknown_patient_identification_flow!
-        if not all_pats or state.get("patient_identification_stage") in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
+        if not all_pats or state.get("patient_identification_stage") in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID"]:
             if state.get("patient_identification_stage") != "COMPLETED":
                 return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
@@ -2848,7 +2855,13 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["conversation_state"] = "REGISTER_NEW_PATIENT"
             state["active_workflow"] = "REGISTRATION"
             state["registration_stage"] = "AWAITING_NAME"
+            state["patient_identification_stage"] = "REGISTRATION"
             state["intent"] = "PATIENT_REGISTRATION"
+            state["patient_id"] = None
+            state["selected_patient_id"] = None
+            state["registration_name"] = None
+            state["registration_dob"] = None
+            state["registration_gender"] = None
             resp = language_service.translate_response("NEW_PATIENT_PROMPT", language=current_lang)
             state["interactive_buttons"] = []
             state_manager.save_conversation_state(conversation_code, state)
@@ -5811,7 +5824,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         reg_stage_check in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER", "REGISTRATION"] or
         state.get("intent") in ["REGISTER_PATIENT", "PATIENT_REGISTRATION"] or
         (state.get("booking_stage") or "").startswith("REGISTERING_")
-    ) and not state.get("patient_id")
+    ) and not state.get("registration_completed")
 
     if is_in_registration_flow:
         msg_lwr = safe_msg.lower().strip()

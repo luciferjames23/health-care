@@ -8,8 +8,16 @@ sys.path.insert(0, str(BASE_DIR))
 from db_config import get_db_connection
 from agent.agent_service import process_agent_message
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import time
+
 def test_new_patient_registration_flow():
-    conv_code = "WA_919988776655_TEST_FLOW"
+    conv_code = f"WA_919988776655_TEST_{int(time.time())}"
     
     print("=== TEST 1: User starts New Patient flow ===")
     r1 = process_agent_message(conv_code, "919988776655", "New Patient", interactive_id="btn_new_patient")
@@ -31,7 +39,12 @@ def test_new_patient_registration_flow():
     print("\n=== TEST 4: User selects Gender 'Female' ===")
     r4 = process_agent_message(conv_code, "919988776655", "Female", interactive_id="btn_g_female")
     print("Bot prompt 4:", r4.get("response"))
-    assert "registered" in r4.get("response").lower() or "welcome" in r4.get("response").lower() or "successful" in r4.get("response").lower() or "meridian" in r4.get("response").lower()
+    assert "confirm" in r4.get("response").lower() or "understood" in r4.get("response").lower()
+
+    print("\n=== TEST 5: User confirms details ===")
+    r5 = process_agent_message(conv_code, "919988776655", "Yes", interactive_id="btn_confirm_yes")
+    print("Bot prompt 5:", r5.get("response"))
+    assert "registered" in r5.get("response").lower() or "welcome" in r5.get("response").lower() or "successful" in r5.get("response").lower() or "meridian" in r5.get("response").lower() or "confirmed" in r5.get("response").lower() or "patient id" in r5.get("response").lower()
     
     print("\nALL NEW PATIENT REGISTRATION TESTS PASSED PERFECTLY! [PASS]")
 
