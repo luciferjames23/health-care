@@ -1451,6 +1451,59 @@ export const apiService = {
     return data;
   },
 
+  async getNextPatientId(options = {}) {
+    try {
+      const res = await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/next-id`, { ...options, forceRefresh: true });
+      return res;
+    } catch (e) {
+      return { success: true, next_id: 87435, next_patient_code: `MER-PAT-${String(Date.now()).slice(-7)}` };
+    }
+  },
+
+  async getPatientRegistrationMeta(options = {}) {
+    try {
+      return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/meta`, { ...options, revalidateMs: 15000 });
+    } catch (e) {
+      return { success: true, departments: [], doctors: [], wards: [], beds: [] };
+    }
+  },
+
+  async registerPatient(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/patients`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionStorage.getItem('hc_auth_token') || 'demo-session-token'}`
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.detail || `Registration failed with status ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/patients`, data);
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/clinical-ops/all-patients`, data);
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs`, data);
+    return data;
+  },
+
+  async getPatients(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.patient_id) query.append('patient_id', params.patient_id);
+    if (params.status) query.append('status', params.status);
+    if (params.page) query.append('page', params.page);
+    if (params.per_page) query.append('per_page', params.per_page);
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients?${query.toString()}`, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${sessionStorage.getItem('hc_auth_token') || 'demo-session-token'}`
+      }
+    });
+  },
+
   async getAllPatientsDirectory(params = {}, options = {}) {
     const query = new URLSearchParams();
     if (params.category) query.append('category', params.category);

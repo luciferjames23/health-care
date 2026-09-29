@@ -1067,11 +1067,12 @@ def get_all_patients_directory(
                     FROM patient_insurance ORDER BY patient_id, insurance_id DESC
                 ) pi ON pi.patient_id = p.id
                 WHERE a.discharge_status IN ('Admitted', 'Ready')
-                ORDER BY a.admission_id DESC;
+                ORDER BY a.admission_id DESC
+                LIMIT 150;
             """)
             patients.extend(cur.fetchall())
 
-        # 2. Outpatients (OP) - Return the 12 active OPD patients
+        # 2. Outpatients (OP) - Return active OPD patients from appointments
         if cat in ("ALL", "OP"):
             cur.execute("""
                 SELECT DISTINCT ON (apt.patient_id)
@@ -1106,12 +1107,13 @@ def get_all_patients_directory(
                 LEFT JOIN doctors d ON d.id = apt.doctor_id
                 LEFT JOIN departments dep ON dep.id = apt.department_id
                 LEFT JOIN patient_visits pv ON pv.appointment_id = apt.id
-                WHERE (apt.booking_source = 'OPD_DESK' OR apt.booking_id LIKE 'APT-2026-%')
-                ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC;
+                WHERE (apt.booking_source IN ('OPD_DESK', 'Walk-in', 'Phone', 'Web Portal', 'ADMIN', 'DOCTOR') OR apt.booking_id LIKE 'APT-%')
+                ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC
+                LIMIT 100;
             """)
             patients.extend(cur.fetchall())
 
-        # 3. Emergency Patients (ER) - Return the 8 active ER patients
+        # 3. Emergency Patients (ER) - Return active ER triage patients
         if cat in ("ALL", "ER"):
             cur.execute("""
                 SELECT 
@@ -1142,7 +1144,7 @@ def get_all_patients_directory(
                     'Emergency Cover / Star Health' AS insurer
                 FROM emergency_triage et
                 LEFT JOIN patients p ON (p.first_name || ' ' || p.last_name) = et.patient_name
-                WHERE et.id >= 'ER-2026-4421' AND et.id <= 'ER-2026-4428'
+                WHERE et.id IS NOT NULL
                 ORDER BY et.id ASC;
             """)
             patients.extend(cur.fetchall())
@@ -1180,9 +1182,49 @@ def get_all_patients_directory(
                 LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
                 LEFT JOIN wards w ON w.ward_id = a.ward_id
                 WHERE a.discharge_status = 'Discharged' OR ds.approval_status = 'Approved'
-                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC;
+                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC
+                LIMIT 50;
             """)
             patients.extend(cur.fetchall())
+
+        # 5. Direct / Newly Registered Patients from database
+        if cat in ("ALL", "OP"):
+            cur.execute("""
+                SELECT 
+                    p.id AS patient_id,
+                    p.patient_code,
+                    p.first_name,
+                    p.last_name,
+                    (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                    p.date_of_birth,
+                    EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                    p.gender,
+                    p.phone,
+                    COALESCE(p.preferred_language, 'English') AS preferred_language,
+                    p.blood_group,
+                    NULL::int AS admission_id,
+                    p.patient_code AS admission_number,
+                    p.created_at AS admission_date,
+                    NULL::date AS discharge_date,
+                    'Active' AS discharge_status,
+                    'General Medical Check' AS diagnosis,
+                    'General Medicine' AS department,
+                    'Registration Desk' AS bed_number,
+                    'Attending Physician' AS doctor,
+                    'OP' AS patient_type,
+                    'ACTIVE' AS status,
+                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurer
+                FROM patients p
+                LEFT JOIN patient_insurance pi ON pi.patient_id = p.id
+                ORDER BY p.id DESC
+                LIMIT 50;
+            """)
+            registered_patients = cur.fetchall()
+            existing_pids = {p.get('patient_id') for p in patients}
+            for rp in registered_patients:
+                if rp.get('patient_id') not in existing_pids:
+                    patients.append(rp)
+                    existing_pids.add(rp.get('patient_id'))
 
         # Filter by search if provided
         if clean_search:

@@ -453,6 +453,7 @@ export default function App() {
               onNavigate={(p) => handleNavigate(p)}
               doctorName={role === 'Doctor' ? auth?.name : null}
               userRole={role}
+              currentUser={auth}
             />
           )}
 

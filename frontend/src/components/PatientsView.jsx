@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, UserPlus, Check } from "lucide-react";
 import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
+import PatientRegistrationModal from "./PatientRegistrationModal";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -33,10 +34,11 @@ export default function PatientsView({
   onOpenSoap,
   onNavigate,
   doctorName = null,
-  userRole = 'Hospital Management'
+  userRole = 'Hospital Management',
+  currentUser = null
 }) {
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
-  const activeDoctorName = isDoctor ? doctorName : null;
+  const activeDoctorName = isDoctor ? (doctorName || currentUser?.name || null) : null;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -48,6 +50,8 @@ export default function PatientsView({
   const [filter, setFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -61,11 +65,12 @@ export default function PatientsView({
       }
       setError(null);
       try {
-        const [ar, dr, opRes, erRes] = await Promise.all([
+        const [ar, dr, opRes, erRes, allDirRes] = await Promise.all([
           apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
           apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ALL' }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
 
@@ -228,6 +233,46 @@ export default function PatientsView({
     };
   }, []);
 
+  const handlePatientRegistered = (newPatient) => {
+    const pName = newPatient.name || newPatient.patient_name || `${newPatient.first_name || ''} ${newPatient.last_name || ''}`.trim() || 'Patient';
+    const uhid = newPatient.patient_code || newPatient.uhid || 'MER-PAT-XXXX';
+    setToastMessage(`Patient ${pName} successfully registered with UHID ${uhid}!`);
+    setTimeout(() => setToastMessage(null), 6000);
+
+    const formatted = {
+      ...newPatient,
+      id: newPatient.id || newPatient.patient_id,
+      patient_id: newPatient.id || newPatient.patient_id,
+      patient_code: uhid,
+      uhid: uhid,
+      patient_number: uhid,
+      name: pName,
+      patient_name: pName,
+      patient: pName,
+      age: newPatient.age || 35,
+      sex: newPatient.sex || (newPatient.gender?.toLowerCase().startsWith('f') ? 'F' : 'M'),
+      gender: newPatient.gender || 'Male',
+      department: newPatient.department || 'General Medicine',
+      doctor: newPatient.doctor || 'Attending Physician',
+      diagnosis: cleanDiagnosis(newPatient.diagnosis || 'Clinical Registration'),
+      insurer: newPatient.insurer || 'Self-Pay',
+      _status: newPatient.status || (newPatient.patient_type === 'IP' ? 'Admitted' : newPatient.patient_type === 'ER' ? 'Active Triage' : 'CONFIRMED'),
+      _type: newPatient.patient_type || 'OP'
+    };
+
+    if (newPatient.patient_type === 'IP') {
+      setAdmitted(prev => [formatted, ...prev]);
+    } else if (newPatient.patient_type === 'ER') {
+      setErPatients(prev => [formatted, ...prev]);
+    } else {
+      setOpPatients(prev => [formatted, ...prev]);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('hc_api_updated'));
+    }
+  };
+
   const counts = useMemo(() => {
     let baseAdmitted = admitted;
     let baseOp = opPatients;
@@ -345,9 +390,10 @@ export default function PatientsView({
             style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
           </button>
-          <button type="button" onClick={() => alert("Register patient")}
-            style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: 0, background: "oklch(0.5 0.1 200)", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "12px" }}>
-            + Register patient
+          <button type="button" onClick={() => setShowRegisterModal(true)}
+            style={{ height: "30px", padding: "0 14px", borderRadius: "6px", border: 0, background: "#0284c7", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px", boxShadow: "0 1px 2px rgba(2, 132, 199, 0.2)" }}>
+            <UserPlus size={14} />
+            <span>+ Register patient</span>
           </button>
         </div>
       </div>
@@ -579,6 +625,40 @@ export default function PatientsView({
           </>
         )}
       </div>
+
+      {/* Patient Registration Modal with Dynamic ID & DB Integration */}
+      <PatientRegistrationModal
+        isOpen={showRegisterModal}
+        onClose={() => setShowRegisterModal(false)}
+        onPatientRegistered={handlePatientRegistered}
+        onSelectPatient={onSelectPatient}
+        doctorName={activeDoctorName}
+        userRole={userRole}
+        currentUser={currentUser}
+      />
+
+      {/* Success Notification Toast */}
+      {toastMessage && (
+        <div style={{
+          position: "fixed",
+          bottom: "24px",
+          right: "24px",
+          background: "#0f172a",
+          color: "#ffffff",
+          padding: "12px 18px",
+          borderRadius: "8px",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3)",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          zIndex: 99999,
+          fontSize: "13px",
+          animation: "fadeIn 0.2s ease-out"
+        }}>
+          <Check size={16} color="#4ade80" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }

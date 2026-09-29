@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { apiService } from '../services/api';
 
 export const MASTER_CONFIGS = {
   drugs: {
@@ -16,13 +17,14 @@ export const MASTER_CONFIGS = {
   patients: {
     title: 'Register Patient',
     fields: [
+      { name: 'patient_code', label: 'Dynamic Registration UHID', type: 'text', placeholder: 'Auto-allocating from database...', readOnly: true },
       { name: 'name', label: 'Full Name', type: 'text', placeholder: 'e.g. Ramesh Kumar' },
       { name: 'age', label: 'Age', type: 'number', placeholder: '45' },
       { name: 'sex', label: 'Sex', type: 'select', options: ['Female', 'Male', 'Other'] },
       { name: 'lang', label: 'Preferred Language', type: 'select', options: ['Tamil', 'English', 'Telugu', 'Malayalam', 'Hindi'] },
       { name: 'phone', label: 'Phone Number', type: 'text', placeholder: '+91 98400 12345' },
       { name: 'dept', label: 'Department', type: 'select', options: ['Cardiology', 'Internal Medicine', 'General Surgery', 'Orthopedics', 'Pediatrics', 'Neurology', 'Emergency Bay'] },
-      { name: 'doctor', label: 'Consultant Doctor', type: 'select', options: ['Dr. Arjun Menon', 'Dr. Priya Narayanan', 'Dr. Sanjay Gupta', 'Dr. Rajesh Sharma', 'Dr. Anita Roy', 'Dr. Pooja Menon'] },
+      { name: 'doctor', label: 'Consultant Doctor', type: 'select', options: ['Dr. Priya Patel', 'Dr. Ravi Reddy', 'Dr. Sneha Das', 'Dr. Vikram Singh', 'Dr. Anita Roy', 'Dr. Pooja Menon'] },
       { name: 'insurer', label: 'Insurer / TPA', type: 'select', options: ['Star Health & Allied', 'HDFC ERGO Health', 'Care Health Insurance', 'ICICI Lombard Health', 'Vidal Health TPA', 'Self-Pay'] },
       { name: 'blood', label: 'Blood Group', type: 'select', options: ['A+', 'B+', 'O+', 'AB+', 'A-', 'B-', 'O-', 'AB-'] }
     ]
@@ -136,18 +138,55 @@ export default function MasterModal({ modal, onClose, onSubmit, role = 'Hospital
   const [step, setStep] = useState(modal.step || 0);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (coll === 'patients') {
+      apiService.getNextPatientId().then(res => {
+        if (res && res.next_patient_code) {
+          setFormData(prev => ({ ...prev, patient_code: res.next_patient_code }));
+        }
+      }).catch(() => {});
+    }
+  }, [coll]);
+
   const handleChange = (k, v) => {
     setFormData(prev => ({ ...prev, [k]: v }));
     setError('');
   };
 
-  const handleCreateSubmit = (e) => {
+  const handleCreateSubmit = async (e) => {
     e.preventDefault();
     const config = MASTER_CONFIGS[coll];
     if (config?.fields?.some(f => f.name === 'name') && !formData.name) {
       setError('Name is required');
       return;
     }
+
+    if (coll === 'patients') {
+      try {
+        const parts = (formData.name || '').trim().split(' ');
+        const result = await apiService.registerPatient({
+          patient_code: formData.patient_code,
+          first_name: parts[0] || formData.name,
+          last_name: parts.slice(1).join(' ') || '',
+          age: parseInt(formData.age, 10) || 35,
+          gender: formData.sex || 'Male',
+          phone: formData.phone || '+91 98400 00000',
+          blood_group: formData.blood || 'O+',
+          preferred_language: formData.lang || 'English',
+          department: formData.dept || 'General Medicine',
+          doctor: formData.doctor,
+          insurer: formData.insurer || 'Self-Pay'
+        });
+        alert(`Successfully registered patient with UHID ${result.patient?.patient_code || formData.patient_code}!`);
+        if (onSubmit) onSubmit({ kind, coll, data: result.patient || formData });
+        onClose();
+        return;
+      } catch (err) {
+        setError(err.message || 'Failed to save patient to database');
+        return;
+      }
+    }
+
     if (onSubmit) onSubmit({ kind, coll, data: formData });
     alert(`Successfully saved ${config?.title || 'Record'}!`);
     onClose();
