@@ -2183,12 +2183,42 @@ export default function Patient360View({
             admissionId={p.admission_id}
             patientName={p.name}
             initialPrompts={[
-              "Why is this patient still admitted?",
-              "What are the latest abnormal vital signs?",
-              "What medicines is this patient receiving?",
-              "What is pending before discharge?",
+              // 1. Clinical Overview & Daily Progression
               "Summarize this patient’s current condition.",
-              "What changed since yesterday?"
+              "Why is this patient still admitted?",
+              "What changed since yesterday?",
+              "What was the primary reason for admission, and what has progressed since admission date?",
+              "Give me a quick 30-second handover summary for rounds.",
+              // 2. Vitals & Hemodynamic Trends
+              "What are the latest abnormal vital signs?",
+              "Show blood pressure and heart rate trends over the last 24 hours.",
+              "Has the patient had any episodes of desaturation (SpO2 < 92%) or tachycardia?",
+              "What was the patient's temperature trend since morning?",
+              // 3. Medications & Orders
+              "What medicines is this patient currently receiving?",
+              "Are there any active antiplatelet or anticoagulant prescriptions (e.g., Aspirin, Clopidogrel, Heparin)?",
+              "What is the current dosage and frequency of their antihypertensive drugs?",
+              "Were there any medication changes or held doses in the last 48 hours?",
+              // 4. Diagnostic & Lab Results
+              "What are the latest lab results?",
+              "Show the latest cardiac markers (Troponin I/T, CK-MB) and trend.",
+              "Are there any critical lab flags in the complete blood count (CBC) or renal function test (RFT/Creatinine)?",
+              "What is the patient’s latest serum potassium and electrolyte status?",
+              "What were the HbA1c and lipid profile values on admission?",
+              // 5. Radiology & Imaging
+              "What did the latest chest X-ray show?",
+              "What was the radiologist's final verified conclusion versus the AI preliminary finding?",
+              "Is the urgent chest X-ray report ready or still pending radiologist sign-off?",
+              "Show the clinical indication for the ordered echocardiogram/CT scan.",
+              // 6. Discharge Readiness & Blockers
+              "What is pending before this patient can be safely discharged?",
+              "Are there any outstanding diagnostic tests, pending consultant notes, or medication reconciliations?",
+              "Draft a discharge summary based on verified records.",
+              "What discharge instructions and follow-up timeline are recommended for this patient?",
+              // 7. Billing & Financial Clearance
+              "What is the billing clearance status for this admission?",
+              "Is there an outstanding patient balance or pending insurance pre-authorization that blocks discharge?",
+              "Has the pharmacy bill and diagnostic package been settled?"
             ]}
           />
         </div>

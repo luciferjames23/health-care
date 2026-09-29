@@ -41,6 +41,7 @@ if BASE_DIR not in sys.path:
 
 import db_config
 from services.rag_embedding_service import embedding_service
+from services.rag_access_control import DOCUMENT_MODULE
 
 
 class RagIngestionService:
@@ -73,24 +74,40 @@ class RagIngestionService:
         if not content or not content.strip():
             return False
 
-        meta_dict = metadata or {}
+        module = DOCUMENT_MODULE.get(document_type)
+        if not module:
+            raise ValueError(f"Unmapped RAG document type: {document_type}")
+        meta_dict = dict(metadata or {})
+        # A stable authorization/routing contract on every indexed chunk.
+        meta_dict.update({
+            "patient_id": patient_id,
+            "doctor_id": doctor_id,
+            "module": module,
+            "department": meta_dict.get("department"),
+            "record_id": str(source_record_id),
+            "timestamp": meta_dict.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+            "version": int(meta_dict.get("version") or 1),
+            "is_deleted": bool(meta_dict.get("is_deleted", False)),
+        })
+        is_active = bool(is_active and not meta_dict["is_deleted"])
         content_clean = content.strip()
         content_hash = hashlib.sha256(content_clean.encode('utf-8')).hexdigest()
 
         # Check existing
         cur.execute("""
-            SELECT id, content_hash, is_active, is_verified, review_status
+            SELECT id, content_hash, is_active, is_verified, review_status, metadata
             FROM rag_documents
             WHERE source_table = %s AND source_record_id = %s AND document_type = %s;
         """, (source_table, str(source_record_id), document_type))
         existing = cur.fetchone()
 
         if existing:
-            doc_id, old_hash, old_active, old_verified, old_review = existing
+            doc_id, old_hash, old_active, old_verified, old_review, old_metadata = existing
             if (old_hash == content_hash and
                 old_active == is_active and
                 old_verified == is_verified and
-                old_review == review_status):
+                old_review == review_status and
+                (old_metadata or {}) == meta_dict):
                 # Unchanged - skip
                 return False
 
@@ -145,6 +162,12 @@ class RagIngestionService:
             SET title = EXCLUDED.title,
                 content = EXCLUDED.content,
                 content_hash = EXCLUDED.content_hash,
+                patient_id = EXCLUDED.patient_id,
+                admission_id = EXCLUDED.admission_id,
+                doctor_id = EXCLUDED.doctor_id,
+                order_id = EXCLUDED.order_id,
+                accession_number = EXCLUDED.accession_number,
+                study_instance_uid = EXCLUDED.study_instance_uid,
                 metadata = EXCLUDED.metadata,
                 review_status = EXCLUDED.review_status,
                 is_verified = EXCLUDED.is_verified,

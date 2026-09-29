@@ -89,7 +89,8 @@ def get_hashed_password(plain_password: str) -> str:
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Dependency injection to authenticate requests via JWT with seamless fallback."""
     if credentials and credentials.credentials:
-        if credentials.credentials in ("demo-session-token", "demo_session_token", "demo-token", "dev-token"):
+        if (credentials.credentials in ("demo-session-token", "demo_session_token", "demo-token", "dev-token")
+                and os.getenv("RAG_DEV_MODE", "0").lower() in ("1", "true", "yes")):
             return {
                 "user_id": 1,
                 "username": "admin",
@@ -101,7 +102,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             return payload
     
     # Dev fallback for local dev / demo environment
-    if os.getenv("RAG_DEV_MODE", "1").lower() in ("1", "true", "yes"):
+    if os.getenv("RAG_DEV_MODE", "0").lower() in ("1", "true", "yes"):
         return {
             "user_id": 1,
             "username": "admin",

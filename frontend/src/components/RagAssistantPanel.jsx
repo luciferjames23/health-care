@@ -319,17 +319,22 @@ export default function RagAssistantPanel({
 
   const defaultPrompts = {
     patient360: [
+      'Summarize this patient’s current condition.',
       'Why is this patient still admitted?',
       'What are the latest abnormal vital signs?',
       'What medicines is this patient receiving?',
+      'What are the latest lab results?',
+      'What did the latest chest X-ray show?',
       'What is pending before discharge?',
-      'Summarize this patient’s current condition.'
+      'What is the billing clearance status for this admission?'
     ],
     doctor_workspace: [
-      'Show my patients with pending X-ray results.',
-      'Which of my patients have abnormal lab results?',
-      'Which patients are blocked from discharge?',
-      'Summarize today’s pending clinical tasks.'
+      'How many IP, OP, and discharged patients do I have right now?',
+      'List all my admitted IP patients with their bed numbers and wards.',
+      'Which of my patients have pending high-priority or urgent X-rays?',
+      'Which patients under my care have abnormal or critical lab values today?',
+      'Which of my patients are currently blocked from discharge and why?',
+      'Summarize all pending clinical orders and doctor tasks for today’s ward rounds.'
     ],
     radiology: [
       'What did the radiologist conclude for this X-ray?',

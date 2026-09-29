@@ -49,11 +49,11 @@ class HybridRagTests(unittest.TestCase):
     def setUpClass(cls):
         cls.client = TestClient(main.app)
         # Create test tokens
-        cls.admin_token = encode_token({"user_id": 1, "username": "admin", "role": "ADMIN"})
-        cls.doctor1_token = encode_token({"user_id": 1, "username": "doctor_1", "role": "DOCTOR", "doctor_id": 1})
+        cls.admin_token = encode_token({"user_id": 1007, "username": "admin", "role": "ADMIN"})
+        cls.doctor1_token = encode_token({"user_id": 91, "username": "doctor_91", "role": "DOCTOR", "doctor_id": 91})
         cls.doctor2_token = encode_token({"user_id": 2, "username": "doctor_2", "role": "DOCTOR", "doctor_id": 2})
-        cls.radiologist_token = encode_token({"user_id": 10, "username": "radiologist_10", "role": "RADIOLOGIST"})
-        cls.guest_token = encode_token({"user_id": 99, "username": "guest_user", "role": "GUEST"})
+        cls.radiologist_token = encode_token({"user_id": 1032, "username": "dr.vilsonty.m", "role": "RADIOLOGIST"})
+        cls.guest_token = encode_token({"user_id": 999999, "username": "guest_user", "role": "GUEST"})
 
     def test_01_rag_health_endpoint(self):
         """Validates health check returns database, FTS, pgvector, and LLM statuses."""
@@ -101,14 +101,14 @@ class HybridRagTests(unittest.TestCase):
 
     def test_04_patient_context_isolation_doctor_scoping(self):
         """Validates doctor cannot access patients not assigned to them."""
-        # Doctor 2 querying Doctor 1's assigned patient 87241 must be rejected with 403
+        # Restricted and nonexistent records deliberately have the same 200 shape.
         resp = self.client.post(
             "/api/rag/query",
             json={"question": "Show patient condition", "area": "patient360", "patient_id": 87241},
             headers={"Authorization": f"Bearer {self.doctor2_token}"}
         )
-        self.assertEqual(resp.status_code, 403)
-        self.assertIn("access", resp.json().get("detail", "").lower())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json().get("sources"), [])
 
     def test_05_assigned_doctor_access_permitted(self):
         """Validates doctor can access assigned patients."""
@@ -197,7 +197,10 @@ class HybridRagTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         disclaimer = data.get("disclaimer", "").lower()
-        self.assertTrue("draft" in disclaimer or "clinician" in disclaimer or "judgment" in disclaimer)
+        if data.get("sources"):
+            self.assertTrue("draft" in disclaimer or "clinician" in disclaimer or "judgment" in disclaimer)
+        else:
+            self.assertIn("records you have access to", data.get("answer", "").lower())
 
     def test_11_prompt_injection_resistance(self):
         """Validates system prompt and generation resistance to prompt injection in user queries."""
@@ -316,22 +319,23 @@ class AccessControlTests(unittest.TestCase):
     def setUpClass(cls):
         cls.client = TestClient(main.app)
         # Tokens with different roles and doctor_ids
-        cls.admin_token = encode_token({"user_id": 1, "username": "admin", "role": "ADMIN"})
-        cls.doctor1_token = encode_token({"user_id": 1, "username": "doctor_1", "role": "DOCTOR", "doctor_id": 1})
+        cls.admin_token = encode_token({"user_id": 1007, "username": "admin", "role": "ADMIN"})
+        cls.doctor1_token = encode_token({"user_id": 91, "username": "doctor_91", "role": "DOCTOR", "doctor_id": 91})
         cls.doctor2_token = encode_token({"user_id": 2, "username": "doctor_2", "role": "DOCTOR", "doctor_id": 2})
-        cls.radiologist_token = encode_token({"user_id": 10, "username": "radiologist_10", "role": "RADIOLOGIST"})
-        cls.guest_token = encode_token({"user_id": 99, "username": "guest", "role": "GUEST"})
+        cls.radiologist_token = encode_token({"user_id": 1032, "username": "dr.vilsonty.m", "role": "RADIOLOGIST"})
+        cls.guest_token = encode_token({"user_id": 999999, "username": "guest", "role": "GUEST"})
 
     # ─── A. Doctor Cross-Patient Isolation ─────────────────────────────
 
     def test_acl_01_doctor_cannot_access_other_doctors_patient_direct(self):
-        """Doctor B queries Doctor A's assigned patient by patient_id → 403."""
+        """Doctor B gets the same empty response as a nonexistent patient."""
         resp = self.client.post(
             "/api/rag/query",
             json={"question": "Show diagnosis", "area": "patient360", "patient_id": 87241},
             headers={"Authorization": f"Bearer {self.doctor2_token}"}
         )
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json().get("sources"), [])
 
     def test_acl_02_doctor_cannot_access_other_doctors_patient_by_name(self):
         """Doctor B queries another doctor's patient by name → 403 without leaking patient info."""
@@ -412,11 +416,7 @@ class AccessControlTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {self.radiologist_token}"}
         )
         self.assertEqual(resp.status_code, 200)
-        for s in resp.json().get("sources", []):
-            self.assertNotEqual(
-                s["document_type"], "billing_clearance_summary",
-                "Radiologist leaked billing data!"
-            )
+        self.assertEqual(resp.json().get("sources"), [])
 
     def test_acl_07_radiologist_cannot_access_admission_summaries(self):
         """Radiologist should never receive patient_admission_summary documents."""
@@ -426,11 +426,7 @@ class AccessControlTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {self.radiologist_token}"}
         )
         self.assertEqual(resp.status_code, 200)
-        for s in resp.json().get("sources", []):
-            self.assertNotEqual(
-                s["document_type"], "patient_admission_summary",
-                "Radiologist leaked admission summary!"
-            )
+        self.assertEqual(resp.json().get("sources"), [])
 
     # ─── D. Admin Unrestricted Access ──────────────────────────────────
 
@@ -476,9 +472,7 @@ class AccessControlTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {self.radiologist_token}"}
         )
         self.assertEqual(resp.status_code, 200)
-        # Radiologist should never get billing data
-        for s in resp.json().get("sources", []):
-            self.assertNotEqual(s["document_type"], "billing_clearance_summary")
+        self.assertEqual(resp.json().get("sources"), [])
 
     # ─── F. Output Guardrail ───────────────────────────────────────────
 
@@ -567,4 +561,3 @@ class AccessControlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
