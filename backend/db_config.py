@@ -66,7 +66,7 @@ def _is_local_host(host: str) -> bool:
     except ValueError:
         return False
 
-_DEFAULT_SSLMODE = "prefer" if _is_local_host(DB_HOST) else "require"
+_DEFAULT_SSLMODE = "disable" if _is_local_host(DB_HOST) else "require"
 DB_SSLMODE = os.getenv("DATABASE_SSLMODE", os.getenv("PGSSLMODE", _DEFAULT_SSLMODE))
 
 # Connection Pooling

@@ -723,7 +723,6 @@ export default function Patient360View({
       });
     }
     const admitted = d.admitted || `${admittedDate}, ${admittedTime}`;
-    const condition = d.condition || `Clinically stable (${doctor})`;
     const dischargeInfo = isOP
       ? 'Active Outpatient Consultation (Same-day OPD)'
       : isER
@@ -743,6 +742,13 @@ export default function Patient360View({
     const temp = rawTemp != null ? Number(rawTemp).toFixed(2).replace(/\.00$/, '') : (rawPid ? (98 + (Number(String(rawPid).replace(/\D/g, '')) % 2) + 0.4).toFixed(2) : '98.6');
     
     const rr = latestVitalRec?.respiratory_rate || Number(vitals.latest_respiratory_rate ?? raw.respiratory_rate ?? raw.rr ?? 18);
+
+    const spo2Num = parseFloat(spo2);
+    const tempNum = parseFloat(temp);
+    const tempFVal = !isNaN(tempNum) ? (tempNum < 50 ? (tempNum * 9 / 5) + 32 : tempNum) : 98.6;
+    const isVitalsAbnormal = (!isNaN(spo2Num) && spo2Num < 92.0) || (hr < 50 || hr > 110) || (tempFVal >= 100.4 || tempFVal < 95.0) || (sbp < 90 || sbp > 160) || (dbp < 50 || dbp > 100);
+
+    const condition = d.condition || (isVitalsAbnormal ? `Vitals require observation (${doctor})` : `Clinically stable (${doctor})`);
     
     // Strict clinical temporal synchronization
     let dischargeFormattedDate;
@@ -2554,23 +2560,50 @@ export default function Patient360View({
                   </tr>
                 </thead>
                 <tbody>
-                  {p.vitalsHistory.slice(0, 5).map((v, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px 10px', color: '#0f172a', fontFamily: 'monospace' }}>
-                        {new Date(v.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp}/{v.diastolic_bp} mmHg</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate} bpm</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{Number(v.oxygen_saturation).toFixed(1)}%</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{Number(v.temperature).toFixed(1)}°F</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate} /min</td>
-                      <td style={{ padding: '8px 10px' }}>
-                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600 }}>
-                          Normal
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {p.vitalsHistory.slice(0, 5).map((v, idx) => {
+                    const spo2Val = v.oxygen_saturation != null ? parseFloat(v.oxygen_saturation) : null;
+                    const hrVal = v.heart_rate != null ? parseFloat(v.heart_rate) : null;
+                    const tempVal = v.temperature != null ? parseFloat(v.temperature) : null;
+                    const sbpVal = v.systolic_bp != null ? parseFloat(v.systolic_bp) : null;
+                    const dbpVal = v.diastolic_bp != null ? parseFloat(v.diastolic_bp) : null;
+
+                    const tempF = tempVal != null ? (tempVal < 50 ? (tempVal * 9 / 5) + 32 : tempVal) : null;
+                    const isAbnormal = (spo2Val != null && !isNaN(spo2Val) && spo2Val < 92.0) ||
+                                       (hrVal != null && !isNaN(hrVal) && (hrVal < 50 || hrVal > 110)) ||
+                                       (tempF != null && !isNaN(tempF) && (tempF >= 100.4 || tempF < 95.0)) ||
+                                       (sbpVal != null && !isNaN(sbpVal) && (sbpVal < 90 || sbpVal > 160)) ||
+                                       (dbpVal != null && !isNaN(dbpVal) && (dbpVal < 50 || dbpVal > 100));
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 10px', color: '#0f172a', fontFamily: 'monospace' }}>
+                          {new Date(v.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp}/{v.diastolic_bp} mmHg</td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate} bpm</td>
+                        <td style={{ padding: '8px 10px', color: isAbnormal && spo2Val != null && spo2Val < 92 ? '#dc2626' : '#334155', fontWeight: isAbnormal && spo2Val != null && spo2Val < 92 ? 700 : 400 }}>
+                          {Number(v.oxygen_saturation).toFixed(1)}%
+                        </td>
+                        <td style={{ padding: '8px 10px', color: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? '#dc2626' : '#334155', fontWeight: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? 700 : 400 }}>
+                          {Number(v.temperature).toFixed(1)}°F
+                        </td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate} /min</td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <span style={{
+                            background: isAbnormal ? '#fee2e2' : '#dcfce7',
+                            color: isAbnormal ? '#b91c1c' : '#15803d',
+                            border: isAbnormal ? '1px solid #fca5a5' : '1px solid #bbf7d0',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 600
+                          }}>
+                            {isAbnormal ? 'Abnormal' : 'Normal'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
