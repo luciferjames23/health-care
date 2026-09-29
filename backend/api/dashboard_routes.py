@@ -572,6 +572,8 @@ class RegisterPatientRequest(BaseModel):
     ward_id: Optional[int] = None
     bed_id: Optional[int] = None
     bed_number: Optional[str] = None
+    room_id: Optional[int] = None
+    room_number: Optional[str] = None
     reason: Optional[str] = None
     diagnosis: Optional[str] = None
     insurer: Optional[str] = "Self-Pay"
@@ -621,21 +623,100 @@ def get_patient_registration_meta(current_user: dict = Depends(get_current_user)
         conn = get_conn()
         cur = conn.cursor()
 
-        # Departments
-        cur.execute("SELECT id, department_name, department_code FROM departments WHERE status = 'ACTIVE' ORDER BY department_name;")
+        # Departments (Distinct active departments)
+        cur.execute("""
+            SELECT DISTINCT ON (department_name) id, department_name, department_code 
+            FROM departments 
+            WHERE status ILIKE 'active' 
+            ORDER BY department_name, id;
+        """)
         departments = [{"id": r[0], "name": r[1], "code": r[2]} for r in cur.fetchall()]
 
-        # Doctors
-        cur.execute("SELECT id, display_name, specialization, department_id FROM doctors WHERE status = 'ACTIVE' ORDER BY display_name;")
-        doctors = [{"id": r[0], "name": r[1], "specialization": r[2], "department_id": r[3]} for r in cur.fetchall()]
+        # Doctors (Joined with department_name)
+        cur.execute("""
+            SELECT 
+                doc.id, 
+                doc.display_name, 
+                COALESCE(doc.specialization, 'Physician') AS specialization, 
+                doc.department_id,
+                COALESCE(d.department_name, 'General Medicine') AS department_name
+            FROM doctors doc
+            LEFT JOIN departments d ON doc.department_id = d.id
+            WHERE doc.status ILIKE 'active'
+            ORDER BY doc.display_name;
+        """)
+        doctors = [
+            {
+                "id": r[0],
+                "name": r[1],
+                "specialization": r[2],
+                "department_id": r[3],
+                "department_name": r[4]
+            }
+            for r in cur.fetchall()
+        ]
 
-        # Wards
-        cur.execute("SELECT ward_id, ward_name, department_id, ward_type FROM wards WHERE status = 'ACTIVE' ORDER BY ward_name;")
-        wards = [{"ward_id": r[0], "name": r[1], "department_id": r[2], "type": r[3]} for r in cur.fetchall()]
+        # Wards with available beds count
+        cur.execute("""
+            SELECT 
+                w.ward_id, 
+                w.ward_name, 
+                w.department_id, 
+                w.ward_type,
+                COUNT(CASE WHEN b.status = 'Available' THEN 1 END) as available_beds
+            FROM wards w
+            LEFT JOIN beds b ON w.ward_id = b.ward_id
+            WHERE w.status ILIKE 'ACTIVE'
+            GROUP BY w.ward_id, w.ward_name, w.department_id, w.ward_type
+            ORDER BY w.ward_name;
+        """)
+        wards = [
+            {
+                "ward_id": r[0],
+                "name": r[1],
+                "department_id": r[2],
+                "type": r[3],
+                "available_beds": r[4]
+            }
+            for r in cur.fetchall()
+        ]
 
-        # Beds (Available)
-        cur.execute("SELECT bed_id, bed_number, ward_id, bed_type FROM beds WHERE status = 'Available' ORDER BY bed_number LIMIT 50;")
-        beds = [{"bed_id": r[0], "bed_number": r[1], "ward_id": r[2], "type": r[3]} for r in cur.fetchall()]
+        # Beds (Available) with Room and Ward Details
+        cur.execute("""
+            SELECT 
+                b.bed_id, 
+                b.bed_number, 
+                b.ward_id, 
+                w.ward_name, 
+                w.ward_type, 
+                b.room_id, 
+                COALESCE(r.room_number, 'RM-' || LPAD(b.room_id::text, 3, '0')) as room_number, 
+                COALESCE(r.room_type, 'Standard Care') as room_type,
+                b.bed_type, 
+                COALESCE(b.daily_charge, 0.0),
+                b.status
+            FROM beds b
+            JOIN wards w ON b.ward_id = w.ward_id
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            WHERE b.status = 'Available'
+            ORDER BY w.ward_name, r.room_number, b.bed_number;
+        """)
+        beds = [
+            {
+                "bed_id": r[0],
+                "bed_number": r[1],
+                "ward_id": r[2],
+                "ward_name": r[3],
+                "ward_type": r[4],
+                "room_id": r[5],
+                "room_number": r[6],
+                "room_type": r[7],
+                "bed_type": r[8],
+                "daily_charge": float(r[9]),
+                "status": r[10]
+            }
+            for r in cur.fetchall()
+        ]
 
         cur.close()
         return {
@@ -794,14 +875,20 @@ def register_patient(
             ward_id = req.ward_id
             bed_id = req.bed_id
             bed_number = req.bed_number
+            room_number = req.room_number
 
             if not bed_id:
-                cur.execute("SELECT bed_id, bed_number, ward_id FROM beds WHERE status = 'Available' ORDER BY bed_id ASC LIMIT 1;")
+                cur.execute("SELECT b.bed_id, b.bed_number, b.ward_id, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.status = 'Available' ORDER BY b.bed_id ASC LIMIT 1;")
                 bed_row = cur.fetchone()
                 if bed_row:
-                    bed_id, bed_number, default_ward_id = bed_row
+                    bed_id, bed_number, default_ward_id, room_number = bed_row
                     if not ward_id:
                         ward_id = default_ward_id
+            elif not bed_number:
+                cur.execute("SELECT b.bed_number, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.bed_id = %s;", (bed_id,))
+                b_info = cur.fetchone()
+                if b_info:
+                    bed_number, room_number = b_info[0], b_info[1]
 
             if bed_id:
                 cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
@@ -824,30 +911,78 @@ def register_patient(
                 "encounter_type": "IP",
                 "admission_id": next_adm_id,
                 "admission_number": adm_number,
-                "bed_number": bed_number or "BED-0074"
+                "ward_id": ward_id,
+                "bed_id": bed_id,
+                "bed_number": bed_number or "BED-Allocated",
+                "room_number": room_number or "Assigned Room"
             }
 
         elif ptype in ("ER", "EMERGENCY"):
-            cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 4) AS INT)), 400) + 1 FROM emergency_triage WHERE id ~ '^ER-[0-9]+$';")
+            bed_id = req.bed_id
+            bed_number = req.bed_number
+            room_number = req.room_number
+
+            if not bed_id:
+                # Find an available ER bed (ward 8 or general)
+                cur.execute("""
+                    SELECT b.bed_id, b.bed_number, COALESCE(r.room_number, 'Trauma Bay')
+                    FROM beds b
+                    LEFT JOIN rooms r ON b.room_id = r.room_id
+                    WHERE b.status = 'Available' AND b.ward_id = 8
+                    ORDER BY b.bed_id ASC LIMIT 1;
+                """)
+                er_bed_row = cur.fetchone()
+                if not er_bed_row:
+                    cur.execute("""
+                        SELECT b.bed_id, b.bed_number, COALESCE(r.room_number, 'Trauma Bay')
+                        FROM beds b
+                        LEFT JOIN rooms r ON b.room_id = r.room_id
+                        WHERE b.status = 'Available'
+                        ORDER BY b.bed_id ASC LIMIT 1;
+                    """)
+                    er_bed_row = cur.fetchone()
+                if er_bed_row:
+                    bed_id, bed_number, room_number = er_bed_row
+            elif not bed_number:
+                cur.execute("SELECT b.bed_number, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.bed_id = %s;", (bed_id,))
+                b_info = cur.fetchone()
+                if b_info:
+                    bed_number, room_number = b_info[0], b_info[1]
+
+            if bed_id:
+                cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
+
+            bay_label = f"{room_number} ({bed_number})" if (room_number and bed_number) else (bed_number or "Bay 4")
+
+            cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM '[0-9]+$') AS INT)), 4400) + 1 FROM emergency_triage WHERE id ~ '[0-9]+$';")
             er_res = cur.fetchone()
-            er_num = er_res[0] if (er_res and er_res[0]) else 407
-            er_id = f"ER-{er_num}"
+            er_num = er_res[0] if (er_res and er_res[0]) else 4425
+            er_id = f"ER-2026-{er_num}"
             age_gender = f"{req.age or 35}{gender[0].upper()}"
 
             cur.execute(
                 """
                 INSERT INTO emergency_triage (
-                    id, patient_name, age_gender, arrival_time, triage_level,
-                    vitals_bp, vitals_hr, vitals_spo2, vitals_temp, chief_complaint,
-                    bay, doctor_name, clinical_status, created_at
-                ) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 'Urgent (Level 3)', '120/80', 78, 98, 98.6, %s, 'Bay 4', %s, 'Active Triage', CURRENT_TIMESTAMP);
+                    id, bay, patient_name, age_gender, triage_level,
+                    chief_complaint, bp, hr, spo2, doctor_name,
+                    elapsed_time, clinical_status, created_at, arrival_time,
+                    waiting_time, acuity, critical_alert, mlc_flag
+                ) VALUES (
+                    %s, %s, %s, %s, 'Yellow',
+                    %s, '120/80', 78, '98%%', %s,
+                    'Just now', 'Active Triage', CURRENT_TIMESTAMP, TO_CHAR(CURRENT_TIMESTAMP, 'HH12:MI AM'),
+                    '0m', 'Urgent / Priority 2', 'Observation Required', FALSE
+                );
                 """,
-                (er_id, f"{first_name} {last_name}".strip(), age_gender, clinical_reason, req.doctor or "Dr. Divya Verma")
+                (er_id, bay_label, f"{first_name} {last_name}".strip(), age_gender, clinical_reason, req.doctor or "Dr. Divya Verma")
             )
             encounter_details = {
                 "encounter_type": "ER",
                 "triage_id": er_id,
-                "bay": "Bay 4"
+                "bay": bay_label,
+                "bed_id": bed_id,
+                "bed_number": bed_number or "ER-Bed",
+                "room_number": room_number or "ER-Room"
             }
 
         else:

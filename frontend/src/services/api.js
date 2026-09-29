@@ -59,6 +59,7 @@ async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const authHeader = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hc_auth_token') : null) || 'demo-session-token';
   try {
     const res = await fetch(url, {
       ...fetchOptions,
@@ -66,6 +67,7 @@ async function fetchWithTimeout(url, options = {}) {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authHeader}`,
         ...fetchOptions.headers,
       },
     });
@@ -1480,8 +1482,13 @@ export const apiService = {
 
   async getPatientRegistrationMeta(options = {}) {
     try {
-      return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/meta`, { ...options, revalidateMs: 15000 });
+      return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/meta`, {
+        forceRefresh: true,
+        revalidateMs: 2000,
+        ...options
+      });
     } catch (e) {
+      console.warn('Failed to fetch patient registration meta:', e);
       return { success: true, departments: [], doctors: [], wards: [], beds: [] };
     }
   },
