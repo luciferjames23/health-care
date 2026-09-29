@@ -175,6 +175,61 @@ class RagConversationService:
         finally:
             conn.close()
 
+    def bind_patient(self, conversation_id: str, user_id: int, patient_id: int) -> None:
+        """Bind an initially patient-less session once scoped resolution is unambiguous."""
+        conn = db_config.get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE rag_conversations SET patient_id=%s, updated_at=CURRENT_TIMESTAMP
+                    WHERE id=%s AND user_id=%s AND patient_id IS NULL
+                """, (patient_id, conversation_id, user_id))
+                conn.commit()
+        finally:
+            conn.close()
+
+    def get_authorized_collection(self, conversation_id: str, user_id: int, role: str, scope_hash: str) -> Dict[str, Any]:
+        """Return collection state only when owner, role, scope and expiry still match."""
+        if not conversation_id:
+            return {}
+        conn = db_config.get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT patient_ids,last_query_plan FROM rag_conversation_context
+                    WHERE conversation_id=%s AND user_id=%s AND role=%s AND scope_hash=%s
+                      AND expires_at>CURRENT_TIMESTAMP
+                """, (conversation_id, user_id, role, scope_hash))
+                row = cur.fetchone()
+                return dict(row) if row else {}
+        finally:
+            conn.close()
+
+    def save_authorized_collection(self, conversation_id: str, user_id: int, role: str,
+                                   scope_hash: str, patient_ids: List[int], query_plan: Dict[str, Any]) -> None:
+        """Replace session collection with an already-authorized result set."""
+        safe_ids = sorted({int(value) for value in patient_ids})
+        conn = db_config.get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO rag_conversation_context
+                        (conversation_id,user_id,role,scope_hash,patient_ids,last_query_plan,expires_at)
+                    VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,CURRENT_TIMESTAMP+INTERVAL '8 hours')
+                    ON CONFLICT (conversation_id) DO UPDATE SET
+                        patient_ids=EXCLUDED.patient_ids,
+                        last_query_plan=EXCLUDED.last_query_plan,
+                        expires_at=EXCLUDED.expires_at,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE rag_conversation_context.user_id=EXCLUDED.user_id
+                      AND rag_conversation_context.role=EXCLUDED.role
+                      AND rag_conversation_context.scope_hash=EXCLUDED.scope_hash
+                """, (conversation_id, user_id, role, scope_hash,
+                      json.dumps(safe_ids), json.dumps(query_plan, default=str)))
+                conn.commit()
+        finally:
+            conn.close()
+
     def get_full_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
         """Fetches full conversation metadata and all messages."""
         conn = db_config.get_db_connection()

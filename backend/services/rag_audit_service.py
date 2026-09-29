@@ -11,6 +11,7 @@ import sys
 import os
 import json
 import uuid
+import hashlib
 from typing import Dict, Any, List, Optional
 import psycopg2.extras
 
@@ -58,8 +59,10 @@ class RagAuditService:
                 """, (
                     request_id, user_id, role, area,
                     patient_id, admission_id, order_id,
-                    query[:2000], json.dumps(expanded_query or {}), retrieval_strategy,
-                    result_count, json.dumps(source_ids or []), response_status, failure_reason
+                    "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest(),
+                    json.dumps({"intent": (expanded_query or {}).get("intent")}), retrieval_strategy,
+                    result_count, json.dumps(source_ids or []), response_status,
+                    failure_reason[:200] if failure_reason else None
                 ))
                 conn.commit()
             conn.close()
