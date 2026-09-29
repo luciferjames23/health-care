@@ -3836,7 +3836,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 )
                 pay_prompt_buttons = [
                     {"id": "btn_pay_exec", "title": f"Pay {fee_str}"},
-                    {"id": "btn_pay_change", "title": "Change Payment Method"},
+                    {"id": "btn_pay_change", "title": "Change Payment"},
                     {"id": "btn_pay_cancel", "title": "Cancel"}
                 ]
                 state["interactive_buttons"] = pay_prompt_buttons
@@ -3939,7 +3939,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             pay_prompt_buttons = [
                 {"id": "btn_pay_exec", "title": f"Pay {fee_str}"},
-                {"id": "btn_pay_change", "title": "Change Payment Method"},
+                {"id": "btn_pay_change", "title": "Change Payment"},
                 {"id": "btn_pay_cancel", "title": "Cancel"}
             ]
             state["interactive_buttons"] = pay_prompt_buttons
@@ -4792,14 +4792,14 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     )
                     if str(a_status).upper() == "CANCELLED":
                         buttons = [
-                            {"id": "btn_my_appts", "title": "Back to My Appointments"},
+                            {"id": "btn_my_appts", "title": "My Appointments"},
                             {"id": "btn_hosp_info", "title": "Main Menu"}
                         ]
                     else:
                         buttons = [
                             {"id": f"btn_cancel_existing_{appt_db_id}", "title": "Cancel Appointment"},
-                            {"id": f"btn_reschedule_existing_{appt_db_id}", "title": "Reschedule Appointment"},
-                            {"id": "btn_my_appts", "title": "Back to My Appointments"}
+                            {"id": f"btn_reschedule_existing_{appt_db_id}", "title": "Reschedule"},
+                            {"id": "btn_my_appts", "title": "My Appointments"}
                         ]
                     state["interactive_buttons"] = buttons
                     state["intent"] = "APPOINTMENT_STATUS"
@@ -4833,7 +4833,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     # Bug 6: Patient ownership validation
                     if pat_id and a_pat_id != pat_id:
                         resp = "Unable to process request. Appointment record does not match selected patient."
-                        buttons = [{"id": "btn_my_appts", "title": "Back to My Appointments"}]
+                        buttons = [{"id": "btn_my_appts", "title": "My Appointments"}]
                         return {"response": resp, "intent": "CANCEL_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
 
                     # Bug 2, 5, 10: Check DB status for already cancelled
@@ -10087,8 +10087,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
-                {"id": "btn_doctors", "title": "Doctors & Departments"},
-                {"id": "btn_book_another", "title": "Book Another Appointment"},
+                {"id": "btn_doctors", "title": "Doctors & Depts"},
+                {"id": "btn_book_another", "title": "Book Appointment"},
                 {"id": "btn_no_thanks", "title": "No, Thank You"}
             ]
         else:
@@ -10099,8 +10099,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
-                {"id": "btn_doctors", "title": "Doctors & Departments"},
-                {"id": "btn_book_another", "title": "Book Another Appointment"},
+                {"id": "btn_doctors", "title": "Doctors & Depts"},
+                {"id": "btn_book_another", "title": "Book Appointment"},
                 {"id": "btn_no_thanks", "title": "No, Thank You"}
             ]
 
