@@ -661,9 +661,9 @@ export default function Patient360View({
         ? (d.admission_date || d.triage_time || raw.admission_date)
         : (raw.admission_date || adm.admission_date || d.admission_date);
 
-    const admittedDate = rawDate ? new Date(rawDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (isOP || isER ? '24 Sep 2026' : '17 May 2025');
+    const admittedDate = rawDate ? new Date(rawDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     const admittedTime = isOP 
-      ? (d.appointment_time || (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '10:30 am'))
+      ? (d.appointment_time || (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })))
       : (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '12:00 pm');
 
     // Build comprehensive, deduplicated list of clinical diagnoses for Diagnoses view
@@ -725,7 +725,7 @@ export default function Patient360View({
     const admitted = d.admitted || `${admittedDate}, ${admittedTime}`;
     const condition = d.condition || `Clinically stable (${doctor})`;
     const dischargeInfo = isOP
-      ? 'Completed same-day outpatient visit'
+      ? 'Active Outpatient Consultation (Same-day OPD)'
       : isER
         ? 'Active emergency observation in Bay'
         : (d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}`));
@@ -796,7 +796,9 @@ export default function Patient360View({
       vitalsTakenTime = '24 Sept 2026, 07:30 AM';
     }
 
-    const latestBp = `BP ${sbp}/${dbp} · HR ${hr} bpm · SpO2 ${spo2}% · Temp ${temp}°F`;
+    const latestBp = latestVitalRec
+      ? `BP ${sbp}/${dbp} · HR ${hr} bpm · SpO2 ${spo2}% · Temp ${temp}°F`
+      : (isOP ? 'Baseline OPD triage vitals normal' : 'Monitored vitals stable');
     const stayDays = (isOP || isER) ? 1 : (adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24))) : (rawPid ? ((Number(String(rawPid).replace(/\D/g, '')) % 14) + 1) : 14)));
 
     return {
@@ -1061,44 +1063,119 @@ export default function Patient360View({
   }, [liveBill, p]);
 
   // AI Activity on this patient
-  const aiAgents = useMemo(() => [
-    {
-      id: `EXE-2026-${String(p.admission_id || 118204).slice(-6)}`,
-      agent: 'Discharge Orchestration Agent',
-      version: '3.0.2',
-      status: p.isCleared ? 'Completed' : 'Waiting',
-      steps: 12,
-      bg: p.isCleared ? '#dcfce7' : '#fef3c7',
-      fg: p.isCleared ? '#15803d' : '#92400e',
-    },
-    {
-      id: `EXE-2026-${String((p.admission_id || 117656) - 548).slice(-6)}`,
-      agent: 'Diagnostic Coordination Agent',
-      version: '1.5.1',
-      status: 'Completed',
-      steps: 5,
-      bg: '#dcfce7',
-      fg: '#15803d',
-    },
-    {
-      id: `EXE-2026-${String((p.admission_id || 117666) - 538).slice(-6)}`,
-      agent: 'Queue / Flow Agent',
-      version: '2.0.4',
-      status: 'Completed',
-      steps: 6,
-      bg: '#dcfce7',
-      fg: '#15803d',
-    },
-    {
-      id: `EXE-2026-${String((p.admission_id || 117718) - 486).slice(-6)}`,
-      agent: 'Feedback Agent',
-      version: '1.2.0',
-      status: 'Completed',
-      steps: 4,
-      bg: '#dcfce7',
-      fg: '#15803d',
-    },
-  ], [p]);
+  const aiAgents = useMemo(() => {
+    if (p.isOP) {
+      return [
+        {
+          id: `EXE-2026-${String(p.patient_id || 117666).slice(-6)}`,
+          agent: 'Outpatient Consultation Agent',
+          version: '2.1.0',
+          status: 'Active',
+          steps: 4,
+          bg: '#e0f2fe',
+          fg: '#0369a1',
+        },
+        {
+          id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
+          agent: 'Queue / Flow Agent',
+          version: '2.0.4',
+          status: 'Active',
+          steps: 3,
+          bg: '#e0f2fe',
+          fg: '#0369a1',
+        },
+        {
+          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 24).slice(-6)}`,
+          agent: 'Diagnostic Coordination Agent',
+          version: '1.5.1',
+          status: 'Standby',
+          steps: 2,
+          bg: '#f1f5f9',
+          fg: '#475569',
+        },
+        {
+          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 36).slice(-6)}`,
+          agent: 'Patient Feedback Agent',
+          version: '1.2.0',
+          status: 'Scheduled',
+          steps: 1,
+          bg: '#f1f5f9',
+          fg: '#475569',
+        },
+      ];
+    }
+
+    if (p.isER) {
+      return [
+        {
+          id: `EXE-2026-${String(p.patient_id || 117666).slice(-6)}`,
+          agent: 'Emergency Triage & Acuity Agent',
+          version: '2.4.0',
+          status: 'Completed',
+          steps: 6,
+          bg: '#dcfce7',
+          fg: '#15803d',
+        },
+        {
+          id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
+          agent: 'Emergency Bay Flow Agent',
+          version: '2.0.4',
+          status: 'Active',
+          steps: 4,
+          bg: '#e0f2fe',
+          fg: '#0369a1',
+        },
+        {
+          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 24).slice(-6)}`,
+          agent: 'STAT Diagnostic Coordination Agent',
+          version: '1.5.1',
+          status: 'Completed',
+          steps: 5,
+          bg: '#dcfce7',
+          fg: '#15803d',
+        },
+      ];
+    }
+
+    return [
+      {
+        id: `EXE-2026-${String(p.admission_id || 118204).slice(-6)}`,
+        agent: 'Discharge Orchestration Agent',
+        version: '3.0.2',
+        status: p.isCleared ? 'Completed' : 'Waiting',
+        steps: 12,
+        bg: p.isCleared ? '#dcfce7' : '#fef3c7',
+        fg: p.isCleared ? '#15803d' : '#92400e',
+      },
+      {
+        id: `EXE-2026-${String((p.admission_id || 117656) - 548).slice(-6)}`,
+        agent: 'Diagnostic Coordination Agent',
+        version: '1.5.1',
+        status: 'Completed',
+        steps: 5,
+        bg: '#dcfce7',
+        fg: '#15803d',
+      },
+      {
+        id: `EXE-2026-${String((p.admission_id || 117666) - 538).slice(-6)}`,
+        agent: 'Queue / Flow Agent',
+        version: '2.0.4',
+        status: 'Completed',
+        steps: 6,
+        bg: '#dcfce7',
+        fg: '#15803d',
+      },
+      {
+        id: `EXE-2026-${String((p.admission_id || 117718) - 486).slice(-6)}`,
+        agent: 'Feedback Agent',
+        version: '1.2.0',
+        status: 'Completed',
+        steps: 4,
+        bg: '#dcfce7',
+        fg: '#15803d',
+      },
+    ];
+  }, [p]);
 
   const pendingApprovals = useMemo(() => {
     const list = [];
@@ -2517,7 +2594,7 @@ export default function Patient360View({
                   color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
                 }}
               >
-                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || 2) + patientXrayOrders.length} Diagnostic Orders)
+                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (isOP ? 0 : 2)) + patientXrayOrders.length} Diagnostic Orders)
               </button>
               <button
                 type="button"
@@ -2541,7 +2618,7 @@ export default function Patient360View({
                   color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
                 }}
               >
-                Lab &amp; Diagnostic Orders ({((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || 2) + patientXrayOrders.length})
+                Lab &amp; Diagnostic Orders ({((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (isOP ? 0 : 2)) + patientXrayOrders.length})
               </button>
             </div>
           </div>
@@ -2610,11 +2687,11 @@ export default function Patient360View({
                       `${lr.test_parameter}: ${lr.result_value} ${lr.unit || ''} (Ref: ${lr.reference_range || 'Normal'})`,
                       lr.verification_status || 'Verified'
                     ])
-                  : [
-                      [`ORD-${p.admission_id || '87248'}`, 'CBC (Complete Blood Count)', 'Hematology', p.admittedDate || '17 May 2025', 'Param: 10.5 g/dL', 'Verified'],
-                      [`ORD-${(p.admission_id || 87248) + 1}`, 'Electrolytes Panel', 'Biochemistry', p.admittedDate || '17 May 2025', 'K: 4.1, Na: 138 mEq/L', 'Verified'],
-                      [`ORD-${(p.admission_id || 87248) + 2}`, 'HbA1c Glycated Hemoglobin', 'LIS', p.admittedDate || '17 May 2025', '6.8% · Good control', 'Verified']
-                    ];
+                  : (isOP ? [] : [
+                      [`ORD-${p.admission_id || '87248'}`, 'CBC (Complete Blood Count)', 'Hematology', p.admittedDate || 'Admission Day', 'Param: 10.5 g/dL', 'Verified'],
+                      [`ORD-${(p.admission_id || 87248) + 1}`, 'Electrolytes Panel', 'Biochemistry', p.admittedDate || 'Admission Day', 'K: 4.1, Na: 138 mEq/L', 'Verified'],
+                      [`ORD-${(p.admission_id || 87248) + 2}`, 'HbA1c Glycated Hemoglobin', 'LIS', p.admittedDate || 'Admission Day', '6.8% · Good control', 'Verified']
+                    ]);
 
             const xrayRows = patientXrayOrders.map((xo) => {
               const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
