@@ -194,7 +194,8 @@ class DatabricksConnector:
             cursor = conn.cursor()
             cursor.execute(query)
             col_names = [desc[0] for desc in cursor.description] if cursor.description else []
-            rows = cursor.fetchall()
+            rows = cursor.fetchall() if cursor.description else []
+            conn.commit()
             cursor.close()
 
         records = []
@@ -265,6 +266,13 @@ class DatabricksConnector:
                 row_dict["attending_physician"] = row_dict["primary_consultant"]
             if "patient_id" in row_dict and "patient_number" not in row_dict:
                 row_dict["patient_number"] = f"PAT-{row_dict['patient_id']}"
+        elif t == "dim_admission_inputs":
+            b_stat = str(row_dict.get("bill_status") or "").lower()
+            c_stat = str(row_dict.get("bill_clearance_status") or "").lower()
+            if b_stat in ["settled", "paid", "cleared"] or c_stat in ["cleared", "settled", "paid", "full payment"]:
+                row_dict["bill_clearance_status"] = "Cleared"
+                row_dict["bill_status"] = "Settled"
+                row_dict["outstanding_balance"] = 0.0
         return row_dict
 
     def query_table(self, table_name: str, limit: Optional[int] = None, offset: int = 0, schema: str = None) -> dict:
