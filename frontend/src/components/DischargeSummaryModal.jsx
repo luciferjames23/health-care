@@ -370,12 +370,13 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         const rawDischarge = summaryData.discharge_date && summaryData.discharge_date !== 'Now' ? summaryData.discharge_date : '';
         const dischargeDate = formatClinicalDateTime(rawDischarge, summaryData.dischargeTime || summaryData.dischargedAt);
         const attendingPhysician = clinical.doctor || summaryData.attending_physician || summaryData.doctor || summaryData.primary_consultant || '';
-        let admissionReason = (summaryData.admission_reason || summaryData.admission_details || summaryData.intent || '').trim();
+        const caseHistoryFallback = summaryData.case_history || summaryData.hospital_course_summary || clinical.narrative || summaryData.admission_reason || summaryData.reason_for_admission || summaryData.admission_details || '';
+        let admissionReason = (summaryData.admission_reason || summaryData.case_history || summaryData.hospital_course_summary || clinical.narrative || summaryData.reason_for_admission || summaryData.admission_details || summaryData.intent || '').trim();
         if (admissionReason === '—' || admissionReason === '-' || admissionReason.toLowerCase() === 'none') {
-          admissionReason = '';
+          admissionReason = caseHistoryFallback || '';
         }
         const dischargeDiagnosis = formatClinicalDiagnoses(clinical.primaryDiag || summaryData.discharge_diagnosis || summaryData.diagnoses || summaryData.primary_diagnosis);
-        const hospitalCourse = clinical.narrative || summaryData.hospital_course_summary || summaryData.case_history;
+        const hospitalCourse = caseHistoryFallback || clinical.narrative || summaryData.hospital_course_summary || summaryData.case_history || admissionReason;
         const investigations = formatClinicalInvestigations(clinical.investigations || summaryData.investigations);
         const patientCondition = formatClinicalCondition(clinical.condition || summaryData.patient_condition);
         const dischargeMeds = formatClinicalTreatment(summaryData.discharge_medications || summaryData.treatment || '');
@@ -398,9 +399,10 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
           admission_date: admissionDate,
           discharge_date: dischargeDate,
           attending_physician: attendingPhysician,
-          admission_reason: admissionReason,
+          admission_reason: admissionReason || hospitalCourse,
+          case_history: hospitalCourse || admissionReason,
           discharge_diagnosis: dischargeDiagnosis,
-          hospital_course_summary: hospitalCourse,
+          hospital_course_summary: hospitalCourse || admissionReason,
           investigations: investigations,
           patient_condition: patientCondition,
           discharge_medications: dischargeMeds,
@@ -431,6 +433,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             ) || (list.length > 0 ? list[0] : null);
 
             if (matched) {
+              const matchedCaseHistory = matched.case_history || matched.hospital_course_summary || matched.admission_reason || admissionReason || hospitalCourse;
               const updatedFromApi = {
                 summary_id: matched.summary_id ? `DS-${matched.summary_id}` : summaryId,
                 patient_id: matched.patient_id || patientId,
@@ -440,9 +443,10 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                 admission_date: matched.admission_date || admissionDate,
                 discharge_date: formatClinicalDateTime(matched.discharge_date || dischargeDate, summaryData.dischargeTime || summaryData.dischargedAt),
                 attending_physician: matched.primary_consultant || matched.attending_physician || attendingPhysician,
-                admission_reason: admissionReason,
+                admission_reason: matchedCaseHistory,
+                case_history: matchedCaseHistory,
                 discharge_diagnosis: formatClinicalDiagnoses(matched.diagnoses) || dischargeDiagnosis,
-                hospital_course_summary: matched.case_history || hospitalCourse,
+                hospital_course_summary: matchedCaseHistory,
                 investigations: formatClinicalInvestigations(matched.investigations) || investigations,
                 patient_condition: formatClinicalCondition(matched.patient_condition) || patientCondition,
                 discharge_medications: formatClinicalTreatment(matched.treatment) || dischargeMeds,
@@ -488,6 +492,13 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         changedFields[key] = form[key];
       }
     });
+
+    if (changedFields.admission_reason || changedFields.case_history || changedFields.hospital_course_summary) {
+      const updatedCaseHistory = form.admission_reason || form.case_history || form.hospital_course_summary;
+      changedFields.case_history = updatedCaseHistory;
+      changedFields.hospital_course_summary = updatedCaseHistory;
+      changedFields.admission_reason = updatedCaseHistory;
+    }
 
     if (overrideStatus) {
       changedFields.approval_status = overrideStatus;
@@ -981,14 +992,17 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#0369a1', marginBottom: '4px', textTransform: 'uppercase' }}>
-                    Admission Details & Case History
+                    Admission Details &amp; Case History
                   </label>
                   <textarea
-                    rows={2}
-                    value={form.admission_reason}
-                    onChange={(e) => setForm({ ...form, admission_reason: e.target.value })}
-                    placeholder="Enter admission details / reason..."
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontFamily: 'inherit' }}
+                    rows={4}
+                    value={form.admission_reason || form.case_history || form.hospital_course_summary || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm({ ...form, admission_reason: val, case_history: val, hospital_course_summary: val });
+                    }}
+                    placeholder="Enter admission details / reason and case history..."
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontFamily: 'inherit', lineHeight: 1.5 }}
                   />
                 </div>
 
@@ -1002,19 +1016,6 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     onChange={(e) => setForm({ ...form, discharge_diagnosis: e.target.value })}
                     placeholder="Enter primary and secondary diagnoses..."
                     style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: 600 }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: '#0369a1', marginBottom: '4px', textTransform: 'uppercase' }}>
-                    Hospital Course Summary
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={form.hospital_course_summary}
-                    onChange={(e) => setForm({ ...form, hospital_course_summary: e.target.value })}
-                    placeholder="Enter hospital course summary..."
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px', fontFamily: 'inherit' }}
                   />
                 </div>
 

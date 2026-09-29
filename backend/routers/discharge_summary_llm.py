@@ -366,6 +366,8 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
         raw_dict["diagnoses"] = raw_dict.pop("discharge_diagnosis")
     if raw_dict.get("hospital_course_summary") and not raw_dict.get("case_history"):
         raw_dict["case_history"] = raw_dict.pop("hospital_course_summary")
+    if raw_dict.get("admission_reason") and not raw_dict.get("case_history"):
+        raw_dict["case_history"] = raw_dict.pop("admission_reason")
     if raw_dict.get("discharge_medications") and not raw_dict.get("treatment"):
         raw_dict["treatment"] = raw_dict.pop("discharge_medications")
     if raw_dict.get("followup_instructions") and not raw_dict.get("discharge_advice"):
@@ -398,6 +400,24 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             key_value=actual_sid,
             updates=update_dict
         )
+
+        # Synchronize discharge_summaries table if exists
+        try:
+            ds_cols = {
+                "admission_id", "patient_id", "doctor_id", "admission_date", "discharge_date",
+                "diagnoses", "case_history", "investigations", "treatment", "primary_consultant",
+                "discharge_advice", "surgery_details", "patient_condition"
+            }
+            ds_updates = {k: v for k, v in update_dict.items() if k in ds_cols}
+            if ds_updates and actual_sid:
+                db_connector.update_record(
+                    table_name="discharge_summaries",
+                    key_field="summary_id",
+                    key_value=actual_sid,
+                    updates=ds_updates
+                )
+        except Exception:
+            pass
 
         # ── Cross-table synchronization: When a discharge summary is Approved / Signed Off,
         # cascade status change to admissions, dim_admission_inputs, and release assigned bed

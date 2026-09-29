@@ -706,6 +706,12 @@ export default function App() {
         <DetailDrawer
           drawer={drawer}
           onClose={() => setDrawer(null)}
+          onAction={(act) => {
+            if (act.modal) {
+              setModal(act.modal);
+              setDrawer(null);
+            }
+          }}
         />
       )}
 

@@ -747,6 +747,11 @@ export default function MasterModal({ modal, onClose, onSubmit, role = 'Hospital
             </div>
           </div>
         )}
+
+        {/* 7. SBAR MANUAL EDIT FORM */}
+        {kind === 'sbar-edit' && modal.sbarRow && (
+          <SbarEditInlineForm modal={modal} onClose={onClose} />
+        )}
       </div>
 
       <style>{`
@@ -760,5 +765,115 @@ export default function MasterModal({ modal, onClose, onSubmit, role = 'Hospital
         }
       `}</style>
     </div>
+  );
+}
+
+// ─── Inline SBAR Manual Edit Form ────────────────────────────────────────────
+function SbarEditInlineForm({ modal, onClose }) {
+  const { sbarRow, onSave } = modal;
+  const [sit, setSit] = useState(sbarRow.situation || '');
+  const [bg, setBg] = useState(sbarRow.background || '');
+  const [ass, setAss] = useState(sbarRow.assessment || '');
+  const [rec, setRec] = useState(sbarRow.recommendation || '');
+  const [nurse, setNurse] = useState(sbarRow.fromNurse || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const labelStyle = {
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#0369a1',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    marginBottom: '4px'
+  };
+  const textareaStyle = {
+    width: '100%',
+    padding: '8px 10px',
+    borderRadius: '6px',
+    border: '1px solid #cbd5e1',
+    fontSize: '12.5px',
+    fontFamily: 'inherit',
+    lineHeight: 1.5,
+    boxSizing: 'border-box',
+    resize: 'vertical',
+    color: '#0f172a'
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!sit.trim()) { setErr('[S] Situation is required.'); return; }
+    setSaving(true);
+    setErr('');
+    try {
+      await onSave({ situation: sit, background: bg, assessment: ass, recommendation: rec, nurse });
+      onClose();
+    } catch (ex) {
+      setErr(ex.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Patient info banner */}
+      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '7px', padding: '9px 13px', fontSize: '12px', color: '#0369a1', fontWeight: 600 }}>
+        ✏️ {sbarRow.patient || 'Patient'} &middot; {sbarRow.bed || 'Bed'} &middot; {sbarRow.wardName || sbarRow.wardname || 'Ward'}
+      </div>
+
+      {err && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '7px 12px', borderRadius: '6px', fontSize: '12px' }}>
+          ⚠️ {err}
+        </div>
+      )}
+
+      <div>
+        <label style={labelStyle}>S — Situation (Current Clinical Concern) *</label>
+        <textarea rows={3} value={sit} onChange={e => setSit(e.target.value)} required
+          placeholder="e.g. Patient presenting with acute respiratory distress, SpO2 dropping..."
+          style={textareaStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>B — Background (Relevant History &amp; Context)</label>
+        <textarea rows={3} value={bg} onChange={e => setBg(e.target.value)}
+          placeholder="e.g. Admitted from Emergency Bay on 2026-01-29. History of asthma exacerbation..."
+          style={textareaStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>A — Assessment (Current Clinical Status)</label>
+        <textarea rows={3} value={ass} onChange={e => setAss(e.target.value)}
+          placeholder="e.g. BP 113/71 mmHg, HR 105 bpm, SpO2 91.9%, Temp 100.22°F, RR 20. EWS 4..."
+          style={textareaStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>R — Recommendation (Actions for Receiving Nurse)</label>
+        <textarea rows={3} value={rec} onChange={e => setRec(e.target.value)}
+          placeholder="e.g. Pending labs: CBC and ABG by 12:00 PM. Administer Inj. Ceftriaxone 1g at 04:00 PM..."
+          style={textareaStyle} />
+      </div>
+
+      <div>
+        <label style={labelStyle}>Outgoing Nurse Name &amp; Designation</label>
+        <input type="text" value={nurse} onChange={e => setNurse(e.target.value)}
+          placeholder="e.g. Sheela J, RN"
+          style={{ ...textareaStyle, height: '36px', resize: 'none' }} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+        <button type="button" onClick={onClose}
+          style={{ height: '34px', padding: '0 16px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+          Cancel
+        </button>
+        <button type="submit" disabled={saving}
+          style={{ height: '34px', padding: '0 22px', borderRadius: '6px', border: 0, background: saving ? '#94a3b8' : 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
+          {saving ? 'Saving...' : '✓ Save SBAR Note'}
+        </button>
+      </div>
+    </form>
   );
 }

@@ -4657,32 +4657,29 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
         },
         {
           label: 'Manual Edit Note',
+          closeDrawer: true,
           on: () => {
-            const sit = prompt('Enter [S] Situation:', row.situation || '');
-            if (!sit) return;
-            const bg = prompt('Enter [B] Background:', row.background || '');
-            const ass = prompt('Enter [A] Assessment:', row.assessment || 'stable, vitals normal');
-            const rec = prompt('Enter [R] Recommendation:', row.recommendation || 'continue clinical plan');
-            const nurse = prompt('Enter Your Nurse Name:', 'Sheela J, RN');
-
-            const sbarFull = `S: ${sit} B: ${bg} A: ${ass} R: ${rec}`;
-            const timeStr = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${nurse}`;
-
-            apiService.updateSbarHandover(row.id, {
-              situation: sit,
-              background: bg,
-              assessment: ass,
-              recommendation: rec,
-              sbar_full: sbarFull,
-              from_nurse: nurse,
-              last_handover_time: timeStr,
-              status: 'Current'
-            }).then(() => {
-              loadData();
-              showToast(`SBAR Handover updated for ${row.patient}`);
-            }).catch(err => {
-              console.error(err);
-              loadData();
+            if (!onOpenModal) return;
+            onOpenModal({
+              kind: 'sbar-edit',
+              title: 'Manual Edit — SBAR Handover Note',
+              sbarRow: row,
+              onSave: async ({ situation, background, assessment, recommendation, nurse }) => {
+                const sbarFull = `S: ${situation} B: ${background} A: ${assessment} R: ${recommendation}`;
+                const timeStr = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${nurse || row.fromNurse || 'Nurse'}`;
+                await apiService.updateSbarHandover(row.id, {
+                  situation,
+                  background,
+                  assessment,
+                  recommendation,
+                  sbar_full: sbarFull,
+                  from_nurse: nurse || row.fromNurse,
+                  last_handover_time: timeStr,
+                  status: 'Current'
+                });
+                showToast(`SBAR Handover updated for ${row.patient}`);
+                loadData();
+              }
             });
           }
         }

@@ -365,6 +365,24 @@ export const apiService = {
   },
 
   // -------------------------------------------------------------------------
+  // Manage Patient Vitals (Normal / Abnormal by patient_code)
+  // -------------------------------------------------------------------------
+  async managePatientVitals(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/manage-vitals`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated('/api/v1/discharge-agent/manage-vitals', data);
+    return data;
+  },
+
+  async getPatientVitalsByCode(patientCode, limit = 10) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/patient-code/${encodeURIComponent(patientCode)}/vitals?limit=${limit}`, { forceRefresh: true });
+  },
+
+  // -------------------------------------------------------------------------
   // 3. Ward Details (/api/v1/bronze/wards)
   // -------------------------------------------------------------------------
   async getWards(params = {}, options = {}) {
