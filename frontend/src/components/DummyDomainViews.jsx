@@ -4836,27 +4836,51 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Total Beds</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '56px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{totalPatients}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Current SBARs</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>{handoverRecordedThisShift}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Stale SBARs</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{staleCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{staleCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Missing SBARs</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{noHandoverCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>High-Alert Meds</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#b91c1c' }}>{highAlertBedsCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#b91c1c' }}>{highAlertBedsCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>EWS ≥ 3</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{ewsHighCount}</div>
+          )}
         </div>
       </div>
 
@@ -5537,19 +5561,35 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Deaths recorded</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{deathsCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#0f172a' }}>{deathsCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Certificate pending</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{certPendingCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{certPendingCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>MLC</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{mlcCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#dc2626' }}>{mlcCount}</div>
+          )}
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
           <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '4px' }}>Body in mortuary</div>
-          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{bodyInMortuaryCount}</div>
+          {loading ? (
+            <div className="hx-shimmer" style={{ width: '48px', height: '28px', borderRadius: '4px', margin: '3px 0' }} />
+          ) : (
+            <div style={{ fontSize: '26px', fontWeight: 700, color: '#b45309' }}>{bodyInMortuaryCount}</div>
+          )}
         </div>
       </div>
 
