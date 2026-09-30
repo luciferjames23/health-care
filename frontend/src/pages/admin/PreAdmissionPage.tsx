@@ -199,11 +199,185 @@ const STATUS_OPTIONS = [
 
 const ADMISSION_TYPES = ['INPATIENT', 'SURGERY', 'DAYCARE'];
 
+interface SearchableOption {
+  id: string | number;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+}
+
+const SearchableSelect: React.FC<{
+  label: string;
+  options: SearchableOption[];
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  required?: boolean;
+}> = ({ label, options, value, onChange, placeholder, disabled, required }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedOpt = options.find(o => String(o.id) === String(value));
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filtered = options.filter(o => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      o.title.toLowerCase().includes(q) ||
+      (o.subtitle && o.subtitle.toLowerCase().includes(q)) ||
+      (o.badge && o.badge.toLowerCase().includes(q)) ||
+      String(o.id).toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative', width: '100%' }}>
+      <label style={modalLabelStyle}>{label} {required && '*'}</label>
+
+      {/* Hidden input for HTML form validation */}
+      <input
+        type="text"
+        value={value}
+        onChange={() => {}}
+        required={required}
+        style={{
+          opacity: 0,
+          width: 0,
+          height: 0,
+          position: 'absolute',
+          bottom: 0,
+          left: '50%',
+          pointerEvents: 'none'
+        }}
+      />
+
+      <div
+        onClick={() => { if (!disabled) setOpen(!open); }}
+        style={{
+          ...modalInputStyle,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          background: disabled ? (selectedOpt ? '#f8fafc' : '#f4f5f6') : '#fff',
+          borderColor: open ? 'oklch(0.5 0.1 200)' : '#e3e6e8',
+          color: disabled ? '#334155' : '#15181b',
+          fontWeight: disabled && selectedOpt ? 500 : 400,
+        }}
+      >
+        <span style={{ color: selectedOpt ? '#15181b' : '#8a9096', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selectedOpt ? (selectedOpt.subtitle && label !== 'Department' ? `${selectedOpt.title} (${selectedOpt.subtitle})` : selectedOpt.title) : (placeholder || `-- Select ${label} --`)}
+        </span>
+        {disabled && selectedOpt ? (
+          <span style={{ fontSize: '10px', color: '#047857', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>Locked</span>
+        ) : !disabled ? (
+          <span style={{ fontSize: '10px', color: '#8a9096', marginLeft: '6px' }}>▼</span>
+        ) : null}
+      </div>
+
+      {open && !disabled && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          zIndex: 1100,
+          marginTop: '4px',
+          background: '#fff',
+          borderRadius: '6px',
+          border: '1px solid #e3e6e8',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+          maxHeight: '240px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          <div style={{ padding: '6px', borderBottom: '1px solid #e3e6e8', background: '#fbfbfc' }}>
+            <input
+              type="text"
+              autoFocus
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={`Search ${label}...`}
+              style={{
+                width: '100%',
+                height: '28px',
+                padding: '0 8px',
+                borderRadius: '4px',
+                border: '1px solid #e3e6e8',
+                fontSize: '12px',
+                outline: 'none'
+              }}
+            />
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '10px 12px', fontSize: '12px', color: '#8a9096', textAlign: 'center' }}>
+                No matching records found
+              </div>
+            ) : (
+              filtered.map(o => {
+                const isSelected = String(o.id) === String(value);
+                return (
+                  <div
+                    key={o.id}
+                    onClick={() => {
+                      onChange(String(o.id));
+                      setOpen(false);
+                      setQuery('');
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      background: isSelected ? 'oklch(0.96 0.03 200)' : 'transparent',
+                      color: isSelected ? 'oklch(0.4 0.1 200)' : '#15181b',
+                      fontWeight: isSelected ? 600 : 400,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = isSelected ? 'oklch(0.96 0.03 200)' : '#f6f7f8')}
+                    onMouseLeave={e => (e.currentTarget.style.background = isSelected ? 'oklch(0.96 0.03 200)' : 'transparent')}
+                  >
+                    <div>
+                      <div>{o.title}</div>
+                      {o.subtitle && <div style={{ fontSize: '11px', color: '#8a9096' }}>{o.subtitle}</div>}
+                    </div>
+                    {o.badge && (
+                      <span style={{ fontSize: '10px', background: '#f0f2f4', color: '#52585e', padding: '2px 6px', borderRadius: '4px' }}>
+                        {o.badge}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const PreAdmissionPage: React.FC = () => {
   const { user } = useAuth();
   const [preAdmissions, setPreAdmissions] = useState<PreAdmissionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: 'info' | 'success' | 'error'; loading?: boolean } | null>(null);
+  const toastTimeoutRef = React.useRef<any>(null);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -247,9 +421,24 @@ const PreAdmissionPage: React.FC = () => {
   const [subDocs, setSubDocs] = useState('');
   const [statusRemarks, setStatusRemarks] = useState('');
 
-  const showToastMsg = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
+  const showToastMsg = (msg: string, type: 'info' | 'success' | 'error' = 'success', loading = false) => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+    setToast({ msg, type, loading });
+    if (type === 'success') {
+      toastTimeoutRef.current = setTimeout(() => setToast(null), 4000);
+    } else if (loading) {
+      // Safety net timeout: clear loading state after 15 seconds if API request hangs
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast({
+          msg: '⚠️ Notification dispatch request timed out. Please check network connection.',
+          type: 'error',
+          loading: false
+        });
+      }, 15000);
+    }
   };
 
   const loadData = useCallback(async () => {
@@ -291,6 +480,64 @@ const PreAdmissionPage: React.FC = () => {
     }
   };
 
+  const handleDeptSelect = (deptIdStr: string) => {
+    setFormDeptId(deptIdStr);
+    if (formDoctorId) {
+      const selectedDoc = doctors.find(d => String(d.id) === formDoctorId);
+      if (selectedDoc && String(selectedDoc.department_id) !== deptIdStr) {
+        setFormDoctorId('');
+      }
+    }
+  };
+
+  const isDoctorRole = Boolean(
+    user && (
+      String(user.role).toLowerCase() === 'doctor' ||
+      (user as any)?.role === 'DOCTOR'
+    )
+  );
+
+  // Auto-populate Doctor & Department for authenticated doctor role
+  useEffect(() => {
+    if (showAddModal && isDoctorRole) {
+      const docId = user?.doctorId || (user as any)?.doctor_id;
+      if (docId) {
+        const docIdStr = String(docId);
+        setFormDoctorId(docIdStr);
+        const selectedDoc = doctors.find(d => String(d.id) === docIdStr);
+        if (selectedDoc) {
+          setFormDeptId(String(selectedDoc.department_id));
+        } else if (user?.department) {
+          const matchedDept = departments.find(dep => dep.department_name.toLowerCase() === user.department?.toLowerCase());
+          if (matchedDept) {
+            setFormDeptId(String(matchedDept.id));
+          }
+        }
+      }
+    }
+  }, [showAddModal, isDoctorRole, user, doctors, departments]);
+
+  const patientOptions: SearchableOption[] = patients.map(p => ({
+    id: String(p.id),
+    title: `${p.first_name} ${p.last_name}`.trim(),
+    subtitle: `ID: ${p.patient_code} · Phone: ${p.phone || p.whatsapp_number || 'N/A'}`,
+    badge: p.status
+  }));
+
+  const doctorOptions: SearchableOption[] = doctors.map(d => ({
+    id: String(d.id),
+    title: d.display_name.startsWith('Dr.') ? d.display_name : `Dr. ${d.display_name}`,
+    subtitle: d.specialization || d.qualification || undefined,
+    badge: d.status
+  }));
+
+  const departmentOptions: SearchableOption[] = departments.map(d => ({
+    id: String(d.id),
+    title: d.department_name,
+    subtitle: d.description || d.department_code || undefined,
+    badge: d.status
+  }));
+
   // Open Chat Modal
   const handleOpenChat = async (pa: PreAdmissionItem) => {
     setSelectedPa(pa);
@@ -306,13 +553,19 @@ const PreAdmissionPage: React.FC = () => {
 
   // Trigger Notification
   const handleNotify = async (id: number) => {
-    showToastMsg('Sending WhatsApp notification...', 'success');
-    const res = await sendPreAdmissionNotification(id);
-    if (res.success) {
-      showToastMsg(`✓ WhatsApp admission notification sent successfully! (${res.whatsapp_number || ''})`, 'success');
+    showToastMsg('Sending WhatsApp notification to patient...', 'info', true);
+    try {
+      const res = await sendPreAdmissionNotification(id);
+      if (res.success && res.status === 'SENT') {
+        showToastMsg(`✓ WhatsApp admission notification sent successfully! (${res.whatsapp_number || ''})`, 'success');
+        loadData();
+      } else {
+        showToastMsg(`❌ Failed to send WhatsApp notification: ${res.error || 'Delivery failed'}`, 'error');
+        loadData();
+      }
+    } catch (err: any) {
+      showToastMsg(`❌ Failed to send WhatsApp notification: ${err?.message || 'Network error'}`, 'error');
       loadData();
-    } else {
-      showToastMsg(`❌ Notification failed: ${res.error || 'Unknown error'}`, 'error');
     }
   };
 
@@ -337,7 +590,11 @@ const PreAdmissionPage: React.FC = () => {
         pending_documents: formDocs
       });
       if (res.success) {
-        showToastMsg(`✓ Admission registered! Code: ${res.pre_admission_code}. WhatsApp message dispatched.`, 'success');
+        if (res.notification_status === 'SENT') {
+          showToastMsg(`✓ Admission registered! Code: ${res.pre_admission_code}. WhatsApp message delivered successfully.`, 'success');
+        } else {
+          showToastMsg(`⚠️ Admission registered! Code: ${res.pre_admission_code}. WhatsApp notification FAILED to deliver (check remarks).`, 'error');
+        }
         setShowAddModal(false);
         // Reset form
         setFormPatientId('');
@@ -429,19 +686,48 @@ const PreAdmissionPage: React.FC = () => {
       {toast && (
         <div
           style={{
-            background: toast.type === 'success' ? '#ecfdf5' : '#fef2f2',
-            border: `1px solid ${toast.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
+            background: toast.type === 'info' ? '#eff6ff' : toast.type === 'success' ? '#ecfdf5' : '#fef2f2',
+            border: `1px solid ${toast.type === 'info' ? '#bfdbfe' : toast.type === 'success' ? '#a7f3d0' : '#fecaca'}`,
             borderRadius: '6px',
             padding: '8px 12px',
-            color: toast.type === 'success' ? '#047857' : '#b91c1c',
+            color: toast.type === 'info' ? '#1e40af' : toast.type === 'success' ? '#047857' : '#b91c1c',
             fontSize: '12px',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            justifyContent: 'space-between',
+            gap: '8px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
           }}
         >
-          {toast.type === 'success' ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
-          {toast.msg}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {toast.loading ? (
+              <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+            ) : toast.type === 'info' ? (
+              <Bell size={14} />
+            ) : toast.type === 'success' ? (
+              <CheckCircle size={14} />
+            ) : (
+              <AlertTriangle size={14} />
+            )}
+            <span>{toast.msg}</span>
+          </div>
+          {toast.type === 'error' && (
+            <button
+              onClick={() => setToast(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#b91c1c',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '12px',
+                padding: '2px 6px'
+              }}
+              title="Dismiss error message"
+            >
+              ✕ Dismiss
+            </button>
+          )}
         </div>
       )}
 
@@ -750,54 +1036,38 @@ const PreAdmissionPage: React.FC = () => {
             <form onSubmit={handleCreateAdmission} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ padding: '16px', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ gridColumn: 'span 2' }}>
-                  <label style={modalLabelStyle}>Select Patient *</label>
-                  <select
-                    style={modalSelectStyle}
+                  <SearchableSelect
+                    label="Select Patient"
+                    options={patientOptions}
                     value={formPatientId}
-                    onChange={e => setFormPatientId(e.target.value)}
+                    onChange={setFormPatientId}
+                    placeholder="-- Search & Select Patient (Name, ID, Phone) --"
                     required
-                  >
-                    <option value="">-- Select Registered Patient --</option>
-                    {patients.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.first_name} {p.last_name} ({p.patient_code}) — {p.phone}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
-                  <label style={modalLabelStyle}>Attending Doctor *</label>
-                  <select
-                    style={modalSelectStyle}
+                  <SearchableSelect
+                    label="Attending Doctor"
+                    options={doctorOptions}
                     value={formDoctorId}
-                    onChange={e => handleDoctorSelect(e.target.value)}
+                    onChange={handleDoctorSelect}
+                    placeholder="-- Search & Select Doctor --"
+                    disabled={isDoctorRole}
                     required
-                  >
-                    <option value="">-- Select Doctor --</option>
-                    {doctors.map(d => (
-                      <option key={d.id} value={d.id}>
-                        {d.display_name.startsWith('Dr.') ? d.display_name : `Dr. ${d.display_name}`} ({d.specialization})
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>
-                  <label style={modalLabelStyle}>Department *</label>
-                  <select
-                    style={modalSelectStyle}
+                  <SearchableSelect
+                    label="Department"
+                    options={departmentOptions}
                     value={formDeptId}
-                    onChange={e => setFormDeptId(e.target.value)}
+                    onChange={handleDeptSelect}
+                    placeholder="-- Auto-filled when Doctor is selected --"
+                    disabled={true}
                     required
-                  >
-                    <option value="">-- Select Department --</option>
-                    {departments.map(d => (
-                      <option key={d.id} value={d.id}>
-                        {d.department_name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div>

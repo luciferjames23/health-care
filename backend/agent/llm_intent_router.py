@@ -901,6 +901,11 @@ def _rule_based_fallback(
         if any(p in msg_lower for p in _pre_adm_kws) or current_state.get("intent") == "PRE_ADMISSION":
             canonical_intent = "PRE_ADMISSION"
 
+        # Fast-path for booking intent with typo tolerance (appointmnt, appoinment, apointment)
+        _booking_typo_kws = ["appointmnt", "appoinment", "apointment", "book appt", "book an appt", "need appt", "schedule appt"]
+        if any(p in msg_lower for p in _booking_typo_kws):
+            canonical_intent = "BOOK_APPOINTMENT"
+
         # Detect: "my son details", "son's profile", "my daughter details", "dependent details", etc.
         _dep_detail_kws = [
             "son detail", "son's detail", "my son detail", "son profile", "son information", "son info",

@@ -2181,8 +2181,17 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_pay_cancel"
         elif m_strip.startswith("pay ₹") or m_strip.startswith("pay rs") or m_strip.startswith("btn_pay_exec") or m_strip in ["pay", "pay now", "make payment", "pay fee", "confirm payment", "pay ₹800", "pay 800", "pay rs 800"]:
             btn_id = "btn_pay_exec"
-        elif any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]:
-            btn_id = "btn_book_appt"
+        elif (any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]):
+            rule_ext_check = entity_extractor.extract_entities(message_text)
+            has_entities_check = bool(
+                rule_ext_check.get("reason") or
+                rule_ext_check.get("doctor_id") or
+                rule_ext_check.get("department_id") or
+                rule_ext_check.get("appointment_date") or
+                entity_extractor.is_date_or_time_expression(m_strip)
+            )
+            if not has_entities_check:
+                btn_id = "btn_book_appt"
         elif any(kw in m_strip for kw in ["confirm appointment", "confirm appt"]) or m_strip in ["confirm"]:
             btn_id = "btn_confirm_appt"
         elif any(kw in m_strip for kw in ["cancel appointment", "cancel my appointment", "cancel appt", "cancel booking"]):
@@ -2262,10 +2271,13 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     pass
             if curr_doc or curr_stage in ["DATE_REQUIRED", "AWAITING_DATE", "DOCTOR_SELECTED", "DOCTOR_SELECTION_REQUIRED", "AWAITING_TIME", "AWAITING_DOCTOR"] or state.get("intent") == "BOOK_APPOINTMENT":
                 try:
-                    from agent.date_normalizer import parse_and_normalize_date
-                    norm_d, is_amb, err = parse_and_normalize_date(message_text)
-                    if norm_d:
-                        btn_id = f"btn_date_{norm_d}"
+                    rule_ext_date = entity_extractor.extract_entities(message_text)
+                    has_doc_or_reason_in_msg = bool(rule_ext_date.get("doctor_id") or rule_ext_date.get("reason"))
+                    if not has_doc_or_reason_in_msg:
+                        from agent.date_normalizer import parse_and_normalize_date
+                        norm_d, is_amb, err = parse_and_normalize_date(message_text)
+                        if norm_d:
+                            btn_id = f"btn_date_{norm_d}"
                 except Exception:
                     pass
 
@@ -8500,9 +8512,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 is_generic_booking_start = False
             else:
                 is_generic_booking_start = (
-                    (is_explicit_booking_request or not has_symptom_or_dept_or_doc) and
-                    not state.get("confirmation_pending") and not is_mid_booking_flow
-                ) or (is_explicit_booking_request and not is_mid_booking_flow)
+                    not has_symptom_or_dept_or_doc and
+                    not state.get("confirmation_pending") and
+                    not is_mid_booking_flow
+                )
 
             if is_generic_booking_start:
                 # Clear stale entities for fresh booking (including any leftover cancel reason)
