@@ -828,6 +828,40 @@ export default function Patient360View({
     const latestBp = hasRealVitals
       ? `BP ${sbp}/${dbp} · HR ${hr} bpm · SpO2 ${spo2}% · Temp ${temp}°F`
       : 'No vitals recorded yet (Pending nursing intake)';
+    const isSummaryApproved = Boolean(
+      summaryApproval === 'approved' ||
+      summaryApproval === 'signed off' ||
+      summaryApproval === 'completed' ||
+      (dischargeSummary && ['approved', 'signed'].some(s =>
+        String(dischargeSummary.approval_status || '').toLowerCase().includes(s) ||
+        String(dischargeSummary.status || '').toLowerCase().includes(s)
+      ))
+    );
+
+    const isDischargeApprovalRequired = !isOP && !isER && !isDischarged && (
+      (isCleared || isExplicitlyCleared) && !isSummaryApproved && !isReadyForDischarge
+    );
+
+    const dischargePredicted = isDischarged
+      ? 'Completed'
+      : (isDischargeApprovalRequired
+          ? 'Approval required'
+          : ((isReadyForDischarge || (isCleared && isSummaryApproved)) ? 'Ready' : 'Blocked'));
+
+    const dischargeStatusLabel = isDischarged
+      ? 'Discharged · Signed Off'
+      : (isDischargeApprovalRequired
+          ? 'Approval required · Doctor Sign-Off'
+          : ((isReadyForDischarge || (isCleared && isSummaryApproved))
+              ? 'Ready for Discharge'
+              : 'Blocked · Pending Bill Clearance'));
+
+    const dischargeOwner = isDischarged
+      ? (doctor || 'Attending Physician')
+      : (isDischargeApprovalRequired
+          ? (doctor || 'Clinical Discharge Agent')
+          : (isCleared ? 'Clinical Discharge Agent' : `Doctor: ${doctor}`));
+
     const stayDays = (isOP || isER) ? 1 : (adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24)) + 1) : 1));
 
     return {
@@ -890,6 +924,11 @@ export default function Patient360View({
       outstandingBalance,
       isCleared,
       isDischarged,
+      isSummaryApproved,
+      isDischargeApprovalRequired,
+      dischargePredicted,
+      dischargeStatusLabel,
+      dischargeOwner,
       dischargeSummary,
       billingStatusDisplay,
       latestBp,
@@ -1141,7 +1180,7 @@ export default function Patient360View({
     return [
       {
         id: `EXE-2026-${String(p.admission_id || 118204).slice(-6)}`,
-        agent: 'Discharge Orchestration Agent',
+        agent: 'Discharge Summary Agent',
         version: '3.0.2',
         status: p.isCleared ? 'Completed' : 'Waiting',
         steps: 12,
@@ -1149,31 +1188,13 @@ export default function Patient360View({
         fg: p.isCleared ? '#15803d' : '#92400e',
       },
       {
-        id: `EXE-2026-${String((p.admission_id || 117656) - 548).slice(-6)}`,
-        agent: 'Diagnostic Coordination Agent',
-        version: '1.5.1',
-        status: 'Completed',
-        steps: 5,
-        bg: '#dcfce7',
-        fg: '#15803d',
-      },
-      {
-        id: `EXE-2026-${String((p.admission_id || 117666) - 538).slice(-6)}`,
-        agent: 'Queue / Flow Agent',
-        version: '2.0.4',
-        status: 'Completed',
-        steps: 6,
-        bg: '#dcfce7',
-        fg: '#15803d',
-      },
-      {
-        id: `EXE-2026-${String((p.admission_id || 117718) - 486).slice(-6)}`,
-        agent: 'Feedback Agent',
+        id: `EXE-2026-${String((p.admission_id || 118204) - 82).slice(-6)}`,
+        agent: 'Nurse Handover Agent',
         version: '1.2.0',
-        status: 'Completed',
-        steps: 4,
-        bg: '#dcfce7',
-        fg: '#15803d',
+        status: p.isDischarged ? 'Completed' : (p.isCleared ? 'Active' : 'Standby'),
+        steps: p.isDischarged ? 8 : (p.isCleared ? 4 : 0),
+        bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#f1f5f9'),
+        fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#475569'),
       },
     ];
   }, [p]);
@@ -2637,42 +2658,52 @@ export default function Patient360View({
           {/* Sub-filter tabs */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('all')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'all' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'all' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (p.isOP ? 0 : 2)) + patientXrayOrders.length} Diagnostic Orders)
-              </button>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('diagnoses')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'diagnoses' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'diagnoses' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'diagnoses' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                Clinical Diagnoses ({p.diagnoses_list?.length || 1})
-              </button>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('labs')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'labs' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'labs' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                Lab &amp; Diagnostic Orders ({((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (p.isOP ? 0 : 2)) + patientXrayOrders.length})
-              </button>
+              {(() => {
+                const actualLabCount = (liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length || 0);
+                const actualXrayCount = (patientXrayOrders?.length || 0);
+                const totalDiagnosticCount = actualLabCount + actualXrayCount;
+                const actualDiagCount = p.diagnoses_list?.length || (p.primary_diagnosis ? 1 : 0);
+                return (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('all')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'all' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'all' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      All Records ({actualDiagCount} {actualDiagCount === 1 ? 'Diagnosis' : 'Diagnoses'}{totalDiagnosticCount > 0 ? ` + ${totalDiagnosticCount} Diagnostic ${totalDiagnosticCount === 1 ? 'Order' : 'Orders'}` : ''})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('diagnoses')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'diagnoses' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'diagnoses' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'diagnoses' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      Clinical Diagnoses ({actualDiagCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('labs')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'labs' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'labs' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      Lab &amp; Diagnostic Orders ({totalDiagnosticCount})
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -3626,10 +3657,10 @@ export default function Patient360View({
               [
                 `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
                 p.admittedDate || '17 May 2025',
-                p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
+                p.dischargePredicted,
                 p.dischargeDateTime,
-                p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
-                p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Blocked · Pending Bill Clearance')
+                p.dischargeOwner,
+                p.dischargeStatusLabel
               ],
             ]
           }
@@ -3660,7 +3691,23 @@ export default function Patient360View({
                 title: `${row[0]} · ${p.name}`,
                 sub: `Discharge Status: ${row[5]} | Date & Time: ${row[3]}`,
                 badges: [
-                  { t: p.isDischarged ? 'Discharged & Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Pending Clearance'), bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#fef3c7'), fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#92400e') }
+                  {
+                    t: p.isDischarged
+                      ? 'Discharged & Signed Off'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? 'Approval Required · Doctor Sign-Off'
+                          : (p.dischargePredicted === 'Ready' ? 'Ready for Discharge' : 'Pending Clearance')),
+                    bg: p.isDischarged
+                      ? '#dcfce7'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? '#fef3c7'
+                          : (p.dischargePredicted === 'Ready' ? '#dcfce7' : '#fee2e2')),
+                    fg: p.isDischarged
+                      ? '#15803d'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? '#92400e'
+                          : (p.dischargePredicted === 'Ready' ? '#15803d' : '#b91c1c'))
+                  }
                 ],
                 facts: [
                   { k: 'Discharge Case ID', v: row[0], b: true },
@@ -3726,7 +3773,9 @@ export default function Patient360View({
           rows={[
             ['Discharge Summary', 'v1 draft', `AI draft · ${p.doctor}`, p.isCleared ? 'Approved & Signed' : 'DRAFT — HUMAN REVIEW'],
             ['Itemized Hospital & Pharmacy Bill', 'v1', 'Finance & Revenue Lead', p.isCleared ? 'Paid in Full' : 'Pending Settlement'],
-            ['Diagnostic & Lab Investigation Panel', 'Final', 'LIS Pathology Lead', 'Verified & Signed'],
+            ...((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) ? [
+              ['Diagnostic & Lab Investigation Panel', 'Final', 'LIS Pathology Lead', 'Verified & Signed']
+            ] : []),
             ['Patient Admission & Consent Form', 'v1', 'Front Office Lead', 'Signed'],
           ]}
         />

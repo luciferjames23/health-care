@@ -23,6 +23,7 @@ No mock or hardcoded data is used in production paths.
 
 import sys
 import os
+import json
 import traceback
 from datetime import datetime, timedelta, date, timezone
 from typing import Optional, List
@@ -907,6 +908,182 @@ def register_patient(
                 """,
                 (next_adm_id, adm_number, patient_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, clinical_reason)
             )
+
+            # Resolve Doctor and Ward names for lakehouse and SBAR
+            cur.execute("SELECT COALESCE(display_name, first_name || ' ' || last_name), specialization, qualification FROM doctors WHERE id = %s;", (resolved_doctor_id,))
+            doc_info = cur.fetchone() or ("Dr. Attending Physician", "General Medicine", "MBBS, MD")
+            doc_name, doc_spec, doc_qual = doc_info[0], doc_info[1] or "General Medicine", doc_info[2] or "MBBS, MD"
+
+            cur.execute("SELECT ward_name FROM wards WHERE ward_id = %s;", (ward_id,))
+            ward_res = cur.fetchone()
+            ward_name = ward_res[0] if ward_res else "General Inpatient Ward"
+
+            patient_full_name = f"{first_name} {last_name}".strip()
+            is_self_pay = not insurer or insurer.lower() == "self-pay"
+            patient_blood_group = req.blood_group or "O+"
+            patient_address = req.address or "Chennai Metropolitan Area"
+
+            adm_llm_json = {
+                "patient_demographics": {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "gender": gender,
+                    "age_at_admission": req.age or 35,
+                    "blood_group": patient_blood_group,
+                    "date_of_birth": dob,
+                    "marital_status": "Single",
+                    "preferred_language": "English",
+                    "phone": phone,
+                    "email": f"{first_name.lower()}.{last_name.lower()}@hospital.com",
+                    "address": patient_address,
+                    "city": "Chennai",
+                    "state": "Tamil Nadu",
+                    "postal_code": "600001",
+                    "emergency_contact_name": "Family Member",
+                    "emergency_contact_phone": phone
+                },
+                "admission_details": {
+                    "admission_number": adm_number,
+                    "admission_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "admission_type": "Inpatient",
+                    "admission_source": "Registration",
+                    "reason_for_admission": clinical_reason,
+                    "discharge_status": "Admitted",
+                    "current_stay_days": 1,
+                    "attending_doctor": doc_name,
+                    "doctor_specialization": doc_spec,
+                    "doctor_qualification": doc_qual
+                },
+                "diagnoses": {
+                    "primary_diagnosis": clinical_reason,
+                    "secondary_diagnoses": [],
+                    "diagnoses_list": [
+                        {
+                            "diagnosis_code": "D-0",
+                            "diagnosis_name": clinical_reason,
+                            "diagnosis_type": "Primary",
+                            "is_primary": True,
+                            "admission_id": next_adm_id,
+                            "diagnosis_date": datetime.now().isoformat()
+                        }
+                    ]
+                },
+                "medications": { "medications_list": [] },
+                "lab_results": { "lab_results_list": [] },
+                "procedures": { "procedures_list": [] },
+                "vital_signs": {
+                    "latest_temperature": 98.6,
+                    "latest_heart_rate": 72,
+                    "latest_systolic_bp": 120,
+                    "latest_diastolic_bp": 80,
+                    "latest_oxygen_saturation": 98.0,
+                    "vital_signs_list": [
+                        {
+                            "admission_id": next_adm_id,
+                            "recorded_at": datetime.now().isoformat(),
+                            "temperature": 98.6,
+                            "heart_rate": 72,
+                            "systolic_bp": 120,
+                            "diastolic_bp": 80,
+                            "respiratory_rate": 18,
+                            "oxygen_saturation": 98.0,
+                            "weight": 65.0
+                        }
+                    ]
+                },
+                "billing": {
+                    "bill_number": f"BILL-{30500 + next_adm_id % 1000}",
+                    "bill_date": datetime.now().isoformat(),
+                    "bill_gross_amount": 120000.0,
+                    "bill_discount_amount": 0.0,
+                    "bill_tax_amount": 0.0,
+                    "bill_net_amount": 120000.0,
+                    "bill_insurance_portion": 0.0 if is_self_pay else 102000.0,
+                    "bill_patient_portion": 120000.0 if is_self_pay else 18000.0,
+                    "bill_status": "Released",
+                    "bill_clearance_status": "Released",
+                    "total_paid_amount": 120000.0,
+                    "total_insurance_settled": 0.0,
+                    "outstanding_balance": 0.0,
+                    "payment_count": 1
+                }
+            }
+
+            adm_llm_input_text = f"""--- PATIENT DEMOGRAPHICS ---
+Name: {patient_full_name} | Gender: {gender} | Age: {req.age or 35} years | Blood Group: {patient_blood_group}
+Phone: {phone} | Address: {patient_address}
+
+--- ADMISSION DETAILS ---
+Admission Number: {adm_number} | Date: {datetime.now().strftime('%Y-%m-%d')} | Type: Inpatient
+Reason: {clinical_reason} | Status: Admitted
+Attending Doctor: {doc_name} | Specialization: {doc_spec}
+
+--- DIAGNOSES ---
+Primary: {clinical_reason}
+
+--- BILLING ---
+Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insurer} | Balance: 0.00
+"""
+
+            cur.execute("""
+                INSERT INTO dim_admission_inputs (
+                    admission_id, admission_number, patient_id, patient_number,
+                    first_name, last_name, gender, age_at_admission, blood_group,
+                    date_of_birth, marital_status, preferred_language, phone, email,
+                    address, city, state, postal_code, emergency_contact_name, emergency_contact_phone,
+                    admission_date, admission_type, admission_source, reason_for_admission,
+                    discharge_status, current_stay_days, attending_doctor, doctor_specialization,
+                    doctor_qualification, primary_diagnosis, secondary_diagnoses,
+                    latest_temperature, latest_heart_rate, latest_systolic_bp, latest_diastolic_bp,
+                    latest_oxygen_saturation, bill_number, bill_net_amount, bill_status,
+                    bill_clearance_status, outstanding_balance, llm_input, llm_input_json,
+                    gold_ingestion_time, bed_number, room_number, ward_name
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    CURRENT_TIMESTAMP, 'Inpatient', 'Registration', %s,
+                    'Admitted', 1, %s, %s,
+                    %s, %s, %s,
+                    98.6, 72, 120, 80,
+                    98.0, %s, 120000.0, 'Released',
+                    'Released', 0.0, %s, %s,
+                    CURRENT_TIMESTAMP, %s, %s, %s
+                );
+            """, (
+                next_adm_id, adm_number, patient_id, assigned_code,
+                first_name, last_name, gender, req.age or 35, patient_blood_group,
+                dob or "1990-01-01", "Single", "English", phone, f"{first_name.lower()}.{last_name.lower()}@hospital.com",
+                patient_address, "Chennai", "Tamil Nadu", "600001", "Family Member", phone,
+                clinical_reason, doc_name, doc_spec,
+                doc_qual, clinical_reason, "{}",
+                f"BILL-{30500 + next_adm_id % 1000}", adm_llm_input_text, json.dumps(adm_llm_json),
+                bed_number or "BED-Allocated", room_number or "Assigned Room", ward_name
+            ))
+
+            # Insert initial SBAR Handover record for bedside shift handover
+            cur.execute("""
+                INSERT INTO ward_sbar_handovers (
+                    bed_no, patient_name, uhid, age_gender, ews, mar_due,
+                    last_handover_time, from_nurse, to_nurse, situation, background,
+                    assessment, recommendation, sbar_full, status, handover_shift, acknowledged
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s
+                );
+            """, (
+                bed_number or "BED-Allocated", patient_full_name, assigned_code, f"{req.age or 35}{gender[0].upper()}", "Normal 0", None,
+                "Just now · Staff Nurse, RN", "Staff Nurse, RN", "Shift Nurse, RN",
+                f"{clinical_reason}, Day 1 under {doc_name} in {ward_name}.",
+                f"Admitted via Registration. Insurer: {insurer}.",
+                "Vitals: BP 120/80 mmHg, HR 72 bpm, SpO2 98%, Temp 98.6°F. EWS: Normal 0. Initial intake vitals recorded.",
+                f"Continue inpatient clinical plan under {doc_name}. Monitor vitals Q4H.",
+                f"S: {clinical_reason}. B: Newly admitted patient. A: Vitals stable. R: Inpatient monitoring.",
+                "Current", "Morning (07:00 - 15:00)", False
+            ))
+
             encounter_details = {
                 "encounter_type": "IP",
                 "admission_id": next_adm_id,

@@ -1061,11 +1061,58 @@ def get_hr_dashboard(search: Optional[str] = Query(None), limit: int = 10, offse
 # ---------------------------------------------------------------------------
 # 18. HOSPITAL NOTIFICATION CENTRE (/api/v1/admin/notifications)
 # ---------------------------------------------------------------------------
+# IMPORTANT: /notifications/count and /notifications/mark-all-read MUST be defined
+# BEFORE /notifications/{notif_id}/read to avoid FastAPI routing conflicts.
+
+@router.get("/notifications/count", summary="Get Unread & Critical Notification Counts")
+def get_notification_counts():
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        # Unread = any notification not yet marked READ
+        cur.execute("SELECT COUNT(*) FROM notifications WHERE status NOT IN ('READ', 'DELIVERED');")
+        unread_notifs = cur.fetchone()[0] or 0
+        cur.execute("SELECT COUNT(*) FROM escalations WHERE status NOT IN ('RESOLVED');")
+        unread_escs = cur.fetchone()[0] or 0
+        cur.execute("SELECT COUNT(*) FROM notifications;")
+        total_notifs = cur.fetchone()[0] or 0
+
+        return {
+            "success": True,
+            "total": total_notifs,
+            "unread_count": unread_notifs + unread_escs,
+            "critical_count": unread_escs
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/notifications/mark-all-read", summary="Mark All Notifications as Read")
+def mark_all_notifications_read():
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE notifications SET status = 'READ' WHERE status NOT IN ('READ');")
+        cur.execute("UPDATE escalations SET status = 'RESOLVED' WHERE status NOT IN ('RESOLVED');")
+        conn.commit()
+        return {"success": True, "message": "All notifications marked as read."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+
 @router.get("/notifications", summary="Live Hospital Platform Notifications")
 def get_notifications(
     search: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -1073,11 +1120,89 @@ def get_notifications(
     Live Hospital Notification Centre API:
     Aggregates platform alerts, clinical safety alerts, agent approvals,
     SLA breaches, and statutory escalations from PostgreSQL.
+    Supports role-based filtering: pass ?role=<role> to scope notifications.
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
+
+        # ---------------------------------------------------------------------------
+        # Helper: resolve a meaningful patient display name.
+        # Priority:
+        #   1. Real first + last name from patients table (if not a placeholder)
+        #   2. Name extracted from WhatsApp message text "Dear <Name>," pattern
+        #   3. patient_code (e.g. PAT-138843)
+        #   4. "Patient" + last 4 digits of phone
+        #   5. "Unknown Patient"
+        # ---------------------------------------------------------------------------
+        import re as _re
+        def resolve_patient_name(first_name, last_name, patient_code, patient_id,
+                                  message_text=None, phone=None):
+            fn = (first_name or '').strip()
+            ln = (last_name or '').strip()
+            full = f"{fn} {ln}".strip()
+
+            # Detect placeholder patterns: 'Patient #<digits>' or '#<digits>'
+            is_placeholder = (
+                not full
+                or (fn.lower() == 'patient' and ln.startswith('#'))
+                or fn.lower().startswith('patient #')
+                or full.lower().startswith('patient #')
+            )
+
+            if not is_placeholder:
+                return full
+
+            # 2. Try to extract name from WhatsApp message "Dear <Name>,"
+            if message_text:
+                msg = str(message_text)
+                # Matches: "Dear John Peter," or "Dear *John Peter*,"
+                m = _re.search(r'Dear\s+\*?([A-Za-z][A-Za-z .\'-]{1,40})\*?,', msg)
+                if m:
+                    extracted = m.group(1).strip().strip('*').strip()
+                    # Skip if extracted is literally 'Patient' (placeholder in message)
+                    if extracted and extracted.lower() != 'patient':
+                        return extracted
+
+            # 3. Fall back to patient_code
+            if patient_code:
+                return patient_code
+
+            # 4. Phone-based fallback (last 4 digits for privacy)
+            if phone:
+                ph = str(phone).strip()
+                if len(ph) >= 4:
+                    return f"Patient ···{ph[-4:]}"
+
+            # 5. ID fallback
+            return f"Patient {patient_id}" if patient_id else "Unknown Patient"
+
+        # ---------------------------------------------------------------------------
+        # ROLE-BASED NOTIFICATION SCOPE MAPPING
+        # Maps each user role to the notification types and escalation priorities
+        # that are relevant to that role. Clinical roles see escalations + clinical
+        # alerts; admin/finance roles see operational/billing notifications.
+        # ---------------------------------------------------------------------------
+        ROLE_NOTIFICATION_TYPES = {
+            'Doctor': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED'}, 'include_escalations': True, 'escalation_priority': 'all'},
+            'Nurse': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_CANCELLED'}, 'include_escalations': True, 'escalation_priority': 'all'},
+            'Front Office': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED', 'APPOINTMENT_REMINDER', 'ADMISSION_REMINDER'}, 'include_escalations': False},
+            'Billing': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_CANCELLED', 'ADMISSION_REMINDER'}, 'include_escalations': False},
+            'Finance Manager': {'types': {'ADMISSION_REMINDER'}, 'include_escalations': False},
+            'Insurance': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED'}, 'include_escalations': False},
+            'Radiologist': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED'}, 'include_escalations': True, 'escalation_priority': 'high'},
+            'Laboratory': {'types': {'APPOINTMENT_CONFIRMED'}, 'include_escalations': True, 'escalation_priority': 'high'},
+            'Pathologist': {'types': {'APPOINTMENT_CONFIRMED'}, 'include_escalations': True, 'escalation_priority': 'high'},
+            'Pharmacy': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED'}, 'include_escalations': False},
+            'Hospital Management': {'types': None, 'include_escalations': True, 'escalation_priority': 'all'},  # All notifications
+            'AI Administrator': {'types': None, 'include_escalations': True, 'escalation_priority': 'all'},
+            'Governance Officer': {'types': None, 'include_escalations': True, 'escalation_priority': 'all'},
+            'IT Administrator': {'types': None, 'include_escalations': True, 'escalation_priority': 'all'},
+            'Auditor': {'types': None, 'include_escalations': True, 'escalation_priority': 'all'},
+        }
+
+        role_config = ROLE_NOTIFICATION_TYPES.get(role) if role else None
+
         # 1. Fetch real notifications from notifications table
         cur.execute("""
             SELECT 
@@ -1093,6 +1218,7 @@ def get_notifications(
                 p.first_name,
                 p.last_name,
                 p.patient_code,
+                p.phone,
                 dept.department_name,
                 d.display_name as doctor_name
             FROM notifications n
@@ -1101,7 +1227,7 @@ def get_notifications(
             LEFT JOIN departments dept ON a.department_id = dept.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
             ORDER BY n.id DESC
-            LIMIT 100;
+            LIMIT 200;
         """)
         notif_rows = cur.fetchall()
 
@@ -1116,107 +1242,157 @@ def get_notifications(
                 COALESCE(e.created_at, NOW()) as created_at,
                 p.first_name,
                 p.last_name,
-                p.patient_code
+                p.patient_code,
+                p.phone
             FROM escalations e
             LEFT JOIN patients p ON e.patient_id = p.id
             ORDER BY e.id DESC
-            LIMIT 20;
+            LIMIT 50;
         """)
         esc_rows = cur.fetchall()
 
         formatted = []
-        
+
+        # -----------------------------------------------------------------------
         # Process escalations first as high/critical platform notifications
-        for esc in esc_rows:
-            pname = f"{esc['first_name'] or ''} {esc['last_name'] or ''}".strip() or f"Patient #{esc['patient_id']}"
-            t_str = esc['created_at'].strftime("%H:%M") if esc.get('created_at') else "11:21"
-            reason_text = str(esc.get('escalation_reason') or esc.get('patient_question') or '')
-            
-            pri = "Critical" if "critical" in reason_text.lower() or "abnormal" in reason_text.lower() or "potassium" in reason_text.lower() else "High"
-            src = "LIS Connector" if "lab" in reason_text.lower() or "potassium" in reason_text.lower() else "Clinical Safety Gateway"
-            is_unread = esc.get('status', '').upper() in ('OPEN', 'PENDING', 'ESCALATED')
+        # Only include escalations if the role is configured to see them
+        # -----------------------------------------------------------------------
+        include_escalations = True  # default: show to all if no role filter
+        if role_config is not None:
+            include_escalations = role_config.get('include_escalations', False)
 
-            formatted.append({
-                "id": f"ESC-{esc['id']:04d}",
-                "raw_id": esc['id'],
-                "type": "ESCALATION",
-                "time": t_str,
-                "pri": pri,
-                "title": f"Clinical safety alert · {reason_text[:40]}" if reason_text else f"Clinical escalation for {pname}",
-                "detail": f"{pname} ({esc['patient_code'] or 'IP-Census'}) · {reason_text or 'Physician acknowledgement timer running'}",
-                "src": src,
-                "unread": is_unread,
-                "state": "Unread" if is_unread else "Read",
-                "created_at": esc.get('created_at').isoformat() if esc.get('created_at') else None
-            })
+        if include_escalations:
+            for esc in esc_rows:
+                pname = resolve_patient_name(
+                    esc.get('first_name'), esc.get('last_name'),
+                    esc.get('patient_code'), esc.get('patient_id'),
+                    message_text=esc.get('escalation_reason') or esc.get('patient_question'),
+                    phone=esc.get('phone')
+                )
+                t_str = esc['created_at'].strftime("%H:%M") if esc.get('created_at') else "--:--"
+                reason_text = str(esc.get('escalation_reason') or esc.get('patient_question') or '')
 
-        # Process standard notifications
+                esc_priority = "CRITICAL" if "critical" in reason_text.lower() or "abnormal" in reason_text.lower() or "potassium" in reason_text.lower() else "HIGH"
+                src = "LIS Connector" if "lab" in reason_text.lower() or "potassium" in reason_text.lower() else "Clinical Safety Gateway"
+                is_unread = esc.get('status', '').upper() in ('OPEN', 'PENDING', 'ESCALATED', 'IN_PROGRESS')
+
+                # Role-scoped escalation filtering: 'high' = Critical + High; 'all' = everything
+                esc_scope = role_config.get('escalation_priority', 'all') if role_config else 'all'
+                if esc_scope == 'high' and esc_priority not in ('CRITICAL', 'HIGH'):
+                    continue
+
+                formatted.append({
+                    "id": f"ESC-{esc['id']:04d}",
+                    "raw_id": esc['id'],
+                    "type": "ESCALATION",
+                    "priority": esc_priority,
+                    "status": "UNREAD" if is_unread else "READ",
+                    "title": f"Clinical safety alert: {reason_text[:60]}" if reason_text else f"Clinical escalation for {pname}",
+                    "message": f"{pname} ({esc['patient_code'] or 'IP-Census'}) — {reason_text or 'Physician acknowledgement required'}",
+                    "source": src,
+                    "patient_id": esc.get('patient_id'),
+                    "patient_name": pname,
+                    "patient_code": esc.get('patient_code'),
+                    "bed_number": None,
+                    "created_at": esc.get('created_at').isoformat() if esc.get('created_at') else None,
+                    # Legacy aliases for backward-compat
+                    "pri": esc_priority,
+                    "unread": is_unread,
+                    "state": "Unread" if is_unread else "Read",
+                    "detail": f"{pname} ({esc['patient_code'] or 'IP-Census'}) — {reason_text or 'Physician acknowledgement timer running'}",
+                })
+
+        # -----------------------------------------------------------------------
+        # Process standard notifications with role-based type filtering
+        # -----------------------------------------------------------------------
+        allowed_types = role_config['types'] if role_config else None  # None = all types
+
         for n in notif_rows:
-            pname = f"{n['first_name'] or ''} {n['last_name'] or ''}".strip() or (f"Patient #{n['patient_id']}" if n['patient_id'] else "Hospital Facility")
-            t_str = n['notif_time'].strftime("%H:%M") if n.get('notif_time') else "10:30"
             ntype = str(n.get('notification_type') or 'ALERT').upper()
+
+            # Role-based type filter: skip notifications not relevant to this role
+            if allowed_types is not None and ntype not in allowed_types:
+                continue
+
+            pname = resolve_patient_name(
+                n.get('first_name'), n.get('last_name'),
+                n.get('patient_code'), n.get('patient_id'),
+                message_text=n.get('message'),
+                phone=n.get('phone')
+            )
+            t_str = n['notif_time'].strftime("%H:%M") if n.get('notif_time') else "--:--"
             status_str = str(n.get('status') or 'PENDING').upper()
             msg = str(n.get('message') or '')
 
             # Determine priority & source service
-            if "CRITICAL" in ntype or "FAILED" in status_str:
-                pri = "Critical"
+            if "CRITICAL" in ntype or status_str == 'FAILED':
+                nt_priority = "CRITICAL"
                 src = "LIS Connector"
             elif "ADMISSION" in ntype or "DISCHARGE" in ntype:
-                pri = "High"
+                nt_priority = "HIGH"
                 src = "Discharge Orchestration Agent"
             elif "APPOINTMENT_CANCELLED" in ntype or "RESCHEDULED" in ntype:
-                pri = "Medium"
+                nt_priority = "MEDIUM"
                 src = "Consultant Scheduling"
             elif "CONFIRMED" in ntype or "REMINDER" in ntype:
-                pri = "Medium"
+                nt_priority = "MEDIUM"
                 src = "Outpatient Registration"
             else:
-                pri = "Low"
+                nt_priority = "LOW"
                 src = "Facilities & Housekeeping"
 
             # Derive title
             if "ADMISSION_REMINDER" in ntype:
-                title = f"Pre-admission clearance reminder · {pname}"
+                title = f"Pre-admission clearance reminder: {pname}"
             elif "APPOINTMENT_CONFIRMED" in ntype:
                 title = f"Appointment confirmed with {n['doctor_name'] or 'Consultant'}"
             elif "APPOINTMENT_RESCHEDULED" in ntype:
-                title = f"Appointment rescheduled · {n['department_name'] or 'Clinical OPD'}"
+                title = f"Appointment rescheduled: {n['department_name'] or 'Clinical OPD'}"
             elif "APPOINTMENT_CANCELLED" in ntype:
-                title = f"Appointment slot cancelled · {pname}"
+                title = f"Appointment slot cancelled: {pname}"
             else:
-                title = f"Platform notice · {ntype.replace('_', ' ').title()}"
+                title = f"Platform notice: {ntype.replace('_', ' ').title()}"
 
+            # A notification is 'unread' if its status is PENDING or SENT (not yet delivered/read)
             is_unread = status_str in ('PENDING', 'SENT', 'UNREAD')
 
             formatted.append({
                 "id": f"NOTIF-{n['id']:04d}",
                 "raw_id": n['id'],
                 "type": ntype,
-                "time": t_str,
-                "pri": pri,
+                "priority": nt_priority,
+                "status": "UNREAD" if is_unread else "READ",
                 "title": title,
-                "detail": f"{pname} · {msg[:85]}..." if len(msg) > 85 else (f"{pname} · {msg}" if msg else "Notification dispatched successfully"),
-                "src": src,
+                "message": f"{pname}: {msg}" if msg else "Notification dispatched successfully",
+                "source": src,
+                "patient_id": n.get('patient_id'),
+                "patient_name": pname,
+                "patient_code": n.get('patient_code'),
+                "bed_number": None,
+                "created_at": n.get('notif_time').isoformat() if n.get('notif_time') else None,
+                # Legacy aliases for backward-compat
+                "pri": nt_priority,
                 "unread": is_unread,
                 "state": "Unread" if is_unread else "Read",
-                "created_at": n.get('notif_time').isoformat() if n.get('notif_time') else None
+                "detail": f"{pname}: {msg[:85]}..." if len(msg) > 85 else (f"{pname}: {msg}" if msg else "Notification dispatched successfully"),
             })
 
-        # Apply search and filters
+        # Apply search filter
         filtered = formatted
         if search and search.strip():
             s_low = search.strip().lower()
             filtered = [
                 x for x in filtered
-                if s_low in x['title'].lower() or s_low in x['detail'].lower() or s_low in x['src'].lower() or s_low in x['id'].lower()
+                if s_low in x['title'].lower() or s_low in x['message'].lower() or s_low in x.get('source', '').lower() or s_low in x['id'].lower()
             ]
 
-        if priority and priority.strip().lower() != "all":
-            p_low = priority.strip().lower()
-            filtered = [x for x in filtered if x['pri'].lower() == p_low]
+        # Apply priority filter
+        if priority and priority.strip().lower() not in ("all", ""):
+            p_up = priority.strip().upper()
+            filtered = [x for x in filtered if x['priority'] == p_up]
 
-        if status and status.strip().lower() != "all":
+        # Apply status filter
+        if status and status.strip().lower() not in ("all", ""):
             st_low = status.strip().lower()
             if st_low == "unread":
                 filtered = [x for x in filtered if x['unread']]
@@ -1225,7 +1401,7 @@ def get_notifications(
 
         total = len(filtered)
         unread_count = sum(1 for x in formatted if x['unread'])
-        critical_count = sum(1 for x in formatted if x['pri'] == 'Critical')
+        critical_count = sum(1 for x in formatted if x['priority'] in ('CRITICAL', 'HIGH') and x['unread'])
 
         paginated = filtered[offset:offset + limit]
 
@@ -1248,58 +1424,16 @@ def mark_notification_read(notif_id: str):
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        if notif_id.startswith("ESC-"):
-            esc_id = int(notif_id.replace("ESC-", ""))
+        if notif_id.upper().startswith("ESC-"):
+            esc_id = int(notif_id.upper().replace("ESC-", ""))
             cur.execute("UPDATE escalations SET status = 'RESOLVED' WHERE id = %s;", (esc_id,))
         else:
-            nid = int(notif_id.replace("NOTIF-", "").replace("N-", ""))
+            nid = int(notif_id.upper().replace("NOTIF-", "").replace("N-", ""))
             cur.execute("UPDATE notifications SET status = 'READ' WHERE id = %s;", (nid,))
         conn.commit()
         return {"success": True, "message": f"Notification {notif_id} marked as read/acknowledged."}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-
-@router.post("/notifications/mark-all-read", summary="Mark All Notifications as Read")
-def mark_all_notifications_read():
-    conn = get_db_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("UPDATE notifications SET status = 'READ' WHERE status != 'READ';")
-        cur.execute("UPDATE escalations SET status = 'RESOLVED' WHERE status != 'RESOLVED';")
-        conn.commit()
-        return {"success": True, "message": "All notifications marked as read."}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        cur.close()
-        conn.close()
-
-
-@router.get("/notifications/count", summary="Get Unread & Critical Notification Counts")
-def get_notification_counts():
-    conn = get_db_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM notifications WHERE status != 'READ';")
-        unread_notifs = cur.fetchone()[0] or 0
-        cur.execute("SELECT COUNT(*) FROM escalations WHERE status != 'RESOLVED';")
-        unread_escs = cur.fetchone()[0] or 0
-        cur.execute("SELECT COUNT(*) FROM notifications;")
-        total_notifs = cur.fetchone()[0] or 0
-        
-        return {
-            "success": True,
-            "total": total_notifs,
-            "unread_count": unread_notifs + unread_escs,
-            "critical_count": unread_escs
-        }
-    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cur.close()

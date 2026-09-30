@@ -95,7 +95,7 @@ export default function PatientsView({
           const pid = String(r.patient_id || r.id || '').trim();
           const aid = String(r.admission_id || '').trim();
 
-          const isDischarged = st === 'discharged';
+          const isDischarged = st === 'discharged' || (st === 'ready' && r.discharge_date) || (r.discharge_date && st !== 'admitted');
           const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
 
           const parsed = parseAdmissionLlmRecord(r);
@@ -164,12 +164,14 @@ export default function PatientsView({
 
         // 2. Add any additional finalized discharge records if not already in admissions
         rawDischarges.forEach(r => {
-          const isApproved = String(r.approval_status || '').trim().toLowerCase() === 'approved';
-          const isExplicitDischarge = String(r.status || '').trim().toLowerCase() === 'discharged';
-          if (!isApproved && !isExplicitDischarge && !r.is_discharged) return;
+          const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
+          if (dcStatus === 'admitted') return; // Active inpatient, not discharged!
+
+          const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true || (dcStatus === 'ready' && r.discharge_date);
+          if (!isExplicitDischarge) return;
 
           const pid = String(r.patient_id || r.id || '').trim();
-          if (pid && seenDischargedPids.has(pid)) return;
+          if (pid && (seenDischargedPids.has(pid) || seenAdmittedPids.has(pid))) return;
 
           const d = parseDischargeSummaryRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;

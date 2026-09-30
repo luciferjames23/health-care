@@ -860,14 +860,17 @@ export const apiService = {
     if (params.status && params.status !== 'All') q.append('status', params.status);
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
+    // Pass the current user role for role-based notification scoping on the backend
+    if (params.role) q.append('role', params.role);
     const url = `${API_BASE_URL}/api/v1/admin/notifications${q.toString() ? '?' + q.toString() : ''}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notifications`);
     return await res.json();
   },
 
-  async getNotificationCounts(options = {}) {
-    const url = `${API_BASE_URL}/api/v1/admin/notifications/count`;
+  async getNotificationCounts(role = null, options = {}) {
+    const q = role ? `?role=${encodeURIComponent(role)}` : '';
+    const url = `${API_BASE_URL}/api/v1/admin/notifications/count${q}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notification counts`);
     return await res.json();
@@ -1589,13 +1592,13 @@ export function extractDischargedPatientIds(dischargedRecords = []) {
   (dischargedRecords || []).forEach(r => {
     if (!r) return;
 
-    // Only actual approved or finalized discharges count as discharged.
-    // Drafts / 'Pending Approval' are still actively admitted inpatients.
-    const isApproved = r.approval_status ? String(r.approval_status).trim().toLowerCase() === 'approved' : false;
-    const isExplicitDischarge = r.status ? String(r.status).trim().toLowerCase() === 'discharged' : false;
-    const isDischargedFlag = r.is_discharged === true;
+    // Active admitted inpatients should NEVER be marked as discharged
+    const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
+    if (dcStatus === 'admitted') return;
 
-    if (!isApproved && !isExplicitDischarge && !isDischargedFlag) {
+    const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true || (dcStatus === 'ready' && r.discharge_date);
+
+    if (!isExplicitDischarge) {
       return;
     }
 

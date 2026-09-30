@@ -19,6 +19,7 @@ import DiagnosticsView from './components/DiagnosticsView';
 import RadiologyView from './components/RadiologyView';
 import { FinancialRevenueView } from './components/FinancialRevenueView';
 import DetailDrawer from './components/DetailDrawer';
+import AlertsDrawer from './components/AlertsDrawer';
 import MasterModal from './components/MasterModal';
 import XrayOrdersView from './components/XrayOrdersView';
 
@@ -140,6 +141,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(null);
   const [modal, setModal] = useState(null);
   const [alertsCount, setAlertsCount] = useState(0);
+  const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [soapReturnPage, setSoapReturnPage] = useState('patient360');
   const [dischargeCount, setDischargeCount] = useState(null);
   useEffect(() => {
@@ -147,29 +149,34 @@ export default function App() {
     setDischargeCount(null);
   }, [auth?.name, role]);
 
-
   useEffect(() => {
     let isMounted = true;
     async function loadAlerts() {
       try {
-        const res = await apiService.getDischargedPatients({}, { revalidateMs: 15000 });
-        if (!isMounted) return;
-        const pending = (res?.data || []).filter(r => {
-          const s = (r.approval_status || '').toLowerCase();
-          return !s.includes('approved') && !s.includes('signed');
-        });
-        setAlertsCount(pending.length);
+        // Pass role for role-scoped notification count (Hospital Management sees all; Doctor sees clinical; etc.)
+        const countData = await apiService.getNotificationCounts(role || null).catch(() => null);
+        if (countData && typeof countData.unread_count === 'number') {
+          if (isMounted) setAlertsCount(countData.unread_count);
+        } else {
+          const res = await apiService.getNotifications({ limit: 100, role: role || undefined }, { revalidateMs: 15000 });
+          if (!isMounted) return;
+          const unread = (res?.data || []).filter(n => n.status === 'UNREAD' || n.unread === true || (n.state || '').toUpperCase() === 'UNREAD');
+          setAlertsCount(unread.length || 0);
+        }
       } catch (e) {
         if (isMounted) setAlertsCount(0);
       }
     }
     loadAlerts();
-    const interval = setInterval(loadAlerts, 20000);
+    const interval = setInterval(loadAlerts, 15000);
+    const handleUpdate = () => loadAlerts();
+    window.addEventListener('hc_api_updated', handleUpdate);
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [role]);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
@@ -320,6 +327,7 @@ export default function App() {
         alertsCount={alertsCount}
         onSignOut={handleSignOut}
         onOpenMobile={() => setShowMobile(true)}
+        onOpenAlerts={() => setShowAlertsDrawer(true)}
         onAskAi={handleAskAi}
         onOpenModal={setModal}
         onSwitchUserPromptPassword={handleSwitchUserPromptPassword}
@@ -814,6 +822,15 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Slide-over Hospital Alerts Drawer */}
+      <AlertsDrawer
+        isOpen={showAlertsDrawer}
+        onClose={() => setShowAlertsDrawer(false)}
+        onNavigate={handleNavigate}
+        onOpenPatient={handleSelectPatient}
+        role={role}
+      />
 
       {/* Master Modal System */}
       {modal && (
