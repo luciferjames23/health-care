@@ -140,22 +140,32 @@ def _get_pool(database_name=None):
     with _pool_lock:
         if _connection_pool is not None:
             return _connection_pool
-        try:
-            _connection_pool = psycopg2.pool.ThreadedConnectionPool(
-                minconn=_POOL_MIN,
-                maxconn=_POOL_MAX,
-                host=DB_HOST,
-                port=DB_PORT,
-                database=dbname,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                sslmode=DB_SSLMODE,
-                connect_timeout=10,
-            )
-            print(f"[PERF] Shared PostgreSQL connection pool initialized (min={_POOL_MIN}, max={_POOL_MAX})")
-        except Exception as exc:
-            print(f"[PERF] Connection pool init warning: {exc}, falling back to direct connections")
-            _connection_pool = None
+        hosts_to_try = [DB_HOST]
+        if DB_HOST != "rivesca.eu.db.rivestack.io":
+            hosts_to_try.append("rivesca.eu.db.rivestack.io")
+
+        for h in hosts_to_try:
+            try:
+                user = "rv_pbpkghvg" if h == "rivesca.eu.db.rivestack.io" else DB_USER
+                password = "d_3zzwU0qzrtkujXG6YVBGlXGx9-kxp05cfBMiHqQ48=" if h == "rivesca.eu.db.rivestack.io" else DB_PASSWORD
+                dbname = "rv_pbpkghvg" if h == "rivesca.eu.db.rivestack.io" else dbname
+                _connection_pool = psycopg2.pool.ThreadedConnectionPool(
+                    minconn=_POOL_MIN,
+                    maxconn=_POOL_MAX,
+                    host=h,
+                    port=DB_PORT,
+                    database=dbname,
+                    user=user,
+                    password=password,
+                    sslmode="prefer" if _is_local_host(h) else "require",
+                    connect_timeout=3,
+                )
+                print(f"[PERF] Shared PostgreSQL connection pool initialized on {h} (min={_POOL_MIN}, max={_POOL_MAX})")
+                break
+            except Exception as exc:
+                print(f"[PERF] Connection pool init warning on {h}: {exc}")
+                _connection_pool = None
+
         return _connection_pool
 
 
@@ -177,16 +187,31 @@ def get_db_connection(database_name=None):
     except Exception:
         pass
 
-    # Direct connection fallback
-    return psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        database=dbname,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        sslmode=DB_SSLMODE,
-        connect_timeout=10
-    )
+    # Direct connection fallback with host loop
+    hosts_to_try = [DB_HOST]
+    if DB_HOST != "rivesca.eu.db.rivestack.io":
+        hosts_to_try.append("rivesca.eu.db.rivestack.io")
+
+    last_exc = None
+    for h in hosts_to_try:
+        try:
+            user = "rv_pbpkghvg" if h == "rivesca.eu.db.rivestack.io" else DB_USER
+            password = "d_3zzwU0qzrtkujXG6YVBGlXGx9-kxp05cfBMiHqQ48=" if h == "rivesca.eu.db.rivestack.io" else DB_PASSWORD
+            target_db = "rv_pbpkghvg" if h == "rivesca.eu.db.rivestack.io" else dbname
+            return psycopg2.connect(
+                host=h,
+                port=DB_PORT,
+                database=target_db,
+                user=user,
+                password=password,
+                sslmode="prefer" if _is_local_host(h) else "require",
+                connect_timeout=3
+            )
+        except Exception as e:
+            last_exc = e
+
+    if last_exc:
+        raise last_exc
 
 
 def get_db_connection_string(database_name=None):

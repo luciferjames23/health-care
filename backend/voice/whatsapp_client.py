@@ -18,6 +18,25 @@ import base64
 import uuid
 
 import db_config
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
+
+_http_session = None
+
+def get_http_session() -> requests.Session:
+    global _http_session
+    if _http_session is None:
+        s = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=25,
+            pool_maxsize=25,
+            max_retries=Retry(total=2, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+        )
+        s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        _http_session = s
+    return _http_session
+
 
 def get_access_token() -> str:
     db_config.load_dotenv(override=True)
@@ -109,6 +128,27 @@ def parse_and_log_meta_error(res: requests.Response):
         print(f"[WhatsApp Meta API Response]: HTTP {res.status_code} - {res.text}")
 
 
+def get_meta_error_message(res: requests.Response) -> str:
+    """Extracts clean human-readable error description from Meta WhatsApp API response."""
+    if res is None:
+        return "No response received from Meta API"
+    try:
+        data = res.json()
+        err = data.get("error", {})
+        code = err.get("code")
+        msg = err.get("message") or res.text
+        details = err.get("error_data", {}).get("details", "")
+        if code in [131005, 131030] or "recipient" in str(msg).lower() or "allowed list" in str(details).lower():
+            return f"Meta Error #{code}: Phone number not in Meta Developer Sandbox allowed test recipient list"
+        if code in [190, 401] or "token" in str(msg).lower():
+            return f"Meta Error #{code}: WhatsApp access token expired or invalid"
+        if details:
+            return f"Meta Error #{code}: {msg} - {details}"
+        return f"Meta Error #{code}: {msg}"
+    except Exception:
+        return f"Meta API HTTP {res.status_code}: {res.text[:150]}"
+
+
 def clean_whatsapp_number(to_number: str) -> str:
     """Ensures phone number has country code for Meta Cloud API dispatch."""
     if not to_number:
@@ -155,7 +195,7 @@ def send_typing_indicator(message_id: str) -> dict:
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=5)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=5)
         if not res.ok:
             parse_and_log_meta_error(res)
             print(f"[WhatsApp] send_typing_indicator failed with HTTP status {res.status_code}: {res.text}")
@@ -192,10 +232,12 @@ def send_text_message(to_number: str, text: str) -> dict:
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
-        res.raise_for_status()
+            err_msg = get_meta_error_message(res)
+            print(f"[WhatsApp] send_text_message failed: {err_msg}")
+            return {"success": False, "error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -206,8 +248,8 @@ def send_text_message(to_number: str, text: str) -> dict:
             msg_id = f"wam.meta_msg_{uuid.uuid4().hex[:12]}"
         return {"success": True, "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        log_outbound_simulation("text", to_number, payload)
-        return {"success": True, "message_id": f"wam.mock_msg_{uuid.uuid4().hex[:12]}", "fallback": True}
+        print(f"[WhatsApp] send_text_message exception: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def send_template_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
@@ -236,10 +278,12 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
-        res.raise_for_status()
+            err_msg = get_meta_error_message(res)
+            print(f"[WhatsApp] send_template_message failed: {err_msg}")
+            return {"success": False, "error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -250,8 +294,8 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
             msg_id = f"wam.meta_template_{uuid.uuid4().hex[:12]}"
         return {"success": True, "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        log_outbound_simulation("template", to_number, payload)
-        return {"success": True, "message_id": f"wam.mock_template_{uuid.uuid4().hex[:12]}", "fallback": True}
+        print(f"[WhatsApp] send_template_message exception: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def send_welcome_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
@@ -308,7 +352,7 @@ def send_image_message(to_number: str, image_url_or_path: str, caption: str = No
             "image": image_obj
         }
 
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
         res.raise_for_status()
@@ -389,10 +433,14 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
-        res.raise_for_status()
+            fallback_res = send_text_message(to_number, text)
+            if fallback_res.get("success"):
+                return fallback_res
+            err_msg = get_meta_error_message(res)
+            return {"success": False, "error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -403,7 +451,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
             msg_id = f"wam.meta_button_{uuid.uuid4().hex[:12]}"
         return {"success": True, "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        print(f"[ERROR] send_button_message failed: {e}. Falling back to send_text_message.")
+        print(f"[ERROR] send_button_message failed: {e}. Trying text message fallback...")
         return send_text_message(to_number, text)
 
 
@@ -464,10 +512,14 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
         "Content-Type": "application/json"
     }
     try:
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
-        res.raise_for_status()
+            fallback_res = send_text_message(to_number, text)
+            if fallback_res.get("success"):
+                return fallback_res
+            err_msg = get_meta_error_message(res)
+            return {"success": False, "error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -478,7 +530,7 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
             msg_id = f"wam.meta_list_{uuid.uuid4().hex[:12]}"
         return {"success": True, "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        print(f"[ERROR] send_list_message failed: {e}. Falling back to send_text_message.")
+        print(f"[ERROR] send_list_message failed: {e}. Trying text message fallback...")
         return send_text_message(to_number, text)
 
 

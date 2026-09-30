@@ -217,6 +217,33 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         if not target_wa or not str(target_wa).strip():
             return {"success": False, "error": "Patient does not have a registered phone or WhatsApp number"}
 
+        raw_digits = "".join(c for c in str(target_wa) if c.isdigit())
+        if len(raw_digits) < 10 or len(raw_digits) > 15:
+            val_error = f"Malformed phone number '{target_wa}' (must contain 10-15 digits)"
+            print(f"[PRE_ADMISSION_NOTIF] Validation error: {val_error}")
+            cur.execute("""
+                INSERT INTO notifications (
+                    patient_id, notification_type, channel, message, status, reason, created_at, failed_at
+                ) VALUES (%s, 'ADMISSION_REMINDER', 'WHATSAPP', %s, 'FAILED', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                RETURNING id;
+            """, (pat_id, f"Admission clearance for {pa_code}", val_error))
+            notif_id = cur.fetchone()[0]
+
+            remark_text = f"WhatsApp clearance FAILED: {val_error}"
+            cur.execute("""
+                UPDATE pre_admissions
+                SET remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || '; ' || %s END
+                WHERE id = %s;
+            """, (remark_text, remark_text, pre_admission_id))
+            conn.commit()
+            return {
+                "success": False,
+                "notification_id": notif_id,
+                "status": "FAILED",
+                "error": val_error,
+                "whatsapp_number": target_wa
+            }
+
         pat_full_name = f"{f_name} {l_name or ''}".strip()
 
         # Check patient's conversation preferred language
@@ -297,6 +324,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         # 3. Dispatch via voice.whatsapp_client service
         send_success = False
         ext_msg_id = None
+        dispatch_error = None
         try:
             import voice.whatsapp_client as whatsapp_client
             buttons = [
@@ -311,16 +339,22 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
             elif res is True:
                 send_success = True
             else:
+                dispatch_error = res.get("error") if isinstance(res, dict) else "WhatsApp button send failed"
                 # Fallback to plain text message if button message fails
                 res_text = whatsapp_client.send_text_message(target_wa, msg)
                 if isinstance(res_text, dict) and res_text.get("success"):
                     send_success = True
                     ext_msg_id = res_text.get("message_id")
+                    dispatch_error = None
+                elif isinstance(res_text, dict) and res_text.get("error"):
+                    dispatch_error = res_text.get("error")
                 elif res_text is True:
                     send_success = True
+                    dispatch_error = None
         except Exception as ws_err:
             print(f"[PRE_ADMISSION_NOTIF] Outbound WhatsApp dispatch failed: {ws_err}")
             send_success = False
+            dispatch_error = str(ws_err)
 
         # 4. Update Notification Status
         if send_success:
@@ -332,18 +366,27 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
             cur.execute("UPDATE pre_admissions SET status = 'CONTACTED' WHERE id = %s AND status = 'PENDING';", (pre_admission_id,))
             print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} dispatched successfully to {target_wa}")
         else:
+            reason_msg = dispatch_error or "WhatsApp API delivery failed"
             cur.execute("""
                 UPDATE notifications
-                SET status = 'FAILED', reason = 'WhatsApp dispatch failed', failed_at = CURRENT_TIMESTAMP
+                SET status = 'FAILED', reason = %s, failed_at = CURRENT_TIMESTAMP
                 WHERE id = %s;
-            """, (notif_id,))
-            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} failed to dispatch to {target_wa}")
+            """, (reason_msg[:500], notif_id))
+
+            remark_text = f"WhatsApp clearance FAILED: {reason_msg[:200]}"
+            cur.execute("""
+                UPDATE pre_admissions
+                SET remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || '; ' || %s END
+                WHERE id = %s;
+            """, (remark_text, remark_text, pre_admission_id))
+            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} failed to dispatch to {target_wa}: {reason_msg}")
 
         conn.commit()
         return {
             "success": send_success,
             "notification_id": notif_id,
             "status": "SENT" if send_success else "FAILED",
+            "error": dispatch_error if not send_success else None,
             "whatsapp_number": target_wa
         }
 

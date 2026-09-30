@@ -494,7 +494,7 @@ def get_patients(
 
         if search:
             conditions.append(
-                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
+                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR LOWER(COALESCE(phone, '')) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s OR LOWER(COALESCE(whatsapp_number, '')) LIKE %s)"
             )
             like = f"%{search.lower()}%"
             params += [like, like, like, like, like]
@@ -1631,6 +1631,7 @@ def get_doctors(
             SELECT d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
                    d.specialization, d.qualification, d.experience_years,
                    d.phone, d.email, d.consultation_fee, d.status, d.created_at,
+                   d.department_id,
                    COALESCE(dept.department_name, 'General Medicine') as department_name,
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
                    COUNT(a.id) FILTER (WHERE a.status NOT IN ('CANCELLED', 'RESCHEDULED')) as total_appts
@@ -1641,7 +1642,7 @@ def get_doctors(
             GROUP BY d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
                      d.specialization, d.qualification, d.experience_years,
                      d.phone, d.email, d.consultation_fee, d.status, d.created_at,
-                     dept.department_name
+                     d.department_id, dept.department_name
             ORDER BY d.display_name;
             """,
             params,
@@ -3391,14 +3392,41 @@ def create_pre_admission_endpoint(
 ):
     """
     Registers a new pre-admission record.
-    Doctor role can only register for their own doctor_id.
+    Enforces strict backend authorization for Doctor role:
+    - Doctor can only register under their own authenticated doctor_id.
+    - Doctor can only register under their own department_id.
+    - Doctor can only register for patients associated with their profile.
     """
-    role = current_user.get("role")
+    role = str(current_user.get("role") or "").upper()
     doc_id = req.doctor_id
+
     if role == "DOCTOR":
-        user_doc_id = current_user.get("doctor_id")
-        if user_doc_id and user_doc_id != doc_id:
-            raise HTTPException(status_code=403, detail="Doctors can only create pre-admissions under their own name.")
+        conn_auth = get_conn()
+        cur_auth = conn_auth.cursor()
+        try:
+            target_doc_id = resolve_target_doctor_id(current_user, doc_id, cur_auth)
+            if not target_doc_id or target_doc_id != doc_id:
+                raise HTTPException(status_code=403, detail="Doctors can only create pre-admissions under their own authenticated identity.")
+            
+            # Verify Doctor's actual Department ID
+            cur_auth.execute("SELECT department_id FROM doctors WHERE id = %s;", (target_doc_id,))
+            doc_row = cur_auth.fetchone()
+            if not doc_row or doc_row[0] != req.department_id:
+                raise HTTPException(status_code=403, detail="Department ID does not match the authenticated doctor's assigned department.")
+
+            # Verify Patient Authorization (Patient associated with Doctor via appointments, pre-admissions, or assigned list)
+            cur_auth.execute("""
+                SELECT 1 FROM patients p
+                WHERE p.id = %s AND (
+                    EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = p.id AND a.doctor_id = %s)
+                    OR EXISTS (SELECT 1 FROM pre_admissions pa WHERE pa.patient_id = p.id AND pa.doctor_id = %s)
+                );
+            """, (req.patient_id, target_doc_id, target_doc_id))
+            if not cur_auth.fetchone():
+                raise HTTPException(status_code=403, detail="Unauthorized: Selected patient is not associated with this doctor.")
+        finally:
+            cur_auth.close()
+            conn_auth.close()
 
     try:
         res = preadmission_service.create_pre_admission(

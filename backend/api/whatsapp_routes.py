@@ -199,14 +199,14 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
 
     # 1. Resolve list_button_title (must be max 20 chars per Meta WhatsApp spec)
     list_title = explicit_list_title
-    if not list_title or list_title.strip().lower() in ["select option", "select an option", "select"]:
+    if not list_title or list_title.strip().lower() in ["select option", "select an option", "select", "options"]:
         # Check Main Menu first (8 category buttons: btn_cat_appts, btn_cat_doctors, etc. or GREETING intent)
         if intent in ["GREETING", "MAIN_MENU"] or any(k in btn_ids_str for k in ["btn_cat_appts", "btn_cat_doctors", "btn_cat_inquiries", "btn_cat_health", "btn_cat_billing", "btn_cat_voice_lang", "btn_cat_staff", "btn_cat_emergency"]):
             list_title = "Main Menu"
         elif any(k in btn_ids_str for k in ["btn_slot_"]) or "slot" in comb_str or any(t in btn_titles_str for t in ["10:00", "11:00", "09:00", "02:00"]):
-            list_title = "Choose a Time"
+            list_title = "Choose a Time Slot"
         elif any(k in btn_ids_str for k in ["btn_date_"]) or (intent in ["BOOK_APPOINTMENT", "DOCTOR_AVAILABILITY"] and any(d in btn_titles_str for d in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])):
-            list_title = "Available Dates"
+            list_title = "Select Date"
         elif any(k in btn_ids_str for k in ["btn_dept_"]) or "department" in comb_str:
             list_title = "Select Department"
         elif any(k in btn_ids_str for k in ["btn_doc_"]) or "doctor" in comb_str or "dr." in btn_titles_str:
@@ -225,22 +225,24 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             list_title = "Select Language"
         elif any(k in btn_ids_str for k in ["btn_appt_id_"]):
             list_title = "Select Appointment"
+        elif any(k in btn_ids_str for k in ["btn_select_pat_", "btn_family_"]):
+            list_title = "Select Patient"
         else:
             list_title = "Main Menu"
 
-    if list_title == "Select Payment Method":
+    if list_title and list_title.strip() == "Select Payment Method":
         list_title = "Payment Method"
     else:
-        list_title = list_title[:20]
+        list_title = list_title[:20] if list_title else "Main Menu"
 
     # 2. Resolve section_title (max 24 chars per Meta WhatsApp spec)
     sec_title = explicit_sec_title
     if not sec_title or sec_title.strip().lower() in ["options", "select option", "select an option"]:
         if list_title == "Main Menu":
             sec_title = "Main Menu Options"
-        elif list_title == "Choose a Time":
+        elif list_title in ["Choose a Time Slot", "Choose a Time"]:
             sec_title = "Available Time Slots"
-        elif list_title == "Available Dates":
+        elif list_title in ["Select Date", "Available Dates"]:
             sec_title = "Available Booking Dates"
         elif list_title == "Select Department":
             sec_title = "Hospital Departments"
@@ -250,7 +252,7 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             sec_title = "Payment Gateways"
         elif list_title == "Select Field":
             sec_title = "Profile Attributes"
-        elif list_title == "Select Record Type":
+        elif list_title in ["Select Record Type", "Select Record"]:
             sec_title = "Health Records"
         elif list_title == "Select Action":
             sec_title = "Appointment Actions"
@@ -258,10 +260,14 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             sec_title = "Information Topics"
         elif list_title == "Select Language":
             sec_title = "Supported Languages"
+        elif list_title == "Select Patient":
+            sec_title = "Registered Patients"
         else:
             sec_title = "Menu Options"
 
-    sec_title = sec_title[:24]
+    sec_title = sec_title[:24] if sec_title else "Menu Options"
+
+    return list_title, sec_title
 
     return list_title, sec_title
 

@@ -61,7 +61,7 @@ export const ROLE_PAGE_ACCESS = {
     // 8 Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
-    'appointments', 'emergency', 'schedules', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
+    'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People
@@ -241,7 +241,21 @@ export const ROLE_HOMES = {
 
 export function isPageAllowed(role, page) {
   if (!role) return false;
-  if (role === 'Hospital Management' || role === 'Admin') return true;
+  
+  const roleStr = String(role).toLowerCase();
+
+  // Explicit Role-Based Restrictions
+  if (page === 'doctor-portal' && (roleStr === 'admin' || roleStr === 'hospital management')) {
+    return false; // Doctor Clinical Desk removed from Admin Portal
+  }
+  if (page === 'schedules' && roleStr === 'doctor') {
+    return false; // Consultant Schedules removed from Doctor Portal
+  }
+  if (page === 'patient-chat' && (roleStr === 'doctor' || roleStr === 'admin' || roleStr === 'hospital management')) {
+    return false; // Patient Portal Chat removed from Doctor and Admin Portals
+  }
+
+  if (role === 'Hospital Management' || role === 'Admin' || roleStr === 'admin') return true;
   const allowedList = ROLE_PAGE_ACCESS[role];
   if (allowedList === null || allowedList === undefined) return true;
   if (allowedList.includes(page)) return true;
