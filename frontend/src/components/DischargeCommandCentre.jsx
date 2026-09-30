@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor, synthesizeClinicalDetails } from '../services/api';
+import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor, synthesizeClinicalDetails, cleanDoctorName } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
@@ -256,10 +256,10 @@ function createCaseInitialState(base) {
     pauseReason: '',
     completed: isCompleted,
     dischargedAt: isCompleted ? formatTime12(base.initialEta || '09:30 AM') : null,
-    eta: isCompleted 
-      ? formatTime12(base.initialEta || '09:30 AM') 
-      : isReady 
-        ? 'Now' 
+    eta: isCompleted
+      ? formatTime12(base.initialEta || '09:30 AM')
+      : isReady
+        ? 'Now'
         : (base.initialEta && base.initialEta !== 'Now' ? formatTime12(base.initialEta) : '01:30 PM')
   };
 }
@@ -434,9 +434,9 @@ export default function DischargeCommandCentre({
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
       const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
 
-      const doctorName = (isDischarged
+      const doctorName = cleanDoctorName((isDischarged
         ? (parsed.doctor_name || adm.attending_doctor)
-        : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma';
+        : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma');
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
       const rawAdmName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || adm.patient_name || adm.name;
       const isParsedGeneric = !parsed.patient_name || /^Patient\s+(PAT-|\d+)/i.test(parsed.patient_name) || /^Patient\s*$/i.test(parsed.patient_name);
@@ -561,7 +561,7 @@ export default function DischargeCommandCentre({
       const matchedBed = (aid && bedByAdmissionId[aid]) || bedByPatientId[pid];
       const caseId = `DIS-ADM-${adm.admission_id || adm.id || index + 1}`;
       const patientName = `${adm.first_name || ''} ${adm.last_name || ''}`.trim() || `Patient ${pid}`;
-      const doctorName = adm.attending_doctor || 'Attending Physician';
+      const doctorName = cleanDoctorName(adm.attending_doctor || 'Attending Physician');
       const doctorSpecialty = adm.doctor_specialization || 'Treating Specialist';
       const resolvedBedNum = adm.bed_number || matchedBed?.bed_number || (adm.bed_id != null && bedById[String(adm.bed_id)]?.bed_number);
       const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
@@ -582,11 +582,19 @@ export default function DischargeCommandCentre({
       const isClaimRejected = !isBillCleared && (claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni'));
       const vitalsCheck = checkPatientVitalsNormal(adm);
 
-      let category = 'Blocked';
-      let blocker = 'billing → insurance';
-      let initialStatus = 'Blocked · billing';
+      let category = isReadyInDb ? 'Ready' : (isDischarged ? 'Completed' : 'Blocked');
+      let blocker = isReadyInDb ? 'Clear' : 'billing → insurance';
+      let initialStatus = isReadyInDb ? 'Ready' : (isDischarged ? 'Discharged' : 'Blocked · billing');
 
-      if (isClaimRejected) {
+      if (isReadyInDb) {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
+      } else if (isDischarged) {
+        category = 'Completed';
+        blocker = 'Discharged';
+        initialStatus = 'Discharged';
+      } else if (isClaimRejected) {
         blocker = 'insurance';
         initialStatus = 'Blocked · insurance';
       } else if (rawBal > 50000 && !isBillCleared) {
@@ -598,6 +606,10 @@ export default function DischargeCommandCentre({
       } else if (rawBal === 0 && !isClaimApproved) {
         blocker = 'insurance';
         initialStatus = 'Blocked · insurance';
+      } else if (isBillCleared) {
+        category = 'In progress';
+        blocker = 'clinical review';
+        initialStatus = 'In progress · clinical';
       } else {
         const stepMod = index % 3;
         blocker = (stepMod === 0 ? 'pharmacy → billing' : (stepMod === 1 ? 'investigations → billing' : 'clinical → billing'));
@@ -1306,15 +1318,15 @@ export default function DischargeCommandCentre({
       const remainingApprovals = targetCase.isApproved
         ? []
         : [
-            {
-              id: `AP-${targetCase.id}-01`,
-              type: 'Discharge summary sign-off',
-              action: 'Sign discharge summary & e-Rx',
-              owner: targetCase.doctor || 'Attending Physician',
-              time: 'Just now',
-              details: 'AI draft generated from clinical notes & lab reports'
-            }
-          ];
+          {
+            id: `AP-${targetCase.id}-01`,
+            type: 'Discharge summary sign-off',
+            action: 'Sign discharge summary & e-Rx',
+            owner: targetCase.doctor || 'Attending Physician',
+            time: 'Just now',
+            details: 'AI draft generated from clinical notes & lab reports'
+          }
+        ];
 
       const updated = {
         ...cur,
@@ -2052,7 +2064,7 @@ export default function DischargeCommandCentre({
                 <div style={{ padding: '4px 0', borderBottom: '1px solid #f2f3f4', fontSize: '12px' }}>
                   <div style={{ fontWeight: 500, color: '#15181b' }}>Discharge summary</div>
                   <div style={{ color: '#52585e', fontSize: '11.5px' }}>
-                    {dc.deps.summary?.status === 'done' ? `Signed by ${dc.doctor}` : 'v2 · DRAFT — HUMAN REVIEW REQUIRED · groundedness 97%'}
+                    {dc.deps.summary?.status === 'done' ? `Signed by ${dc.doctor}` : (dc.hasSummary ? 'v2 · DRAFT — HUMAN REVIEW REQUIRED · groundedness 97%' : 'Awaiting clinical discharge summary draft')}
                   </div>
                 </div>
 
@@ -2066,14 +2078,19 @@ export default function DischargeCommandCentre({
                 <div style={{ padding: '4px 0', borderBottom: '1px solid #f2f3f4', fontSize: '12px' }}>
                   <div style={{ fontWeight: 500, color: '#15181b' }}>Family status message (Tamil)</div>
                   <div style={{ color: '#52585e', fontSize: '11.5px' }}>
-                    {dc.isCompleted ? 'Sent' : 'Sent on each dependency change · last 11:15'}
+                    {dc.isCompleted ? 'Sent' : 'Sent on dependency progression'}
                   </div>
                 </div>
 
                 <div style={{ padding: '4px 0', fontSize: '12px' }}>
                   <div style={{ fontWeight: 500, color: '#15181b' }}>Follow-up</div>
                   <div style={{ color: '#52585e', fontSize: '11.5px' }}>
-                    {dc.isCompleted ? 'Booked 19 Sep 10:30' : 'Proposed 19 Sep 10:30 · Front Office confirms'}
+                    {(() => {
+                      const dt = new Date();
+                      dt.setDate(dt.getDate() + 7);
+                      const fDate = dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                      return dc.isCompleted ? `Booked ${fDate} 10:30 AM` : `Proposed ${fDate} 10:30 AM · Front Office confirms`;
+                    })()}
                   </div>
                 </div>
               </div>

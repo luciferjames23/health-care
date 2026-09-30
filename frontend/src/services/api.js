@@ -1642,6 +1642,30 @@ export function filterDischargedPatients(admissions = [], discharges = []) {
 }
 
 /**
+ * Normalizes doctor display name by stripping extraneous degrees, qualifications, and role suffixes.
+ * e.g. "Dr. Ravi Reddy, MBBS, MS (Administrator)" -> "Dr. Ravi Reddy"
+ */
+export function cleanDoctorName(doc) {
+  if (!doc) return 'Attending Physician';
+  if (typeof doc !== 'string') return String(doc);
+  let cleaned = doc.trim();
+  // Remove parenthetical roles or specialties: e.g. (Administrator), (Cardiologist), (General Medicine)
+  cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  // Remove qualifications after comma: e.g. , MBBS, MS or , MD, EDIC
+  if (cleaned.includes(',')) {
+    cleaned = cleaned.split(',')[0].trim();
+  }
+  // Ensure "Dr. " prefix is formatted cleanly without duplicate "Dr. Dr."
+  if (!cleaned.toLowerCase().startsWith('dr.') && !cleaned.toLowerCase().startsWith('dr ')) {
+    cleaned = `Dr. ${cleaned}`;
+  } else if (cleaned.toLowerCase().startsWith('dr ')) {
+    cleaned = `Dr. ${cleaned.slice(3).trim()}`;
+  }
+  return cleaned;
+}
+
+/**
  * Robust matcher to verify if a patient/admission doctor belongs to the target logged-in doctor.
  * Handles titles, credentials, and parenthetical specializations.
  */
@@ -2405,7 +2429,7 @@ export function synthesizeClinicalDetails(data) {
   }
 
   const stayDays = data.current_stay_days || data.stay_days || data.length_of_stay || (rawAdmDate ? Math.max(1, Math.round((Date.now() - new Date(rawAdmDate).getTime()) / (1000 * 60 * 60 * 24))) : 20);
-  const doctor = data.attending_physician || data.attending_doctor || data.doctor || data.primary_consultant || 'Dr. Neha Nair';
+  const doctor = cleanDoctorName(data.attending_physician || data.attending_doctor || data.doctor || data.primary_consultant || 'Dr. Neha Nair');
   const spec = data.doctor_specialization || data.doctorRole || 'Treating Specialist';
 
   // Check if raw prompt is present
@@ -2504,7 +2528,8 @@ export function parseDischargeSummaryRecord(record) {
   }
   const isGenericExtracted = !extractedName || /^Patient\s+(PAT-|\d+)/i.test(extractedName) || /^Patient\s*$/i.test(extractedName);
   const resolvedPatientName = (!isGenericExtracted ? extractedName : null) || record.patient || extractedName || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
-  const resolvedDoctorName = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
+  const rawDoctor = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
+  const resolvedDoctorName = cleanDoctorName(rawDoctor);
   const resolvedDiagnoses = formatClinicalDiagnoses(record.diagnoses || '') || 'Clinical Discharge Completed';
   const resolvedInvestigations = formatClinicalInvestigations(record.investigations || '');
   const resolvedTreatment = formatClinicalTreatment(record.treatment || '');

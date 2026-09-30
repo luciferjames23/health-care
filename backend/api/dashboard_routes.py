@@ -1008,6 +1008,12 @@ def register_patient(
 
         conn.commit()
 
+        try:
+            from connectors.databricks_connector import DatabricksConnector
+            DatabricksConnector.clear_cache()
+        except Exception:
+            pass
+
         calc_age = req.age
         if not calc_age and dob:
             try:

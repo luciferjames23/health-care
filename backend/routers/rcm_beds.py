@@ -230,7 +230,8 @@ def get_beds():
             SELECT d.id, d.department_name, COUNT(b.bed_id) as total_beds,
                    COUNT(CASE WHEN b.status ILIKE '%occup%' THEN 1 END) as occupied
             FROM departments d
-            LEFT JOIN beds b ON 1=1
+            LEFT JOIN wards w ON w.department_id = d.id
+            LEFT JOIN beds b ON b.ward_id = w.ward_id
             GROUP BY d.id, d.department_name
             ORDER BY d.id;
         """)

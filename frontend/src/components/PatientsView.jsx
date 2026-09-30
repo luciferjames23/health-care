@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, UserPlus, Check } from "lucide-react";
-import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis } from "../services/api";
+import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis, cleanDoctorName } from "../services/api";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import PatientRegistrationModal from "./PatientRegistrationModal";
 
@@ -95,14 +95,15 @@ export default function PatientsView({
           const pid = String(r.patient_id || r.id || '').trim();
           const aid = String(r.admission_id || '').trim();
 
-          const isDischarged = st === 'discharged' || dischargedTracker.has(r);
+          const isDischarged = st === 'discharged';
           const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
 
           const parsed = parseAdmissionLlmRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || parsed.name || parsed.patient_name;
-          const docName = isDischarged
+          const rawDoc = isDischarged
             ? (matchedSummary?.primary_consultant || matchedSummary?.doctor_name || r.attending_doctor || parsed.doctor || 'Attending Physician')
             : (r.attending_doctor || parsed.doctor || matchedSummary?.primary_consultant || matchedSummary?.doctor_name || 'Attending Physician');
+          const docName = cleanDoctorName(rawDoc);
 
           if (isDischarged) {
             if (pid) seenDischargedPids.add(pid);
@@ -133,6 +134,34 @@ export default function PatientsView({
           }
         });
 
+        // Merge any additional live IP admissions from directory (allDirRes) not already present
+        const seenAdmittedPids = new Set(actualAdmitted.map(a => String(a.patient_id || a.id || '')));
+        (allDirRes?.data || []).forEach(r => {
+          if (r.patient_type === 'IP' || r.encounter_type === 'IP') {
+            const pid = String(r.patient_id || r.id || '');
+            if (pid && !seenAdmittedPids.has(pid) && !seenDischargedPids.has(pid)) {
+              seenAdmittedPids.add(pid);
+              const isReady = String(r.discharge_status || '').trim().toLowerCase() === 'ready';
+              const pName = r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Patient';
+              actualAdmitted.unshift({
+                ...r,
+                id: r.patient_id || r.id,
+                patient_id: r.patient_id || r.id,
+                patient_code: r.patient_code || (pid ? `MER-PAT-${pid.padStart(7, '0')}` : 'MER-PAT-0000'),
+                uhid: r.patient_code || (pid ? `MER-PAT-${pid.padStart(7, '0')}` : 'MER-PAT-0000'),
+                patient_number: r.patient_code || (pid ? `MER-PAT-${pid.padStart(7, '0')}` : 'MER-PAT-0000'),
+                name: pName,
+                patient_name: pName,
+                patient: pName,
+                doctor: cleanDoctorName(r.doctor || 'Attending Physician'),
+                diagnosis: cleanDiagnosis(r.diagnosis || 'Inpatient Admission'),
+                _type: "IP",
+                _status: isReady ? "Fit for discharge" : (r.status || "Admitted")
+              });
+            }
+          }
+        });
+
         // 2. Add any additional finalized discharge records if not already in admissions
         rawDischarges.forEach(r => {
           const isApproved = String(r.approval_status || '').trim().toLowerCase() === 'approved';
@@ -144,7 +173,7 @@ export default function PatientsView({
 
           const d = parseDischargeSummaryRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
-          const docName = r.primary_consultant || r.doctor_name || d.doctor || 'Attending Physician';
+          const docName = cleanDoctorName(r.primary_consultant || r.doctor_name || d.doctor || 'Attending Physician');
 
           if (pid) seenDischargedPids.add(pid);
           parsedDischargedList.push({
@@ -176,7 +205,7 @@ export default function PatientsView({
           gender: r.gender || 'Male',
           language: r.preferred_language || 'English',
           department: r.department || 'Outpatient Clinic',
-          doctor: r.doctor || 'Consultant Doctor',
+          doctor: cleanDoctorName(r.doctor || 'Consultant Doctor'),
           insurer: r.insurer || 'Direct / Outpatient',
           status: r.status || 'CONFIRMED',
           _status: r.status || 'CONFIRMED',
@@ -200,7 +229,7 @@ export default function PatientsView({
           gender: r.gender || 'Male',
           language: r.preferred_language || 'English',
           department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
-          doctor: r.doctor || 'Dr. Divya Verma',
+          doctor: cleanDoctorName(r.doctor || 'Dr. Divya Verma'),
           insurer: r.insurer || 'Emergency Cover',
           status: r.status || 'Active Triage',
           _status: r.status || 'Active Triage',
@@ -478,7 +507,7 @@ export default function PatientsView({
                   <span style={{ color: "#52585e" }}>{p.age ? `${p.age} \u00b7 ${p.sex || "F"}` : (p.sex ? `\u2014 \u00b7 ${p.sex}` : "\u2014")}</span>
                   <span style={{ color: "#52585e" }}>{lang(p)}</span>
                   <span style={{ color: "#52585e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dept(p)}</span>
-                  <span style={{ color: "oklch(0.45 0.1 200)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.doctor || "\u2014"}</span>
+                  <span style={{ color: "oklch(0.45 0.1 200)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cleanDoctorName(p.doctor) || "—"}</span>
                   <span style={{ color: "#52585e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{insurer(p)}</span>
                   <span><span style={{ padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: pill.bg, color: pill.fg, whiteSpace: "nowrap" }}>{pill.label}</span></span>
                 </div>

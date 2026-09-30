@@ -1,5 +1,9 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+import psycopg2
+import psycopg2.extras
+import db_config
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 
@@ -205,39 +209,96 @@ def get_bronze_beds(
     limit: Optional[int] = Query(default=None, ge=1, description="Max records to return. Omit for full data."),
     offset: int = Query(default=0, ge=0)
 ):
-    """Query `health_care.bronze.beds` table with optional filters and pagination."""
-    filters = {}
-    if ward_id is not None: filters["ward_id"] = ward_id
-    if ward_name: filters["ward_name"] = ward_name
-    if bed_type: filters["bed_type"] = bed_type
-    if occupancy_status: filters["occupancy_status"] = occupancy_status
-    if patient_id is not None: filters["patient_id"] = patient_id
-
+    """Query PostgreSQL `beds` table with live active admissions, occupancy status, and pagination."""
     try:
-        res = db_connector.query_bronze_table("beds", filters=filters, limit=limit, offset=offset)
-        discharged_ids = _get_discharged_patient_ids()
-        if discharged_ids and "data" in res:
-            for b in res["data"]:
-                p_id = b.get("patient_id")
-                if p_id is not None and str(p_id).strip() in discharged_ids:
-                    b["occupancy_status"] = "Available"
-                    b["status"] = "Available"
-        return res
+        conn = db_config.get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT 
+                b.bed_id,
+                b.bed_number,
+                b.room_id,
+                r.room_number,
+                b.ward_id,
+                w.ward_name,
+                b.bed_type,
+                b.daily_charge,
+                b.daily_charge AS daily_rate_usd,
+                COALESCE(b.status, 'Available') AS occupancy_status,
+                COALESCE(b.status, 'Available') AS status,
+                a.patient_id,
+                a.admission_id,
+                a.admission_number,
+                TRIM(CONCAT(p.first_name, ' ', p.last_name)) AS patient_name,
+                p.patient_code AS patient_number,
+                d.display_name AS attending_doctor,
+                a.reason_for_admission AS primary_diagnosis
+            FROM beds b
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            LEFT JOIN wards w ON b.ward_id = w.ward_id
+            LEFT JOIN (
+                SELECT DISTINCT ON (bed_id) *
+                FROM admissions
+                WHERE bed_id IS NOT NULL AND LOWER(COALESCE(discharge_status, '')) != 'discharged'
+                ORDER BY bed_id, admission_id DESC
+            ) a ON b.bed_id = a.bed_id AND b.status = 'Occupied'
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            ORDER BY b.bed_id ASC;
+        """)
+        all_beds = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        filtered = []
+        for b in all_beds:
+            if isinstance(ward_id, int) and b.get("ward_id") != ward_id:
+                continue
+            if isinstance(ward_name, str) and ward_name.strip() and ward_name.lower() not in (b.get("ward_name") or "").lower():
+                continue
+            if isinstance(bed_type, str) and bed_type.strip() and bed_type.lower() not in (b.get("bed_type") or "").lower():
+                continue
+            if isinstance(occupancy_status, str) and occupancy_status.strip() and (b.get("occupancy_status") or "").lower() != occupancy_status.strip().lower():
+                continue
+            if isinstance(patient_id, int) and b.get("patient_id") != patient_id:
+                continue
+            filtered.append(dict(b))
+
+        total_rows = len(filtered)
+        offset_val = offset if isinstance(offset, int) else 0
+        limit_val = limit if isinstance(limit, int) else None
+        paged_data = filtered[offset_val : (offset_val + limit_val) if limit_val else None]
+        return {
+            "table_name": "beds",
+            "count": len(paged_data),
+            "total_rows": total_rows,
+            "data": paged_data
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query bronze beds: {str(e)}")
 
 
 @router.get("/beds/summary", summary="Bronze Beds Analytics Summary")
 def get_bronze_beds_summary():
-    """Computes summary stats for Bronze beds including occupancy breakdown and average daily rates."""
+    """Computes live summary stats for beds directly from PostgreSQL."""
     try:
-        res = db_connector.query_bronze_table("beds")
-        data = res.get("data", [])
-        discharged_ids = _get_discharged_patient_ids()
+        conn = db_config.get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT 
+                b.bed_id,
+                b.bed_type,
+                b.daily_charge,
+                COALESCE(b.status, 'Available') AS occupancy_status
+            FROM beds b;
+        """)
+        beds = cur.fetchall()
+        cur.close()
+        conn.close()
 
-        total_count = len(data)
+        total_count = len(beds)
         if total_count == 0:
-            return {"notice": "No bronze bed records found", "metrics": {}}
+            return {"notice": "No bed records found", "metrics": {}}
 
         status_counts = {}
         type_counts = {}
@@ -246,44 +307,25 @@ def get_bronze_beds_summary():
         available_count = 0
         maintenance_count = 0
 
-        for b in data:
-            p_id = b.get("patient_id")
-            p_id_str = str(p_id).strip() if (p_id is not None and str(p_id).strip() not in ["", "0", "None"]) else None
-            
-            is_discharged = p_id_str and p_id_str in discharged_ids
-
-            st = str(b.get("occupancy_status") or b.get("bed_status") or b.get("status") or b.get("occupancy") or "").strip()
-            if is_discharged:
-                st = "Available"
-                b["occupancy_status"] = "Available"
-                b["status"] = "Available"
-            elif not st or st.lower() == "unknown":
-                st = "Occupied" if p_id_str else "Available"
-
+        for b in beds:
+            st = b.get("occupancy_status") or "Available"
             status_counts[st] = status_counts.get(st, 0) + 1
 
             st_lower = st.lower()
-            if st_lower in ["occupied", "in-use", "in_use", "filled", "taken"]:
+            if "occup" in st_lower or "in-use" in st_lower:
                 occupied_count += 1
-            elif st_lower in ["available", "vacant", "unoccupied", "open", "free"]:
-                available_count += 1
-            elif st_lower in ["maintenance", "cleaning", "reserved", "out_of_service"]:
+            elif "maint" in st_lower or "clean" in st_lower or "block" in st_lower:
                 maintenance_count += 1
             else:
-                if p_id_str and not is_discharged:
-                    occupied_count += 1
-                else:
-                    available_count += 1
+                available_count += 1
 
-            bt = b.get("bed_type", "Unknown")
+            bt = b.get("bed_type", "Standard Inpatient")
             type_counts[bt] = type_counts.get(bt, 0) + 1
-
-            total_rate += float(b.get("daily_rate_usd", 0) or 0)
+            total_rate += float(b.get("daily_charge") or 0)
 
         return {
             "table_name": "beds",
             "total_records": total_count,
-            "discharged_patients_count": len(discharged_ids),
             "metrics": {
                 "total_beds_count": total_count,
                 "occupied_beds_count": occupied_count,
@@ -296,11 +338,11 @@ def get_bronze_beds_summary():
         }
     except Exception as e:
         return {
-            "notice": f"Databricks beds summary fallback: {str(e)}",
+            "notice": f"Beds summary error: {str(e)}",
             "total_records": 0,
             "metrics": {
-                "total_beds_count": 14,
-                "available_beds_count": 14,
+                "total_beds_count": 0,
+                "available_beds_count": 0,
                 "occupied_beds_count": 0,
                 "maintenance_beds_count": 0
             }
@@ -316,7 +358,25 @@ class BedStatusUpdateSchema(BaseModel):
 @router.put("/beds/update-status", summary="Update Bed Status")
 @router.post("/beds/update-status", summary="Update Bed Status")
 def update_bed_status(payload: BedStatusUpdateSchema):
-    """Updates occupancy status for specified bed_id or patient_id to Available or Occupied."""
+    """Updates occupancy status for specified bed_id or patient_id in PostgreSQL."""
+    try:
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        new_status = payload.occupancy_status or "Available"
+        if payload.bed_id:
+            cur.execute("UPDATE beds SET status = %s WHERE bed_id = %s;", (new_status, payload.bed_id))
+        if payload.patient_id:
+            cur.execute("""
+                UPDATE beds SET status = %s 
+                WHERE bed_id IN (SELECT bed_id FROM admissions WHERE patient_id = %s AND bed_id IS NOT NULL);
+            """, (new_status, payload.patient_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        db_connector.clear_cache()
+    except Exception as e:
+        print(f"[ERROR] Failed to update bed status in DB: {e}")
+
     return {
         "status": "success",
         "message": f"Bed status updated to '{payload.occupancy_status}' for patient {payload.patient_id or payload.bed_id}",
