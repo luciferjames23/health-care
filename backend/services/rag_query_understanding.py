@@ -29,18 +29,30 @@ ABBREVIATIONS = {
 
 SPELLING = {
     "wat": "what", "dischrge": "discharge", "summry": "summary", "pls": "please",
-    "pateint": "patient", "patinet": "patient", "urget": "urgent", "requsts": "requests",
+    "pateint": "patient", "patinet": "patient", "patint": "patient", "partient": "patient",
+    "urget": "urgent", "urgnt": "urgent",
+    "requsts": "requests", "requset": "request", "reqest": "request", "reqsts": "requests",
     "suger": "sugar", "haemoglobin": "hemoglobin",
+    "clarfication": "clarification", "clarifcation": "clarification",
+    "clarificationi": "clarification", "clarificationsi": "clarifications", "clarificaiton": "clarification",
+    "calrification": "clarification", "calrifications": "clarifications",
+    "clarifacation": "clarification", "clarifaction": "clarification",
+    "clarificarification": "clarification",
+    "analysed": "analyzed",
+    "xrqy": "xray",
+    "routin": "routine", "routne": "routine",
+    "admisssion": "admission", "admisson": "admission",
 }
 
 MODULE_TERMS = {
     "vitals": {"blood pressure", "heart rate", "oxygen saturation", "temperature", "vitals", "abnormal vitals", "abnormal vital signs", "critical vitals", "desaturation", "tachycardia", "bradycardia", "hypertension", "fever"},
-    "lab": {"lab", "labs", "complete blood count", "hemoglobin", "sugar", "glucose", "liver function test", "renal function test", "glycated hemoglobin", "troponin", "ck-mb", "cardiac markers", "potassium", "electrolyte", "electrolytes", "lipid", "creatinine", "abnormal lab", "critical lab"},
-    "radiology_report": {"xray", "x ray", "radiology", "computed tomography", "magnetic resonance imaging", "ultrasound", "scan", "chest xray", "chest x-ray", "echo", "echocardiogram", "radiologist report", "ai preliminary", "ai screening"},
+    "lab": {"lab", "labs", "complete blood count", "hemoglobin", "sugar", "glucose", "liver function test", "renal function test", "glycated hemoglobin", "troponin", "ck-mb", "cardiac markers", "potassium", "electrolyte", "electrolytes", "lipid", "creatinine", "abnormal lab", "critical lab", "result", "results", "investigation", "investigations", "workup", "crp", "cbc", "diagnostic orders"},
+    "radiology_report": {"xray", "x ray", "radiology", "computed tomography", "magnetic resonance imaging", "ultrasound", "scan", "chest xray", "chest x-ray", "echo", "echocardiogram", "radiologist report", "ai preliminary", "ai screening", "imaging", "imaging orders"},
+    "radiology_clarification": {"clarification", "clarifications", "thread", "threads", "radiology clarification", "clarification message", "clarification messages"},
     "bill": {"bill", "billing", "payment", "balance", "amount", "clearance", "financial clearance"},
     "discharge": {"discharge", "discharge summary", "readiness", "handover", "clearance", "pending discharge", "blocked discharge"},
     "medications": {"medicine", "medicines", "medication", "medications", "drug", "drugs", "dose", "dosage", "prescription", "prescriptions", "antiplatelet", "anticoagulant", "aspirin", "clopidogrel", "heparin", "antihypertensive"},
-    "diagnosis": {"diagnosis", "condition", "problem", "progression", "reason for admission"},
+    "diagnosis": {"diagnosis", "diagnoses", "all diagnoses", "diagnosis list", "diagnosed", "primary diagnosis", "dx", "condition", "problem", "progression", "reason for admission"},
 }
 
 # Canonical information model used by the planner. New synonyms map to stable
@@ -48,23 +60,29 @@ MODULE_TERMS = {
 FIELD_TERMS = {
     "name": {"name", "names", "patient", "patients"},
     "basic": {"basic", "details", "demographics", "age", "gender", "identifier"},
-    "diagnosis": {"diagnosis", "diagnoses", "disease", "diseases", "clinical problem", "clinical problems", "problem", "problems", "condition"},
-    "admission": {"admission", "admitted", "reason", "clinical indication", "indication"},
+    "diagnosis": {"diagnosis", "diagnoses", "all diagnoses", "diagnosis list", "dx", "disease", "diseases", "clinical problem", "clinical problems", "problem", "problems", "condition"},
+    "admission_date": {"admission date", "admitted date", "date of admission", "when admitted", "admission dates"},
+    "reason": {"admission reason", "reason for admission", "why admitted", "clinical indication"},
+    "admission": {"admission date", "admission reason", "date of admission", "reason for admission", "admission details", "when admitted"},
     "location": {"bed", "beds", "room", "rooms", "ward", "wards", "location", "unit"},
     "vitals": {"vitals", "blood pressure", "heart rate", "oxygen saturation", "temperature", "abnormal vitals", "abnormal", "critical"},
-    "labs": {"lab", "labs", "complete blood count", "hemoglobin", "glucose", "sugar", "test results", "abnormal lab", "critical lab"},
+    "labs": {"lab", "labs", "complete blood count", "hemoglobin", "glucose", "sugar", "test results", "abnormal lab", "critical lab", "result", "results", "investigation", "investigations", "workup", "crp", "cbc"},
     "medications": {"medicine", "medicines", "medication", "medications", "drug", "drugs", "prescription", "prescriptions", "dose"},
     "billing": {"bill", "billing", "balance", "payment", "clearance", "outstanding"},
     "radiology": {"xray", "x ray", "radiology", "scan", "final report", "imaging", "urgent xray", "pending xray"},
+    "clarification": {"clarification", "clarifications", "message", "messages", "thread", "threads"},
     "discharge": {"discharge", "discharge status", "discharge summary", "blocked", "clearance"},
 }
 
 PRONOUNS = {"him", "her", "his", "their", "that patient", "this patient", "same patient"}
 COLLECTION_PHRASES = {
-    "list", "which patients", "which of my patients", "how many", "count", "all patients", "patient list",
+    "patient list", "patients list", "list patients", "list the patients", "list all patients", "list my patients",
+    "list ip", "list op", "list patient", "which patients", "which of my patients", "how many", "count", "all patients",
     "patients name", "patients names", "patient names", "under me", "my patients",
     "has anyone", "does anyone", "is there anyone", "anyone have", "anyone has", "anyone", "anybody",
     "any patient", "any patients", "has any patient", "does any patient", "who has", "who have", "someone", "everyone",
+    "any op", "any ip", "op patients", "ip patients", "discharged patients", "discharged patient", "discharged list",
+    "discharged patient list", "outpatient patients", "outpatient list", "my op patients", "my discharged patients",
 }
 
 STOP_WORDS = {
@@ -103,7 +121,8 @@ def _tokens(text: str) -> List[str]:
 
 
 def normalize_query(query: str) -> str:
-    words = [SPELLING.get(word, word) for word in _tokens(query)]
+    cleaned = re.sub(r"\bhow\s+may\b", "how many", query or "", flags=re.I)
+    words = [SPELLING.get(word, word) for word in _tokens(cleaned)]
     expanded: List[str] = []
     for word in words:
         expanded.extend(ABBREVIATIONS.get(word, word).split())
@@ -148,6 +167,8 @@ class RagQueryUnderstandingService:
         timezone = ZoneInfo(os.getenv("HOSPITAL_TIMEZONE", "Asia/Kolkata"))
         now = now or datetime.now(timezone)
         modules = [module for module, terms in MODULE_TERMS.items() if _contains_phrase(normalized, terms)]
+        if re.search(r'\b(d\s*\d+|icd)\b', normalized, re.I) and "diagnosis" not in modules:
+            modules.append("diagnosis")
         intent = self._intent(normalized)
         requested_fields = [field for field, terms in FIELD_TERMS.items() if _contains_phrase(normalized, terms)]
         collection_request = self._is_collection_request(normalized, intent, conversation_collection)
@@ -158,19 +179,20 @@ class RagQueryUnderstandingService:
         candidates: List[PatientCandidate] = []
 
         if explicit_patient_id is not None:
-            if context.is_admin or explicit_patient_id in (context.allowed_patient_ids or frozenset()):
+            # allowed_patient_ids=None means unrestricted (e.g. radiologist role)
+            if context.is_admin or context.allowed_patient_ids is None or explicit_patient_id in (context.allowed_patient_ids or frozenset()):
                 patient_id = explicit_patient_id
             else:
                 return self._result(query, normalized, intent, modules, None, [], _date_range(normalized, now), "not_found")
 
         if conversation_patient_id is not None and _contains_phrase(normalized, PRONOUNS):
-            if context.is_admin or conversation_patient_id in (context.allowed_patient_ids or frozenset()):
+            if context.is_admin or context.allowed_patient_ids is None or conversation_patient_id in (context.allowed_patient_ids or frozenset()):
                 patient_id = conversation_patient_id
 
         explicit = re.search(r"\b(?:mer pat|pat|uhid|mrn|patient)\s*[-#:]?\s*(\d{3,10})\b", normalized)
         if explicit:
             requested = int(explicit.group(1))
-            if context.is_admin or requested in (context.allowed_patient_ids or frozenset()):
+            if context.is_admin or context.allowed_patient_ids is None or requested in (context.allowed_patient_ids or frozenset()):
                 patient_id = requested
             else:
                 return self._result(query, normalized, intent, modules, None, [], _date_range(normalized, now), "not_found")
@@ -188,10 +210,23 @@ class RagQueryUnderstandingService:
                 result.update(requested_fields=requested_fields, collection_request=False, collection_patient_ids=[])
                 return result
 
+        if patient_id is not None:
+            collection_request = False
+            collection_patient_ids = []
+
+        cohort = None
+        if _contains_phrase(normalized, {"discharged", "discharge"}):
+            if not _contains_phrase(normalized, {"clearance", "pending discharge", "summary", "draft", "readiness", "process"}):
+                cohort = "discharged"
+        elif _contains_phrase(normalized, {"outpatient", "op", "opd"}):
+            cohort = "op"
+        elif _contains_phrase(normalized, {"inpatient", "ip"}):
+            cohort = "ip"
+
         result = self._result(query, normalized, intent, modules, patient_id, [], _date_range(normalized, now), "resolved")
         result.update(requested_fields=requested_fields, collection_request=collection_request,
-                      collection_patient_ids=collection_patient_ids,
-                      collection_followup=self._is_collection_followup(normalized))
+                      collection_patient_ids=collection_patient_ids, cohort=cohort,
+                      collection_followup=self._is_collection_followup(normalized) if not patient_id else False)
         return result
 
     @staticmethod
@@ -215,7 +250,11 @@ class RagQueryUnderstandingService:
 
     @classmethod
     def _may_contain_name(cls, text: str) -> bool:
-        if _contains_phrase(text, COLLECTION_PHRASES) or "patients" in text.split():
+        if (
+            _contains_phrase(text, COLLECTION_PHRASES)
+            or "patients" in text.split()
+            or text.strip() in {"op", "outpatient", "discharged", "any op", "any ip", "any outpatient"}
+        ):
             return False
         excluded = set(ABBREVIATIONS.values()) | set(SPELLING.values()) | STOP_WORDS | cls._clinical_words()
         return any(len(token) >= 3 and token not in excluded for token in text.split())
@@ -230,6 +269,7 @@ class RagQueryUnderstandingService:
             _contains_phrase(text, COLLECTION_PHRASES)
             or "patients" in text.split()
             or _contains_phrase(text, {"each patient", "which ones", "who are", "anyone", "anybody"})
+            or text.strip() in {"op", "outpatient", "discharged", "discharged patients", "op patients", "any op"}
         )
         return explicit or bool(previous and cls._is_collection_followup(text)) or intent == "count"
 
@@ -279,12 +319,17 @@ class RagQueryUnderstandingService:
 
     @staticmethod
     def _result(original, normalized, intent, modules, patient_id, candidates, dates, status):
+        ret_queries = [normalized] + [f"{normalized} {module}" for module in modules]
+        icd_match = re.search(r'\b([dD]-\d+)\b', original or "")
+        if icd_match:
+            code_val = icd_match.group(1).upper()
+            ret_queries.extend([f"ICD Code: {code_val}", f"Clinical Diagnosis {code_val}", f"Code: {code_val}"])
         return {
             "original_query": original, "normalized_query": normalized, "intent": intent,
             "modules": modules, "patient_id": patient_id,
             "candidates": [asdict(candidate) for candidate in candidates],
             "date_range": dates, "resolution_status": status,
-            "retrieval_queries": [normalized] + [f"{normalized} {module}" for module in modules],
+            "retrieval_queries": ret_queries,
         }
 
 

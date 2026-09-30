@@ -132,6 +132,11 @@ export default function App() {
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
+  const isRadiologist = Boolean(
+    auth?.canAccessRadiology ||
+    (role && String(role).trim().toLowerCase() === 'radiologist') ||
+    (auth?.role && String(auth.role).trim().toLowerCase() === 'radiologist')
+  );
   const [drawer, setDrawer] = useState(null);
   const [modal, setModal] = useState(null);
   const [alertsCount, setAlertsCount] = useState(0);
@@ -168,9 +173,11 @@ export default function App() {
 
   const setRole = (newRole) => {
     setRoleState(newRole);
-    const allowed = ROLE_PAGE_ACCESS[newRole];
-    if (allowed !== null && allowed !== undefined && !allowed.includes(activePage)) {
-      setActivePage(allowed[0] || 'patients');
+    if (newRole === 'Patient') {
+      const allowed = ROLE_PAGE_ACCESS[newRole];
+      if (allowed && !allowed.includes(activePage)) {
+        setActivePage(allowed[0] || 'patients');
+      }
     }
   };
 
@@ -390,8 +397,97 @@ export default function App() {
             </div>
           )}
 
-          {activePage === 'radiology' && !auth?.canAccessRadiology && role !== 'Doctor' && role !== 'Hospital Management' && role !== 'Admin' ? (
-            <section role="alert"><h2>No access</h2><p>This workspace requires an active Radiologist account. Sign in with an authorized account.</p></section>
+          {['radiology', 'diagnostics'].includes(activePage) && !isRadiologist ? (
+            <section
+              role="alert"
+              style={{
+                maxWidth: '620px',
+                margin: '40px auto',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '36px 28px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.04)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '14px'
+              }}
+            >
+              <div
+                style={{
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '50%',
+                  background: 'oklch(0.96 0.03 25)',
+                  color: 'oklch(0.45 0.17 25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '22px'
+                }}
+              >
+                🔒
+              </div>
+              <h2 style={{ fontSize: '19px', fontWeight: 700, color: '#15181b', margin: 0 }}>
+                No access
+              </h2>
+              <p style={{ fontSize: '13px', color: '#52585e', lineHeight: 1.55, margin: 0, maxWidth: '480px' }}>
+                This {activePage === 'diagnostics' ? 'diagnostics' : 'radiology'} workspace and diagnostic radiology data are restricted. A verified <strong>Radiologist</strong> account is required to inspect radiographs, localization overlays, and PACS studies.
+              </p>
+              <div
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '11.5px',
+                  color: '#64748b',
+                  marginTop: '2px'
+                }}
+              >
+                Current account: <strong style={{ color: '#0f172a' }}>{auth?.name || 'Staff User'}</strong> · Role: <span style={{ color: '#0284c7', fontWeight: 600 }}>{role || 'Staff'}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handleStepBack}
+                  style={{
+                    height: '34px',
+                    padding: '0 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#334155',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ← Return Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSwitchUserPromptPassword({ username: 'jancy.selvam', name: 'Jancy Selvam', role: 'Radiologist' });
+                  }}
+                  style={{
+                    height: '34px',
+                    padding: '0 14px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: 'oklch(0.5 0.1 200)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Sign in as Radiologist →
+                </button>
+              </div>
+            </section>
           ) : <>
           {activePage === 'command' && (
             <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />

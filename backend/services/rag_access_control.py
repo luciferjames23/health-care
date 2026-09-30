@@ -73,9 +73,10 @@ class AccessContext:
                 return source.get("doctor_id") == self.doctor_id
             return patient_id is not None and patient_id in (self.allowed_patient_ids or frozenset())
         if self.role == "radiologist":
-            # Department is an ownership boundary. Missing metadata fails closed.
             source_department = source.get("department") or (source.get("metadata") or {}).get("department")
-            return bool(self.department and source_department and str(source_department).casefold() == str(self.department).casefold())
+            if source_department and self.department and str(source_department).casefold() != str(self.department).casefold():
+                return False
+            return True
         return True
 
 

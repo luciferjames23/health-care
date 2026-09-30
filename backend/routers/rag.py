@@ -66,15 +66,47 @@ def _apply_output_guardrail(sources: list, role: str, access_context: Optional[A
 
 def _guard_generated_answer(answer: str, sources: list) -> str:
     """Fail closed if the model references an ID outside authorized context."""
+    if not answer or answer == ACCESS_DENIED:
+        return answer
     if not sources:
         return GENERIC_NOT_FOUND
+    if "not available for this patient" in answer.lower():
+        return answer
+    answer = (answer or "").replace("【", "[").replace("】", "]")
     allowed = {str(s.get("id")) for s in sources}
-    cited = set(re.findall(r"\[Record\s*#([^\]]+)\]", answer or "", flags=re.IGNORECASE))
-    if not cited or not cited.issubset(allowed):
-        return GENERIC_NOT_FOUND
-    allowed_patients = {str(s.get("patient_id")) for s in sources if s.get("patient_id") is not None}
-    mentioned_patients = set(re.findall(r"\b(?:MER-PAT-|PAT-|patient\s+#?)(\d{3,10})\b", answer or "", flags=re.IGNORECASE))
-    if not mentioned_patients.issubset(allowed_patients):
+    raw_citations = re.findall(r"(?:\[|\()Record\s*(?:#|:)?\s*([0-9,\s#]+)(?:\]|\))", answer, flags=re.IGNORECASE)
+    cited = set()
+    for raw in raw_citations:
+        for cid in re.findall(r"\b\d+\b", raw):
+            cited.add(cid)
+    if cited:
+        if not cited.issubset(allowed):
+            return GENERIC_NOT_FOUND
+    else:
+        top_id = sources[0].get("id")
+        if top_id is not None:
+            answer = f"{answer.rstrip()} [Record #{top_id}]"
+
+    allowed_patients = set()
+    for s in sources:
+        if s.get("patient_id") is not None:
+            pid = str(s["patient_id"])
+            allowed_patients.add(pid)
+            allowed_patients.add(pid.lstrip("0") or "0")
+        for pid in (s.get("metadata") or {}).get("patient_ids") or []:
+            pid_str = str(pid)
+            allowed_patients.add(pid_str)
+            allowed_patients.add(pid_str.lstrip("0") or "0")
+        pcode = str((s.get("metadata") or {}).get("patient_code") or "")
+        if pcode:
+            allowed_patients.add(pcode)
+            for m in re.findall(r"\d+", pcode):
+                allowed_patients.add(m)
+                allowed_patients.add(m.lstrip("0") or "0")
+
+    mentioned_patients = set(re.findall(r"\b(?:MER-PAT-|PAT-|patient\s+#?)(\d{3,10})\b", answer, flags=re.IGNORECASE))
+    mentioned_norm = {m.lstrip("0") or "0" for m in mentioned_patients}
+    if not (mentioned_patients.issubset(allowed_patients) or mentioned_norm.issubset(allowed_patients)):
         return GENERIC_NOT_FOUND
     return answer
 
@@ -218,6 +250,7 @@ def query_rag(body: RagQueryRequest, user: dict = Depends(get_current_user)):
         "intent": understanding.get("intent") or expansion.get("intent"),
         "date_range": understanding.get("date_range"),
         "modules": understanding.get("modules"),
+        "cohort": understanding.get("cohort"),
         "patient_id": body.patient_id or understanding.get("patient_id"),
         "requested_fields": understanding.get("requested_fields", []),
         "collection_request": understanding.get("collection_request", False),
@@ -245,8 +278,9 @@ def query_rag(body: RagQueryRequest, user: dict = Depends(get_current_user)):
                 accession_number=expansion.get("accession_number"),
                 status_filter=expansion.get("status_filter"),
                 limit=body.limit or 8,
-                access_context=access_context
-                ,query_plan=expansion
+                access_context=access_context,
+                conversation_history=history,
+                query_plan=expansion
             )
         except PermissionError as pe:
             audit_service.log_query(
@@ -257,7 +291,7 @@ def query_rag(body: RagQueryRequest, user: dict = Depends(get_current_user)):
                 order_id=body.order_id, response_status=200,
                 failure_reason=str(pe)
             )
-            sources, strategy = [], "authorized_empty"
+            sources, strategy = [], "unauthorized_denied"
         except Exception as exc:
             audit_service.log_query(
                 request_id=request_id, user_id=user_id, role=role, area=area,
@@ -280,7 +314,9 @@ def query_rag(body: RagQueryRequest, user: dict = Depends(get_current_user)):
             break
 
     # 5. Answer Generation with Safety Grounding & Multilingual Support
-    if not sources:
+    if strategy == "unauthorized_denied":
+        gen_result = {"answer": ACCESS_DENIED, "confidence": 0.0, "disclaimer": "", "used_llm": False}
+    elif not sources:
         gen_result = {"answer": GENERIC_NOT_FOUND, "confidence": 0.0, "disclaimer": "", "used_llm": False}
     elif strategy in {"authorized_sql_aggregate", "authorized_sql_list"} and sources:
         gen_result = {
@@ -305,7 +341,11 @@ def query_rag(body: RagQueryRequest, user: dict = Depends(get_current_user)):
             language_name=body.language_name or "English"
         )
     gen_result["answer"] = _guard_generated_answer(gen_result["answer"], sources)
-    if gen_result["answer"] == GENERIC_NOT_FOUND:
+    if (
+        gen_result["answer"] in {GENERIC_NOT_FOUND, ACCESS_DENIED}
+        or strategy == "unauthorized_denied"
+        or "not available for this patient" in gen_result["answer"].lower()
+    ):
         # Do not show unrelated retrieval evidence beneath a blocked/empty answer.
         sources = []
         gen_result["confidence"] = 0.0

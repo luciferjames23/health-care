@@ -131,14 +131,7 @@ export const ROLE_PAGE_ACCESS = {
     // People & Admin
     'hr-dashboard', 'notifications', 'reports'
   ],
-  'Radiologist': [
-    // Core Data Pages (preserved)
-    'command', 'patients', 'diagnostics', 'radiology',
-    // Operational & Platform
-    'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
-    // People & Admin
-    'hr-dashboard', 'notifications', 'reports'
-  ],
+  'Radiologist': null, // Full platform access; sidepanel modules are fixed and data/access differ at view level
   'Laboratory': [
     // Core Data Pages (preserved)
     'command', 'patients', 'criticalvalues', 'diagnostics',
@@ -241,7 +234,6 @@ export const ROLE_HOMES = {
 
 export function isPageAllowed(role, page) {
   if (!role) return false;
-  
   const roleStr = String(role).toLowerCase();
 
   // Explicit Role-Based Restrictions
@@ -255,7 +247,7 @@ export function isPageAllowed(role, page) {
     return false; // Patient Portal Chat removed from Doctor and Admin Portals
   }
 
-  if (role === 'Hospital Management' || role === 'Admin' || roleStr === 'admin') return true;
+  if (role === 'Hospital Management' || role === 'Admin' || roleStr === 'admin' || role === 'Radiologist' || roleStr === 'radiologist') return true;
   const allowedList = ROLE_PAGE_ACCESS[role];
   if (allowedList === null || allowedList === undefined) return true;
   if (allowedList.includes(page)) return true;
