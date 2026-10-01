@@ -197,8 +197,22 @@ class RagQueryUnderstandingService:
             else:
                 return self._result(query, normalized, intent, modules, None, [], _date_range(normalized, now), "not_found")
 
-        if patient_id is None and not collection_request and self._may_contain_name(normalized):
-            candidates = self._scoped_patient_candidates(cur, context, normalized)
+        # Strip clinician references (e.g. "requested by priya patel", "dr priya patel") so doctors are not falsely resolved as patients
+        cleaned_for_patients = re.sub(
+            r"\b(?:requested by|ordered by|raised by|asked by|created by|dr\.?|doctor)\s+[a-z]+(?:\s+[a-z]+)?\b",
+            " ",
+            normalized,
+            flags=re.I
+        )
+        cleaned_for_patients = re.sub(
+            r"\b[a-z]+(?:\s+[a-z]+)?\s+(?:requested|ordered|raised)\b",
+            " ",
+            cleaned_for_patients,
+            flags=re.I
+        )
+
+        if patient_id is None and not collection_request and self._may_contain_name(cleaned_for_patients):
+            candidates = self._scoped_patient_candidates(cur, context, cleaned_for_patients)
             if candidates and candidates[0].score >= 0.99:
                 patient_id = candidates[0].patient_id
             elif len(candidates) == 1 and candidates[0].score >= 0.72:
@@ -277,7 +291,7 @@ class RagQueryUnderstandingService:
     def _scoped_patient_candidates(cls, cur, context: AccessContext, normalized: str) -> List[PatientCandidate]:
         params: List[Any] = []
         where = "UPPER(COALESCE(p.status, '')) = 'ACTIVE'"
-        if not context.is_admin:
+        if not context.is_admin and context.allowed_patient_ids is not None:
             ids = sorted(context.allowed_patient_ids or ())
             if not ids:
                 return []
@@ -290,7 +304,19 @@ class RagQueryUnderstandingService:
             GROUP BY p.id, p.patient_code, p.first_name, p.last_name, p.date_of_birth
         """, params)
         excluded = STOP_WORDS | cls._clinical_words() | set(ABBREVIATIONS.keys()) | set(ABBREVIATIONS.values())
-        query_tokens = set(normalized.split()) - excluded
+        cleaned = re.sub(
+            r"\b(?:requested by|ordered by|raised by|asked by|created by|dr\.?|doctor)\s+[a-z]+(?:\s+[a-z]+)?\b",
+            " ",
+            normalized,
+            flags=re.I
+        )
+        cleaned = re.sub(
+            r"\b[a-z]+(?:\s+[a-z]+)?\s+(?:requested|ordered|raised)\b",
+            " ",
+            cleaned,
+            flags=re.I
+        )
+        query_tokens = set(cleaned.split()) - excluded
         if not query_tokens:
             return []
         results: List[PatientCandidate] = []
