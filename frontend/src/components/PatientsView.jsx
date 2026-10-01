@@ -38,6 +38,16 @@ export default function PatientsView({
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? doctorName : null;
 
+  const authUser = useMemo(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const activeDoctorId = isDoctor ? (authUser.doctorId || authUser.doctor_id || null) : null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [admitted, setAdmitted] = useState([]);
@@ -51,7 +61,7 @@ export default function PatientsView({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, search, activeDoctorName]);
+  }, [filter, search, activeDoctorName, activeDoctorId]);
 
   useEffect(() => {
     let alive = true;
@@ -61,16 +71,17 @@ export default function PatientsView({
       }
       setError(null);
       try {
+        const doctorParams = activeDoctorId ? { doctor_id: activeDoctorId } : {};
         const [ar, dr, opRes, erRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all', ...doctorParams }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({ ...doctorParams }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP', ...doctorParams }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER', ...doctorParams }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
 
-        const rawDischarges = dr?.data || [];
-        const rawAdmissions = ar?.data || [];
+        const rawDischarges = Array.isArray(dr) ? dr : (dr?.data || []);
+        const rawAdmissions = Array.isArray(ar) ? ar : (ar?.data || []);
 
         const dischargeMapByPid = {};
         const dischargeMapByAid = {};
@@ -158,7 +169,8 @@ export default function PatientsView({
         });
 
         // 3. Outpatient (OP) Records from Live Directory API
-        const parsedOp = (opRes?.data || []).map(r => ({
+        const rawOpList = Array.isArray(opRes) ? opRes : (opRes?.data || []);
+        const parsedOp = rawOpList.map(r => ({
           patient_id: r.patient_id,
           id: r.patient_id,
           uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
@@ -182,7 +194,8 @@ export default function PatientsView({
         }));
 
         // 4. Emergency (ER) Records from Live Directory API
-        const parsedEr = (erRes?.data || []).map(r => ({
+        const rawErList = Array.isArray(erRes) ? erRes : (erRes?.data || []);
+        const parsedEr = rawErList.map(r => ({
           patient_id: r.patient_id,
           id: r.patient_id,
           uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
@@ -234,11 +247,11 @@ export default function PatientsView({
     let baseEr = erPatients;
     let baseDischarged = discharged;
 
-    if (activeDoctorName) {
-      baseAdmitted = baseAdmitted.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseOp = baseOp.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseEr = baseEr.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseDischarged = baseDischarged.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+    if (activeDoctorName || activeDoctorId) {
+      baseAdmitted = baseAdmitted.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseOp = baseOp.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseEr = baseEr.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseDischarged = baseDischarged.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
     }
 
     return {
