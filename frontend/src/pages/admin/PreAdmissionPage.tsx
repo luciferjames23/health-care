@@ -373,7 +373,15 @@ const SearchableSelect: React.FC<{
 };
 
 const PreAdmissionPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user: authContextUser } = useAuth();
+  const user = authContextUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+
   const [preAdmissions, setPreAdmissions] = useState<PreAdmissionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'success' | 'error'; loading?: boolean } | null>(null);
@@ -471,51 +479,64 @@ const PreAdmissionPage: React.FC = () => {
     fetchPatients({ per_page: 100 }).then(res => setPatients(res.patients || []));
   }, []);
 
+  const isDoctorRole = Boolean(
+    user && (
+      String(user.role).toLowerCase() === 'doctor' ||
+      String((user as any)?.role).toUpperCase() === 'DOCTOR'
+    )
+  );
+
   // Handle Doctor change in modal to auto-select department
-  const handleDoctorSelect = (docIdStr: string) => {
+  const handleDoctorSelect = useCallback((docIdStr: string) => {
     setFormDoctorId(docIdStr);
-    const selectedDoc = doctors.find(d => String(d.id) === docIdStr);
-    if (selectedDoc) {
+    if (!docIdStr) {
+      setFormDeptId('');
+      return;
+    }
+    const selectedDoc = doctors.find(d => String(d.id) === String(docIdStr));
+    if (selectedDoc && selectedDoc.department_id) {
       setFormDeptId(String(selectedDoc.department_id));
     }
-  };
+  }, [doctors]);
 
   const handleDeptSelect = (deptIdStr: string) => {
     setFormDeptId(deptIdStr);
-    if (formDoctorId) {
-      const selectedDoc = doctors.find(d => String(d.id) === formDoctorId);
+    if (formDoctorId && !isDoctorRole) {
+      const selectedDoc = doctors.find(d => String(d.id) === String(formDoctorId));
       if (selectedDoc && String(selectedDoc.department_id) !== deptIdStr) {
         setFormDoctorId('');
       }
     }
   };
 
-  const isDoctorRole = Boolean(
-    user && (
-      String(user.role).toLowerCase() === 'doctor' ||
-      (user as any)?.role === 'DOCTOR'
-    )
-  );
-
-  // Auto-populate Doctor & Department for authenticated doctor role
+  // Auto-populate Doctor & Department for authenticated doctor role or sync when doctor selection changes
   useEffect(() => {
-    if (showAddModal && isDoctorRole) {
+    if (isDoctorRole && user) {
       const docId = user?.doctorId || (user as any)?.doctor_id;
       if (docId) {
         const docIdStr = String(docId);
-        setFormDoctorId(docIdStr);
+        if (formDoctorId !== docIdStr) {
+          setFormDoctorId(docIdStr);
+        }
         const selectedDoc = doctors.find(d => String(d.id) === docIdStr);
-        if (selectedDoc) {
+        if (selectedDoc && selectedDoc.department_id) {
           setFormDeptId(String(selectedDoc.department_id));
-        } else if (user?.department) {
+        } else if (user?.departmentId || (user as any)?.department_id) {
+          setFormDeptId(String(user.departmentId || (user as any)?.department_id));
+        } else if (user?.department && departments.length > 0) {
           const matchedDept = departments.find(dep => dep.department_name.toLowerCase() === user.department?.toLowerCase());
           if (matchedDept) {
             setFormDeptId(String(matchedDept.id));
           }
         }
       }
+    } else if (formDoctorId && doctors.length > 0) {
+      const selectedDoc = doctors.find(d => String(d.id) === String(formDoctorId));
+      if (selectedDoc && selectedDoc.department_id) {
+        setFormDeptId(String(selectedDoc.department_id));
+      }
     }
-  }, [showAddModal, isDoctorRole, user, doctors, departments]);
+  }, [showAddModal, isDoctorRole, user, doctors, departments, formDoctorId]);
 
   const patientOptions: SearchableOption[] = patients.map(p => ({
     id: String(p.id),
@@ -651,9 +672,15 @@ const PreAdmissionPage: React.FC = () => {
 
   const handleOpenAddModal = () => {
     setShowAddModal(true);
-    const docId = user?.doctorId || (user as any)?.doctor_id;
-    if (user && (user.role === 'doctor' || (user as any)?.role === 'DOCTOR') && docId) {
-      handleDoctorSelect(String(docId));
+    if (isDoctorRole) {
+      const docId = user?.doctorId || (user as any)?.doctor_id;
+      if (docId) {
+        handleDoctorSelect(String(docId));
+      }
+    } else {
+      setFormPatientId('');
+      setFormDoctorId('');
+      setFormDeptId('');
     }
   };
 
@@ -1064,8 +1091,8 @@ const PreAdmissionPage: React.FC = () => {
                     options={departmentOptions}
                     value={formDeptId}
                     onChange={handleDeptSelect}
-                    placeholder="-- Auto-filled when Doctor is selected --"
-                    disabled={true}
+                    placeholder={isDoctorRole ? "-- Auto-filled when Doctor is selected --" : "-- Search & Select Department --"}
+                    disabled={isDoctorRole}
                     required
                   />
                 </div>

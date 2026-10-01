@@ -16,6 +16,8 @@ export async function selectAccount(username) {
     token: result.token,
     role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
     dept: user.department,
+    departmentId: user.departmentId || user.department_id,
+    doctorId: user.doctorId || user.doctor_id,
     title: user.specialization || user.role
   };
   try {
@@ -41,6 +43,8 @@ export async function loginWithPassword(username, password) {
     token: result.token,
     role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
     dept: user.department,
+    departmentId: user.departmentId || user.department_id,
+    doctorId: user.doctorId || user.doctor_id,
     title: user.specialization || user.role
   };
   try {

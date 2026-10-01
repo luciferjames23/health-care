@@ -108,14 +108,15 @@ def login(body: LoginRequest):
         
         if actual_role in {"DOCTOR", "RADIOLOGIST"}:
             cur.execute("""
-                SELECT d.id, d.display_name, dept.department_name
+                SELECT d.id, d.display_name, dept.department_name, d.department_id
                 FROM doctors d
                 JOIN departments dept ON d.department_id = dept.id
                 WHERE d.user_id = %s;
             """, (user_id,))
             doc_row = cur.fetchone()
+            department_id = None
             if doc_row:
-                doctor_id, display_name, department_name = doc_row
+                doctor_id, display_name, department_name, department_id = doc_row
                 
         token_payload = {
             "user_id": user_id,
@@ -142,6 +143,8 @@ def login(body: LoginRequest):
                 "canAccessRadiology": actual_role == "RADIOLOGIST",
                 "name": display_name,
                 "department": department_name,
+                "departmentId": department_id,
+                "department_id": department_id,
                 "doctorId": doctor_id,
                 "loginId": username
             }
@@ -303,7 +306,7 @@ def select_account(body: AccountSelectionRequest, request: Request):
             cur.execute("""
                 SELECT u.id, u.username, r.name,
                        COALESCE(d.display_name, u.staff_name, u.username),
-                       dept.department_name, d.id, d.specialization
+                       dept.department_name, d.id, d.specialization, COALESCE(d.department_id, u.department_id)
                 FROM users u JOIN roles r ON r.id=u.role_id
                 LEFT JOIN doctors d ON d.user_id=u.id
                 LEFT JOIN departments dept ON dept.id=COALESCE(d.department_id,u.department_id)
@@ -312,12 +315,13 @@ def select_account(body: AccountSelectionRequest, request: Request):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=403, detail="This account is unavailable or inactive.")
-            uid, username, role, name, department, doctor_id, specialization = row
+            uid, username, role, name, department, doctor_id, specialization, department_id = row
             token = encode_token({"user_id":uid,"username":username,"role":role,"doctor_id":doctor_id,"auth_method":"account_selection"})
             cur.execute("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=%s", (uid,))
             conn.commit()
     return {"success":True,"token":token,"user":{
         "username":username,"role":role,"name":name,"department":department,
+        "departmentId":department_id,"department_id":department_id,
         "specialization":specialization,"doctorId":doctor_id,"loginId":username,
         "canAccessRadiology":role.strip().lower()=="radiologist",
     }}

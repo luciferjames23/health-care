@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
 
 export type DatePreset =
+  | 'all_time'
   | 'today'
   | 'yesterday'
   | 'tomorrow'
@@ -48,6 +49,8 @@ export function calculateDateRange(preset: DatePreset, customFrom?: string, cust
   const todayYMD = toYMD(now);
 
   switch (preset) {
+    case 'all_time':
+      return { from: '', to: '', label: 'All Time' };
     case 'today':
       return { from: todayYMD, to: todayYMD, label: `Today (${formatFriendlyDate(todayYMD)})` };
     case 'yesterday': {
@@ -175,6 +178,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
           cursor: 'pointer',
         }}
       >
+        <option value="all_time">All Time</option>
         <option value="today">Today</option>
         <option value="yesterday">Yesterday</option>
         <option value="tomorrow">Tomorrow</option>
