@@ -95,7 +95,8 @@ def login(body: LoginRequest):
         cur.execute("""
             SELECT u.id, u.username, u.password_hash, u.is_active, r.name as role_name, u.phone, u.email,
                    u.patient_id, p.patient_code, p.first_name as pat_fname, p.last_name as pat_lname,
-                   u.first_name as u_fname, u.last_name as u_lname, u.staff_name, u.staff_type, dept.department_name
+                   u.first_name as u_fname, u.last_name as u_lname, u.staff_name, u.staff_type, dept.department_name,
+                   u.department_id
             FROM users u
             JOIN roles r ON u.role_id = r.id
             LEFT JOIN departments dept ON dept.id = u.department_id
@@ -119,7 +120,7 @@ def login(body: LoginRequest):
         if not row:
             raise HTTPException(status_code=401, detail="Invalid credentials. Please check your username, doctor ID, or patient ID.")
             
-        user_id, username, password_hash, is_active, role_name, phone, email, patient_id, patient_code, pat_fname, pat_lname, u_fname, u_lname, u_staff_name, u_staff_type, u_dept_name = row
+        user_id, username, password_hash, is_active, role_name, phone, email, patient_id, patient_code, pat_fname, pat_lname, u_fname, u_lname, u_staff_name, u_staff_type, u_dept_name, u_dept_id = row
         
         if not is_active:
             raise HTTPException(status_code=401, detail="This account has been deactivated.")
@@ -153,6 +154,7 @@ def login(body: LoginRequest):
         actual_role = role_name.upper()
             
         doctor_id = None
+        department_id = u_dept_id
         department_name = u_dept_name or u_staff_type or role_name
         specialization = u_staff_type or department_name
         display_name = (
@@ -163,29 +165,21 @@ def login(body: LoginRequest):
         
         if actual_role in {"DOCTOR", "RADIOLOGIST", "PATHOLOGIST"}:
             cur.execute("""
-<<<<<<< Updated upstream
-                SELECT d.id, d.display_name, dept.department_name, d.department_id
-=======
-                SELECT d.id, d.display_name, dept.department_name, d.specialization
->>>>>>> Stashed changes
+                SELECT d.id, d.display_name, dept.department_name, d.department_id, d.specialization
                 FROM doctors d
                 JOIN departments dept ON d.department_id = dept.id
                 WHERE d.user_id = %s;
             """, (user_id,))
             doc_row = cur.fetchone()
-            department_id = None
             if doc_row:
-<<<<<<< Updated upstream
-                doctor_id, display_name, department_name, department_id = doc_row
-=======
-                doctor_id, doc_display_name, doc_dept_name, doc_spec = doc_row
+                doctor_id, doc_display_name, doc_dept_name, doc_dept_id, doc_spec = doc_row
+                department_id = doc_dept_id
                 if doc_display_name:
                     display_name = doc_display_name
                 if doc_dept_name:
                     department_name = doc_dept_name
                 if doc_spec:
                     specialization = doc_spec
->>>>>>> Stashed changes
         elif actual_role == "PATIENT":
             department_name = "Patient Portal"
             pat_full_name = f"{pat_fname or ''} {pat_lname or ''}".strip()
@@ -219,12 +213,9 @@ def login(body: LoginRequest):
                 "canAccessRadiology": actual_role == "RADIOLOGIST",
                 "name": display_name,
                 "department": department_name,
-<<<<<<< Updated upstream
                 "departmentId": department_id,
                 "department_id": department_id,
-=======
                 "specialization": specialization,
->>>>>>> Stashed changes
                 "doctorId": doctor_id,
                 "patient_id": patient_id,
                 "patient_code": patient_code,

@@ -170,6 +170,10 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
       handleSendMessage('What is my leave and comp-off balance?');
     } else if (clean === 'Apply Comp-Off') {
       handleSendMessage('I would like to apply for a comp-off');
+    } else if (clean.includes('Confirm & Submit') || clean.startsWith('Confirm')) {
+      handleSendMessage('Confirm & Submit Comp-Off');
+    } else if (clean === 'Cancel') {
+      handleSendMessage('Cancel');
     } else if (clean.startsWith('Yes')) {
       handleSendMessage('Yes, please apply for Friday');
     } else {
@@ -371,7 +375,7 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          📄 {msg.interactiveSlip.type === 'leave_slip_confirmed' ? 'Request Confirmed' : 'Pre-Filled Leave Slip'}
+                          📄 {msg.interactiveSlip.type === 'leave_slip_confirmed' ? 'Request Confirmed' : 'Pre-Filled Leave Slip (Draft)'}
                         </span>
                         <span style={{
                           fontSize: '10px',
@@ -418,11 +422,11 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
                               boxShadow: '0 1px 3px rgba(22, 163, 74, 0.3)'
                             }}
                           >
-                            <span>✓ Apply Now</span>
+                            <span>✓ Confirm & Submit</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleSendMessage('Let me check my other duties first')}
+                            onClick={() => handleSendMessage('Cancel')}
                             style={{
                               padding: '6px 10px',
                               background: '#ffffff',
@@ -474,9 +478,26 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
             ))}
 
             {isLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '11.5px' }}>
-                <span style={{ animation: 'spin 1s linear infinite' }}>⏳</span>
-                <span>Checking PostgreSQL roster & HR Policy...</span>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#0369a1',
+                background: '#f0f9ff',
+                padding: '6px 12px',
+                borderRadius: '16px',
+                border: '1px solid #bae6fd',
+                fontSize: '11.5px',
+                fontWeight: 500,
+                boxShadow: '0 1px 3px rgba(2, 132, 199, 0.08)',
+                width: 'fit-content'
+              }}>
+                <span style={{ display: 'inline-flex', gap: '3px', alignItems: 'center' }}>
+                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#0284c7' }} />
+                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#0284c7' }} />
+                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#0284c7' }} />
+                </span>
+                <span>✨ Checking your schedule & leave records...</span>
               </div>
             )}
             <div ref={messagesEndRef} />

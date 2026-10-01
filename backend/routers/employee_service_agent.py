@@ -21,6 +21,7 @@ router = APIRouter(
     tags=["AG-04 · Employee Service Agent (பணியாளர் சேவை முகவர்)"]
 )
 
+# Ultra-fast Employee Service Agent instance
 agent_service = EmployeeServiceAgentService()
 
 class ChatRequest(BaseModel):

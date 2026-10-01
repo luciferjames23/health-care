@@ -186,6 +186,21 @@ class EmployeeServiceAgentService:
             cur.close()
             conn.close()
 
+    def _get_supervisor(self, cur, user: Dict[str, Any]) -> tuple:
+        """Determines supervisor id and name based on employee role and department."""
+        if user.get("role_name") == "Doctor":
+            return 1, "Medical Director / Clinical Head"
+        cur.execute("""
+            SELECT id, staff_name FROM users 
+            WHERE LOWER(username) IN ('anitha.kumar', 'meera.iyer', 'l.revathi')
+            ORDER BY CASE WHEN LOWER(username) = 'anitha.kumar' THEN 0 ELSE 1 END
+            LIMIT 1;
+        """)
+        sup_row = cur.fetchone()
+        supervisor_id = sup_row["id"] if sup_row else user["id"]
+        supervisor_name = sup_row["staff_name"] if sup_row else "Shift Supervisor (Ward In-Charge)"
+        return supervisor_id, supervisor_name
+
     def apply_leave(
         self,
         user_identifier: str,
@@ -234,20 +249,7 @@ class EmployeeServiceAgentService:
 
             days_count = max(1.0, float((to_dt - from_dt).days + 1))
 
-            # Supervisor selection based on role
-            if user.get("role_name") == "Doctor":
-                supervisor_name = "Medical Director / Clinical Head"
-                supervisor_id = 1
-            else:
-                cur.execute("""
-                    SELECT id, staff_name FROM users 
-                    WHERE LOWER(username) IN ('anitha.kumar', 'meera.iyer', 'l.revathi')
-                    ORDER BY CASE WHEN LOWER(username) = 'anitha.kumar' THEN 0 ELSE 1 END
-                    LIMIT 1;
-                """)
-                sup_row = cur.fetchone()
-                supervisor_id = sup_row["id"] if sup_row else user["id"]
-                supervisor_name = sup_row["staff_name"] if sup_row else "Shift Supervisor (Ward In-Charge)"
+            supervisor_id, supervisor_name = self._get_supervisor(cur, user)
 
             req_code = f"LV-2026-{random.randint(1000, 9999)}"
 
@@ -312,7 +314,7 @@ class EmployeeServiceAgentService:
             f"Employee: {user.get('staff_name')} ({user.get('role_name')}, {user.get('department_name')}). "
             "Output strictly a JSON object with keys: "
             "\"is_leave_request\" (boolean: true if user wants to apply, take, or request leave/comp-off), "
-            "\"should_apply_now\" (boolean: true if user says apply, need leave, take leave, file, or confirms), "
+            "\"should_apply_now\" (boolean: true ONLY if user explicitly says 'confirm', 'submit now', 'yes apply', 'confirm and submit', 'yes please proceed'. False for initial requests like 'apply comp-off' or 'i want to apply' which require review/confirmation first), "
             "\"leave_type\" (string: 'Comp-Off', 'Casual Leave', 'Sick Leave', 'Earned Leave'), "
             "\"from_date\" (string 'YYYY-MM-DD'), "
             "\"to_date\" (string 'YYYY-MM-DD'), "
@@ -321,54 +323,38 @@ class EmployeeServiceAgentService:
             "\"reply_message\" (string: empathetic, professional response explaining what is being done or answering the question)."
         )
 
-        # 1. Try Groq
+        # 1. Try Groq (high-speed inference)
         if self.groq_api_key:
             try:
                 url = "https://api.groq.com/openai/v1/chat/completions"
+                # Use openai/gpt-oss-120b or openai/gpt-oss-20b
+                model_name = self.llm_model if self.llm_model and "llama" not in self.llm_model else "openai/gpt-oss-120b"
                 payload = {
-                    "model": self.llm_model,
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": message}
                     ],
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1,
-                    "max_tokens": 500
+                    "max_tokens": 1200
                 }
                 req = urllib.request.Request(
                     url,
                     data=json.dumps(payload).encode("utf-8"),
-                    headers={"Authorization": f"Bearer {self.groq_api_key.strip()}", "Content-Type": "application/json"},
+                    headers={
+                        "Authorization": f"Bearer {self.groq_api_key.strip()}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    },
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=4) as resp:
+                with urllib.request.urlopen(req, timeout=2.5) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     content_str = data["choices"][0]["message"]["content"]
                     return json.loads(content_str)
-            except Exception:
-                pass
-
-        # 2. Try Gemini
-        if self.gemini_api_key:
-            try:
-                model_name = os.getenv("LLM_MODEL", "gemini-2.0-flash")
-                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_api_key}"
-                gemini_payload = {
-                    "contents": [{"parts": [{"text": f"{system_prompt}\n\nUser: {message}"}]}],
-                    "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-                }
-                req = urllib.request.Request(
-                    gemini_url,
-                    data=json.dumps(gemini_payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    content_str = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return json.loads(content_str)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Groq intent parse skipped or timed out: {e}")
 
         return None
 
@@ -420,9 +406,21 @@ class EmployeeServiceAgentService:
                 reason = rm.group(1).strip()
                 break
 
-        # Check if intent is to apply directly
-        apply_triggers = ['apply', 'need', 'take', 'file', 'submit', 'put', 'confirm', 'yes', 'want leave', 'request leave', 'take off']
-        should_apply_now = any(w in msg_l for w in apply_triggers)
+        # Check explicit confirmation triggers to actually commit in database
+        confirm_triggers = [
+            'confirm & submit', 'confirm and submit', 'confirm', 'yes, please apply',
+            'yes please apply', 'yes, apply', 'yes apply', 'submit now', 'please proceed',
+            'go ahead and submit', 'proceed with application', 'yes, please proceed'
+        ]
+        should_apply_now = any(w in msg_l for w in confirm_triggers)
+
+        # Cancellation triggers
+        cancel_triggers = ['cancel', 'let me check my other duties first', "don't apply", 'nevermind', 'discard', 'no cancel']
+        is_cancel = any(w in msg_l for w in cancel_triggers)
+
+        # Draft / apply request triggers
+        apply_triggers = ['apply', 'need', 'take', 'file', 'put', 'want leave', 'request leave', 'take off', 'comp-off', 'compoff', 'comp off']
+        is_leave_request = any(w in msg_l for w in apply_triggers)
 
         is_shift_query = any(k in msg_l for k in ["shift", "timing", "roster", "duty", "when do i work", "schedule"])
         is_balance_query = any(k in msg_l for k in ["balance", "available", "how many", "leaves left"])
@@ -435,6 +433,8 @@ class EmployeeServiceAgentService:
             "days_count": days_count,
             "reason": reason,
             "should_apply_now": should_apply_now,
+            "is_cancel": is_cancel,
+            "is_leave_request": is_leave_request,
             "is_shift_query": is_shift_query,
             "is_balance_query": is_balance_query,
             "is_policy_query": is_policy_query
@@ -448,9 +448,9 @@ class EmployeeServiceAgentService:
     ) -> Dict[str, Any]:
         """
         Conversational brain:
-        1. Interprets natural employee requests via LLM / NLU.
-        2. If staff requests to apply leave, the agent DIRECTLY applies and records it in PostgreSQL.
-        3. Returns real-time shift, leave balance, or interactive leave slips.
+        1. Instant local fast-path for common shift/balance pill clicks (< 15ms).
+        2. Ultra-fast Groq LLM parsing with 2.5s strict timeout and instant deterministic fallback.
+        3. Database operations (shift check, balance lookup, instant leave creation).
         """
         conn = self.get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -466,11 +466,178 @@ class EmployeeServiceAgentService:
                 }
 
             today = datetime.date.today()
+            msg_clean = message.strip()
+            msg_lower = msg_clean.lower()
 
-            # 1. Try LLM Parsing
+            # ── INSTANT FAST-PATH 1: Direct Shift Timing Query (<15ms) ────────
+            is_pure_shift = (
+                msg_clean == "[My Shift Tomorrow]" or
+                any(msg_lower == q for q in [
+                    "shift", "shift tomorrow", "my shift tomorrow",
+                    "what is my shift tomorrow?", "what is my shift timing tomorrow?",
+                    "what is my shift tomorrow", "my shift", "duty tomorrow", "when is my shift?"
+                ])
+            )
+            if is_pure_shift:
+                shift_res = self.get_user_shift(user["username"], "tomorrow")
+                sh = shift_res.get("shift", {})
+                shift_name = sh.get("shift_name", "Day Shift")
+                timing = sh.get("shift_timing", "08:00 AM - 04:00 PM")
+                ward = sh.get("ward_name", "Inpatient Unit")
+                return {
+                    "success": True,
+                    "text": f"You are scheduled for **{shift_name} ({timing})** in **{ward}** tomorrow. Status: **Scheduled**.",
+                    "agent": "Employee Service Agent",
+                    "quick_actions": ["[Check Leave Balance]", "[Apply Comp-Off]"]
+                }
+
+            # ── INSTANT FAST-PATH 2: Direct Leave Balance Query (<15ms) ───────
+            is_pure_balance = (
+                msg_clean == "[Check Leave Balance]" or
+                any(msg_lower == q for q in [
+                    "check leave balance", "leave balance", "what is my leave balance?",
+                    "what is my leave and comp-off balance?", "my leave balance",
+                    "check balance", "how many leaves do i have?", "leave balances"
+                ])
+            )
+            if is_pure_balance:
+                bal_res = self.get_user_leave_balance(user["username"])
+                b = bal_res.get("balances", {})
+                comp = b.get("comp_off_balance", 0)
+                casual = b.get("casual_leave_balance", 0)
+                sick = b.get("sick_leave_balance", 0)
+                earned = b.get("earned_leave_balance", 0)
+                text = (
+                    f"Here is your current leave entitlement under **HR Policy v5.0**:\n"
+                    f"• **Comp-Off:** {comp} days available\n"
+                    f"• **Casual Leave (CL):** {casual} days remaining\n"
+                    f"• **Sick Leave (SL):** {sick} days remaining\n"
+                    f"• **Earned Leave (EL):** {earned} days accumulated\n\n"
+                    f"Would you like me to prepare a leave slip?"
+                )
+                return {
+                    "success": True,
+                    "text": text,
+                    "agent": "Employee Service Agent",
+                    "quick_actions": ["[Apply Comp-Off]", "[My Shift Tomorrow]"]
+                }
+
+            # ── INSTANT FAST-PATH 3: Cancellation (<10ms) ─────────────────────
+            is_cancel = (
+                msg_clean in ["[Cancel]", "Cancel"] or
+                any(msg_lower == q for q in [
+                    "cancel", "let me check my other duties first", "don't apply", "discard", "no cancel"
+                ])
+            )
+            if is_cancel:
+                return {
+                    "success": True,
+                    "text": "Your comp-off draft request has been cancelled. No leave was submitted to HR. Let me know if you would like to check your roster or balances!",
+                    "agent": "Employee Service Agent",
+                    "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]", "[Apply Comp-Off]"]
+                }
+
+            # ── INSTANT FAST-PATH 4: Direct Confirmation to Submit (<10ms) ───
+            is_confirm_submit = (
+                msg_clean in [
+                    "[Confirm & Submit Comp-Off]", "[Confirm & Submit]", "Confirm & Submit Comp-Off",
+                    "Confirm & Submit", "[Yes, Please Apply]", "Yes, please apply for Friday"
+                ] or
+                any(msg_lower == q for q in [
+                    "confirm & submit comp-off", "confirm & submit", "confirm and submit",
+                    "yes, please apply", "yes please apply", "yes, please apply for friday",
+                    "confirm comp-off", "confirm", "submit now", "yes apply", "confirm and submit comp-off"
+                ])
+            )
+            if is_confirm_submit:
+                tomorrow = today + datetime.timedelta(days=1)
+                apply_res = self.apply_leave(
+                    user_identifier=user["username"],
+                    leave_type="Comp-Off",
+                    from_date=tomorrow.strftime("%Y-%m-%d"),
+                    to_date=tomorrow.strftime("%Y-%m-%d"),
+                    reason="Comp-Off applied via Employee Service Agent"
+                )
+                if apply_res.get("success"):
+                    req = apply_res["request"]
+                    reply_text = (
+                        f"Done! Your **{req['leave_type']}** request for **{apply_res['date_display']}** "
+                        f"has been **submitted and created** ({req['request_code']}). "
+                        f"It has been routed to **{req['supervisor_name']}** for review.\n\n"
+                        f"Your leave balance has been updated. You will receive an alert once sign-off is completed."
+                    )
+                    interactive_slip = {
+                        "type": "leave_slip_confirmed",
+                        "request_code": req["request_code"],
+                        "staff_name": user["staff_name"],
+                        "leave_type": req["leave_type"],
+                        "status": "Pending Supervisor Approval",
+                        "date_display": apply_res["date_display"],
+                        "supervisor": req["supervisor_name"]
+                    }
+                    return {
+                        "success": True,
+                        "text": reply_text,
+                        "agent": "Employee Service Agent",
+                        "interactive_slip": interactive_slip,
+                        "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
+                    }
+
+            # ── INSTANT FAST-PATH 5: Apply Comp-Off Request -> Draft Slip (<10ms) ─
+            is_pure_apply_compoff = (
+                msg_clean == "[Apply Comp-Off]" or
+                any(msg_lower == q for q in [
+                    "apply comp-off", "apply compoff", "apply comp off",
+                    "i would like to apply for a comp-off", "i want to apply comp-off",
+                    "apply comp-off for tomorrow", "request comp-off"
+                ])
+            )
+            if is_pure_apply_compoff:
+                tomorrow = today + datetime.timedelta(days=1)
+                from_date_str = tomorrow.strftime("%Y-%m-%d")
+                to_date_str = from_date_str
+                date_display = tomorrow.strftime("%A, %d %b %Y")
+                bal_res = self.get_user_leave_balance(user["username"])
+                comp_balance = bal_res.get("balances", {}).get("comp_off_balance", 2.0)
+                supervisor_id, supervisor_name = self._get_supervisor(cur, user)
+
+                interactive_slip = {
+                    "type": "leave_slip",
+                    "slip_id": f"DRAFT-CO-{random.randint(100, 999)}",
+                    "staff_name": user["staff_name"],
+                    "leave_type": "Comp-Off",
+                    "from_date": from_date_str,
+                    "to_date": to_date_str,
+                    "date_display": date_display,
+                    "days_count": 1.0,
+                    "balance_available": comp_balance,
+                    "policy_reference": "HR Policy v5.0 §1.2",
+                    "supervisor": supervisor_name,
+                    "can_apply": True
+                }
+
+                reply_text = (
+                    f"Here are the details for your **Comp-Off Request Draft**. Please review and confirm before it is submitted to HR:\n\n"
+                    f"• **Employee:** {user['staff_name']} ({user.get('department_name', 'Clinical')})\n"
+                    f"• **Leave Type:** Comp-Off\n"
+                    f"• **Requested Date:** {date_display} (1 day)\n"
+                    f"• **Comp-Off Balance:** {comp_balance} days available\n"
+                    f"• **Routing Approver:** {supervisor_name}\n\n"
+                    f"Please click **'Confirm & Submit'** below to file this request or **'Cancel'** to discard."
+                )
+
+                return {
+                    "success": True,
+                    "text": reply_text,
+                    "agent": "Employee Service Agent",
+                    "interactive_slip": interactive_slip,
+                    "quick_actions": ["[Confirm & Submit Comp-Off]", "[Cancel]"]
+                }
+
+            # 1. Try Ultra-Fast Groq LLM Parsing (timeout 2.5s)
             llm_res = self._call_llm_for_leave_intent(message, user, today)
 
-            # 2. Extract or Fallback to NLU
+            # 2. Extract or Fallback to Deterministic NLU
             if llm_res and isinstance(llm_res, dict):
                 should_apply_now = bool(llm_res.get("should_apply_now"))
                 leave_type = llm_res.get("leave_type") or "Casual Leave"
@@ -487,11 +654,10 @@ class EmployeeServiceAgentService:
                 to_date_str = nlu["to_date"]
                 reason = nlu["reason"]
                 custom_reply = None
-                msg_lower = message.lower().strip()
-                is_leave_flow = any(k in msg_lower for k in ["leave", "comp-off", "compoff", "comp off", "take off", "absent", "sick", "casual", "vacation"]) or should_apply_now
+                is_leave_flow = nlu["is_leave_request"] or should_apply_now
 
-            # ── Action 1: Staff explicitly asked to APPLY LEAVE ───────────────
-            if should_apply_now and is_leave_flow:
+            # ── Action 1: Staff explicitly CONFIRMED to apply ──────────────────
+            if should_apply_now:
                 # Execute database leave application
                 apply_res = self.apply_leave(
                     user_identifier=user["username"],
@@ -525,6 +691,60 @@ class EmployeeServiceAgentService:
                         "interactive_slip": interactive_slip,
                         "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
                     }
+
+            # ── Action 1b: Staff requested leave / comp-off -> Present Draft Slip ───
+            if is_leave_flow:
+                bal_res = self.get_user_leave_balance(user["username"])
+                b = bal_res.get("balances", {})
+                col_map = {
+                    "Comp-Off": "comp_off_balance",
+                    "Casual Leave": "casual_leave_balance",
+                    "Sick Leave": "sick_leave_balance",
+                    "Earned Leave": "earned_leave_balance"
+                }
+                bal_key = col_map.get(leave_type, "casual_leave_balance")
+                curr_balance = b.get(bal_key, 2.0)
+                supervisor_id, supervisor_name = self._get_supervisor(cur, user)
+
+                try:
+                    f_dt = datetime.datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                    t_dt = datetime.datetime.strptime(to_date_str, "%Y-%m-%d").date()
+                    date_display = f_dt.strftime('%A, %d %b %Y') if f_dt == t_dt else f"{f_dt.strftime('%d %b')} to {t_dt.strftime('%d %b %Y')}"
+                except Exception:
+                    date_display = from_date_str
+
+                interactive_slip = {
+                    "type": "leave_slip",
+                    "slip_id": f"DRAFT-LV-{random.randint(100, 999)}",
+                    "staff_name": user["staff_name"],
+                    "leave_type": leave_type,
+                    "from_date": from_date_str,
+                    "to_date": to_date_str,
+                    "date_display": date_display,
+                    "days_count": 1.0,
+                    "balance_available": curr_balance,
+                    "policy_reference": "HR Policy v5.0 §1.2",
+                    "supervisor": supervisor_name,
+                    "can_apply": True
+                }
+
+                reply_text = (
+                    f"Here are the details for your **{leave_type} Request Draft**. Please review before submitting to HR:\n\n"
+                    f"• **Employee:** {user['staff_name']} ({user.get('department_name', 'Clinical')})\n"
+                    f"• **Leave Type:** {leave_type}\n"
+                    f"• **Requested Date:** {date_display}\n"
+                    f"• **Available Balance:** {curr_balance} days\n"
+                    f"• **Routing Approver:** {supervisor_name}\n\n"
+                    f"Please click **'Confirm & Submit'** below to file this request or **'Cancel'** to discard."
+                )
+
+                return {
+                    "success": True,
+                    "text": reply_text,
+                    "agent": "Employee Service Agent",
+                    "interactive_slip": interactive_slip,
+                    "quick_actions": [f"[Confirm & Submit {leave_type}]", "[Cancel]"]
+                }
 
             # ── Action 2: Staff inquired about taking leave / comp-off ─────────
             msg_lower = message.lower().strip()
