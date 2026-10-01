@@ -46,6 +46,7 @@ import GovernedKnowledgeView from './components/GovernedKnowledgeView';
 import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 import { DischargeAgentPipeline } from './agent';
+import EmployeeServiceChatbot from './components/EmployeeServiceChatbot';
 
 // Integrated Prototype Views (AI Patient Desk, Appointments, Pre-Admission, Doctor Desk, Patient Chat)
 import AIPatientDesk from './pages/admin/AIPatientDesk';
@@ -113,13 +114,13 @@ export default function App() {
 
   // Keep sessionStorage in sync whenever auth / role / activePage / selectedPatient change
   useEffect(() => {
-    try { sessionStorage.setItem('hx_auth', JSON.stringify(auth)); } catch {}
+    try { sessionStorage.setItem('hx_auth', JSON.stringify(auth)); } catch { }
   }, [auth]);
   useEffect(() => {
-    try { if (role) sessionStorage.setItem('hx_role', role); else sessionStorage.removeItem('hx_role'); } catch {}
+    try { if (role) sessionStorage.setItem('hx_role', role); else sessionStorage.removeItem('hx_role'); } catch { }
   }, [role]);
   useEffect(() => {
-    try { sessionStorage.setItem('hx_page', activePage); } catch {}
+    try { sessionStorage.setItem('hx_page', activePage); } catch { }
   }, [activePage]);
   useEffect(() => {
     try {
@@ -128,7 +129,7 @@ export default function App() {
       } else {
         sessionStorage.removeItem('hx_selected_patient');
       }
-    } catch {}
+    } catch { }
   }, [selectedPatient]);
   // ─────────────────────────────────────────────────────────────────────────────
   const [showMobile, setShowMobile] = useState(false);
@@ -154,12 +155,21 @@ export default function App() {
     let isMounted = true;
     async function loadAlerts() {
       try {
-        // Pass role for role-scoped notification count (Hospital Management sees all; Doctor sees clinical; etc.)
-        const countData = await apiService.getNotificationCounts(role || null).catch(() => null);
+        // Pass role and user identity for scoped notification count
+        const countData = await apiService.getNotificationCounts({
+          role: role || null,
+          username: auth?.username || null,
+          user_name: auth?.name || null
+        }).catch(() => null);
         if (countData && typeof countData.unread_count === 'number') {
           if (isMounted) setAlertsCount(countData.unread_count);
         } else {
-          const res = await apiService.getNotifications({ limit: 100, role: role || undefined }, { revalidateMs: 15000 });
+          const res = await apiService.getNotifications({
+            limit: 100,
+            role: role || undefined,
+            username: auth?.username || undefined,
+            user_name: auth?.name || undefined
+          }, { revalidateMs: 15000 });
           if (!isMounted) return;
           const unread = (res?.data || []).filter(n => n.status === 'UNREAD' || n.unread === true || (n.state || '').toUpperCase() === 'UNREAD');
           setAlertsCount(unread.length || 0);
@@ -177,7 +187,7 @@ export default function App() {
       clearInterval(interval);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, [role]);
+  }, [role, auth?.username, auth?.name]);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
@@ -204,7 +214,7 @@ export default function App() {
       sessionStorage.removeItem('hx_page');
       sessionStorage.removeItem('hx_selected_patient');
       sessionStorage.removeItem('hx_nav_history');
-    } catch {}
+    } catch { }
   };
 
   const handleSwitchUserPromptPassword = (targetUser) => {
@@ -215,7 +225,7 @@ export default function App() {
       sessionStorage.removeItem('hx_page');
       sessionStorage.removeItem('hx_selected_patient');
       sessionStorage.removeItem('hx_nav_history');
-    } catch {}
+    } catch { }
     setAuth(null);
     setRoleState(null);
     setSelectedPatient(null);
@@ -237,7 +247,7 @@ export default function App() {
       } else {
         sessionStorage.removeItem('hx_nav_history');
       }
-    } catch {}
+    } catch { }
   }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
@@ -501,314 +511,314 @@ export default function App() {
           ) : (role === 'Patient' || activePage === 'portal' || activePage === 'patient-portal') ? (
             <PatientPortalView currentUser={auth} onSignOut={handleSignOut} />
           ) : <>
-          {activePage === 'command' && (
-            <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
-          )}
+            {activePage === 'command' && (
+              <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
+            )}
 
-          {activePage === 'clinical' && (
-            <ClinicalWorkspaceView
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-              onSelectPatient={handleSelectPatient}
-              onOpenSoap={handleOpenSoap}
-            />
-          )}
+            {activePage === 'clinical' && (
+              <ClinicalWorkspaceView
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+                onSelectPatient={handleSelectPatient}
+                onOpenSoap={handleOpenSoap}
+              />
+            )}
 
-          {activePage === 'discharge' && (
-            <DischargeCommandCentre
-              selectedPatient={selectedPatient}
-              onClearSelectedPatient={() => setSelectedPatient(null)}
-              onSelectPatient={handleSelectPatient}
-              onOpenSoap={handleOpenSoap}
-              onNavigate={(p) => handleNavigate(p)}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-              onUpdateCaseCount={setDischargeCount}
-            />
-          )}
+            {activePage === 'discharge' && (
+              <DischargeCommandCentre
+                selectedPatient={selectedPatient}
+                onClearSelectedPatient={() => setSelectedPatient(null)}
+                onSelectPatient={handleSelectPatient}
+                onOpenSoap={handleOpenSoap}
+                onNavigate={(p) => handleNavigate(p)}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+                onUpdateCaseCount={setDischargeCount}
+              />
+            )}
 
-          {activePage === 'soap' && (
-            <SoapNoteView
-              patient={selectedPatient}
-              doctorName={auth?.name}
-              onBack={handleStepBack}
-              onOpenPatient={handleSelectPatient}
-            />
-          )}
+            {activePage === 'soap' && (
+              <SoapNoteView
+                patient={selectedPatient}
+                doctorName={auth?.name}
+                onBack={handleStepBack}
+                onOpenPatient={handleSelectPatient}
+              />
+            )}
 
-          {activePage === 'patient360' && (
-            <Patient360View
-              patient={selectedPatient}
-              currentUser={auth}
-              onOpenDischarge={() => {
-                handleNavigate('discharge', selectedPatient);
-              }}
-              onOpenSoap={handleOpenSoap}
-              onBack={handleStepBack}
-              onNavigate={(page) => {
-                if (page === 'discharge') {
+            {activePage === 'patient360' && (
+              <Patient360View
+                patient={selectedPatient}
+                currentUser={auth}
+                onOpenDischarge={() => {
                   handleNavigate('discharge', selectedPatient);
-                } else {
-                  handleNavigate(page);
-                }
-              }}
-              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); handleNavigate('radiology'); }}
-              onOpenDrawer={setDrawer}
-              onOpenModal={setModal}
-            />
-          )}
+                }}
+                onOpenSoap={handleOpenSoap}
+                onBack={handleStepBack}
+                onNavigate={(page) => {
+                  if (page === 'discharge') {
+                    handleNavigate('discharge', selectedPatient);
+                  } else {
+                    handleNavigate(page);
+                  }
+                }}
+                onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); handleNavigate('radiology'); }}
+                onOpenDrawer={setDrawer}
+                onOpenModal={setModal}
+              />
+            )}
 
-          {activePage === 'patients' && (
-            <PatientsView
-              onSelectPatient={handleSelectPatient}
-              onOpenSoap={handleOpenSoap}
-              onNavigate={(p) => handleNavigate(p)}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-              currentUser={auth}
-            />
-          )}
+            {activePage === 'patients' && (
+              <PatientsView
+                onSelectPatient={handleSelectPatient}
+                onOpenSoap={handleOpenSoap}
+                onNavigate={(p) => handleNavigate(p)}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+                currentUser={auth}
+              />
+            )}
 
-          {activePage === 'admissions' && (
-            <AdmissionsView
-              onSelectPatient={handleSelectPatient}
-              onOpenSoap={handleOpenSoap}
-              onNavigate={(p) => handleNavigate(p)}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-            />
-          )}
+            {activePage === 'admissions' && (
+              <AdmissionsView
+                onSelectPatient={handleSelectPatient}
+                onOpenSoap={handleOpenSoap}
+                onNavigate={(p) => handleNavigate(p)}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+              />
+            )}
 
-          {activePage === 'bedboard' && <BedDemandView onSelectPatient={handleSelectPatient} />}
+            {activePage === 'bedboard' && <BedDemandView onSelectPatient={handleSelectPatient} />}
 
-          {activePage === 'assistant' && (
-            <HospitalAssistantView onNavigate={(p) => handleNavigate(p)} defaultQuery={aiPrompt} />
-          )}
+            {activePage === 'assistant' && (
+              <HospitalAssistantView onNavigate={(p) => handleNavigate(p)} defaultQuery={aiPrompt} />
+            )}
 
-          {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}
-          {activePage === 'tables' && <SchemaExplorerView onViewData={() => setActivePage('explorer')} />}
-          {activePage === 'explorer' && <DataExplorerView />}
-          {activePage === 'sql' && <SqlSandboxView />}
-          {activePage === 'analytics' && <AnalyticsView />}
-          {activePage === 'settings' && <SettingsView />}
+            {activePage === 'beds' && <BedDemandView onSelectPatient={handleSelectPatient} />}
+            {activePage === 'tables' && <SchemaExplorerView onViewData={() => setActivePage('explorer')} />}
+            {activePage === 'explorer' && <DataExplorerView />}
+            {activePage === 'sql' && <SqlSandboxView />}
+            {activePage === 'analytics' && <AnalyticsView />}
+            {activePage === 'settings' && <SettingsView />}
 
-          {/* AI & Agents Platform Views */}
-          {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
-          {activePage === 'agents' && (
-            <AgentStudioView
-              onNavigate={setActivePage}
-              onOpenModal={setModal}
-              onSelectPatient={handleSelectPatient}
-              onOpenDischargeSummary={handleOpenDischargeSummary}
-            />
-          )}
-          {activePage === 'discharge-agent' && (
-            <DischargeAgentPipeline
-              onNavigate={setActivePage}
-              onSelectPatient={handleSelectPatient}
-              onOpenDischargeSummary={handleOpenDischargeSummary}
-              doctorName={auth?.name}
-            />
-          )}
-          {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
-          {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
-          {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
-          {activePage === 'knowledge' && <GovernedKnowledgeView onOpenModal={setModal} />}
-          {activePage === 'ai-analytics' && <AnalyticsView />}
-          {[
-            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
-          ].includes(activePage) && (
-            <AiGovernanceView initialTab={activePage} />
-          )}
+            {/* AI & Agents Platform Views */}
+            {activePage === 'ai-command' && <AiCommandCentreView onNavigate={setActivePage} />}
+            {activePage === 'agents' && (
+              <AgentStudioView
+                onNavigate={setActivePage}
+                onOpenModal={setModal}
+                onSelectPatient={handleSelectPatient}
+                onOpenDischargeSummary={handleOpenDischargeSummary}
+              />
+            )}
+            {activePage === 'discharge-agent' && (
+              <DischargeAgentPipeline
+                onNavigate={setActivePage}
+                onSelectPatient={handleSelectPatient}
+                onOpenDischargeSummary={handleOpenDischargeSummary}
+                doctorName={auth?.name}
+              />
+            )}
+            {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
+            {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
+            {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
+            {activePage === 'knowledge' && <GovernedKnowledgeView onOpenModal={setModal} />}
+            {activePage === 'ai-analytics' && <AnalyticsView />}
+            {[
+              'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
+            ].includes(activePage) && (
+                <AiGovernanceView initialTab={activePage} />
+              )}
 
-          {activePage === 'criticalvalues' && (
-            <ResultsCriticalValuesView
-              currentUser={auth}
-              userRole={role}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              doctorId={auth?.doctorId}
-              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
-              onSelectPatient={handleSelectPatient}
-            />
-          )}
-          {activePage === 'diagnostics' && (
-            <DiagnosticsView
-              onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
-              onSelectPatient={handleSelectPatient}
-            />
-          )}
-          {activePage === 'radiology' && (
-            <RadiologyView
-              requestedStudyId={requestedRadiologyStudy}
-              onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)}
-              currentUser={auth}
-              onSelectPatient={handleSelectPatient}
-            />
-          )}
-          {activePage === 'xray-orders' && (
-            <XrayOrdersView
-              userRole={role}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              onSelectPatient={handleSelectPatient}
-            />
-          )}
+            {activePage === 'criticalvalues' && (
+              <ResultsCriticalValuesView
+                currentUser={auth}
+                userRole={role}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                doctorId={auth?.doctorId}
+                onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
+            {activePage === 'diagnostics' && (
+              <DiagnosticsView
+                onOpenRadiologyStudy={(studyId) => { setRequestedRadiologyStudy(studyId); setActivePage('radiology'); }}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
+            {activePage === 'radiology' && (
+              <RadiologyView
+                requestedStudyId={requestedRadiologyStudy}
+                onRequestedStudyHandled={() => setRequestedRadiologyStudy(null)}
+                currentUser={auth}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
+            {activePage === 'xray-orders' && (
+              <XrayOrdersView
+                userRole={role}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
 
-          {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
-          {activePage === 'appointments' && (
-            <AppointmentManagement
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-            />
-          )}
-          {activePage === 'ai-desk' && <AIPatientDesk />}
-          {activePage === 'pre-admission' && <PreAdmissionPage />}
-          {activePage === 'doctor-management' && <DoctorManagement />}
-          {activePage === 'escalations' && <EscalationPage />}
-          {activePage === 'doctor-portal' && (
-            <DoctorDashboard
-              onNavigate={(p, pat) => handleNavigate(p, pat)}
-              onSelectPatient={handleSelectPatient}
-            />
-          )}
-          {activePage === 'patient-chat' && <PatientChat />}
-          {activePage === 'emergency' && (
-            <EmergencyView
-              onOpenDrawer={setDrawer}
-              onOpenModal={setModal}
-              doctorName={role === 'Doctor' ? auth?.name : null}
-              userRole={role}
-            />
-          )}
-          {activePage === 'schedules' && <DoctorSchedules />}
-          {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'surgery' && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'bloodbank' && <BloodBankView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
-            <FinancialRevenueView
-              initialTab={activePage}
-              onOpenDrawer={setDrawer}
-              onOpenModal={setModal}
-              onSelectPatient={handleSelectPatient}
-              userRole={role}
-            />
-          )}
-          {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'audit' && <AuditTrailView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          
-          {/* Pharmacy & Supply Chain Domain Views (Live PostgreSQL DB) */}
-          {activePage === 'prescriptions' && <PrescriptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'drugs' && <DrugMasterView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'pharmacy' && <PharmacyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'inventory' && <InventoryView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'stores' && <StoresView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'procurement' && <ProcurementView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'vendors' && <VendorsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'cssd' && <CssdView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {/* Operational, Clinical, Diagnostic & Revenue Domain Views */}
+            {activePage === 'appointments' && (
+              <AppointmentManagement
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+              />
+            )}
+            {activePage === 'ai-desk' && <AIPatientDesk />}
+            {activePage === 'pre-admission' && <PreAdmissionPage />}
+            {activePage === 'doctor-management' && <DoctorManagement />}
+            {activePage === 'escalations' && <EscalationPage />}
+            {activePage === 'doctor-portal' && (
+              <DoctorDashboard
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
+            {activePage === 'patient-chat' && <PatientChat />}
+            {activePage === 'emergency' && (
+              <EmergencyView
+                onOpenDrawer={setDrawer}
+                onOpenModal={setModal}
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
+              />
+            )}
+            {activePage === 'schedules' && <DoctorSchedules />}
+            {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'surgery' && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'bloodbank' && <BloodBankView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
+              <FinancialRevenueView
+                initialTab={activePage}
+                onOpenDrawer={setDrawer}
+                onOpenModal={setModal}
+                onSelectPatient={handleSelectPatient}
+                userRole={role}
+              />
+            )}
+            {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'audit' && <AuditTrailView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
 
-          {/* People Domain Views */}
-          {(activePage === 'hr-dashboard' || activePage === 'hr') && <HrEmployeeView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {['employees', 'attendance', 'credentials', 'staff', 'canteen'].includes(activePage) && (
-            <AdminSystemView module={activePage === 'employees' ? 'Employee Master Directory' : activePage === 'attendance' ? 'Biometric Attendance & Overtime' : activePage === 'credentials' ? 'Staff Credentialing & Medical Licensing' : activePage === 'canteen' ? 'Staff Dining & Canteen Operations' : 'Predictive Nurse & Staff Roster'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
-          )}
+            {/* Pharmacy & Supply Chain Domain Views (Live PostgreSQL DB) */}
+            {activePage === 'prescriptions' && <PrescriptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'drugs' && <DrugMasterView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'pharmacy' && <PharmacyView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'inventory' && <InventoryView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'stores' && <StoresView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'procurement' && <ProcurementView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'vendors' && <VendorsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'cssd' && <CssdView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
 
-          {/* Administration Domain Views */}
-          {activePage === 'notifications' && <NotificationsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'config' && <ConfigurationView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'reports' && <ReportsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {['integration-arch', 'users', 'roles', 'permissions', 'identity', 'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations'].includes(activePage) && (
-            <AdminSystemView module={
-              activePage === 'integration-arch' ? 'Integration Architecture' :
-              activePage === 'users' ? 'Users' :
-              activePage === 'roles' ? 'Roles' :
-              activePage === 'permissions' ? 'Permissions' :
-              activePage === 'identity' ? 'Identity' :
-              activePage === 'departments' ? 'Departments' :
-              activePage === 'services' ? 'Services' :
-              activePage === 'insurers' ? 'Insurers' :
-              activePage === 'payment-methods' ? 'Payment Methods' :
-              activePage === 'facilities' ? 'Facilities' :
-              activePage === 'integrations' ? 'Integrations' : 'Integration Architecture'
-            } onOpenDrawer={setDrawer} onOpenModal={setModal} />
-          )}
+            {/* People Domain Views */}
+            {(activePage === 'hr-dashboard' || activePage === 'hr') && <HrEmployeeView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {['employees', 'attendance', 'credentials', 'staff', 'canteen'].includes(activePage) && (
+              <AdminSystemView module={activePage === 'employees' ? 'Employee Master Directory' : activePage === 'attendance' ? 'Biometric Attendance & Overtime' : activePage === 'credentials' ? 'Staff Credentialing & Medical Licensing' : activePage === 'canteen' ? 'Staff Dining & Canteen Operations' : 'Predictive Nurse & Staff Roster'} onOpenDrawer={setDrawer} onOpenModal={setModal} />
+            )}
 
-          {/* Clinical Data Foundation Views */}
-          {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-          {activePage === 'data-quality' && <LiveDataQualityView />}
-          {activePage === 'forecasting' && <LiveForecastingView />}
-          {activePage === 'scenario' && <LiveScenarioSimulatorView />}
-          {activePage === 'beforeafter' && <LiveBeforeAfterView />}
+            {/* Administration Domain Views */}
+            {activePage === 'notifications' && <NotificationsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'config' && <ConfigurationView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'reports' && <ReportsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {['integration-arch', 'users', 'roles', 'permissions', 'identity', 'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations'].includes(activePage) && (
+              <AdminSystemView module={
+                activePage === 'integration-arch' ? 'Integration Architecture' :
+                  activePage === 'users' ? 'Users' :
+                    activePage === 'roles' ? 'Roles' :
+                      activePage === 'permissions' ? 'Permissions' :
+                        activePage === 'identity' ? 'Identity' :
+                          activePage === 'departments' ? 'Departments' :
+                            activePage === 'services' ? 'Services' :
+                              activePage === 'insurers' ? 'Insurers' :
+                                activePage === 'payment-methods' ? 'Payment Methods' :
+                                  activePage === 'facilities' ? 'Facilities' :
+                                    activePage === 'integrations' ? 'Integrations' : 'Integration Architecture'
+              } onOpenDrawer={setDrawer} onOpenModal={setModal} />
+            )}
 
-          {/* Standard Workspace Template for Other Domain Pages */}
-          {![
-            'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
-            'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
-            'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
-            'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
-            'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
-            'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
-            'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery',
-            'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
-            'exceptions', 'audit',
-            'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',
-            'hr-dashboard', 'hr', 'employees', 'attendance', 'credentials', 'staff', 'canteen',
-            'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
-            'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
-            'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
-            'forecasting', 'scenario', 'beforeafter'
-          ].includes(activePage) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <div>
-                  <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-                    <span>Hospital Operating Platform</span> › <span>{activePage.toUpperCase()}</span>
+            {/* Clinical Data Foundation Views */}
+            {activePage === 'data-patient' && <DataDomainView domain="Patient Master Index" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'data-ops' && <DataDomainView domain="Operational Fact Records" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'data-clinical' && <DataDomainView domain="Clinical Observation Data" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'data-quality' && <LiveDataQualityView />}
+            {activePage === 'forecasting' && <LiveForecastingView />}
+            {activePage === 'scenario' && <LiveScenarioSimulatorView />}
+            {activePage === 'beforeafter' && <LiveBeforeAfterView />}
+
+            {/* Standard Workspace Template for Other Domain Pages */}
+            {![
+              'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
+              'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
+              'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
+              'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
+              'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
+              'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
+              'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery',
+              'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
+              'exceptions', 'audit',
+              'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',
+              'hr-dashboard', 'hr', 'employees', 'attendance', 'credentials', 'staff', 'canteen',
+              'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
+              'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
+              'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
+              'forecasting', 'scenario', 'beforeafter'
+            ].includes(activePage) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+                        <span>Hospital Operating Platform</span> › <span>{activePage.toUpperCase()}</span>
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: 600, textTransform: 'capitalize' }}>
+                        {activePage} Management
+                      </div>
+                      <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
+                        Governed enterprise records · clinical data platform
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => alert(`Exported ${activePage} records`)}
+                      style={{
+                        height: '30px', padding: '0 12px', borderRadius: '6px',
+                        border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
+                      }}
+                    >
+                      Export CSV
+                    </button>
                   </div>
-                  <div style={{ fontSize: '20px', fontWeight: 600, textTransform: 'capitalize' }}>
-                    {activePage} Management
-                  </div>
-                  <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-                    Governed enterprise records · clinical data platform
+
+                  <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '32px', textAlign: 'center' }}>
+                    <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', marginBottom: '6px' }}>
+                      {activePage.charAt(0).toUpperCase() + activePage.slice(1)} Workspace
+                    </div>
+                    <div style={{ color: '#52585e', fontSize: '12.5px', maxWidth: '520px', margin: '0 auto 16px', lineHeight: 1.5 }}>
+                      Active operational stream synchronized with the clinical data platform. Permitted actions and audit entries are tracked under {auth.name}.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage('command')}
+                      style={{
+                        height: '32px', padding: '0 14px', borderRadius: '6px', border: 0,
+                        background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600,
+                        cursor: 'pointer', fontSize: '12px'
+                      }}
+                    >
+                      Return to Executive Dashboard
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => alert(`Exported ${activePage} records`)}
-                  style={{
-                    height: '30px', padding: '0 12px', borderRadius: '6px',
-                    border: '1px solid #e3e6e8', background: '#fff', cursor: 'pointer', fontSize: '11.5px'
-                  }}
-                >
-                  Export CSV
-                </button>
-              </div>
-
-              <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '32px', textAlign: 'center' }}>
-                <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', marginBottom: '6px' }}>
-                  {activePage.charAt(0).toUpperCase() + activePage.slice(1)} Workspace
-                </div>
-                <div style={{ color: '#52585e', fontSize: '12.5px', maxWidth: '520px', margin: '0 auto 16px', lineHeight: 1.5 }}>
-                  Active operational stream synchronized with the clinical data platform. Permitted actions and audit entries are tracked under {auth.name}.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActivePage('command')}
-                  style={{
-                    height: '32px', padding: '0 14px', borderRadius: '6px', border: 0,
-                    background: 'oklch(0.5 0.1 200)', color: '#fff', fontWeight: 600,
-                    cursor: 'pointer', fontSize: '12px'
-                  }}
-                >
-                  Return to Executive Dashboard
-                </button>
-              </div>
-            </div>
-          )}
+              )}
           </>}
         </main>
       </div>
@@ -834,6 +844,7 @@ export default function App() {
         onNavigate={handleNavigate}
         onOpenPatient={handleSelectPatient}
         role={role}
+        currentUser={auth}
       />
 
       {/* Master Modal System */}
@@ -852,6 +863,12 @@ export default function App() {
           onSelectPatient={handleSelectPatient}
         />
       )}
+
+      {/* AG-04 Employee Service Agent Floating Chatbot */}
+      <EmployeeServiceChatbot
+        currentUser={auth}
+        currentRole={role}
+      />
     </div>
   );
 }

@@ -17,7 +17,7 @@ import { apiService } from '../services/api';
  *   created_at   – ISO timestamp
  *   unread       – boolean convenience flag (same as status === "UNREAD")
  */
-export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatient, role }) {
+export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatient, role, currentUser }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -29,8 +29,13 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
   const fetchAlerts = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      // Pass current role for role-based backend filtering
-      const res = await apiService.getNotifications({ limit: 50, role: role || undefined });
+      // Pass current role and user details for user-scoped filtering
+      const res = await apiService.getNotifications({
+        limit: 200,
+        role: role || undefined,
+        username: currentUser?.username || undefined,
+        user_name: currentUser?.name || undefined
+      });
       if (res && res.success) {
         setNotifications(res.data || []);
         setTotalCount(res.total || 0);
@@ -55,7 +60,7 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
         window.removeEventListener('hc_api_updated', handleUpdate);
       };
     }
-  }, [isOpen, role]);
+  }, [isOpen, role, currentUser?.username, currentUser?.name]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -83,7 +88,11 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
   const handleMarkAllRead = async () => {
     try {
       setLoading(true);
-      await apiService.markAllNotificationsRead();
+      await apiService.markAllNotificationsRead({
+        role: role || undefined,
+        username: currentUser?.username || undefined,
+        user_name: currentUser?.name || undefined
+      });
       await fetchAlerts(true);
     } catch (err) {
       console.error('Failed to mark all read:', err);
@@ -91,6 +100,11 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
       setLoading(false);
     }
   };
+
+  const leaveCount = notifications.filter(item => {
+    const txt = `${item.title || ''} ${item.message || ''} ${item.type || ''} ${item.source || ''}`.toLowerCase();
+    return txt.includes('leave') || txt.includes('comp-off') || txt.includes('staff') || txt.includes('employee');
+  }).length;
 
   const filteredList = notifications.filter(item => {
     // Use canonical 'priority' field; fall back to legacy 'pri' for safety
@@ -110,6 +124,10 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
     if (filter === 'DISCHARGE') {
       const txt = `${item.title || ''} ${itemMessage} ${itemType}`.toLowerCase();
       return txt.includes('discharge') || txt.includes('block') || txt.includes('pending') || txt.includes('admission');
+    }
+    if (filter === 'LEAVE') {
+      const txt = `${item.title || ''} ${itemMessage} ${itemType} ${item.source || ''}`.toLowerCase();
+      return txt.includes('leave') || txt.includes('comp-off') || txt.includes('staff') || txt.includes('employee');
     }
     return true;
   });
@@ -199,7 +217,7 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
                 )}
               </div>
               <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
-                {role ? `Showing alerts for: ${role}` : 'Real-time clinical, operational & system alerts'}
+                {role ? `Showing alerts for: ${role}${currentUser?.name && role !== 'Hospital Management' ? ` · ${currentUser.name}` : ''}` : 'Real-time clinical, operational & system alerts'}
               </div>
             </div>
           </div>
@@ -260,7 +278,8 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
             { id: 'ALL', label: `All (${totalCount})` },
             { id: 'CRITICAL', label: `Critical (${criticalCount})` },
             { id: 'UNREAD', label: `Unread (${unreadCount})` },
-            { id: 'DISCHARGE', label: 'Discharge & Admissions' }
+            { id: 'DISCHARGE', label: 'Discharge & Admissions' },
+            { id: 'LEAVE', label: `Staff Leaves (${leaveCount})` }
           ].map(tab => (
             <button
               key={tab.id}
@@ -412,7 +431,8 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
                       fontSize: '11px'
                     }}>
                       <span style={{ color: '#64748b' }}>
-                        Patient: <strong>{item.patient_name || item.patient_id}</strong>
+                        {(item.type === 'Staff Leave Request' || (item.source || '').includes('Employee')) ? 'Staff: ' : 'Patient: '}
+                        <strong>{item.patient_name || item.patient_id}</strong>
                         {item.patient_code ? ` (${item.patient_code})` : ''}
                       </span>
                       {onOpenPatient && item.patient_id && (

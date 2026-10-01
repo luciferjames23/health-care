@@ -122,8 +122,15 @@ export default function TopHeader({
   // Available users for current selected role
   const usersForCurrentRole = React.useMemo(() => {
     const list = combinedUsers.length > 0 ? combinedUsers : (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
-    return [...list].sort((a, b) => Number(b.role === 'Radiologist') - Number(a.role === 'Radiologist'));
-  }, [combinedUsers, dbUsers]);
+    if (!role) return list;
+    const filtered = list.filter(u => {
+      if (role === 'Hospital Management') {
+        return u.role === 'Hospital Management' || u.role === 'Admin' || u.role === 'ADMIN';
+      }
+      return u.role?.toLowerCase() === role.toLowerCase();
+    });
+    return filtered.length > 0 ? filtered : list;
+  }, [combinedUsers, dbUsers, role]);
 
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()

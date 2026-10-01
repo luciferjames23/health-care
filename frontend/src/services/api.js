@@ -862,14 +862,25 @@ export const apiService = {
     if (params.offset) q.append('offset', params.offset);
     // Pass the current user role for role-based notification scoping on the backend
     if (params.role) q.append('role', params.role);
+    if (params.username) q.append('username', params.username);
+    if (params.user_name) q.append('user_name', params.user_name);
     const url = `${API_BASE_URL}/api/v1/admin/notifications${q.toString() ? '?' + q.toString() : ''}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notifications`);
     return await res.json();
   },
 
-  async getNotificationCounts(role = null, options = {}) {
-    const q = role ? `?role=${encodeURIComponent(role)}` : '';
+  async getNotificationCounts(roleOrParams = null, options = {}) {
+    let q = '';
+    if (typeof roleOrParams === 'string') {
+      q = `?role=${encodeURIComponent(roleOrParams)}`;
+    } else if (roleOrParams && typeof roleOrParams === 'object') {
+      const sp = new URLSearchParams();
+      if (roleOrParams.role) sp.append('role', roleOrParams.role);
+      if (roleOrParams.username) sp.append('username', roleOrParams.username);
+      if (roleOrParams.user_name) sp.append('user_name', roleOrParams.user_name);
+      q = sp.toString() ? `?${sp.toString()}` : '';
+    }
     const url = `${API_BASE_URL}/api/v1/admin/notifications/count${q}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notification counts`);
@@ -888,8 +899,13 @@ export const apiService = {
     return data;
   },
 
-  async markAllNotificationsRead() {
-    const url = `${API_BASE_URL}/api/v1/admin/notifications/mark-all-read`;
+  async markAllNotificationsRead(params = {}) {
+    const query = new URLSearchParams();
+    if (params.role) query.append('role', params.role);
+    if (params.username) query.append('username', params.username);
+    if (params.user_name) query.append('user_name', params.user_name);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const url = `${API_BASE_URL}/api/v1/admin/notifications/mark-all-read${qs}`;
     const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
