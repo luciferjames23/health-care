@@ -112,11 +112,11 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
         // Dynamic metrics directly from PostgreSQL Database
         let totalBeds = execData?.total_beds ?? (kpisObj.total_beds !== undefined ? kpisObj.total_beds : (wardsList.reduce((acc, w) => acc + (w.total_beds || 0), 0) || 312));
-        let occupiedBeds = execData?.occupied_beds ?? (actualAdmissions.length > 0 ? actualAdmissions.length : (kpisObj.occupied_beds !== undefined ? kpisObj.occupied_beds : 209));
-        let availableBeds = execData?.available_beds ?? (totalBeds > 0 ? Math.max(0, totalBeds - occupiedBeds - (kpisObj.maintenance_beds || 0)) : 103);
+        let occupiedBeds = execData?.occupied_beds ?? (kpisObj.occupied_beds !== undefined ? kpisObj.occupied_beds : 208);
+        let availableBeds = execData?.available_beds ?? (kpisObj.available_beds !== undefined ? kpisObj.available_beds : 104);
         let maintenanceBeds = execData?.maintenance_beds ?? (kpisObj.maintenance_beds || 0);
-        let occupancyRate = execData?.occupancy_rate ?? (totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 67.0);
-        let totalWards = execData?.total_wards ?? (kpisObj.total_wards !== undefined ? kpisObj.total_wards : (wardsList.length || 8));
+        let occupancyRate = execData?.occupancy_rate ?? (totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 66.7);
+        let totalWards = execData?.total_wards ?? (kpisObj.total_wards !== undefined ? kpisObj.total_wards : (wardsList.length || 9));
         let totalRooms = execData?.total_rooms ?? (kpisObj.total_rooms !== undefined ? kpisObj.total_rooms : (wardsList.reduce((acc, w) => acc + (w.rooms_count || w.rooms?.length || 0), 0) || 150));
         let activeAdmissionsCount = execData?.active_admissions ?? occupiedBeds;
         let dischargedPatientsCount = execData?.discharged_patients ?? actuallyDischargedCount;

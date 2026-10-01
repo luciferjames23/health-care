@@ -35,8 +35,11 @@ export default function ClinicalWorkspaceView({
 
         // Discharge API is source of truth: filter out discharged patients
         const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
-        const rawAdmissions = admRes?.data || [];
-        const actualAdmitted = rawAdmissions.filter(r => !dischargedTracker.has(r));
+        const actualAdmitted = rawAdmissions.filter(r => {
+          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+          if (st === 'discharged') return false;
+          return !dischargedTracker.has(r);
+        });
 
         const bedMap = {};
         (bedsRes?.data || []).forEach(b => {

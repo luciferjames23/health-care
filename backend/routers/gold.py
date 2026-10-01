@@ -328,13 +328,21 @@ def get_executive_kpis():
         # Inpatient Census dynamically from dim_admission_inputs
         cur.execute("""
             SELECT 
-                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'admitted' THEN 1 END) as active_adm,
+                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) != 'discharged' THEN 1 END) as active_adm,
                 COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'discharged' THEN 1 END) as discharged_adm
             FROM dim_admission_inputs;
         """)
         adm_stats = cur.fetchone() or {}
         active_adm_cnt = int(adm_stats.get("active_adm") if adm_stats.get("active_adm") is not None else occ_beds)
-        discharged_cnt = int(adm_stats.get("discharged_adm") if adm_stats.get("discharged_adm") is not None else 11)
+
+        # Discharged count dynamically from approved summaries in dim_generated_discharge_summaries
+        cur.execute("""
+            SELECT COUNT(*) as approved_cnt 
+            FROM dim_generated_discharge_summaries 
+            WHERE LOWER(COALESCE(approval_status, '')) = 'approved';
+        """)
+        ds_row = cur.fetchone() or {}
+        discharged_cnt = int(ds_row.get("approved_cnt") if ds_row.get("approved_cnt") is not None else adm_stats.get("discharged_adm", 11))
 
         return {
             "success": True,
