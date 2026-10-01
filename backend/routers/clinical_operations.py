@@ -1011,6 +1011,7 @@ def record_patient_vitals(body: VitalSignRecordCreate):
 def get_all_patients_directory(
     category: Optional[str] = Query(None, description="Filter by category: All, IP, OP, ER, Discharged"),
     search: Optional[str] = Query(None, description="Search by Name, UHID, Doctor, or Diagnosis"),
+    doctor_id: Optional[int] = Query(None, description="Filter by Doctor ID"),
     limit: Optional[int] = Query(None, description="Max records to return. Omit to fetch all records."),
     offset: int = Query(0, ge=0)
 ):
@@ -1029,11 +1030,18 @@ def get_all_patients_directory(
         clean_search = search if isinstance(search, str) and search.strip() else None
         clean_limit = limit if isinstance(limit, int) else None
         clean_offset = offset if isinstance(offset, int) else 0
+        doc_id_val = doctor_id if isinstance(doctor_id, int) else None
         cat = clean_cat
 
         # 1. Inpatients (IP)
         if cat in ("ALL", "IP"):
-            cur.execute("""
+            ip_where = ["a.discharge_status IN ('Admitted', 'Ready')"]
+            ip_params = []
+            if doc_id_val:
+                ip_where.append("a.doctor_id = %s")
+                ip_params.append(doc_id_val)
+
+            cur.execute(f"""
                 SELECT 
                     p.id AS patient_id,
                     p.patient_code,
@@ -1076,16 +1084,21 @@ def get_all_patients_directory(
                     SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
                     FROM patient_insurance ORDER BY patient_id, insurance_id DESC
                 ) pi ON pi.patient_id = p.id
-                WHERE a.discharge_status IN ('Admitted', 'Ready')
-                ORDER BY a.admission_id DESC
-                LIMIT 150;
-            """)
+                WHERE {' AND '.join(ip_where)}
+                ORDER BY a.admission_id DESC;
+            """, ip_params)
             patients.extend(cur.fetchall())
 
-        # 2. Outpatients (OP) - Return active OPD patients from appointments
+        # 2. Outpatients (OP) - Active Outpatient consultations & WhatsApp appointments
         if cat in ("ALL", "OP"):
-            cur.execute("""
-                SELECT DISTINCT ON (apt.patient_id)
+            op_where = ["apt.status != 'CANCELLED'"]
+            op_params = []
+            if doc_id_val:
+                op_where.append("apt.doctor_id = %s")
+                op_params.append(doc_id_val)
+
+            cur.execute(f"""
+                SELECT DISTINCT ON (apt.patient_id, apt.doctor_id)
                     p.id AS patient_id,
                     p.patient_code,
                     p.first_name,
@@ -1117,10 +1130,9 @@ def get_all_patients_directory(
                 LEFT JOIN doctors d ON d.id = apt.doctor_id
                 LEFT JOIN departments dep ON dep.id = apt.department_id
                 LEFT JOIN patient_visits pv ON pv.appointment_id = apt.id
-                WHERE (apt.booking_source IN ('OPD_DESK', 'Walk-in', 'Phone', 'Web Portal', 'ADMIN', 'DOCTOR') OR apt.booking_id LIKE 'APT-%')
-                ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC
-                LIMIT 100;
-            """)
+                WHERE {' AND '.join(op_where)}
+                ORDER BY apt.patient_id, apt.doctor_id, apt.appointment_date DESC, apt.id DESC;
+            """, op_params)
             patients.extend(cur.fetchall())
 
         # 3. Emergency Patients (ER) - Return active ER triage patients
@@ -1161,7 +1173,13 @@ def get_all_patients_directory(
 
         # 4. Discharged Patients
         if cat in ("ALL", "DISCHARGED"):
-            cur.execute("""
+            dis_where = ["(a.discharge_status = 'Discharged' OR ds.approval_status = 'Approved')"]
+            dis_params = []
+            if doc_id_val:
+                dis_where.append("(a.doctor_id = %s OR ds.doctor_id = %s)")
+                dis_params.extend([doc_id_val, doc_id_val])
+
+            cur.execute(f"""
                 SELECT DISTINCT ON (p.id)
                     p.id AS patient_id,
                     p.patient_code,
@@ -1191,10 +1209,9 @@ def get_all_patients_directory(
                 LEFT JOIN dim_generated_discharge_summaries ds ON ds.admission_id = a.admission_id OR ds.patient_id = a.patient_id
                 LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
                 LEFT JOIN wards w ON w.ward_id = a.ward_id
-                WHERE a.discharge_status = 'Discharged' OR ds.approval_status = 'Approved'
-                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC
-                LIMIT 50;
-            """)
+                WHERE {' AND '.join(dis_where)}
+                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC;
+            """, dis_params)
             patients.extend(cur.fetchall())
 
         # 5. Direct / Newly Registered Patients from database

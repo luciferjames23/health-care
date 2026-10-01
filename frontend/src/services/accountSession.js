@@ -18,6 +18,8 @@ export async function selectAccount(username) {
       ? 'Hospital Management' 
       : (user.role.toLowerCase() === 'patient' ? 'Patient' : user.role),
     dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
+    departmentId: user.departmentId || user.department_id,
+    doctorId: user.doctorId || user.doctor_id,
     title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
   };
   try {
@@ -45,6 +47,8 @@ export async function loginWithPassword(username, password) {
       ? 'Hospital Management' 
       : (user.role.toLowerCase() === 'patient' ? 'Patient' : user.role),
     dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
+    departmentId: user.departmentId || user.department_id,
+    doctorId: user.doctorId || user.doctor_id,
     title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
   };
   try {

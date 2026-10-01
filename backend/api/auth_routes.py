@@ -133,14 +133,15 @@ def login(body: LoginRequest):
         
         if actual_role in {"DOCTOR", "RADIOLOGIST"}:
             cur.execute("""
-                SELECT d.id, d.display_name, dept.department_name
+                SELECT d.id, d.display_name, dept.department_name, d.department_id
                 FROM doctors d
                 JOIN departments dept ON d.department_id = dept.id
                 WHERE d.user_id = %s;
             """, (user_id,))
             doc_row = cur.fetchone()
+            department_id = None
             if doc_row:
-                doctor_id, display_name, department_name = doc_row
+                doctor_id, display_name, department_name, department_id = doc_row
         elif actual_role == "PATIENT":
             department_name = "Patient Portal"
             pat_full_name = f"{pat_fname or ''} {pat_lname or ''}".strip()
@@ -173,6 +174,8 @@ def login(body: LoginRequest):
                 "canAccessRadiology": actual_role == "RADIOLOGIST",
                 "name": display_name,
                 "department": department_name,
+                "departmentId": department_id,
+                "department_id": department_id,
                 "doctorId": doctor_id,
                 "patient_id": patient_id,
                 "patient_code": patient_code,
@@ -345,7 +348,8 @@ def select_account(body: AccountSelectionRequest, request: Request):
                        ),
                        COALESCE(dept.department_name, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient Portal' ELSE NULL END),
                        d.id, d.specialization,
-                       u.patient_id, p.patient_code
+                       u.patient_id, p.patient_code,
+                       COALESCE(d.department_id, u.department_id)
                 FROM users u JOIN roles r ON r.id=u.role_id
                 LEFT JOIN doctors d ON d.user_id=u.id
                 LEFT JOIN departments dept ON dept.id=COALESCE(d.department_id,u.department_id)
@@ -356,7 +360,7 @@ def select_account(body: AccountSelectionRequest, request: Request):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=403, detail="This account is unavailable or inactive.")
-            uid, username, role, name, department, doctor_id, specialization, patient_id, patient_code = row
+            uid, username, role, name, department, doctor_id, specialization, patient_id, patient_code, department_id = row
             token = encode_token({
                 "user_id": uid,
                 "username": username,
@@ -373,6 +377,8 @@ def select_account(body: AccountSelectionRequest, request: Request):
         "role": role,
         "name": name,
         "department": department or ("Patient Portal" if role.lower() == "patient" else None),
+        "departmentId": department_id,
+        "department_id": department_id,
         "specialization": specialization or (patient_code if role.lower() == "patient" else None),
         "doctorId": doctor_id,
         "patient_id": patient_id,

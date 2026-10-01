@@ -16,6 +16,8 @@ import {
 } from '../../components/DateRangeFilter';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
+import { useAuth } from '../../context/AuthContext';
+
 const btnBase: React.CSSProperties = {
   height: '30px',
   padding: '0 12px',
@@ -110,19 +112,37 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
   userRole = 'Hospital Management'
 }) => {
-  const isDoctor = userRole === 'Doctor' || Boolean(doctorName) || (typeof doctorName === 'string' && doctorName.toLowerCase().includes('immanuvel'));
-  const activeDoctorName = isDoctor ? (doctorName || 'Dr. Immanuvel S') : null;
+  const { user: authUser } = useAuth();
+  const user = authUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+
+  const isDoctor = Boolean(
+    (userRole && String(userRole).toLowerCase() === 'doctor') ||
+    (user && (String(user.role).toLowerCase() === 'doctor' || String((user as any)?.role).toUpperCase() === 'DOCTOR')) ||
+    Boolean(doctorName)
+  );
+
+  const activeDoctorName = isDoctor ? (doctorName || user?.name || null) : null;
+  const doctorUserId = isDoctor ? (user?.doctorId ? Number(user.doctorId) : (user as any)?.doctor_id ? Number((user as any).doctor_id) : undefined) : undefined;
 
   const [search, setSearch] = useState('');
-  const [dateRange, setDateRange] = useState<DateRangeValue>({
-    dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    dateTo: toYMD(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
-    preset: 'this_month',
-    displayLabel: 'This Month',
+  const [dateRange, setDateRange] = useState<DateRangeValue>(() => {
+    const calc = calculateDateRange('all_time');
+    return {
+      dateFrom: calc.from,
+      dateTo: calc.to,
+      preset: 'all_time',
+      displayLabel: calc.label,
+    };
   });
   const [dateType, setDateType] = useState<'appointment_date' | 'created_at'>('appointment_date');
   const [deptFilter, setDeptFilter] = useState('');
-  const [doctorFilter, setDoctorFilter] = useState<number | undefined>(undefined);
+  const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [sortBy, setSortBy] = useState('appointment_date');
@@ -143,33 +163,34 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     fetchDoctors().then(res => {
       const docList = Array.isArray(res?.doctors) ? res.doctors : [];
       setDoctors(docList);
-      if (isDoctor && activeDoctorName) {
-        const baseName = activeDoctorName.split('-')[0].trim();
-        const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-        const firstWord = cleanName.split(' ')[0];
+      if (isDoctor) {
+        if (doctorUserId) {
+          setDoctorFilter(doctorUserId);
+        } else if (activeDoctorName) {
+          const baseName = activeDoctorName.split('-')[0].trim();
+          const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          const firstWord = cleanName.split(' ')[0];
 
-        let matched = docList.find(d => {
-          const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-          return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
-        });
-
-        if (!matched && firstWord.length > 2) {
-          matched = docList.find(d => {
+          let matched = docList.find(d => {
             const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-            return dName.includes(firstWord);
+            return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
           });
-        }
 
-        if (matched) {
-          setDoctorFilter(matched.id);
-        } else {
-          const fallback = docList.find(d => (d.display_name || '').toLowerCase().includes('immanuvel'));
-          if (fallback) setDoctorFilter(fallback.id);
+          if (!matched && firstWord.length > 2) {
+            matched = docList.find(d => {
+              const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+              return dName.includes(firstWord);
+            });
+          }
+
+          if (matched) {
+            setDoctorFilter(matched.id);
+          }
         }
       }
     });
     fetchDepartments().then(res => setDepartments(Array.isArray(res?.departments) ? res.departments : []));
-  }, [isDoctor, activeDoctorName]);
+  }, [isDoctor, activeDoctorName, doctorUserId]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -177,17 +198,17 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   const loadAppointments = useCallback(async () => {
-    // If logged in as Doctor, do not fetch un-scoped appointments while doctorFilter ID is resolving!
-    if (isDoctor && doctorFilter === undefined) {
+    if (isDoctor && doctorFilter === undefined && !doctorUserId) {
       return;
     }
+    const targetDocId = isDoctor ? (doctorFilter || doctorUserId) : doctorFilter;
     setLoading(true);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
         department: isDoctor ? undefined : (deptFilter || undefined),
-        doctor_id: isDoctor ? (doctorFilter || 1015) : doctorFilter,
+        doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
@@ -199,16 +220,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       });
 
       let rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
-      // Fail-safe doctor scoping to ensure only Dr. Immanuvel S / active doctor's appointments are displayed
-      if (isDoctor && activeDoctorName) {
-        const activeClean = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-        rawAppts = rawAppts.filter(a => {
-          if (doctorFilter && a.doctor_id) {
-            return a.doctor_id === doctorFilter;
-          }
-          const docClean = (a.doctor_name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-          return docClean.includes(activeClean) || activeClean.includes(docClean) || docClean.includes('immanuvel');
-        });
+      if (isDoctor && targetDocId) {
+        rawAppts = rawAppts.filter(a => a.doctor_id === targetDocId);
       }
 
       setAppointments(rawAppts);
@@ -217,7 +230,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [isDoctor, activeDoctorName, search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
+  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
