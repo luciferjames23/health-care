@@ -101,7 +101,7 @@ class RagGenerationService:
             c_name in q_low for c_name in ["acute febrile", "high fever", "preterm", "labor complication", "asthma", "cholelithiasis", "gastroenteritis", "d-0", "d-7"]
         )
 
-        # If unavailable modality or targeted clinical structure is matched, return the deterministic clinical synthesis
+        # If unavailable modality or targeted clinical structure is matched, return deterministic clinical synthesis
         if is_modality_unavailable or (is_targeted_clinical and fallback_answer and not fallback_answer.lower().startswith("no authorized clinical records")):
             return {
                 "answer": fallback_answer,
@@ -112,7 +112,7 @@ class RagGenerationService:
                 "language_name": target_name
             }
 
-        # Attempt LLM generation
+        # Attempt LLM generation for general queries
         groq_key = self.groq_api_key or os.getenv("GROQ_API_KEY")
         openai_key = self.openai_api_key or os.getenv("OPENAI_API_KEY")
         if groq_key or openai_key:
