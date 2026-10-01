@@ -29,9 +29,10 @@ export default function TopHeader({
   setUser,
   clock,
   advanceClock,
-  alertsCount = 26,
+  alertsCount = 0,
   onSignOut,
   onOpenMobile,
+  onOpenAlerts,
   onAskAi,
   onOpenModal,
   onSwitchUserPromptPassword,
@@ -54,7 +55,7 @@ export default function TopHeader({
   const liveDateStr = `${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
   const hours12 = now.getHours() % 12 || 12;
   const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
-  const liveTimeStr = `${String(hours12).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')} ${ampm}`;
+  const liveTimeStr = `${String(hours12).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${ampm}`;
 
   const handleAskSubmit = (e) => {
     e.preventDefault();
@@ -136,7 +137,7 @@ export default function TopHeader({
       position: 'sticky',
       top: 0
     }}>
-      {/* ── Row 1: Brand / AI search / pills / clock / actions ── */}
+      {/* ── Row 1: Brand / AI search / pills / clock / actions / alerts ── */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
         padding: '8px 14px', minHeight: '44px'
@@ -149,7 +150,7 @@ export default function TopHeader({
         </div>
 
         {/* AI search */}
-        <form onSubmit={handleAskSubmit} style={{ flex: '1 1 260px', maxWidth: '520px', display: 'flex' }}>
+        <form onSubmit={handleAskSubmit} style={{ flex: '1 1 240px', maxWidth: '460px', display: 'flex' }}>
           <input
             value={askInput}
             onChange={e => setAskInput(e.target.value)}
@@ -172,11 +173,62 @@ export default function TopHeader({
         </form>
 
         {/* Dynamic Real-time Clock */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e', marginLeft: 'auto' }}>
           <span>{liveDateStr}</span>
           <span style={{ fontWeight: 600, color: '#15181b' }}>{liveTimeStr}</span>
         </div>
 
+        {/* Dynamic Alerts Action Button with Red Badge */}
+        <button
+          type="button"
+          id="btn-header-alerts"
+          onClick={() => {
+            if (onOpenAlerts) onOpenAlerts();
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            height: '28px',
+            padding: '0 10px',
+            border: '1px solid #e3e6e8',
+            borderRadius: '6px',
+            background: '#ffffff',
+            cursor: 'pointer',
+            fontSize: '11.5px',
+            fontWeight: 600,
+            color: '#15181b',
+            transition: 'all 0.15s ease',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = '#fef2f2';
+            e.currentTarget.style.borderColor = '#fca5a5';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = '#ffffff';
+            e.currentTarget.style.borderColor = '#e3e6e8';
+          }}
+          title={`${alertsCount} Active Alerts — Click to open Alert Drawer`}
+        >
+          <span>Alerts</span>
+          <span style={{
+            minWidth: '20px',
+            height: '18px',
+            padding: '0 6px',
+            borderRadius: '10px',
+            background: '#b91c1c',
+            color: '#ffffff',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            lineHeight: 1
+          }}>
+            {alertsCount}
+          </span>
+        </button>
       </div>
 
       {/* ── Row 2: Role / User / avatar / sign out / mobile ── */}
@@ -184,60 +236,80 @@ export default function TopHeader({
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
         padding: '5px 14px 6px', borderTop: '1px solid #eef0f1', background: '#fff'
       }}>
-        {/* Role */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-          <span>Role</span>
-          <select
-            value={role}
-            title="Select role to switch user"
-            onChange={e => {
-              const nextRole = e.target.value;
-              setRole(nextRole);
-              const matched = combinedUsers.find(r =>
-                r.role?.toLowerCase() === nextRole.toLowerCase() ||
-                (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
-              );
-              if (matched && matched.username !== user?.username) {
-                if (onSwitchUserPromptPassword) {
-                  onSwitchUserPromptPassword(matched);
-                } else if (onSignOut) {
-                  onSignOut();
-                }
-              }
-            }}
-            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
-          >
-            {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
-          </select>
-        </label>
+        {role === 'Patient' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              background: 'oklch(0.95 0.03 200)',
+              color: 'oklch(0.4 0.1 200)',
+              padding: '3px 9px',
+              borderRadius: '6px',
+              fontSize: '11.5px',
+              fontWeight: 700
+            }}>
+              👤 Patient Portal
+            </span>
+            <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+              UHID: <strong style={{ color: '#0f172a' }}>{user?.patientCode || user?.patient_code || user?.specialization || 'Verified'}</strong>
+            </span>
+          </div>
+        ) : (
+          <>
+            {/* Role */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
+              <span>Role</span>
+              <select
+                value={role}
+                title="Select role to switch user"
+                onChange={e => {
+                  const nextRole = e.target.value;
+                  setRole(nextRole);
+                  const matched = combinedUsers.find(r =>
+                    r.role?.toLowerCase() === nextRole.toLowerCase() ||
+                    (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
+                  );
+                  if (matched && matched.username !== user?.username) {
+                    if (onSwitchUserPromptPassword) {
+                      onSwitchUserPromptPassword(matched);
+                    } else if (onSignOut) {
+                      onSignOut();
+                    }
+                  }
+                }}
+                style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
+              >
+                {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
+              </select>
+            </label>
 
-        {/* User */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-          <span>User</span>
-          <select
-            value={user?.username || (usersForCurrentRole[0]?.username)}
-            onChange={e => {
-              const selectedUsername = e.target.value;
-              const u = combinedUsers.find(r => r.username === selectedUsername);
-              if (u && u.username !== user?.username) {
-                if (onSwitchUserPromptPassword) {
-                  onSwitchUserPromptPassword(u);
-                } else if (onSignOut) {
-                  onSignOut();
-                }
-              }
-            }}
-            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
-          >
-            {usersForCurrentRole.map(r => (
-              <option key={r.username} value={r.username}>
-                {r.name} · {r.specialization || r.dept || r.role}
-              </option>
-            ))}
-          </select>
-        </label>
+            {/* User */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
+              <span>User</span>
+              <select
+                value={user?.username || (usersForCurrentRole[0]?.username)}
+                onChange={e => {
+                  const selectedUsername = e.target.value;
+                  const u = combinedUsers.find(r => r.username === selectedUsername);
+                  if (u && u.username !== user?.username) {
+                    if (onSwitchUserPromptPassword) {
+                      onSwitchUserPromptPassword(u);
+                    } else if (onSignOut) {
+                      onSignOut();
+                    }
+                  }
+                }}
+                style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
+              >
+                {usersForCurrentRole.map(r => (
+                  <option key={r.username} value={r.username}>
+                    {r.name} · {r.specialization || r.dept || r.role}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
 
-        {/* Avatar + name + specialization + sign out */}
+        {/* Avatar + name + specialization + sign out + mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', borderLeft: '1px solid #e3e6e8' }}>
           <span style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             {initials}

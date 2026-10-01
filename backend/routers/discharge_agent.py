@@ -5,7 +5,7 @@ import uuid
 import logging
 from typing import Optional, List, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Query, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
@@ -52,9 +52,27 @@ class EscalateCaseRequest(BaseModel):
 
 
 
+class ManageVitalsRequest(BaseModel):
+    patient_code: str = Field(..., description="Patient code (e.g. MER-PAT-0087264, PAT-87264, or patient ID 87264)", example="MER-PAT-0087264")
+    status: str = Field("normal", description="Vital state: 'normal' or 'abnormal'", example="normal")
+    date: Optional[str] = Field(None, description="Optional date & time (e.g. '2026-09-29 11:30:00' or '2026-09-29'). Defaults to current system date and time if omitted.", example="2026-09-29 11:30:00")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "patient_code": "MER-PAT-0087264",
+                "status": "normal",
+                "date": "2026-09-29 11:30:00"
+            }
+        }
+    }
+
+
 class GenerateVitalsRequest(BaseModel):
+    patient_code: Optional[str] = None
     patient_id: Optional[Union[str, int]] = None
     admission_id: Optional[Union[str, int]] = None
+    status: Optional[str] = None  # "normal" or "abnormal"
     vital_type: str = "normal"  # "normal" or "abnormal"
     temperature: Optional[float] = None
     heart_rate: Optional[int] = None
@@ -62,6 +80,9 @@ class GenerateVitalsRequest(BaseModel):
     diastolic_bp: Optional[int] = None
     oxygen_saturation: Optional[float] = None
     respiratory_rate: Optional[int] = None
+    recorded_at: Optional[Union[str, datetime.datetime]] = None
+    recorded_date: Optional[str] = None
+    recorded_time: Optional[str] = None
     recorded_by: Optional[int] = None
     notes: Optional[str] = None
 
@@ -2049,9 +2070,60 @@ def simulate_insurer_by_patient_id(
 
 
 
+def resolve_recorded_timestamp(
+    recorded_at: Optional[Union[str, datetime.datetime]] = None,
+    recorded_date: Optional[str] = None,
+    recorded_time: Optional[str] = None
+) -> datetime.datetime:
+    """
+    Resolves recorded timestamp from arguments, defaulting to current system local datetime.
+    Supports ISO formats, standard date/time strings, and separate date/time fields.
+    """
+    if recorded_at:
+        if isinstance(recorded_at, datetime.datetime):
+            return recorded_at
+        s = str(recorded_at).strip().replace("Z", "")
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d",
+            "%d-%m-%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M:%S"
+        ):
+            try:
+                return datetime.datetime.strptime(s, fmt)
+            except ValueError:
+                pass
+        try:
+            return datetime.datetime.fromisoformat(s)
+        except Exception:
+            pass
+
+    if recorded_date or recorded_time:
+        d_str = str(recorded_date or datetime.date.today().isoformat()).strip()
+        t_str = str(recorded_time or datetime.datetime.now().strftime("%H:%M:%S")).strip()
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %I:%M %p",
+            "%Y-%m-%d %I:%M:%S %p",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d"
+        ):
+            try:
+                return datetime.datetime.strptime(f"{d_str} {t_str}", fmt)
+            except ValueError:
+                pass
+
+    return datetime.datetime.now()
+
+
 def generate_and_save_vitals_internal(
+    patient_code: Optional[str] = None,
     patient_id: Optional[Union[str, int]] = None,
     admission_id: Optional[Union[str, int]] = None,
+    status: Optional[str] = None,
     vital_type: str = "normal",
     temperature: Optional[float] = None,
     heart_rate: Optional[int] = None,
@@ -2059,46 +2131,68 @@ def generate_and_save_vitals_internal(
     diastolic_bp: Optional[int] = None,
     oxygen_saturation: Optional[float] = None,
     respiratory_rate: Optional[int] = None,
+    recorded_at: Optional[Union[str, datetime.datetime]] = None,
+    recorded_date: Optional[str] = None,
+    recorded_time: Optional[str] = None,
     recorded_by: Optional[int] = None,
     notes: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Generates and stores vital signs report for a patient:
-    - 'normal': Generates stable physiological values (Temp 98.6°F, HR 74 bpm, BP 120/80, SpO2 98.5%, RR 16)
-    - 'abnormal': Generates critical physiological values (Temp 103.4°F, HR 138 bpm, BP 185/115, SpO2 86.5%, RR 28)
-    Updates `dim_admission_inputs` and inserts a new audit measurement in `vital_signs` table.
-    Evaluates real-time Discharge Gate 2 (Vitals Stability).
+    - Supports lookup by patient_code (e.g. 'MER-PAT-0087264', '87264'), patient_id, or admission_id.
+    - 'normal': Automatically sets physiological values to stable normal baseline (Temp 98.6°F, HR 72 bpm, BP 120/80, SpO2 98.5%, RR 16).
+    - 'abnormal': Automatically sets physiological values to abnormal/critical alert range (Temp 102.6°F, HR 126 bpm, BP 168/104, SpO2 88.0%, RR 26).
+    - Specific vital values can be customized/overridden.
+    - Date & time can be explicitly passed or default to current local system time.
+    Updates `dim_admission_inputs` and inserts an audit measurement in `vital_signs` table.
     """
     from db_config import get_db_connection
 
+    raw_code = str(patient_code or "").strip() or None
+    if not raw_code and isinstance(patient_id, str) and not patient_id.isdigit():
+        raw_code = patient_id.strip()
+
     parsed_pid = _parse_id_numeric(patient_id)
     parsed_aid = _parse_id_numeric(admission_id)
+    clean_digits = None
 
-    if parsed_pid is None and parsed_aid is None:
+    if raw_code:
+        digits = re.findall(r'\d+', raw_code)
+        if digits:
+            clean_digits = digits[-1].lstrip('0') or '0'
+            if parsed_pid is None and clean_digits.isdigit():
+                parsed_pid = int(clean_digits)
+
+    if not raw_code and parsed_pid is None and parsed_aid is None:
         raise HTTPException(
             status_code=400,
-            detail="At least one identifier (patient_id or admission_id) must be provided."
+            detail="At least one identifier (patient_code, patient_id, or admission_id) must be provided."
         )
 
-    v_type_normalized = (vital_type or "normal").strip().lower()
-    is_abnormal = v_type_normalized in ["abnormal", "unstable", "critical", "abnormal_vitals", "bad"]
+    # Resolve mode: normal vs abnormal
+    chosen_mode = (status or vital_type or "normal").strip().lower()
+    is_abnormal = chosen_mode in ["abnormal", "unstable", "critical", "abnormal_vitals", "bad", "high", "alert"]
 
     if is_abnormal:
-        temp_val = float(temperature) if temperature is not None else 103.40
-        hr_val = int(heart_rate) if heart_rate is not None else 138
-        sbp_val = int(systolic_bp) if systolic_bp is not None else 185
-        dbp_val = int(diastolic_bp) if diastolic_bp is not None else 115
-        spo2_val = float(oxygen_saturation) if oxygen_saturation is not None else 86.50
-        rr_val = int(respiratory_rate) if respiratory_rate is not None else 28
+        temp_val = float(temperature) if temperature is not None else 102.60
+        hr_val = int(heart_rate) if heart_rate is not None else 126
+        sbp_val = int(systolic_bp) if systolic_bp is not None else 168
+        dbp_val = int(diastolic_bp) if diastolic_bp is not None else 104
+        spo2_val = float(oxygen_saturation) if oxygen_saturation is not None else 88.00
+        rr_val = int(respiratory_rate) if respiratory_rate is not None else 26
         classification = "ABNORMAL"
     else:
         temp_val = float(temperature) if temperature is not None else 98.60
-        hr_val = int(heart_rate) if heart_rate is not None else 74
+        hr_val = int(heart_rate) if heart_rate is not None else 72
         sbp_val = int(systolic_bp) if systolic_bp is not None else 120
         dbp_val = int(diastolic_bp) if diastolic_bp is not None else 80
         spo2_val = float(oxygen_saturation) if oxygen_saturation is not None else 98.50
         rr_val = int(respiratory_rate) if respiratory_rate is not None else 16
         classification = "NORMAL"
+
+    # Resolve date and time
+    resolved_dt = resolve_recorded_timestamp(recorded_at, recorded_date, recorded_time)
+    recorded_at_str = resolved_dt.isoformat()
 
     conn = get_db_connection()
     try:
@@ -2106,49 +2200,91 @@ def generate_and_save_vitals_internal(
 
         # Step 1: Look up patient/admission details
         cur.execute("""
-            SELECT admission_id, patient_id, first_name, last_name, primary_diagnosis, discharge_status
+            SELECT admission_id, patient_id, patient_number, first_name, last_name, primary_diagnosis, discharge_status
             FROM dim_admission_inputs
-            WHERE (%s IS NOT NULL AND admission_id = %s)
+            WHERE (%s IS NOT NULL AND (
+                    patient_number = %s
+                    OR patient_number ILIKE %s
+                    OR patient_id::text = %s
+                  ))
+               OR (%s IS NOT NULL AND admission_id = %s)
                OR (%s IS NOT NULL AND patient_id = %s)
             ORDER BY (discharge_status = 'Admitted') DESC, admission_id DESC
             LIMIT 1;
-        """, (parsed_aid, parsed_aid, parsed_pid, parsed_pid))
+        """, (
+            raw_code, raw_code, f"%{clean_digits}%" if clean_digits else f"%{raw_code}%", clean_digits,
+            parsed_aid, parsed_aid,
+            parsed_pid, parsed_pid
+        ))
         adm_row = cur.fetchone()
 
         resolved_aid = parsed_aid
         resolved_pid = parsed_pid
+        resolved_pnum = raw_code
         pat_name = "Patient"
         diag = "Clinical Inpatient Care"
 
         if adm_row:
             resolved_aid = adm_row[0]
             resolved_pid = adm_row[1]
-            first_n = adm_row[2] or ""
-            last_n = adm_row[3] or ""
+            resolved_pnum = adm_row[2] or resolved_pnum or f"MER-PAT-{str(resolved_pid).zfill(7)}"
+            first_n = adm_row[3] or ""
+            last_n = adm_row[4] or ""
             pat_name = f"{first_n} {last_n}".strip() or f"Patient #{resolved_pid}"
-            diag = adm_row[4] or diag
+            diag = adm_row[5] or diag
         else:
             # Check admissions or patients table
             cur.execute("""
-                SELECT a.admission_id, a.patient_id, p.first_name, p.last_name, a.reason_for_admission
+                SELECT a.admission_id, a.patient_id, p.patient_code, p.first_name, p.last_name, a.reason_for_admission
                 FROM admissions a
                 LEFT JOIN patients p ON a.patient_id = p.id
-                WHERE (%s IS NOT NULL AND a.admission_id = %s)
+                WHERE (%s IS NOT NULL AND (
+                        p.patient_code = %s
+                        OR p.patient_code ILIKE %s
+                        OR p.id::text = %s
+                      ))
+                   OR (%s IS NOT NULL AND a.admission_id = %s)
                    OR (%s IS NOT NULL AND a.patient_id = %s)
                 ORDER BY a.admission_id DESC
                 LIMIT 1;
-            """, (parsed_aid, parsed_aid, parsed_pid, parsed_pid))
+            """, (
+                raw_code, raw_code, f"%{clean_digits}%" if clean_digits else f"%{raw_code}%", clean_digits,
+                parsed_aid, parsed_aid,
+                parsed_pid, parsed_pid
+            ))
             fb_row = cur.fetchone()
             if fb_row:
                 resolved_aid = fb_row[0]
                 resolved_pid = fb_row[1]
-                pat_name = f"{fb_row[2] or ''} {fb_row[3] or ''}".strip() or f"Patient #{resolved_pid}"
-                diag = fb_row[4] or diag
+                resolved_pnum = fb_row[2] or resolved_pnum or f"MER-PAT-{str(resolved_pid).zfill(7)}"
+                pat_name = f"{fb_row[3] or ''} {fb_row[4] or ''}".strip() or f"Patient #{resolved_pid}"
+                diag = fb_row[5] or diag
             else:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Patient not found for patient_id={patient_id}, admission_id={admission_id}"
-                )
+                # Check patients table directly
+                cur.execute("""
+                    SELECT id, patient_code, first_name, last_name
+                    FROM patients
+                    WHERE (%s IS NOT NULL AND (
+                            patient_code = %s
+                            OR patient_code ILIKE %s
+                            OR id::text = %s
+                          ))
+                       OR (%s IS NOT NULL AND id = %s)
+                    LIMIT 1;
+                """, (
+                    raw_code, raw_code, f"%{clean_digits}%" if clean_digits else f"%{raw_code}%", clean_digits,
+                    parsed_pid, parsed_pid
+                ))
+                p_only = cur.fetchone()
+                if p_only:
+                    resolved_pid = p_only[0]
+                    resolved_pnum = p_only[1] or resolved_pnum or f"MER-PAT-{str(resolved_pid).zfill(7)}"
+                    pat_name = f"{p_only[2] or ''} {p_only[3] or ''}".strip() or f"Patient #{resolved_pid}"
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Patient not found for patient_code='{patient_code}', patient_id={patient_id}, admission_id={admission_id}"
+                    )
 
         # Step 2: Update dim_admission_inputs table
         cur.execute("""
@@ -2159,13 +2295,16 @@ def generate_and_save_vitals_internal(
                 latest_diastolic_bp = %s,
                 latest_oxygen_saturation = %s
             WHERE (%s IS NOT NULL AND admission_id = %s)
-               OR (%s IS NOT NULL AND patient_id = %s);
+               OR (%s IS NOT NULL AND patient_id = %s)
+               OR (%s IS NOT NULL AND (patient_number = %s OR patient_number ILIKE %s));
         """, (
             temp_val, hr_val, sbp_val, dbp_val, spo2_val,
-            resolved_aid, resolved_aid, resolved_pid, resolved_pid
+            resolved_aid, resolved_aid,
+            resolved_pid, resolved_pid,
+            resolved_pnum, resolved_pnum, f"%{clean_digits}%" if clean_digits else f"%{resolved_pnum}%"
         ))
 
-        # Resolve visit_id and recorded_by (required by vital_signs NOT NULL constraint)
+        # Resolve visit_id and recorded_by (required by vital_signs)
         resolved_vid = None
         if resolved_aid:
             cur.execute("SELECT visit_id FROM admissions WHERE admission_id = %s LIMIT 1;", (resolved_aid,))
@@ -2177,25 +2316,24 @@ def generate_and_save_vitals_internal(
 
         staff_user_id = int(recorded_by) if recorded_by is not None else 1
 
-        # Step 3: Insert audit record into vital_signs table
+        # Step 3: Insert audit record into vital_signs table with specified/default timestamp
         cur.execute("""
             INSERT INTO vital_signs (
                 patient_id, admission_id, visit_id, recorded_by,
                 recorded_at, temperature, heart_rate, systolic_bp, diastolic_bp,
-                respiratory_rate, oxygen_saturation
+                respiratory_rate, oxygen_saturation, patient_code
             ) VALUES (
                 %s, %s, %s, %s,
-                CURRENT_TIMESTAMP, %s, %s, %s, %s,
-                %s, %s
+                %s, %s, %s, %s, %s,
+                %s, %s, %s
             ) RETURNING vital_id, recorded_at;
         """, (
             resolved_pid, resolved_aid, resolved_vid, staff_user_id,
-            temp_val, hr_val, sbp_val, dbp_val,
-            rr_val, spo2_val
+            resolved_dt, temp_val, hr_val, sbp_val, dbp_val,
+            rr_val, spo2_val, resolved_pnum
         ))
         vital_res = cur.fetchone()
         new_vital_id = vital_res[0] if vital_res else None
-        recorded_at_str = vital_res[1].isoformat() if vital_res and hasattr(vital_res[1], 'isoformat') else datetime.datetime.now().isoformat()
 
         conn.commit()
         DatabricksConnector.clear_cache()
@@ -2224,12 +2362,14 @@ def generate_and_save_vitals_internal(
 
         return {
             "success": True,
-            "message": f"{classification.capitalize()} vital signs report successfully generated and saved for {pat_name}",
+            "message": f"{classification.capitalize()} vital signs successfully saved for {pat_name} ({resolved_pnum or resolved_pid})",
+            "patient_code": resolved_pnum,
             "patient_id": resolved_pid,
             "patient_name": pat_name,
             "admission_id": resolved_aid,
             "vital_id": new_vital_id,
             "vital_type": classification,
+            "status": classification.lower(),
             "recorded_at": recorded_at_str,
             "vitals": {
                 "temperature": temp_val,
@@ -2256,7 +2396,129 @@ def generate_and_save_vitals_internal(
         raise
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to generate vital report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save vital report: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/manage-vitals", summary="Manage Patient Vitals by Patient Code (Normal / Abnormal)")
+def manage_patient_vitals_endpoint(request: ManageVitalsRequest):
+    """
+    Manage Patient Vitals by Patient Code:
+    - **patient_code**: Patient Code (e.g. 'MER-PAT-0087264', '87264')
+    - **status**: 'normal' (generates BP 120/80, HR 72, SpO2 98.5%, Temp 98.6°F, RR 16)
+                  or 'abnormal' (generates BP 168/104, HR 126, SpO2 88.0%, Temp 102.6°F, RR 26)
+    - **date**: Optional date/time string (defaults to current system date and time if omitted)
+    """
+    return generate_and_save_vitals_internal(
+        patient_code=request.patient_code,
+        status=request.status,
+        recorded_at=request.date
+    )
+
+
+@router.post("/patient-code/{patient_code}/vitals", summary="Update Patient Vitals by Patient Code (URL Path)")
+def update_patient_vitals_by_code(
+    patient_code: str,
+    status: str = Query("normal", description="Choose 'normal' or 'abnormal'"),
+    date: Optional[str] = Query(None, description="Optional custom date & time (defaults to current date & time)")
+):
+    """
+    Convenience endpoint to manage vitals directly via URL path:
+    POST /api/v1/discharge-agent/patient-code/{patient_code}/vitals?status=normal|abnormal&date=2026-09-29%2011:30:00
+    """
+    return generate_and_save_vitals_internal(
+        patient_code=patient_code,
+        status=status,
+        recorded_at=date
+    )
+
+
+@router.get("/patient-code/{patient_code}/vitals", summary="Get Latest & Historical Vitals by Patient Code")
+def get_patient_vitals_by_code(patient_code: str, limit: int = Query(10, ge=1, le=100)):
+    """
+    Fetches the current latest vitals and historical readings for a given patient_code.
+    """
+    from db_config import get_db_connection
+    raw_code = patient_code.strip()
+    digits = re.findall(r'\d+', raw_code)
+    clean_digits = digits[-1].lstrip('0') if digits else None
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT admission_id, patient_id, patient_number, first_name, last_name,
+                   latest_temperature, latest_heart_rate, latest_systolic_bp, latest_diastolic_bp, latest_oxygen_saturation
+            FROM dim_admission_inputs
+            WHERE patient_number = %s
+               OR patient_number ILIKE %s
+               OR patient_id::text = %s
+            LIMIT 1;
+        """, (raw_code, f"%{clean_digits}%" if clean_digits else f"%{raw_code}%", clean_digits))
+        adm = cur.fetchone()
+
+        if not adm:
+            # Check patients table
+            cur.execute("""
+                SELECT id, patient_code, first_name, last_name
+                FROM patients
+                WHERE patient_code = %s
+                   OR patient_code ILIKE %s
+                   OR id::text = %s
+                LIMIT 1;
+            """, (raw_code, f"%{clean_digits}%" if clean_digits else f"%{raw_code}%", clean_digits))
+            p_row = cur.fetchone()
+            if not p_row:
+                raise HTTPException(status_code=404, detail=f"Patient '{patient_code}' not found.")
+            pid = p_row[0]
+            pcode = p_row[1]
+            pname = f"{p_row[2] or ''} {p_row[3] or ''}".strip()
+            latest = None
+        else:
+            aid, pid, pcode, fn, ln, temp, hr, sbp, dbp, spo2 = adm
+            pname = f"{fn or ''} {ln or ''}".strip()
+            latest = {
+                "temperature": float(temp) if temp is not None else None,
+                "heart_rate": hr,
+                "systolic_bp": sbp,
+                "diastolic_bp": dbp,
+                "oxygen_saturation": float(spo2) if spo2 is not None else None,
+                "blood_pressure": f"{sbp}/{dbp} mmHg" if sbp and dbp else None
+            }
+
+        # Fetch history from vital_signs
+        cur.execute("""
+            SELECT vital_id, recorded_at, temperature, heart_rate, systolic_bp, diastolic_bp,
+                   respiratory_rate, oxygen_saturation
+            FROM vital_signs
+            WHERE patient_id = %s
+            ORDER BY recorded_at DESC, vital_id DESC
+            LIMIT %s;
+        """, (pid, limit))
+        history = []
+        for r in cur.fetchall():
+            history.append({
+                "vital_id": r[0],
+                "recorded_at": r[1].isoformat() if r[1] else None,
+                "temperature": float(r[2]) if r[2] is not None else None,
+                "heart_rate": r[3],
+                "systolic_bp": r[4],
+                "diastolic_bp": r[5],
+                "respiratory_rate": r[6],
+                "oxygen_saturation": float(r[7]) if r[7] is not None else None
+            })
+
+        return {
+            "success": True,
+            "patient_code": pcode,
+            "patient_id": pid,
+            "patient_name": pname,
+            "latest_vitals": latest or (history[0] if history else None),
+            "history_count": len(history),
+            "history": history
+        }
     finally:
         cur.close()
         conn.close()
@@ -2266,23 +2528,25 @@ def generate_and_save_vitals_internal(
 def generate_patient_vitals(request: GenerateVitalsRequest):
     """
     Generates and saves vital signs report for a patient:
-    - **vital_type = 'normal'**: Generates normal, stable vitals (Temp: 98.6°F, HR: 74 bpm, BP: 120/80, SpO2: 98.5%).
-      Discharge Gate 2 is marked as **PASSED**.
-    - **vital_type = 'abnormal'**: Generates critical/abnormal vitals (Temp: 103.4°F, HR: 138 bpm, BP: 185/115, SpO2: 86.5%).
-      Discharge Gate 2 is marked as **FAILED** (held from discharge due to clinical instability).
-
-    Persists to both `dim_admission_inputs` and `vital_signs` tables in PostgreSQL.
+    - **status / vital_type = 'normal'**: Generates normal, stable vitals (Temp: 98.6°F, HR: 72 bpm, BP: 120/80, SpO2: 98.5%).
+    - **status / vital_type = 'abnormal'**: Generates critical/abnormal vitals (Temp: 102.6°F, HR: 126 bpm, BP: 168/104, SpO2: 88.0%).
+    - Accepts patient_code, patient_id, admission_id, recorded_at (defaults to current time).
     """
     return generate_and_save_vitals_internal(
+        patient_code=request.patient_code,
         patient_id=request.patient_id,
         admission_id=request.admission_id,
-        vital_type=request.vital_type,
+        status=request.status or request.vital_type,
+        vital_type=request.vital_type or request.status or "normal",
         temperature=request.temperature,
         heart_rate=request.heart_rate,
         systolic_bp=request.systolic_bp,
         diastolic_bp=request.diastolic_bp,
         oxygen_saturation=request.oxygen_saturation,
         respiratory_rate=request.respiratory_rate,
+        recorded_at=request.recorded_at,
+        recorded_date=request.recorded_date,
+        recorded_time=request.recorded_time,
         recorded_by=request.recorded_by,
         notes=request.notes
     )
@@ -2291,7 +2555,8 @@ def generate_patient_vitals(request: GenerateVitalsRequest):
 @router.post("/patient/{patient_id}/generate-vitals", summary="Generate & Save Patient Vital Signs by Patient ID")
 def generate_patient_vitals_by_id(
     patient_id: str,
-    vital_type: str = Query("normal", description="Choose 'normal' for stable vitals or 'abnormal' for critical/unstable vitals")
+    vital_type: str = Query("normal", description="Choose 'normal' for stable vitals or 'abnormal' for critical/unstable vitals"),
+    recorded_at: Optional[str] = Query(None, description="Custom timestamp (defaults to current date & time)")
 ):
     """
     Convenience endpoint to generate vitals report directly via URL:
@@ -2299,7 +2564,9 @@ def generate_patient_vitals_by_id(
     """
     return generate_and_save_vitals_internal(
         patient_id=patient_id,
-        vital_type=vital_type
+        status=vital_type,
+        vital_type=vital_type,
+        recorded_at=recorded_at
     )
 
 

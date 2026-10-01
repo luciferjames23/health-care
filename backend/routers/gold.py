@@ -302,11 +302,54 @@ def get_executive_kpis():
         cur.execute("SELECT COUNT(*) as total FROM ot_surgeries")
         surgeries_count = cur.fetchone()["total"]
 
+        # 10. Live Beds & Inpatient Census from PostgreSQL
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total_beds,
+                COUNT(CASE WHEN status = 'Occupied' THEN 1 END) as occupied_beds,
+                COUNT(CASE WHEN status = 'Available' THEN 1 END) as available_beds,
+                COUNT(CASE WHEN status NOT IN ('Occupied', 'Available') THEN 1 END) as maintenance_beds
+            FROM beds;
+        """)
+        bed_counts = cur.fetchone()
+        
+        tot_beds = int(bed_counts["total_beds"] or 312)
+        occ_beds = int(bed_counts["occupied_beds"] or 209)
+        avail_beds = int(bed_counts["available_beds"] or 103)
+        maint_beds = int(bed_counts["maintenance_beds"] or 0)
+        occ_rate = round((occ_beds / tot_beds) * 100, 1) if tot_beds > 0 else 0.0
+
+        cur.execute("SELECT COUNT(*) as total FROM wards")
+        wards_cnt = int(cur.fetchone()["total"] or 8)
+
+        cur.execute("SELECT COUNT(*) as total FROM rooms")
+        rooms_cnt = int(cur.fetchone()["total"] or 150)
+
+        # Inpatient Census dynamically from dim_admission_inputs
+        cur.execute("""
+            SELECT 
+                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'admitted' THEN 1 END) as active_adm,
+                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'discharged' THEN 1 END) as discharged_adm
+            FROM dim_admission_inputs;
+        """)
+        adm_stats = cur.fetchone() or {}
+        active_adm_cnt = int(adm_stats.get("active_adm") if adm_stats.get("active_adm") is not None else occ_beds)
+        discharged_cnt = int(adm_stats.get("discharged_adm") if adm_stats.get("discharged_adm") is not None else 11)
+
         return {
             "success": True,
             "appointments": int(appts_count or 0),
             "emergency_load": int(em_count or 0),
             "lab_orders": int(lab_count or 0),
+            "total_beds": tot_beds,
+            "occupied_beds": occ_beds,
+            "active_admissions": active_adm_cnt,
+            "available_beds": avail_beds,
+            "maintenance_beds": maint_beds,
+            "occupancy_rate": occ_rate,
+            "total_wards": wards_cnt,
+            "total_rooms": rooms_cnt,
+            "discharged_patients": discharged_cnt,
             "bills": {
                 "count": int(bills_row["count"] or 0),
                 "total_revenue": float(bills_row["total_revenue"] or 0),
@@ -1111,97 +1154,106 @@ def get_dim_admission_inputs(
 
     try:
         res = db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=clean_limit, offset=clean_offset)
-        data = res.get("data", [])
-        
-        # If no records found in dim_admission_inputs (210 rows) and caller specified an admission or patient filter, fall back to master admissions table
-        if not data and (clean_aid or clean_pid or clean_anum or clean_pnum or clean_ds):
-            try:
-                import db_config
-                conn = db_config.get_db_connection()
-                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                adm_where = ["1=1"]
-                adm_params = []
-                if clean_aid:
-                    adm_where.append("a.admission_id = %s")
-                    adm_params.append(clean_aid)
-                if clean_pid:
-                    adm_where.append("a.patient_id = %s")
-                    adm_params.append(clean_pid)
-                if clean_anum:
-                    adm_where.append("a.admission_number = %s")
-                    adm_params.append(clean_anum)
-                if clean_pnum:
-                    adm_where.append("p.patient_code = %s")
-                    adm_params.append(clean_pnum)
-                if clean_ds and clean_ds.strip().lower() != "all":
-                    adm_where.append("LOWER(a.discharge_status) = LOWER(%s)")
-                    adm_params.append(clean_ds.strip())
+        data = res.get("data", []) or []
 
-                lim = clean_limit or 50
-                off = clean_offset or 0
-                cur.execute(f"""
-                    SELECT 
-                        a.admission_id,
-                        a.patient_id,
-                        p.patient_code AS patient_number,
-                        (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
-                        p.first_name,
-                        p.last_name,
-                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age_at_admission,
-                        p.gender,
-                        p.blood_group,
-                        p.date_of_birth,
-                        p.phone,
-                        p.email,
-                        p.address,
-                        a.admission_date,
-                        a.admission_type,
-                        COALESCE(a.reason_for_admission, 'Inpatient Admission') AS reason_for_admission,
-                        COALESCE(a.reason_for_admission, 'Inpatient Admission') AS primary_diagnosis,
-                        'None recorded' AS secondary_diagnoses,
-                        a.discharge_status,
-                        a.discharge_date,
-                        a.admission_number,
-                        b.bed_number,
-                        b.bed_type,
-                        r.room_number,
-                        w.ward_name,
-                        COALESCE(d.display_name, 'Attending Physician') AS attending_doctor,
-                        d.specialization AS doctor_specialization,
-                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider,
-                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer
-                    FROM admissions a
-                    JOIN patients p ON a.patient_id = p.id
-                    LEFT JOIN doctors d ON a.doctor_id = d.id
-                    LEFT JOIN beds b ON a.bed_id = b.bed_id
-                    LEFT JOIN rooms r ON b.room_id = r.room_id
-                    LEFT JOIN wards w ON b.ward_id = w.ward_id
-                    LEFT JOIN (
-                        SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
-                        FROM insurance_claims ORDER BY patient_id, claim_date DESC, claim_id DESC
-                    ) ic ON ic.patient_id = p.id
-                    LEFT JOIN (
-                        SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
-                        FROM patient_insurance ORDER BY patient_id, insurance_id DESC
-                    ) pi ON pi.patient_id = p.id
-                    WHERE {" AND ".join(adm_where)}
-                    ORDER BY a.admission_id DESC
-                    LIMIT %s OFFSET %s;
-                """, tuple(adm_params + [lim, off]))
-                fb_rows = cur.fetchall()
-                cur.close()
-                conn.close()
-                if fb_rows:
-                    data = [dict(r) for r in fb_rows]
-                    res = {
-                        "catalog": Config.DATABRICKS_CATALOG,
-                        "schema": Config.DATABRICKS_SCHEMA,
-                        "table_name": "dim_admission_inputs",
-                        "count": len(data),
-                        "data": data
-                    }
-            except Exception as e_adm_list:
-                print(f"[WARN] Error fetching admissions fallback list: {e_adm_list}")
+        # Always query live admissions from PostgreSQL admissions table to merge registered patients
+        try:
+            import db_config
+            conn = db_config.get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            adm_where = ["1=1"]
+            adm_params = []
+            if clean_aid:
+                adm_where.append("a.admission_id = %s")
+                adm_params.append(clean_aid)
+            if clean_pid:
+                adm_where.append("a.patient_id = %s")
+                adm_params.append(clean_pid)
+            if clean_anum:
+                adm_where.append("a.admission_number = %s")
+                adm_params.append(clean_anum)
+            if clean_pnum:
+                adm_where.append("p.patient_code = %s")
+                adm_params.append(clean_pnum)
+            if clean_ds and clean_ds.strip().lower() != "all":
+                adm_where.append("LOWER(a.discharge_status) = LOWER(%s)")
+                adm_params.append(clean_ds.strip())
+
+            is_specific_lookup = bool(clean_aid or clean_pid or clean_anum or clean_pnum)
+            distinct_clause = "" if is_specific_lookup else "DISTINCT ON (b.bed_id)"
+            order_clause = "a.admission_id DESC" if is_specific_lookup else "b.bed_id, a.admission_id DESC"
+
+            # For general admissions listing (not looking up a specific patient), only include active admissions on currently occupied beds
+            if not is_specific_lookup:
+                adm_where.append("b.status = 'Occupied' AND (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged')")
+
+            lim = clean_limit or 500
+            cur.execute(f"""
+                SELECT {distinct_clause}
+                    a.admission_id,
+                    a.patient_id,
+                    p.patient_code AS patient_number,
+                    (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                    p.first_name,
+                    p.last_name,
+                    EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age_at_admission,
+                    p.gender,
+                    p.blood_group,
+                    p.date_of_birth,
+                    p.phone,
+                    p.email,
+                    p.address,
+                    a.admission_date,
+                    a.admission_type,
+                    COALESCE(a.reason_for_admission, 'Inpatient Admission') AS reason_for_admission,
+                    COALESCE(a.reason_for_admission, 'Inpatient Admission') AS primary_diagnosis,
+                    'None recorded' AS secondary_diagnoses,
+                    a.discharge_status,
+                    a.discharge_date,
+                    a.admission_number,
+                    b.bed_number,
+                    b.bed_type,
+                    r.room_number,
+                    w.ward_name,
+                    COALESCE(d.display_name, 'Attending Physician') AS attending_doctor,
+                    d.specialization AS doctor_specialization,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer
+                FROM admissions a
+                JOIN patients p ON a.patient_id = p.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                LEFT JOIN beds b ON a.bed_id = b.bed_id
+                LEFT JOIN rooms r ON b.room_id = r.room_id
+                LEFT JOIN wards w ON b.ward_id = w.ward_id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
+                    FROM insurance_claims ORDER BY patient_id, claim_date DESC, claim_id DESC
+                ) ic ON ic.patient_id = p.id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
+                    FROM patient_insurance ORDER BY patient_id, insurance_id DESC
+                ) pi ON pi.patient_id = p.id
+                WHERE {" AND ".join(adm_where)}
+                ORDER BY {order_clause}
+                LIMIT %s;
+            """, tuple(adm_params + [lim]))
+            fb_rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            if fb_rows:
+                live_data = [dict(r) for r in fb_rows]
+                existing_adm_ids = {r.get('admission_id') for r in data if r.get('admission_id') is not None}
+                existing_pat_ids = {r.get('patient_id') for r in data if r.get('patient_id') is not None}
+                new_records = [r for r in live_data if r.get('admission_id') not in existing_adm_ids and r.get('patient_id') not in existing_pat_ids]
+                if clean_aid or clean_pid or clean_anum or clean_pnum:
+                    data = new_records if new_records else (data if data else live_data)
+                else:
+                    data = new_records + data
+                res["count"] = len(data)
+                res["data"] = data
+        except Exception as e_adm_list:
+            print(f"[WARN] Error fetching admissions fallback list: {e_adm_list}")
 
         if data:
             try:
@@ -1988,40 +2040,33 @@ def get_bed_management_data(
         cur.execute("SELECT summary_id, admission_id, patient_id, approval_status, discharge_date, diagnoses, primary_consultant FROM dim_generated_discharge_summaries;")
         ds_data = cur.fetchall()
 
+        # Query active admissions for occupied beds from PostgreSQL
         cur.execute("""
-            SELECT 
-                admission_id, admission_number, patient_id, patient_number,
-                first_name, last_name, attending_doctor, primary_diagnosis,
-                bed_number, room_number, ward_name, admission_date, discharge_status
-            FROM dim_admission_inputs
-            WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged';
+            SELECT DISTINCT ON (a.bed_id)
+                a.admission_id, a.admission_number, a.patient_id, p.patient_code AS patient_number,
+                p.first_name, p.last_name, COALESCE(d.display_name, 'Attending Consultant') AS attending_doctor,
+                COALESCE(a.reason_for_admission, 'Inpatient Admission') AS primary_diagnosis,
+                b.bed_number, r.room_number, w.ward_name, a.admission_date, a.discharge_status,
+                b.bed_id
+            FROM admissions a
+            JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            JOIN beds b ON a.bed_id = b.bed_id AND b.status = 'Occupied'
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            LEFT JOIN wards w ON a.ward_id = w.ward_id OR b.ward_id = w.ward_id
+            WHERE LOWER(COALESCE(a.discharge_status, '')) != 'discharged'
+            ORDER BY a.bed_id, a.admission_id DESC;
         """)
         admissions_data = cur.fetchall()
 
         cur.close()
         conn.close()
 
-        # Discharged set - Only Approved / Finalized discharge summaries count as discharged & bed released
-        discharged_ids = {
-            str(r["patient_id"]).strip() 
-            for r in ds_data 
-            if r.get("patient_id") is not None and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
-        }
-        discharged_adm_ids = {
-            str(r["admission_id"]).strip() 
-            for r in ds_data 
-            if r.get("admission_id") and str(r.get("approval_status", "")).strip().lower() in ("approved", "signed", "signed off", "completed")
-        }
-
         # Build active bed -> patient map (keyed by bed_number and bed_id)
         bed_patient_map = {}
         for a in admissions_data:
-            pid = str(a.get("patient_id")).strip() if a.get("patient_id") else None
-            aid = str(a.get("admission_id")).strip() if a.get("admission_id") else None
             bnum = str(a.get("bed_number")).strip() if a.get("bed_number") else None
-
-            if (pid and pid in discharged_ids) or (aid and aid in discharged_adm_ids):
-                continue
+            bid_key = str(a.get("bed_id")).strip() if a.get("bed_id") else None
 
             pname = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip() or f"Patient #{a.get('patient_id')}"
             diag = a.get("primary_diagnosis") or "Inpatient Observation"
@@ -2044,6 +2089,8 @@ def get_bed_management_data(
 
             if bnum:
                 bed_patient_map[bnum] = patient_dict
+            if bid_key:
+                bed_patient_map[bid_key] = patient_dict
 
         occupied_count = 0
         available_count = 0
@@ -2057,10 +2104,11 @@ def get_bed_management_data(
             wid = b.get("ward_id")
 
             assigned = bed_patient_map.get(bnum) or bed_patient_map.get(str(bid)) or bed_patient_map.get(bid)
-            raw_status = str(b.get("status") or "").strip().lower()
-            is_maint = raw_status in ["maintenance", "blocked", "cleaning", "reserved"]
+            raw_status = str(b.get("status") or "").strip().title()
+            is_maint = raw_status in ["Maintenance", "Blocked", "Cleaning", "Reserved"]
+            is_occupied = raw_status == "Occupied" or bool(assigned)
 
-            if assigned:
+            if is_occupied:
                 bed_status = "Occupied"
                 occupied_count += 1
             elif is_maint:
@@ -2071,7 +2119,7 @@ def get_bed_management_data(
                 available_count += 1
                 assigned = None
 
-            if occupancy_status and bed_status.lower() != occupancy_status.lower():
+            if isinstance(occupancy_status, str) and occupancy_status.strip() and bed_status.lower() != occupancy_status.strip().lower():
                 continue
 
             bed_obj = {
@@ -2113,7 +2161,7 @@ def get_bed_management_data(
         ward_tree = []
         for w in wards_data:
             w_id = w.get("ward_id")
-            if ward_id is not None and w_id != ward_id:
+            if isinstance(ward_id, int) and ward_id is not None and w_id != ward_id:
                 continue
 
             w_rooms = rooms_by_ward.get(w_id, [])

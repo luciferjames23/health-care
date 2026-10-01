@@ -41,21 +41,30 @@ def get_auth_users():
                 u.id,
                 u.username,
                 r.name as role,
-                COALESCE(d.display_name, u.staff_name, CONCAT(u.first_name, ' ', u.last_name)) as name,
-                COALESCE(dept.department_name, u.staff_type, r.name) as dept,
-                COALESCE(d.specialization, dept.department_name, u.staff_type, 'General Medicine') as specialization,
-                COALESCE(d.specialization, u.staff_type, r.name) as title,
-                u.email
+                COALESCE(
+                    d.display_name, 
+                    NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
+                    u.staff_name, 
+                    CONCAT(u.first_name, ' ', u.last_name)
+                ) as name,
+                COALESCE(dept.department_name, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient Portal' ELSE u.staff_type END, r.name) as dept,
+                COALESCE(d.specialization, CASE WHEN LOWER(r.name) = 'patient' THEN p.patient_code ELSE dept.department_name END, u.staff_type, 'General Medicine') as specialization,
+                COALESCE(d.specialization, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient' ELSE u.staff_type END, r.name) as title,
+                u.email,
+                u.patient_id,
+                p.patient_code
             FROM users u
             JOIN roles r ON u.role_id = r.id
             LEFT JOIN doctors d ON d.user_id = u.id
             LEFT JOIN departments dept ON u.department_id = dept.id
+            LEFT JOIN patients p ON p.id = u.patient_id
             WHERE u.is_active = true
             ORDER BY 
                 CASE 
                     WHEN LOWER(r.name) = 'admin' THEN 1
                     WHEN LOWER(r.name) = 'doctor' THEN 2
-                    ELSE 3
+                    WHEN LOWER(r.name) = 'patient' THEN 3
+                    ELSE 4
                 END,
                 u.id ASC;
         """)
@@ -73,29 +82,45 @@ def get_auth_users():
 def login(body: LoginRequest):
     """
     Authenticate username/password and return standard signed JWT token.
-    Supports role matching for both ADMIN and DOCTOR accounts.
+    Supports role matching for ADMIN, DOCTOR, RADIOLOGIST, and PATIENT accounts.
+    Allows patients to sign in using username, patient code (e.g., MER-PAT-0087227), phone, or email.
     """
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
+        search_id = body.username.strip()
+        requested_role = (body.role or "").strip().lower()
+
+        # Query user matching username, patient_code, phone, or email
         cur.execute("""
-            SELECT u.id, u.username, u.password_hash, u.is_active, r.name as role_name, u.phone, u.email
+            SELECT u.id, u.username, u.password_hash, u.is_active, r.name as role_name, u.phone, u.email,
+                   u.patient_id, p.patient_code, p.first_name as pat_fname, p.last_name as pat_lname
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            WHERE LOWER(u.username) = LOWER(%s);
-        """, (body.username,))
+            LEFT JOIN patients p ON p.id = u.patient_id
+            WHERE LOWER(u.username) = LOWER(%s)
+               OR (p.patient_code IS NOT NULL AND LOWER(p.patient_code) = LOWER(%s))
+               OR (u.phone IS NOT NULL AND u.phone = %s)
+               OR (p.phone IS NOT NULL AND p.phone = %s)
+               OR (u.email IS NOT NULL AND LOWER(u.email) = LOWER(%s))
+               OR (p.email IS NOT NULL AND LOWER(p.email) = LOWER(%s))
+            ORDER BY 
+                CASE WHEN LOWER(r.name) = %s THEN 0 ELSE 1 END,
+                u.id ASC
+            LIMIT 1;
+        """, (search_id, search_id, search_id, search_id, search_id, search_id, requested_role))
         row = cur.fetchone()
         
         if not row:
-            raise HTTPException(status_code=401, detail="Invalid username. Please check your credentials.")
+            raise HTTPException(status_code=401, detail="Invalid credentials. Please check your username or patient ID.")
             
-        user_id, username, password_hash, is_active, role_name, phone, email = row
+        user_id, username, password_hash, is_active, role_name, phone, email, patient_id, patient_code, pat_fname, pat_lname = row
         
         if not is_active:
             raise HTTPException(status_code=401, detail="This account has been deactivated.")
             
         if not str(password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
-            raise HTTPException(status_code=401, detail="This account needs a password reset. Contact your hospital administrator.")
+            raise HTTPException(status_code=401, detail="This account needs a password reset. Contact hospital administration.")
         is_password_valid = verify_password(body.password, password_hash)
         if not is_password_valid:
             raise HTTPException(status_code=401, detail="Invalid password. Please try again.")
@@ -116,13 +141,19 @@ def login(body: LoginRequest):
             doc_row = cur.fetchone()
             if doc_row:
                 doctor_id, display_name, department_name = doc_row
+        elif actual_role == "PATIENT":
+            department_name = "Patient Portal"
+            pat_full_name = f"{pat_fname or ''} {pat_lname or ''}".strip()
+            display_name = pat_full_name or username
                 
         token_payload = {
             "user_id": user_id,
             "username": username,
             "role": actual_role,
             "auth_method": "password",
-            "doctor_id": doctor_id
+            "doctor_id": doctor_id,
+            "patient_id": patient_id,
+            "patient_code": patient_code
         }
         token = encode_token(token_payload)
         
@@ -143,6 +174,10 @@ def login(body: LoginRequest):
                 "name": display_name,
                 "department": department_name,
                 "doctorId": doctor_id,
+                "patient_id": patient_id,
+                "patient_code": patient_code,
+                "patientId": patient_id,
+                "patientCode": patient_code,
                 "loginId": username
             }
         }
@@ -302,22 +337,48 @@ def select_account(body: AccountSelectionRequest, request: Request):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT u.id, u.username, r.name,
-                       COALESCE(d.display_name, u.staff_name, u.username),
-                       dept.department_name, d.id, d.specialization
+                       COALESCE(
+                           d.display_name, 
+                           NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''), 
+                           u.staff_name, 
+                           u.username
+                       ),
+                       COALESCE(dept.department_name, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient Portal' ELSE NULL END),
+                       d.id, d.specialization,
+                       u.patient_id, p.patient_code
                 FROM users u JOIN roles r ON r.id=u.role_id
                 LEFT JOIN doctors d ON d.user_id=u.id
                 LEFT JOIN departments dept ON dept.id=COALESCE(d.department_id,u.department_id)
-                WHERE lower(u.username)=lower(%s) AND u.is_active=true
-            """, (body.username.strip(),))
+                LEFT JOIN patients p ON p.id=u.patient_id
+                WHERE (lower(u.username)=lower(%s) OR (p.patient_code IS NOT NULL AND lower(p.patient_code)=lower(%s))) AND u.is_active=true
+                LIMIT 1
+            """, (body.username.strip(), body.username.strip()))
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=403, detail="This account is unavailable or inactive.")
-            uid, username, role, name, department, doctor_id, specialization = row
-            token = encode_token({"user_id":uid,"username":username,"role":role,"doctor_id":doctor_id,"auth_method":"account_selection"})
+            uid, username, role, name, department, doctor_id, specialization, patient_id, patient_code = row
+            token = encode_token({
+                "user_id": uid,
+                "username": username,
+                "role": role.upper(),
+                "doctor_id": doctor_id,
+                "patient_id": patient_id,
+                "patient_code": patient_code,
+                "auth_method": "account_selection"
+            })
             cur.execute("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=%s", (uid,))
             conn.commit()
-    return {"success":True,"token":token,"user":{
-        "username":username,"role":role,"name":name,"department":department,
-        "specialization":specialization,"doctorId":doctor_id,"loginId":username,
-        "canAccessRadiology":role.strip().lower()=="radiologist",
+    return {"success": True, "token": token, "user": {
+        "username": username,
+        "role": role,
+        "name": name,
+        "department": department or ("Patient Portal" if role.lower() == "patient" else None),
+        "specialization": specialization or (patient_code if role.lower() == "patient" else None),
+        "doctorId": doctor_id,
+        "patient_id": patient_id,
+        "patient_code": patient_code,
+        "patientId": patient_id,
+        "patientCode": patient_code,
+        "loginId": username,
+        "canAccessRadiology": role.strip().lower() == "radiologist",
     }}

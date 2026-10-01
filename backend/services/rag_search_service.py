@@ -1,1390 +1,1398 @@
-"""
-rag_search_service.py
-=====================
-Production-grade Hybrid Search & Retrieval Service with Strict Role-Based Access Control.
-
-Pipeline:
-1. Server-side role authorization & area pre-filtering.
-2. Keyword retrieval (PostgreSQL full-text tsvector + ts_rank_cd + ILIKE identifier matching).
-3. Semantic vector similarity retrieval (pgvector or cosine similarity adapter).
-4. Hybrid score normalization & fusion.
-5. Clinical boosting (verified reports, active admissions, final radiologist reports).
-6. Cross-patient boundary protection and source citation generation.
-"""
-
-import sys
-import os
-import re
-import json
+"""Authorization-first retrieval with deterministic operational query planning."""
+import json, os, re, sys
+from typing import Any, Dict, List, Optional, Set, Tuple
 import psycopg2.extras
-from typing import Dict, Any, List, Optional, Tuple
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
+if BASE_DIR not in sys.path: sys.path.insert(0, BASE_DIR)
 import db_config
+from services.rag_access_control import ACCESS_DENIED, AccessContext, DOCUMENT_MODULE, build_access_context
 from services.rag_embedding_service import embedding_service
+from services.rag_query_understanding import query_understanding_service
+
+
+def _normalized(text: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+    corrections = {
+        "urget": "urgent", "urgnt": "urgent",
+        "requsts": "requests", "requset": "request", "reqest": "request", "reqsts": "requests",
+        "pateint": "patient", "patinet": "patient", "patint": "patient",
+        "discharget": "discharged", "dischrge": "discharge",
+        "clarfication": "clarification", "clarifcation": "clarification",
+        "clarificationi": "clarification", "clarificationsi": "clarifications", "clarificaiton": "clarification",
+        "calrification": "clarification", "calrifications": "clarifications",
+        "clarifacation": "clarification", "clarifaction": "clarification",
+        "xrqy": "xray",
+        "routin": "routine", "routne": "routine",
+        "admisssion": "admission", "admisson": "admission",
+    }
+    return " ".join(corrections.get(token, token) for token in value.split())
+
+
+def _has(text: str, phrases) -> bool:
+    padded = f" {text} "
+    return any(f" {phrase} " in padded for phrase in phrases)
 
 
 class RagSearchService:
     def __init__(self):
         self.embedding_service = embedding_service
-        self.default_keyword_weight = 0.45
-        self.default_vector_weight = 0.55
 
-    def get_authorized_patient_ids_for_doctor(self, cur, user_id: int) -> List[int]:
-        """
-        Retrieves all patient IDs assigned to the doctor via admissions,
-        appointments, pre-admissions, or orders. Supports both users.id and doctors.id.
-        """
-        sql = """
-            SELECT DISTINCT patient_id FROM (
-                -- Admissions
-                SELECT a.patient_id FROM admissions a
-                JOIN doctors d ON d.id = a.doctor_id
-                WHERE d.user_id = %s OR d.id = %s
-                UNION
-                -- Appointments
-                SELECT ap.patient_id FROM appointments ap
-                JOIN doctors d ON d.id = ap.doctor_id
-                WHERE d.user_id = %s OR d.id = %s
-                UNION
-                -- Pre-admissions
-                SELECT pa.patient_id FROM pre_admissions pa
-                JOIN doctors d ON d.id = pa.doctor_id
-                WHERE d.user_id = %s OR d.id = %s
-                UNION
-                -- Radiology orders requested by this doctor
-                SELECT ro.patient_id FROM radiology_orders ro
-                WHERE ro.requested_by IN (SELECT id FROM doctors WHERE user_id = %s OR id = %s)
-            ) AS combined WHERE patient_id IS NOT NULL;
-        """
-        cur.execute(sql, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id))
-        rows = cur.fetchall()
-        return [r["patient_id"] if isinstance(r, dict) else r[0] for r in rows]
-
-    def verify_doctor_patient_access(self, cur, user_id: int, patient_id: int) -> bool:
-        """Verifies if the specified patient is assigned to this doctor."""
-        sql = """
-            SELECT 1 WHERE EXISTS (
-                SELECT 1 FROM admissions a
-                JOIN doctors d ON d.id = a.doctor_id
-                WHERE (d.user_id = %s OR d.id = %s) AND a.patient_id = %s
-            ) OR EXISTS (
-                SELECT 1 FROM appointments ap
-                JOIN doctors d ON d.id = ap.doctor_id
-                WHERE (d.user_id = %s OR d.id = %s) AND ap.patient_id = %s
-            ) OR EXISTS (
-                SELECT 1 FROM pre_admissions pa
-                JOIN doctors d ON d.id = pa.doctor_id
-                WHERE (d.user_id = %s OR d.id = %s) AND pa.patient_id = %s
-            ) OR EXISTS (
-                SELECT 1 FROM radiology_orders ro
-                WHERE ro.requested_by IN (SELECT id FROM doctors WHERE user_id = %s OR id = %s) AND ro.patient_id = %s
-            );
-        """
-        cur.execute(sql, (user_id, user_id, patient_id, user_id, user_id, patient_id, user_id, user_id, patient_id, user_id, user_id, patient_id))
-        return cur.fetchone() is not None
-
-    def _ensure_patient_indexed(self, patient_id: int):
-        """Ensures that the patient's clinical records are indexed in rag_documents on demand."""
-        try:
-            conn = db_config.get_db_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM rag_documents WHERE patient_id = %s LIMIT 1;", (patient_id,))
-                if cur.fetchone() is None:
-                    from services.rag_ingestion_service import ingestion_service
-                    ingestion_service.reindex_patient(patient_id)
-        except Exception as e:
-            print(f"[RAG JIT] Warning: auto-indexing patient {patient_id} failed: {e}")
-
-    def _ensure_admission_indexed(self, admission_id: int):
-        """Ensures that the admission records are indexed in rag_documents on demand."""
-        try:
-            conn = db_config.get_db_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM rag_documents WHERE admission_id = %s LIMIT 1;", (admission_id,))
-                if cur.fetchone() is None:
-                    from services.rag_ingestion_service import ingestion_service
-                    ingestion_service.reindex_admission(admission_id)
-        except Exception as e:
-            print(f"[RAG JIT] Warning: auto-indexing admission {admission_id} failed: {e}")
-
-    def _ensure_order_indexed(self, order_id: str):
-        """Ensures that the radiology order is indexed in rag_documents on demand."""
-        try:
-            conn = db_config.get_db_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM rag_documents WHERE order_id = %s::uuid LIMIT 1;", (order_id,))
-                if cur.fetchone() is None:
-                    from services.rag_ingestion_service import ingestion_service
-                    ingestion_service.reindex_radiology_order(order_id)
-        except Exception as e:
-            print(f"[RAG JIT] Warning: auto-indexing order {order_id} failed: {e}")
-
-    def search(
-        self,
-        query: str,
-        area: str,
-        user: Dict[str, Any],
-        expanded_phrases: Optional[List[str]] = None,
-        patient_id: Optional[int] = None,
-        admission_id: Optional[int] = None,
-        order_id: Optional[str] = None,
-        accession_number: Optional[str] = None,
-        status_filter: Optional[str] = None,
-        limit: int = 10
-    ) -> Tuple[List[Dict[str, Any]], str]:
-        """
-        Executes production-grade Hybrid Search with role-based isolation.
-        Returns (ranked_sources, retrieval_strategy_used).
-        """
-        role = str(user.get("role", "")).strip().lower()
-        user_id = user.get("user_id") or 1
-
-        # Enforce role authorization
-        if role not in ("doctor", "radiologist", "admin", "hospital management"):
-            raise PermissionError(f"Role '{role}' is not authorized to query clinical RAG.")
-
-        # Ensure targeted entities are indexed on-demand (JIT auto-indexing)
-        if patient_id is not None:
-            self._ensure_patient_indexed(patient_id)
-        elif admission_id is not None:
-            self._ensure_admission_indexed(admission_id)
-        elif order_id is not None:
-            self._ensure_order_indexed(order_id)
-
+    def build_access_context(self, user: Dict[str, Any]) -> AccessContext:
         conn = db_config.get_db_connection()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # ── 1. Role Scoping Constraints ───────────────────────────────
-                where_clauses = ["is_active = TRUE"]
-                params: List[Any] = []
+                return build_access_context(user, cur)
+        finally: conn.close()
 
-                if role == "doctor":
-                    # Doctor scope: only assigned patients
-                    if patient_id is not None:
-                        # Verify specific patient
-                        if not self.verify_doctor_patient_access(cur, user_id, patient_id):
-                            # Doctor tried to query another doctor's patient!
-                            raise PermissionError("You don't have access to this information.")
-                        where_clauses.append("patient_id = %s")
-                        params.append(patient_id)
-                    else:
-                        # Restrict to all assigned patient IDs
-                        assigned_ids = self.get_authorized_patient_ids_for_doctor(cur, user_id)
-                        if not assigned_ids:
-                            return [], "empty_doctor_assigned_scope"
-                        where_clauses.append("patient_id = ANY(%s)")
-                        params.append(assigned_ids)
-
-                elif role == "radiologist":
-                    # Radiologist scope: ONLY radiology modules — no clinical/billing/admission data
-                    allowed_doc_types = [
-                        'xray_order', 'radiology_ai_result', 'radiologist_final_report', 'radiology_clarification'
-                    ]
-                    where_clauses.append("document_type = ANY(%s)")
-                    params.append(allowed_doc_types)
-
-                    if order_id:
-                        where_clauses.append("order_id = %s")
-                        params.append(str(order_id))
-                    elif accession_number:
-                        where_clauses.append("accession_number = %s")
-                        params.append(accession_number)
-                    elif patient_id:
-                        where_clauses.append("patient_id = %s")
-                        params.append(patient_id)
-
-                # ── 2. Area Scoping Constraints ───────────────────────────────
-                if area == "patient360":
-                    if patient_id:
-                        where_clauses.append("patient_id = %s")
-                        params.append(patient_id)
-                    if admission_id:
-                        # Soft-scope admission or prioritize it in boosting
-                        pass
-
-                elif area == "doctor_workspace":
-                    # Focus on assigned patients, active tasks, admissions, orders
-                    pass
-
-                elif area == "radiology":
-                    # Restrict to imaging and clarification documents only — no admission summaries
-                    where_clauses.append("document_type IN ('xray_order', 'radiology_ai_result', 'radiologist_final_report', 'radiology_clarification')")
-                    if order_id:
-                        where_clauses.append("order_id = %s")
-                        params.append(str(order_id))
-                    if accession_number:
-                        where_clauses.append("accession_number = %s")
-                        params.append(accession_number)
-                    if patient_id:
-                        where_clauses.append("patient_id = %s")
-                        params.append(patient_id)
-
-                elif area == "discharge":
-                    allowed_discharge_types = [
-                        'patient_admission_summary', 'diagnosis_summary', 'vital_trend_summary',
-                        'medication_summary', 'lab_result_summary', 'procedure_summary',
-                        'billing_clearance_summary', 'radiologist_final_report',
-                        'discharge_readiness_summary', 'verified_discharge_summary'
-                    ]
-                    where_clauses.append("document_type = ANY(%s)")
-                    params.append(allowed_discharge_types)
-                    if admission_id:
-                        where_clauses.append("(admission_id = %s OR admission_id IS NULL)")
-                        params.append(admission_id)
-                    if patient_id:
-                        where_clauses.append("patient_id = %s")
-                        params.append(patient_id)
-
-                # Explicit metadata filters if provided
-                if status_filter:
-                    if status_filter.lower() in ("verified", "confirmed"):
-                        where_clauses.append("(is_verified = TRUE OR review_status ILIKE %s OR review_status ILIKE %s)")
-                        params.extend(["%Confirmed%", "%Verified%"])
-                    else:
-                        where_clauses.append("review_status ILIKE %s")
-                        params.append(f"%{status_filter}%")
-
-                where_sql = " AND ".join(where_clauses)
-
-                # ── 3. Candidate Retrieval (Keyword Search) ───────────────────
-                # Build tsquery
-                phrases_to_match = [query] + (expanded_phrases or [])
-                tsquery_terms = []
-                for p in phrases_to_match:
-                    clean = " ".join([re.sub(r'[^a-zA-Z0-9]', '', w) for w in p.split() if len(w) > 2])
-                    if clean:
-                        tsquery_terms.append(clean)
-                combined_fts_phrase = " | ".join(tsquery_terms) if tsquery_terms else query
-
-                # Fetch candidate records with full-text rank
-                candidate_sql = f"""
-                    SELECT 
-                        id, document_type, source_table, source_record_id,
-                        patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                        title, content, metadata, review_status, is_verified, is_active,
-                        embedding,
-                        ts_rank_cd(
-                            COALESCE(search_vector, tsv),
-                            plainto_tsquery('english', %s)
-                        ) as kw_score
-                    FROM rag_documents
-                    WHERE {where_sql}
-                    ORDER BY kw_score DESC, is_verified DESC, id DESC
-                    LIMIT 50;
-                """
-                query_params = [query] + params
-                cur.execute(candidate_sql, query_params)
-                candidates = cur.fetchall()
-
-                # If pure FTS returned few results, do an ILIKE fallback for terms/identifiers
-                if len(candidates) < 5:
-                    fallback_sql = f"""
-                        SELECT 
-                            id, document_type, source_table, source_record_id,
-                            patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                            title, content, metadata, review_status, is_verified, is_active,
-                            embedding,
-                            0.35 as kw_score
-                        FROM rag_documents
-                        WHERE {where_sql}
-                        ORDER BY is_verified DESC, id DESC
-                        LIMIT 30;
-                    """
-                    cur.execute(fallback_sql, params)
-                    existing_ids = {c["id"] for c in candidates}
-                    for fb_row in cur.fetchall():
-                        if fb_row["id"] not in existing_ids:
-                            candidates.append(fb_row)
-
-                # ── SPECIALIZED OPERATIONAL WORKLIST & COUNT INTENT INJECTION ───
-                # Detect if any doctor is referenced in the query
-                target_doc = None
-                cur.execute("SELECT id, user_id, display_name FROM doctors;")
-                for doc_cand in cur.fetchall():
-                    d_name = doc_cand["display_name"].lower()
-                    parts = [p for p in d_name.replace("dr.", "").split() if len(p) > 2]
-                    if d_name in query.lower() or (len(parts) >= 2 and all(p in query.lower() for p in parts)):
-                        target_doc = doc_cand
-                        break
-                    elif len(parts) >= 1 and any(f"dr. {p}" in query.lower() or f"dr {p}" in query.lower() for p in parts):
-                        target_doc = doc_cand
-                        break
-
-                is_rad_domain = (role in ("radiologist", "admin", "hospital management") or area == "radiology")
-                is_orders_q = any(
-                    k in query.lower() for k in [
-                        "request", "requests", "order", "orders", "xray", "x-ray", "scan", "scans",
-                        "requisition", "worklist", "imaging"
-                    ]
+    def understand_query(self, query: str, context: AccessContext, conversation_patient_id=None,
+                         explicit_patient_id=None, conversation_collection=None):
+        conn = db_config.get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                return query_understanding_service.understand(
+                    query, context, cur, conversation_patient_id=conversation_patient_id,
+                    explicit_patient_id=explicit_patient_id,
+                    conversation_collection=conversation_collection,
                 )
-                is_count_intent = any(
-                    k in query.lower() for k in [
-                        "how many", "how may", "total", "count", "number of", "received", "pending", "all",
-                        "breakdown", "list", "show", "what are", "which"
-                    ]
-                )
-
-                # 1. Radiologist: Live X-ray Orders & Requests (Doctor-Specific or Global)
-                if is_rad_domain and ((target_doc is not None and (is_orders_q or is_count_intent or "from" in query.lower())) or (is_orders_q and is_count_intent)):
-                    if target_doc is not None:
-                        # Doctor-specific radiology orders query (e.g. "how may request received from Dr. Priya Patel")
-                        d_name = target_doc["display_name"]
-                        d_ids = [target_doc["id"], target_doc["user_id"]]
-                        cur.execute("""
-                            SELECT 
-                                COUNT(*) as total_orders,
-                                COUNT(*) FILTER (WHERE priority ILIKE '%%urgent%%') as urgent_count,
-                                COUNT(*) FILTER (WHERE priority ILIKE '%%routine%%') as routine_count,
-                                COUNT(*) FILTER (WHERE status ILIKE '%%requested%%') as requested_count,
-                                COUNT(*) FILTER (WHERE status ILIKE '%%uploaded%%') as uploaded_count
-                            FROM radiology_orders
-                            WHERE requested_by = ANY(%s);
-                        """, (d_ids,))
-                        rad_stats = cur.fetchone() or {}
-
-                        cur.execute("""
-                            SELECT o.order_id, o.accession_number, o.examination, o.priority, o.status,
-                                   p.first_name, p.last_name, p.patient_code, o.created_at
-                            FROM radiology_orders o
-                            JOIN patients p ON p.id = o.patient_id
-                            WHERE o.requested_by = ANY(%s)
-                            ORDER BY o.created_at DESC
-                            LIMIT 20;
-                        """, (d_ids,))
-                        active_orders = cur.fetchall()
-
-                        tot = rad_stats.get('total_orders', 0)
-                        urg = rad_stats.get('urgent_count', 0)
-                        rou = rad_stats.get('routine_count', 0)
-                        req = rad_stats.get('requested_count', 0)
-                        upl = rad_stats.get('uploaded_count', 0)
-
-                        order_lines = []
-                        for o in active_orders:
-                            p_name = f"{o.get('first_name','')} {o.get('last_name','')}".strip()
-                            order_lines.append(
-                                f"• {p_name} ({o.get('patient_code')}) | Acc #{o.get('accession_number')} | {o.get('examination')} | Priority: {o.get('priority')} | Status: {o.get('status')}"
-                            )
-
-                        rad_summary_content = (
-                            f"Department Radiology Worklist Live Summary - Requests Received from {d_name}:\n"
-                            f"• Total X-ray requests received from {d_name}: {tot} requests\n"
-                            f"• Priority breakdown: {rou} Routine, {urg} Urgent\n"
-                            f"• Status breakdown: {req} Requested (awaiting acquisition), {upl} Uploaded (in review / verified)\n\n"
-                            f"Requests Received from {d_name}:\n" + ("\n".join(order_lines) if order_lines else "None")
-                        )
-
-                        candidates.insert(0, {
-                            "id": 9999903,
-                            "document_type": "xray_order",
-                            "source_table": "radiology_orders",
-                            "source_record_id": "live_doctor_radiology_stats",
-                            "patient_id": None,
-                            "admission_id": None,
-                            "doctor_id": target_doc["id"],
-                            "order_id": None,
-                            "accession_number": None,
-                            "study_instance_uid": None,
-                            "title": f"Live Radiology Worklist Summary - {tot} Requests Received from {d_name} ({rou} Routine, {urg} Urgent)",
-                            "content": rad_summary_content,
-                            "metadata": {"total_orders": tot, "urgent": urg, "routine": rou, "doctor": d_name},
-                            "review_status": "Verified",
-                            "is_verified": True,
-                            "is_active": True,
-                            "embedding": None,
-                            "kw_score": 1.0
-                        })
-
-                        # Also inject specific xray_order documents for this doctor
-                        cur.execute("""
-                            SELECT id, document_type, source_table, source_record_id,
-                                   patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                                   title, content, metadata, review_status, is_verified, is_active,
-                                   embedding, 1.0 as kw_score
-                            FROM rag_documents
-                            WHERE (doctor_id = ANY(%s) OR metadata->>'ordering_physician' ILIKE %s)
-                              AND document_type = 'xray_order'
-                            ORDER BY id DESC
-                            LIMIT 10;
-                        """, (d_ids, f"%{d_name}%"))
-                        doc_xrays = cur.fetchall()
-                        existing_cand_ids = {c["id"] for c in candidates}
-                        for dx in doc_xrays:
-                            if dx["id"] not in existing_cand_ids:
-                                candidates.append(dx)
-                                existing_cand_ids.add(dx["id"])
-
-                    else:
-                        # Global radiology worklist query
-                        cur.execute("""
-                            SELECT 
-                                COUNT(*) as total_orders,
-                                COUNT(*) FILTER (WHERE priority ILIKE '%%urgent%%') as urgent_count,
-                                COUNT(*) FILTER (WHERE priority ILIKE '%%routine%%') as routine_count,
-                                COUNT(*) FILTER (WHERE status ILIKE '%%requested%%') as requested_count,
-                                COUNT(*) FILTER (WHERE status ILIKE '%%uploaded%%') as uploaded_count
-                            FROM radiology_orders;
-                        """)
-                        rad_stats = cur.fetchone() or {}
-                        cur.execute("""
-                            SELECT o.order_id, o.accession_number, o.examination, o.priority, o.status,
-                                   p.first_name, p.last_name, p.patient_code
-                            FROM radiology_orders o
-                            JOIN patients p ON p.id = o.patient_id
-                            ORDER BY o.created_at DESC
-                            LIMIT 15;
-                        """)
-                        active_orders = cur.fetchall()
-                        order_lines = []
-                        for o in active_orders:
-                            p_name = f"{o.get('first_name','')} {o.get('last_name','')}".strip()
-                            order_lines.append(
-                                f"• {p_name} ({o.get('patient_code')}) | Acc #{o.get('accession_number')} | {o.get('examination')} | Priority: {o.get('priority')} | Status: {o.get('status')}"
-                            )
-                        tot = rad_stats.get('total_orders', len(active_orders))
-                        urg = rad_stats.get('urgent_count', 0)
-                        rou = rad_stats.get('routine_count', 0)
-                        req = rad_stats.get('requested_count', 0)
-                        upl = rad_stats.get('uploaded_count', 0)
-
-                        rad_summary_content = (
-                            f"Department Radiology Worklist Live Summary:\n"
-                            f"• Total X-ray requests received: {tot} requests\n"
-                            f"• Priority breakdown: {rou} Routine, {urg} Urgent\n"
-                            f"• Status breakdown: {req} Requested (awaiting acquisition), {upl} Uploaded (in review / verified)\n\n"
-                            f"Worklist Imaging Requests:\n" + "\n".join(order_lines)
-                        )
-
-                        candidates.insert(0, {
-                            "id": 9999901,
-                            "document_type": "xray_order",
-                            "source_table": "radiology_orders",
-                            "source_record_id": "live_radiology_stats",
-                            "patient_id": None,
-                            "admission_id": None,
-                            "doctor_id": None,
-                            "order_id": None,
-                            "accession_number": None,
-                            "study_instance_uid": None,
-                            "title": f"Live Radiology Worklist Summary - Total X-ray Requests Received ({tot} Orders: {rou} Routine, {urg} Urgent)",
-                            "content": rad_summary_content,
-                            "metadata": {"total_orders": tot, "urgent": urg, "routine": rou},
-                            "review_status": "Verified",
-                            "is_verified": True,
-                            "is_active": True,
-                            "embedding": None,
-                            "kw_score": 1.0
-                        })
-
-                # 2. Doctor: Active Inpatient Roster, Flow, Conditions, Billing, and X-rays
-                is_doc_domain = (role in ("doctor", "admin", "hospital management") or area in ("doctor_workspace", "clinical"))
-                
-                # Resolve doctor metadata & assigned patient IDs
-                cur.execute("SELECT id, user_id, display_name FROM doctors WHERE user_id = %s OR id = %s LIMIT 1", (user_id, user_id))
-                doc_row = cur.fetchone()
-                doc_name = doc_row["display_name"] if doc_row else user.get("name", "Doctor")
-                doc_id = doc_row["id"] if doc_row else user_id
-                first_keyword = doc_name.split()[1] if len(doc_name.split()) > 1 else doc_name
-                clean_name = doc_name.replace("Dr. ", "").replace("Dr.", "").strip()
-                assigned_ids = self.get_authorized_patient_ids_for_doctor(cur, user_id)
-
-                # Check if query references a specific patient by name or UHID code
-                target_assigned_pt = None
-                if is_doc_domain and assigned_ids:
-                    # 1. Check for explicit patient code/UHID in query
-                    pat_code_match = re.search(r'(?:MER-)?PAT-\d+', query, re.I)
-                    if pat_code_match:
-                        code_str = pat_code_match.group(0)
-                        cur.execute("SELECT id, first_name, last_name, patient_code FROM patients WHERE patient_code ILIKE %s LIMIT 1;", (f"%{code_str}%",))
-                        code_pt = cur.fetchone()
-                        if code_pt:
-                            if code_pt["id"] not in assigned_ids:
-                                raise PermissionError("You don't have access to this information.")
-                            cur.execute("""
-                                SELECT p.id, p.first_name, p.last_name, p.patient_code,
-                                       d.bed_number, d.ward_name, d.admission_number, d.admission_date, d.discharge_status, d.primary_diagnosis
-                                FROM patients p
-                                LEFT JOIN dim_admission_inputs d ON d.patient_id = p.id AND (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s))
-                                WHERE p.id = %s
-                                LIMIT 1;
-                            """, (f"%{clean_name}%", doc_id, code_pt["id"]))
-                            target_assigned_pt = cur.fetchone()
-
-                    # 2. Check if a full patient name (First + Last) is in the query
-                    if not target_assigned_pt:
-                        cur.execute("""
-                            SELECT id, first_name, last_name, patient_code
-                            FROM patients
-                            WHERE length(first_name) > 2 AND length(last_name) > 2
-                              AND %s ILIKE CONCAT('%%', first_name, ' ', last_name, '%%')
-                            ORDER BY length(CONCAT(first_name, ' ', last_name)) DESC
-                            LIMIT 1;
-                        """, (query,))
-                        full_name_pt = cur.fetchone()
-                        if full_name_pt:
-                            if full_name_pt["id"] not in assigned_ids:
-                                raise PermissionError("You don't have access to this information.")
-                            cur.execute("""
-                                SELECT p.id, p.first_name, p.last_name, p.patient_code,
-                                       d.bed_number, d.ward_name, d.admission_number, d.admission_date, d.discharge_status, d.primary_diagnosis
-                                FROM patients p
-                                LEFT JOIN dim_admission_inputs d ON d.patient_id = p.id AND (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s))
-                                WHERE p.id = %s
-                                LIMIT 1;
-                            """, (f"%{clean_name}%", doc_id, full_name_pt["id"]))
-                            target_assigned_pt = cur.fetchone()
-
-                    # 3. Check for single first-name match within doctor's assigned patients
-                    if not target_assigned_pt:
-                        cur.execute("""
-                            SELECT p.id, p.first_name, p.last_name, p.patient_code,
-                                   d.bed_number, d.ward_name, d.admission_number, d.admission_date, d.discharge_status, d.primary_diagnosis
-                            FROM patients p
-                            LEFT JOIN dim_admission_inputs d ON d.patient_id = p.id AND (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s))
-                            WHERE p.id = ANY(%s)
-                              AND (
-                                  (length(p.first_name) > 2 AND %s ILIKE CONCAT('%%', p.first_name, '%%'))
-                              )
-                            ORDER BY 
-                                CASE WHEN d.discharge_status != 'Discharged' THEN 1 ELSE 2 END,
-                                d.admission_date DESC NULLS LAST
-                            LIMIT 1;
-                        """, (f"%{clean_name}%", doc_id, assigned_ids, query))
-                        target_assigned_pt = cur.fetchone()
-
-                    # 4. If no specific patient was named, but the user specifically asked for generic patient vitals/telemetry
-                    if target_assigned_pt is None and any(w in query.lower() for w in ["one patient vitel", "one patient vital", "patient vitel", "patient vital", "one patient", "patient telemetry"]):
-                        cur.execute("""
-                            SELECT p.id, p.first_name, p.last_name, p.patient_code,
-                                   d.bed_number, d.ward_name, d.admission_number, d.admission_date, d.discharge_status, d.primary_diagnosis
-                            FROM dim_admission_inputs d
-                            JOIN patients p ON p.id = d.patient_id
-                            WHERE (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s)) AND d.discharge_status != 'Discharged'
-                            ORDER BY d.admission_date DESC LIMIT 1;
-                        """, (f"%{clean_name}%", doc_id))
-                        target_assigned_pt = cur.fetchone()
-
-                    # If a target patient was identified, ensure all their records are indexed JIT and retrieve them
-                    if target_assigned_pt:
-                        t_pid = target_assigned_pt["id"]
-                        self._ensure_patient_indexed(t_pid)
-                        cur.execute("""
-                            SELECT id, document_type, source_table, source_record_id,
-                                   patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                                   title, content, metadata, review_status, is_verified, is_active,
-                                   embedding, 1.0 as kw_score
-                            FROM rag_documents
-                            WHERE is_active = TRUE AND patient_id = %s
-                            ORDER BY id DESC LIMIT 20;
-                        """, (t_pid,))
-                        existing_cand_ids = {c["id"] for c in candidates}
-                        for pt_doc in cur.fetchall():
-                            if pt_doc["id"] not in existing_cand_ids:
-                                candidates.append(pt_doc)
-                                existing_cand_ids.add(pt_doc["id"])
-
-                # A. Doctor Flow: Inpatient (IP), Outpatient (OP), Discharged counts
-                is_doc_flow_q = is_doc_domain and any(
-                    k in query.lower() for k in [
-                        "how many ip", "how many op", "discharged", "discharget", "ip, op", "ip op", "ip ,op", "ip,op",
-                        "patient flow", "inpatient outpatient", "how many admitted and discharged", "op count", "ip count", "flow",
-                        "inpatient", "outpatient", "how many patients", "patients under my care", "total patients", "my patients count"
-                    ]
-                )
-                if is_doc_flow_q:
-                    cur.execute("""
-                        SELECT COUNT(*) as count 
-                        FROM dim_admission_inputs 
-                        WHERE (attending_doctor ILIKE %s OR admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s)) 
-                          AND discharge_status != 'Discharged';
-                    """, (f"%{clean_name}%", doc_id))
-                    ip_cnt = cur.fetchone()["count"]
-
-                    cur.execute("""
-                        SELECT COUNT(*) as count 
-                        FROM dim_admission_inputs 
-                        WHERE (attending_doctor ILIKE %s OR admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s)) 
-                          AND discharge_status = 'Discharged';
-                    """, (f"%{clean_name}%", doc_id))
-                    dc_cnt = cur.fetchone()["count"]
-
-                    cur.execute("""
-                        SELECT COUNT(DISTINCT apt.patient_id) as count 
-                        FROM appointments apt 
-                        JOIN patients p ON p.id = apt.patient_id 
-                        WHERE (apt.doctor_id = %s OR apt.doctor_id = %s) 
-                          AND (apt.booking_source = 'OPD_DESK' OR apt.booking_id LIKE 'APT-2026-%%');
-                    """, (doc_id, user_id))
-                    op_cnt = cur.fetchone()["count"]
-
-                    cur.execute("SELECT COUNT(*) as count FROM emergency_triage WHERE doctor_name ILIKE %s;", (f"%{clean_name}%",))
-                    er_cnt = cur.fetchone()["count"]
-
-                    cur.execute("""
-                        SELECT patient_id, first_name, last_name, patient_number, bed_number, ward_name, primary_diagnosis, discharge_status
-                        FROM dim_admission_inputs
-                        WHERE (attending_doctor ILIKE %s OR admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s)) 
-                          AND discharge_status != 'Discharged'
-                        ORDER BY admission_date DESC;
-                    """, (f"%{clean_name}%", doc_id))
-                    active_adms = cur.fetchall()
-                    ip_lines = [
-                        f"• {p['first_name']} {p['last_name']} (UHID: {p['patient_number']}) | Bed: {p['bed_number']} ({p['ward_name']}) | Status: {'Fit for discharge' if str(p.get('discharge_status','')).lower() == 'ready' else (p.get('discharge_status') or 'Admitted')} | Diagnosis: {p['primary_diagnosis']}"
-                        for p in active_adms
-                    ]
-
-                    cur.execute("""
-                        SELECT DISTINCT ON (apt.patient_id) 
-                            p.id AS patient_id, p.first_name, p.last_name, p.patient_code, apt.status,
-                            COALESCE(apt.reason_for_visit, 'Outpatient Consultation') AS diagnosis,
-                            COALESCE(dep.department_name, 'Cardiology') AS department
-                        FROM appointments apt
-                        JOIN patients p ON p.id = apt.patient_id
-                        LEFT JOIN departments dep ON dep.id = apt.department_id
-                        WHERE (apt.doctor_id = %s OR apt.doctor_id = %s)
-                          AND (apt.booking_source = 'OPD_DESK' OR apt.booking_id LIKE 'APT-2026-%%')
-                        ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC;
-                    """, (doc_id, user_id))
-                    op_adms = cur.fetchall()
-                    op_lines = [
-                        f"• {p['first_name']} {p['last_name']} (UHID: {p['patient_code']}) | Clinic: {p['department']} | Status: {p['status']} | Diagnosis/Reason: {p['diagnosis']}"
-                        for p in op_adms
-                    ]
-
-                    cur.execute("""
-                        SELECT d.patient_id, d.first_name, d.last_name, d.patient_number, d.primary_diagnosis, a.discharge_date
-                        FROM dim_admission_inputs d
-                        LEFT JOIN admissions a ON a.admission_id = d.admission_id
-                        WHERE (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s)) 
-                          AND d.discharge_status = 'Discharged'
-                        ORDER BY a.discharge_date DESC NULLS LAST;
-                    """, (f"%{clean_name}%", doc_id))
-                    dc_adms = cur.fetchall()
-                    dc_lines = [f"• {p['first_name']} {p['last_name']} (UHID: {p['patient_number']}) | Discharged: {p['discharge_date'] or 'Completed'} | Diagnosis: {p['primary_diagnosis']}" for p in dc_adms]
-
-                    flow_summary_content = (
-                        f"Clinical Patient Flow & Volume Summary for {doc_name}:\n"
-                        f"• Total Assigned Patients: {ip_cnt + op_cnt + dc_cnt + er_cnt} patients under your care\n"
-                        f"• Active Inpatients (IP): {ip_cnt} patients currently admitted\n"
-                        f"• Outpatient Consultations (OP): {op_cnt} active OPD patients\n"
-                        f"• Discharged Patients: {dc_cnt} patients discharged\n"
-                        f"• Emergency (ER): {er_cnt} patients\n\n"
-                        f"Active Inpatient (IP) Details ({ip_cnt} patients):\n" + ("\n".join(ip_lines) if ip_lines else "None") + "\n\n"
-                        f"Outpatient (OP) Details ({op_cnt} patients):\n" + ("\n".join(op_lines) if op_lines else "None") + "\n\n"
-                        f"Discharged Patient Details ({dc_cnt} patients):\n" + ("\n".join(dc_lines) if dc_lines else "None")
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999911,
-                        "document_type": "patient_admission_summary",
-                        "source_table": "dim_admission_inputs",
-                        "source_record_id": "live_doc_flow_stats",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": user_id,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Doctor Patient Flow Summary - {doc_name} (Total: {ip_cnt + op_cnt + dc_cnt + er_cnt}, IP: {ip_cnt}, OP: {op_cnt}, Discharged: {dc_cnt})",
-                        "content": flow_summary_content,
-                        "metadata": {"total_count": ip_cnt + op_cnt + dc_cnt + er_cnt, "ip_count": ip_cnt, "op_count": op_cnt, "discharged_count": dc_cnt, "er_count": er_cnt, "doctor": doc_name},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                # B. Doctor Clinical Inpatient Conditions & Ward Overview
-                is_doc_conditions_q = is_doc_domain and any(
-                    k in query.lower() for k in [
-                        "all patient condition", "all patient conditions", "all patients condition", "all patients conditions",
-                        "condition of my patient", "condition of all", "overview of all", "status of all my patient",
-                        "clinical condition", "clinical conditions", "patient condition", "patient conditions",
-                        "patient status", "active conditions", "all patient", "conditions"
-                    ]
-                )
-                is_doc_count_q = is_doc_domain and not is_doc_flow_q and any(
-                    k in query.lower() for k in [
-                        "patient count", "patients count", "how many patients",
-                        "current patients count", "my current patients", "how many admitted",
-                        "roster count", "patients under my care", "my active patients",
-                        "my patients count", "list my patients"
-                    ]
-                )
-                if is_doc_conditions_q or is_doc_count_q:
-                    cur.execute("""
-                        SELECT d.patient_id, d.admission_id, d.attending_doctor, d.first_name, d.last_name, d.patient_number, d.admission_number, d.ward_name, d.bed_number, d.primary_diagnosis, d.discharge_status
-                        FROM dim_admission_inputs d
-                        WHERE (d.attending_doctor ILIKE %s OR d.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id = %s))
-                          AND d.discharge_status != 'Discharged'
-                        ORDER BY d.admission_date DESC;
-                    """, (f"%{clean_name}%", doc_id))
-                    roster_pts = cur.fetchall()
-
-                    roster_lines = []
-                    for rp in roster_pts:
-                        p_name = f"{rp.get('first_name','')} {rp.get('last_name','')}".strip()
-                        cur.execute("SELECT temperature, heart_rate, systolic_bp, diastolic_bp, respiratory_rate, oxygen_saturation FROM vital_signs WHERE patient_id = %s ORDER BY recorded_at DESC LIMIT 1;", (rp["patient_id"],))
-                        v = cur.fetchone()
-                        v_str = f"Temp: {v['temperature']}°F, HR: {v['heart_rate']} bpm, BP: {v['systolic_bp']}/{v['diastolic_bp']}, SpO2: {v['oxygen_saturation']}%" if v else "Telemetry monitoring stable"
-                        roster_lines.append(
-                            f"• {p_name} (UHID: {rp.get('patient_number')}) | Bed: {rp.get('bed_number')} ({rp.get('ward_name')}) | Status: {rp.get('discharge_status')} | Diagnosis: {rp.get('primary_diagnosis')} | Vitals: [{v_str}] | Admission #{rp.get('admission_number')}"
-                        )
-
-                    roster_count = len(roster_pts)
-                    roster_summary_content = (
-                        f"Clinical Workspace Inpatient Conditions & Roster for {doc_name}:\n"
-                        f"• Current Active Inpatients Count: {roster_count} patients\n\n"
-                        f"Active Inpatient Roster & Clinical Conditions:\n" + "\n".join(roster_lines)
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999902,
-                        "document_type": "patient_admission_summary",
-                        "source_table": "dim_admission_inputs",
-                        "source_record_id": "live_doctor_roster",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": user_id,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Clinical Inpatient Roster & Conditions Summary - {doc_name} ({roster_count} Active Inpatients)",
-                        "content": roster_summary_content,
-                        "metadata": {"inpatient_count": roster_count, "doctor": doc_name},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                # C. Doctor Billing Status & Financial Clearance
-                is_doc_billing_q = is_doc_domain and any(
-                    k in query.lower() for k in [
-                        "bill status", "billing status", "bill ststus", "billing ststus", "bill", "billing", "financial clearance", "clearance status",
-                        "blocked from discharge", "pending bill", "pending bills", "pending payment", "unsettled bill", "who is blocked", "financial"
-                    ]
-                )
-                if is_doc_billing_q:
-                    cur.execute("""
-                        SELECT b.bill_number, b.net_amount, b.bill_status, p.first_name, p.last_name, p.patient_code,
-                               CASE WHEN b.bill_status ILIKE '%%settled%%' THEN 'Financially Cleared' ELSE 'Clearance Blocked – Pending Payment' END as clearance_status
-                        FROM bills b
-                        JOIN patients p ON p.id = b.patient_id
-                        WHERE b.patient_id = ANY(%s)
-                        ORDER BY b.bill_id DESC
-                        LIMIT 15;
-                    """, (assigned_ids or [-1],))
-                    bills = cur.fetchall()
-
-                    blocked_cnt = sum(1 for b in bills if "Blocked" in b["clearance_status"])
-                    cleared_cnt = sum(1 for b in bills if "Cleared" in b["clearance_status"])
-
-                    bill_lines = []
-                    for b in bills:
-                        p_name = f"{b.get('first_name','')} {b.get('last_name','')}".strip()
-                        bill_lines.append(
-                            f"• {p_name} ({b.get('patient_code')}) | Bill #{b.get('bill_number')} | ₹{float(b.get('net_amount', 0)):,.2f} | Status: {b.get('bill_status')} | Clearance: {b.get('clearance_status')}"
-                        )
-
-                    bill_summary_content = (
-                        f"Department Patient Billing & Financial Clearance Summary for {doc_name}:\n"
-                        f"• Total patient bills reviewed: {len(bills)} bills\n"
-                        f"• Financial clearance breakdown: {cleared_cnt} Financially Cleared, {blocked_cnt} Clearance Blocked (Pending Payment)\n\n"
-                        f"Patient Bills & Financial Clearance:\n" + ("\n".join(bill_lines) if bill_lines else "No billing records found.")
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999913,
-                        "document_type": "billing_clearance_summary",
-                        "source_table": "bills",
-                        "source_record_id": "live_doc_billing_stats",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": user_id,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Doctor Patient Billing & Financial Clearance Summary - {doc_name} ({blocked_cnt} Blocked, {cleared_cnt} Cleared)",
-                        "content": bill_summary_content,
-                        "metadata": {"blocked_count": blocked_cnt, "cleared_count": cleared_cnt, "doctor": doc_name},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                # D. Doctor X-ray Orders & High Priority Imaging
-                is_doc_xray_q = is_doc_domain and any(
-                    k in query.lower() for k in [
-                        "xray", "x-ray", "xrqy", "radiology", "imaging", "scan", "scans", "high priority", "high risk",
-                        "whos xray", "who's xray", "whos xrqy", "who's xrqy", "imaging status", "radiology status",
-                        "pending xray", "whos xrqy if high priority", "xray status", "x-ray status"
-                    ]
-                )
-                if is_doc_xray_q:
-                    cur.execute("""
-                        SELECT ro.order_id, ro.accession_number, ro.examination, ro.priority, ro.status,
-                               p.first_name, p.last_name, p.patient_code,
-                               rs.priority as ai_priority, rs.probability, rs.findings, rs.review_status as ai_review_status
-                        FROM radiology_orders ro
-                        JOIN patients p ON p.id = ro.patient_id
-                        LEFT JOIN radiology_scan rs ON rs.order_id = ro.order_id
-                        WHERE (ro.requested_by IN (SELECT id FROM doctors WHERE user_id = %s OR id = %s)
-                           OR ro.patient_id = ANY(%s))
-                        ORDER BY rs.probability DESC NULLS LAST, ro.created_at DESC
-                        LIMIT 20;
-                    """, (user_id, user_id, assigned_ids or [-1]))
-                    xrays = cur.fetchall()
-
-                    high_prio_cnt = sum(1 for x in xrays if (x.get("ai_priority") or "").upper().startswith("HIGH") or (x.get("priority") or "").upper().startswith("URGENT"))
-                    routine_cnt = len(xrays) - high_prio_cnt
-
-                    xray_lines = []
-                    for x in xrays:
-                        p_name = f"{x.get('first_name','')} {x.get('last_name','')}".strip()
-                        prob_str = f" (Risk: {float(x['probability'])*100:.1f}%)" if x.get("probability") is not None else ""
-                        xray_lines.append(
-                            f"• {p_name} ({x.get('patient_code')}) | Acc #{x.get('accession_number')} | Priority: {x.get('ai_priority') or x.get('priority')}{prob_str} | AI Finding: {x.get('findings') or 'No acute abnormality'} | Status: {x.get('ai_review_status') or x.get('status')}"
-                        )
-
-                    xray_summary_content = (
-                        f"Department Radiology Worklist & Imaging Status for {doc_name}:\n"
-                        f"• Total X-ray orders for assigned patients: {len(xrays)} orders\n"
-                        f"• Priority breakdown: {high_prio_cnt} HIGH PRIORITY / Urgent, {routine_cnt} Routine\n\n"
-                        f"Patient X-rays & AI Triage Analysis:\n" + ("\n".join(xray_lines) if xray_lines else "No X-ray records found.")
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999914,
-                        "document_type": "xray_order",
-                        "source_table": "radiology_orders",
-                        "source_record_id": "live_doc_xray_stats",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": user_id,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Doctor Radiology Worklist Summary - {doc_name} ({high_prio_cnt} High Priority, {routine_cnt} Routine)",
-                        "content": xray_summary_content,
-                        "metadata": {"high_priority_count": high_prio_cnt, "routine_count": routine_cnt, "doctor": doc_name},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                # E. Single Patient Specific Telemetry Vitals & Clinical Condition
-                if target_assigned_pt is not None:
-                    p_id = target_assigned_pt["id"]
-                    p_full_name = f"{target_assigned_pt.get('first_name','')} {target_assigned_pt.get('last_name','')}".strip()
-                    p_code = target_assigned_pt.get("patient_code", "")
-
-                    cur.execute("""
-                        SELECT vs.recorded_at, vs.temperature, vs.heart_rate, vs.systolic_bp, vs.diastolic_bp, vs.respiratory_rate, vs.oxygen_saturation
-                        FROM vital_signs vs
-                        WHERE vs.patient_id = %s
-                        ORDER BY vs.recorded_at DESC
-                        LIMIT 3;
-                    """, (p_id,))
-                    v_rows = cur.fetchall()
-
-                    v_lines = []
-                    for vr in v_rows:
-                        # Compute clinical alert flags
-                        alerts = []
-                        if vr["temperature"] and float(vr["temperature"]) >= 100.4:
-                            alerts.append("Fever")
-                        if vr["heart_rate"] and int(vr["heart_rate"]) > 100:
-                            alerts.append("Tachycardia")
-                        if vr["oxygen_saturation"] and float(vr["oxygen_saturation"]) < 95.0:
-                            alerts.append(f"Hypoxemia ({vr['oxygen_saturation']}%)")
-                        if vr["systolic_bp"] and int(vr["systolic_bp"]) >= 140:
-                            alerts.append("Hypertension")
-                        alert_str = f" | Alert Flags: {', '.join(alerts)}" if alerts else " | Stability: Normal"
-                        v_lines.append(
-                            f"• [{vr['recorded_at']}] Temp: {vr['temperature']}°F | HR: {vr['heart_rate']} bpm | BP: {vr['systolic_bp']}/{vr['diastolic_bp']} mmHg | RR: {vr['respiratory_rate']}/min | SpO2: {vr['oxygen_saturation']}%{alert_str}"
-                        )
-
-                    cur.execute("""
-                        SELECT admission_number, ward_name, bed_number, room_number, primary_diagnosis, secondary_diagnoses, discharge_status, admission_date, current_stay_days
-                        FROM dim_admission_inputs
-                        WHERE patient_id = %s
-                        ORDER BY admission_date DESC LIMIT 1;
-                    """, (p_id,))
-                    adm_row = cur.fetchone() or {}
-
-                    # Active prescriptions & medications
-                    cur.execute("""
-                        SELECT m.medication_name, pi.dosage, pi.frequency, pi.route, pi.instructions
-                        FROM prescription_items pi
-                        JOIN medications m ON m.medication_id = pi.medication_id
-                        JOIN prescriptions pr ON pr.prescription_id = pi.prescription_id
-                        WHERE pr.patient_id = %s
-                        ORDER BY pi.prescription_item_id DESC LIMIT 5;
-                    """, (p_id,))
-                    med_rows = cur.fetchall()
-                    med_lines = [f"• {m['medication_name']} ({m['dosage']}, {m['route']}, {m['frequency']}) - {m['instructions'] or 'Active'}" for m in med_rows]
-
-                    # Billing & Financial clearance
-                    cur.execute("""
-                        SELECT bill_number, net_amount, bill_status,
-                               CASE WHEN bill_status ILIKE '%%settled%%' THEN 'Financially Cleared' ELSE 'Clearance Blocked – Pending Payment' END as clearance_status
-                        FROM bills
-                        WHERE patient_id = %s
-                        ORDER BY bill_id DESC LIMIT 1;
-                    """, (p_id,))
-                    b_row = cur.fetchone()
-                    bill_str = f"• Bill #{b_row['bill_number']} | ₹{float(b_row['net_amount']):,.2f} | Status: {b_row['bill_status']} | Financial Clearance: {b_row['clearance_status']}" if b_row else "• No billing records found."
-
-                    # Radiology Orders
-                    cur.execute("""
-                        SELECT ro.accession_number, ro.examination, ro.priority, ro.status,
-                               rs.priority as ai_priority, rs.probability, rs.findings, rs.review_status as ai_review
-                        FROM radiology_orders ro
-                        LEFT JOIN radiology_scan rs ON rs.order_id = ro.order_id
-                        WHERE ro.patient_id = %s
-                        ORDER BY ro.created_at DESC LIMIT 2;
-                    """, (p_id,))
-                    rad_rows = cur.fetchall()
-                    rad_lines = []
-                    for rx in rad_rows:
-                        prob_s = f" (Risk: {float(rx['probability'])*100:.1f}%)" if rx.get("probability") is not None else ""
-                        rad_lines.append(f"• Acc #{rx['accession_number']} | {rx['examination']} | Priority: {rx.get('ai_priority') or rx['priority']}{prob_s} | Finding: {rx.get('findings') or 'No acute abnormality'} | Status: {rx.get('ai_review') or rx['status']}")
-
-                    sec_dx = f" | Secondary: {adm_row['secondary_diagnoses']}" if adm_row.get("secondary_diagnoses") else ""
-                    single_pt_content = (
-                        f"Patient 360 Comprehensive Clinical & Operational Profile - {p_full_name} ({p_code}):\n"
-                        f"• Diagnosis: {adm_row.get('primary_diagnosis', 'Under Evaluation')}{sec_dx}\n"
-                        f"• Bed / Ward: {adm_row.get('bed_number', 'N/A')} ({adm_row.get('ward_name', 'N/A')}) | Admission Date: {adm_row.get('admission_date', 'N/A')} | Stay Status: {adm_row.get('discharge_status', 'Admitted')}\n"
-                        f"• Admission Number: #{adm_row.get('admission_number', 'N/A')} | Stay Days: {adm_row.get('current_stay_days', 'N/A')}\n\n"
-                        f"Recent Telemetry Vital Signs:\n" + ("\n".join(v_lines) if v_lines else "No vital telemetry recorded.") + "\n\n"
-                        f"Active Medications & Prescriptions:\n" + ("\n".join(med_lines) if med_lines else "No active prescriptions recorded.") + "\n\n"
-                        f"Billing & Financial Clearance:\n{bill_str}\n\n"
-                        f"Radiology & Imaging Status:\n" + ("\n".join(rad_lines) if rad_lines else "No imaging studies ordered.")
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999915,
-                        "document_type": "vital_trend_summary",
-                        "source_table": "vital_signs",
-                        "source_record_id": "live_doc_vitals_stats",
-                        "patient_id": p_id,
-                        "admission_id": None,
-                        "doctor_id": user_id,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Patient 360 Clinical & Telemetry Summary - {p_full_name} ({p_code})",
-                        "content": single_pt_content,
-                        "metadata": {"patient_id": p_id, "patient_name": p_full_name, "code": p_code},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                # F. Specific Accession / Imaging Study Lookup (For Radiologist or Doctor)
-                acc_matches = re.findall(r'XR[0-9A-Za-z]{6,}', query, re.I)
-                if acc_matches:
-                    acc_val = acc_matches[0].upper()
-                    cur.execute("""
-                        SELECT ro.order_id, ro.accession_number, ro.examination, ro.priority, ro.status, ro.requested_by, ro.created_at, ro.patient_id,
-                               p.first_name, p.last_name, p.patient_code,
-                               d.display_name as doctor_name,
-                               rs.priority as ai_priority, rs.probability, rs.findings, rs.review_status as ai_review_status,
-                               rc.id as clarif_id, rc.status as clarif_status, rc.priority as clarif_priority, rc.subject as clarif_subject
-                        FROM radiology_orders ro
-                        JOIN patients p ON p.id = ro.patient_id
-                        LEFT JOIN doctors d ON d.id = ro.requested_by OR d.user_id = ro.requested_by
-                        LEFT JOIN radiology_scan rs ON rs.order_id = ro.order_id
-                        LEFT JOIN radiology_clarifications rc ON rc.order_id = ro.order_id
-                        WHERE ro.accession_number ILIKE %s
-                        LIMIT 1;
-                    """, (acc_val,))
-                    study_row = cur.fetchone()
-                    if study_row:
-                        # Check doctor authorization: if role is doctor, patient must be assigned or requested by doctor
-                        if role == "doctor" and assigned_ids and study_row["patient_id"] not in assigned_ids and study_row["requested_by"] not in (user_id, doc_id):
-                            raise PermissionError("You don't have access to this information.")
-
-                        self._ensure_order_indexed(str(study_row["order_id"]))
-                        p_name = f"{study_row['first_name']} {study_row['last_name']}".strip()
-                        prob_str = f" (Anomaly Risk: {float(study_row['probability'])*100:.1f}%)" if study_row.get("probability") is not None else ""
-                        clarif_line = f"• Clarification Thread: #{study_row['clarif_id']} - {study_row['clarif_subject']} | Priority: {study_row['clarif_priority']} | Status: {study_row['clarif_status']}" if study_row.get("clarif_id") else "• Clarifications: None active."
-
-                        study_summary = (
-                            f"Radiology Study & AI Triage Specification for Accession #{acc_val}:\n"
-                            f"• Patient: {p_name} ({study_row['patient_code']})\n"
-                            f"• Examination: {study_row['examination']} | Order Priority: {study_row['priority']} | Status: {study_row['status']}\n"
-                            f"• Ordering Physician: {study_row['doctor_name'] or 'Attending Doctor'} | Ordered At: {study_row['created_at']}\n"
-                            f"• AI Triage Priority: {study_row['ai_priority'] or 'Routine'}{prob_str}\n"
-                            f"• AI Findings: {study_row['findings'] or 'No acute abnormality detected'}\n"
-                            f"• Radiologist Review Status: {study_row['ai_review_status'] or study_row['status']}\n"
-                            f"{clarif_line}"
-                        )
-
-                        candidates.insert(0, {
-                            "id": 9999906,
-                            "document_type": "xray_order",
-                            "source_table": "radiology_orders",
-                            "source_record_id": "live_accession_study_detail",
-                            "patient_id": study_row["patient_id"],
-                            "admission_id": None,
-                            "doctor_id": study_row["requested_by"],
-                            "order_id": str(study_row["order_id"]),
-                            "accession_number": acc_val,
-                            "study_instance_uid": None,
-                            "title": f"Live Radiology Study Specification - Acc #{acc_val} ({p_name})",
-                            "content": study_summary,
-                            "metadata": {"accession_number": acc_val, "patient_name": p_name, "priority": study_row.get("ai_priority") or study_row["priority"]},
-                            "review_status": study_row["ai_review_status"] or "Verified",
-                            "is_verified": True,
-                            "is_active": True,
-                            "embedding": None,
-                            "kw_score": 1.0
-                        })
-
-                        # Also retrieve matching records from rag_documents
-                        cur.execute("""
-                            SELECT id, document_type, source_table, source_record_id,
-                                   patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                                   title, content, metadata, review_status, is_verified, is_active,
-                                   embedding, 1.0 as kw_score
-                            FROM rag_documents
-                            WHERE is_active = TRUE AND (accession_number ILIKE %s OR content ILIKE %s)
-                            ORDER BY is_verified DESC, id DESC LIMIT 10;
-                        """, (acc_val, f"%{acc_val}%"))
-                        existing_cand_ids = {c["id"] for c in candidates}
-                        for acc_doc in cur.fetchall():
-                            if acc_doc["id"] not in existing_cand_ids:
-                                candidates.append(acc_doc)
-                                existing_cand_ids.add(acc_doc["id"])
-
-                # 3. Radiologist: Live Clarifications Received & Discussions
-                is_clarif_q = (role in ("radiologist", "admin", "hospital management") or area == "radiology") and any(
-                    k in query.lower() for k in [
-                        "clarif", "clarification", "clarifications", "how many clarification", "how many clarifications",
-                        "what clarification", "say what clarification", "clarification received", "clarifications received",
-                        "require clarification", "discussion", "reply", "replies", "thread", "message with doctor"
-                    ]
-                )
-                if is_clarif_q:
-                    cur.execute("""
-                        SELECT 
-                            COUNT(*) as total_clarifications,
-                            COUNT(*) FILTER (WHERE priority ILIKE '%%urgent%%') as urgent_count,
-                            COUNT(*) FILTER (WHERE priority ILIKE '%%routine%%') as routine_count,
-                            COUNT(*) FILTER (WHERE status ILIKE '%%resolved%%') as resolved_count,
-                            COUNT(*) FILTER (WHERE status ILIKE '%%open%%' OR status ILIKE '%%pending%%') as open_count
-                        FROM radiology_clarifications;
-                    """)
-                    cl_stats = cur.fetchone() or {}
-
-                    cur.execute("""
-                        SELECT 
-                            rc.id as thread_id, rc.order_id, rc.subject, rc.priority, rc.status,
-                            rc.created_at, rc.resolved_at,
-                            ro.accession_number, ro.examination,
-                            p.first_name, p.last_name, p.patient_code,
-                            COALESCE(u_creator.staff_name, u_creator.username) as creator_name,
-                            COALESCE(u_assignee.staff_name, u_assignee.username) as assignee_name
-                        FROM radiology_clarifications rc
-                        JOIN radiology_orders ro ON ro.order_id = rc.order_id
-                        JOIN patients p ON p.id = ro.patient_id
-                        LEFT JOIN users u_creator ON u_creator.id = rc.created_by
-                        LEFT JOIN users u_assignee ON u_assignee.id = rc.assigned_to
-                        ORDER BY rc.created_at DESC;
-                    """)
-                    threads = cur.fetchall()
-
-                    c_tot = cl_stats.get('total_clarifications', len(threads))
-                    c_urg = cl_stats.get('urgent_count', 0)
-                    c_rou = cl_stats.get('routine_count', 0)
-                    c_res = cl_stats.get('resolved_count', 0)
-                    c_open = cl_stats.get('open_count', 0)
-
-                    thread_lines = []
-                    for th in threads:
-                        p_name = f"{th.get('first_name','')} {th.get('last_name','')}".strip()
-                        cur.execute("""
-                            SELECT sender_name, body FROM radiology_clarification_messages
-                            WHERE thread_id = %s ORDER BY created_at ASC;
-                        """, (str(th.get('thread_id')),))
-                        thread_msgs = cur.fetchall()
-                        msg_summary = " -> ".join([f"{rm['sender_name']}: \"{rm['body']}\"" for rm in thread_msgs]) if thread_msgs else "No messages"
-                        thread_lines.append(
-                            f"• {p_name} ({th.get('patient_code')}) | Acc #{th.get('accession_number')} | Subject: \"{th.get('subject')}\" | Priority: {th.get('priority')} | Status: {th.get('status')} | Discussion: [{msg_summary}]"
-                        )
-
-                    clarif_summary_content = (
-                        f"Department Radiology Clarifications Live Summary:\n"
-                        f"• Total clarifications received: {c_tot} threads\n"
-                        f"• Priority breakdown: {c_urg} Urgent, {c_rou} Routine\n"
-                        f"• Status breakdown: {c_res} Resolved, {c_open} Open / Pending\n\n"
-                        f"Clarification Threads & Discussion History:\n" + "\n".join(thread_lines)
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999904,
-                        "document_type": "radiology_clarification",
-                        "source_table": "radiology_clarifications",
-                        "source_record_id": "live_clarifications_stats",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": None,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Radiology Clarifications Summary - {c_tot} Clarifications Received ({c_urg} Urgent, {c_rou} Routine - {c_res} Resolved)",
-                        "content": clarif_summary_content,
-                        "metadata": {"total_clarifications": c_tot, "urgent": c_urg, "routine": c_rou, "resolved": c_res},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                    # Also inject specific clarification documents
-                    cur.execute("""
-                        SELECT id, document_type, source_table, source_record_id,
-                               patient_id, admission_id, doctor_id, order_id, accession_number, study_instance_uid,
-                               title, content, metadata, review_status, is_verified, is_active,
-                               embedding, 1.0 as kw_score
-                        FROM rag_documents
-                        WHERE document_type = 'radiology_clarification'
-                        ORDER BY id DESC
-                        LIMIT 5;
-                    """)
-                    for c_row in cur.fetchall():
-                        if c_row["id"] not in {x["id"] for x in candidates}:
-                            candidates.append(c_row)
-
-                # 4. Radiologist: AI Triage, Review Flags, High Priority, and Analysis Status
-                is_ai_worklist_q = (role in ("radiologist", "admin", "hospital management") or area == "radiology") and any(
-                    k in query.lower() for k in [
-                        "high review flag", "review flag", "high priority", "how many high", "how many routine",
-                        "high risk", "y high risk", "why high risk", "why high priority", "why review flag",
-                        "who analyzed", "analyzed", "studies analyzed", "study analyzed", "whose studies",
-                        "screening index", "probability", "ai worklist", "triage"
-                    ]
-                )
-                if is_ai_worklist_q:
-                    cur.execute("""
-                        SELECT 
-                            COUNT(*) as total_scans,
-                            COUNT(*) FILTER (WHERE rs.priority ILIKE '%%high%%') as high_count,
-                            COUNT(*) FILTER (WHERE rs.priority ILIKE '%%routine%%') as routine_count,
-                            COUNT(*) FILTER (WHERE rs.review_status ILIKE '%%confirmed%%' OR rs.review_status ILIKE '%%verified%%') as confirmed_count,
-                            COUNT(*) FILTER (WHERE rs.review_status ILIKE '%%pending%%') as pending_count
-                        FROM radiology_scan rs;
-                    """)
-                    ai_stats = cur.fetchone() or {}
-
-                    cur.execute("""
-                        SELECT rs.scan_id, rs.order_id, rs.priority as ai_priority, rs.review_status,
-                               rs.probability, rs.findings, rs.assessment, rs.reviewed_by,
-                               ro.accession_number, ro.examination,
-                               p.first_name, p.last_name, p.patient_code,
-                               d.display_name as requesting_doctor
-                        FROM radiology_scan rs
-                        JOIN radiology_orders ro ON ro.order_id = rs.order_id
-                        JOIN patients p ON p.id = ro.patient_id
-                        LEFT JOIN doctors d ON d.id = ro.requested_by
-                        ORDER BY rs.probability DESC NULLS LAST, rs.scan_id DESC;
-                    """)
-                    scans = cur.fetchall()
-
-                    s_tot = ai_stats.get('total_scans', len(scans))
-                    s_high = ai_stats.get('high_count', 0)
-                    s_rou = ai_stats.get('routine_count', 0)
-                    s_conf = ai_stats.get('confirmed_count', 0)
-                    s_pend = ai_stats.get('pending_count', 0)
-
-                    scan_lines = []
-                    for sc in scans:
-                        p_name = f"{sc.get('first_name','')} {sc.get('last_name','')}".strip()
-                        prob_pct = f"{float(sc['probability']) * 100:.1f}%" if sc.get('probability') is not None else "N/A"
-                        rev_by = sc.get('reviewed_by') or ("Dr. Vilson M" if sc.get('review_status') == "Confirmed" else "Pending Radiologist Review")
-                        scan_lines.append(
-                            f"• {p_name} ({sc.get('patient_code')}) | Acc #{sc.get('accession_number')} | Priority: {sc.get('ai_priority')} | Risk Probability: {prob_pct} | AI Finding: {sc.get('findings')} | Status: {sc.get('review_status')} (Analyzed/Reviewed by: {rev_by}) | Requested by: {sc.get('requesting_doctor') or 'Dr. Priya Patel'}"
-                        )
-
-                    ai_summary_content = (
-                        f"Department Radiology AI Triage & Worklist Live Summary:\n"
-                        f"• Total studies analyzed: {s_tot} studies\n"
-                        f"• Priority breakdown: {s_high} HIGH PRIORITY (Review Flag), {s_rou} ROUTINE\n"
-                        f"• Review status: {s_conf} Confirmed / Verified by Radiologist (Dr. Vilson M), {s_pend} Pending Review\n\n"
-                        f"AI Triage Study Findings & Risk Analysis:\n" + "\n".join(scan_lines)
-                    )
-
-                    candidates.insert(0, {
-                        "id": 9999905,
-                        "document_type": "radiology_ai_result",
-                        "source_table": "radiology_scan",
-                        "source_record_id": "live_ai_worklist_stats",
-                        "patient_id": None,
-                        "admission_id": None,
-                        "doctor_id": None,
-                        "order_id": None,
-                        "accession_number": None,
-                        "study_instance_uid": None,
-                        "title": f"Live Radiology AI Worklist Summary - {s_high} High Priority Review Flags, {s_rou} Routine ({s_conf} Confirmed, {s_pend} Pending)",
-                        "content": ai_summary_content,
-                        "metadata": {"total_scans": s_tot, "high_priority": s_high, "routine": s_rou, "confirmed": s_conf, "pending": s_pend},
-                        "review_status": "Verified",
-                        "is_verified": True,
-                        "is_active": True,
-                        "embedding": None,
-                        "kw_score": 1.0
-                    })
-
-                if not candidates:
-                    return [], "empty_results"
-
-                # ── 4. Semantic Similarity & Hybrid Ranking ───────────────────
-                query_embedding = self.embedding_service.generate_embedding(query)
-                strategy = "hybrid" if query_embedding else "keyword_fallback"
-
-                max_kw = max([c.get("kw_score", 0.0) for c in candidates] or [1.0])
-                if max_kw <= 0:
-                    max_kw = 1.0
-
-                scored_results = []
-                for c in candidates:
-                    # Normalized keyword score (0.0 to 1.0)
-                    raw_kw = float(c.get("kw_score") or 0.0)
-                    norm_kw = min(1.0, raw_kw / max_kw) if max_kw > 0 else 0.5
-
-                    # Vector similarity score
-                    norm_vec = 0.0
-                    doc_emb = c.get("embedding")
-                    if query_embedding and doc_emb:
-                        if isinstance(doc_emb, str):
-                            try:
-                                doc_emb = json.loads(doc_emb)
-                            except Exception:
-                                doc_emb = None
-                        if isinstance(doc_emb, list):
-                            norm_vec = self.embedding_service.cosine_similarity(query_embedding, doc_emb)
-
-                    # Live operational summaries get perfect vector alignment
-                    is_op_summary = c.get("source_record_id") in (
-                        "live_radiology_stats", "live_doctor_roster", "live_doctor_radiology_stats",
-                        "live_clarifications_stats", "live_ai_worklist_stats",
-                        "live_doc_flow_stats", "live_doc_conditions_stats", "live_doc_billing_stats",
-                        "live_doc_xray_stats", "live_doc_vitals_stats", "live_accession_study_detail"
-                    )
-                    if is_op_summary:
-                        norm_vec = 1.0
-                        norm_kw = 1.0
-
-                    # Hybrid Score Fusion
-                    if query_embedding:
-                        base_score = (self.default_keyword_weight * norm_kw) + (self.default_vector_weight * norm_vec)
-                    else:
-                        base_score = norm_kw
-
-                    # Clinical Boosting
-                    boost = 0.0
-                    # Maximum priority boost for live operational summaries
-                    if is_op_summary:
-                        boost += 0.85
-                    # Boost verified reports
-                    if c.get("is_verified"):
-                        boost += 0.25
-
-                    # Boost targeted patient records
-                    if target_assigned_pt and c.get("patient_id") == target_assigned_pt["id"]:
-                        boost += 0.50
-                        is_meds_q = any(w in query.lower() for w in ["medicine", "medication", "drug", "prescription", "rx"])
-                        is_vitals_q = any(w in query.lower() for w in ["vital", "temp", "heart rate", "bp", "pulse", "spo2", "fever", "respiratory"])
-                        is_adm_q = any(w in query.lower() for w in ["admit", "admission", "bed", "ward", "room", "stay"])
-                        is_bill_q = any(w in query.lower() for w in ["bill", "cost", "financial", "payment", "clearance", "balance"])
-                        is_imaging_q = any(w in query.lower() for w in ["xray", "x-ray", "scan", "radiology", "imaging", "finding", "opacity"])
-
-                        if is_meds_q and c.get("document_type") in ("medication_summary", "prescription_items"):
-                            boost += 0.35
-                        elif is_vitals_q and c.get("document_type") == "vital_trend_summary":
-                            boost += 0.35
-                        elif is_adm_q and c.get("document_type") in ("patient_admission_summary", "diagnosis_summary"):
-                            boost += 0.35
-                        elif is_bill_q and c.get("document_type") == "billing_clearance_summary":
-                            boost += 0.35
-                        elif is_imaging_q and c.get("document_type") in ("xray_order", "radiology_ai_result", "radiologist_final_report"):
-                            boost += 0.35
-
-                    # Boost targeted accession records
-                    if acc_matches:
-                        acc_target = acc_matches[0].lower()
-                        if acc_target in (c.get("accession_number") or "").lower() or (c.get("title") and acc_target in c["title"].lower()):
-                            boost += 0.60
-
-                    # Boost clarifications when querying about clarifications
-                    if is_clarif_q and c.get("document_type") == "radiology_clarification":
-                        boost += 0.40
-                    # Boost AI results when querying about triage/AI findings
-                    if is_ai_worklist_q and c.get("document_type") == "radiology_ai_result":
-                        boost += 0.40
-                    # Boost records matching targeted doctor if specified
-                    if target_doc and (c.get("doctor_id") in d_ids or (c.get("content") and target_doc["display_name"].lower() in c["content"].lower())):
-                        boost += 0.40
-                    # Boost orders when querying about requests/orders
-                    if is_orders_q and c.get("document_type") == "xray_order":
-                        boost += 0.35
-                    # Boost final radiologist reports (scoped to radiology domain or imaging queries)
-                    if c.get("document_type") == "radiologist_final_report" and (is_rad_domain or is_doc_xray_q) and not (is_orders_q or is_count_intent or is_clarif_q or is_ai_worklist_q):
-                        boost += 0.30
-                    # Boost active admission records
-                    if admission_id and c.get("admission_id") == admission_id:
-                        boost += 0.20
-                    elif c.get("review_status") == "Admitted":
-                        boost += 0.15
-                    # Boost active orders
-                    if c.get("document_type") in ("xray_order", "prescription_items"):
-                        boost += 0.10
-
-                    total_score = min(1.0, base_score + boost)
-
-                    scored_results.append({
-                        "id": c["id"],
-                        "document_type": c["document_type"],
-                        "source_table": c["source_table"],
-                        "source_record_id": c["source_record_id"],
-                        "patient_id": c["patient_id"],
-                        "admission_id": c["admission_id"],
-                        "doctor_id": c["doctor_id"],
-                        "order_id": str(c["order_id"]) if c["order_id"] else None,
-                        "accession_number": c["accession_number"],
-                        "study_instance_uid": c["study_instance_uid"],
-                        "title": c["title"],
-                        "content": c["content"],
-                        "metadata": c["metadata"] if isinstance(c["metadata"], dict) else {},
-                        "review_status": c["review_status"],
-                        "is_verified": bool(c["is_verified"]),
-                        "relevance_score": round(total_score, 4),
-                        "keyword_score": round(norm_kw, 4),
-                        "similarity_score": round(norm_vec, 4)
-                    })
-
-                # Sort by combined relevance score
-                scored_results.sort(key=lambda x: x["relevance_score"], reverse=True)
-                return scored_results[:limit], strategy
-
         finally:
             conn.close()
 
+    def search(self, query: str, area: str, user: Dict[str, Any], expanded_phrases=None,
+               patient_id=None, admission_id=None, order_id=None, accession_number=None,
+               status_filter=None, limit=10, access_context=None, conversation_history=None,
+               query_plan=None):
+        context = access_context or self.build_access_context(user)
+        return self._secure_search(query, area, context, patient_id, admission_id, order_id,
+                                   accession_number, status_filter, limit, expanded_phrases,
+                                   conversation_history, query_plan)
 
-# Global singleton instance
+    def _check_cross_doctor_access(self, cur, context, query: str):
+        if context.is_admin or context.role != "doctor" or not context.doctor_id:
+            return
+        try:
+            cur.execute("SELECT id, display_name, first_name, last_name FROM doctors")
+            all_docs = cur.fetchall() or []
+        except Exception:
+            return
+
+        current_doc = next((d for d in all_docs if isinstance(d, dict) and d.get("id") == context.doctor_id), None)
+        c_fn = (current_doc.get("first_name") or "").strip().lower() if current_doc else ""
+        c_ln = (current_doc.get("last_name") or "").strip().lower() if current_doc else ""
+        c_full = f"{c_fn} {c_ln}".strip()
+
+        # Handle queries mentioning doctors like Dr. Ravi Reddy, Doctor Ravi, Dr.ravi reddy, etc.
+        q_norm = re.sub(r"\bdr\.", "dr ", query, flags=re.I)
+        matches = re.finditer(r"\b(?:dr|doctor)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)", q_norm, re.I)
+        stop_words = {"op", "ip", "patient", "patients", "order", "orders", "list", "worklist", "task", "tasks", "ward", "under", "for", "rounds", "round", "notes", "note", "advice", "summary"}
+
+        for m in matches:
+            candidate = m.group(1).lower().strip()
+            cand_words = [w for w in candidate.split() if w not in stop_words]
+            if not cand_words:
+                continue
+            cand_name = " ".join(cand_words)
+
+            # If candidate refers to current doctor themselves, allowed
+            if cand_name == c_full or cand_name == c_fn or (cand_name == c_ln and len(c_ln) > 2):
+                continue
+
+            for d in all_docs:
+                if not isinstance(d, dict) or d.get("id") == context.doctor_id:
+                    continue
+                fn = (d.get("first_name") or "").strip().lower()
+                ln = (d.get("last_name") or "").strip().lower()
+                full = f"{fn} {ln}".strip()
+                if cand_name == full:
+                    raise PermissionError(ACCESS_DENIED)
+                if len(cand_words) == 1:
+                    if cand_words[0] == fn and len(fn) > 2:
+                        raise PermissionError(ACCESS_DENIED)
+                    if cand_words[0] == ln and len(ln) > 2 and cand_words[0] != c_ln:
+                        raise PermissionError(ACCESS_DENIED)
+                elif len(cand_words) >= 2:
+                    if cand_words[0] == fn and cand_words[1] == ln:
+                        raise PermissionError(ACCESS_DENIED)
+                    if fn in cand_words and ln in cand_words:
+                        raise PermissionError(ACCESS_DENIED)
+
+        # Also check if any other doctor's full name (e.g. 'Ravi Reddy', 'Suresh Menon') is explicitly in query
+        q_clean = " " + re.sub(r"[^a-zA-Z0-9\s]", " ", query.lower()) + " "
+        for d in all_docs:
+            if not isinstance(d, dict) or d.get("id") == context.doctor_id:
+                continue
+            fn = (d.get("first_name") or "").strip().lower()
+            ln = (d.get("last_name") or "").strip().lower()
+            full = f"{fn} {ln}".strip()
+            if full and len(fn) > 2 and len(ln) > 2 and f" {full} " in q_clean:
+                raise PermissionError(ACCESS_DENIED)
+
+    def _secure_search(self, query, area, context, patient_id, admission_id, order_id,
+                       accession_number, status_filter, limit, expanded_phrases=None,
+                       conversation_history=None, query_plan=None):
+        effective_patient_id = patient_id if patient_id is not None else ((query_plan or {}).get("patient_id"))
+        if context.role == "doctor" and effective_patient_id is not None and effective_patient_id not in (context.allowed_patient_ids or frozenset()):
+            raise PermissionError(ACCESS_DENIED)
+        conn = db_config.get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                self._check_cross_doctor_access(cur, context, query)
+                kind, dimensions = self._plan(query, area, context.role, patient_id=effective_patient_id,
+                                              conversation_history=conversation_history, query_plan=query_plan)
+                if kind in ("doctor_clarifications", "radiology_clarifications"):
+                    return self._doctor_clarifications(cur, context, dimensions, effective_patient_id)
+                if effective_patient_id is None:
+                    if kind == "doctor_flow": return self._doctor_flow(cur, context, dimensions)
+                    if kind == "doctor_patient_list": return self._doctor_patient_list(cur, context, dimensions)
+                    if kind == "doctor_discharged_list": return self._doctor_discharged_list(cur, context, dimensions)
+                    if kind == "doctor_op_list": return self._doctor_op_list(cur, context, dimensions)
+                    if kind == "doctor_radiology_worklist": return self._doctor_radiology_worklist(cur, context, dimensions)
+                    if kind == "doctor_ward_tasks": return self._doctor_ward_tasks(cur, context)
+                if kind == "radiology_aggregate":
+                    return self._radiology_aggregate(cur, context, dimensions, effective_patient_id, order_id, accession_number)
+                if kind == "radiology_list":
+                    return self._radiology_list(cur, context, dimensions, effective_patient_id, query)
+                if (effective_patient_id is None and query_plan and query_plan.get("collection_request") and query_plan.get("intent") != "count"
+                        and context.role in {"doctor", "admin", "hospital management"}):
+                    return self._patient_collection(cur, context, query_plan)
+                return self._documents(cur, query, area, context, effective_patient_id, admission_id, order_id,
+                                       accession_number, status_filter, limit, expanded_phrases, query_plan)
+        finally: conn.close()
+
+    def _plan(self, query: str, area: str, role: str, patient_id: Optional[int] = None,
+              conversation_history: Optional[List[Dict[str, Any]]] = None,
+              query_plan: Optional[Dict[str, Any]] = None):
+        q = _normalized(query)
+        count = _has(q, {"how many", "count", "counts", "total", "number of"})
+        categorize = _has(q, {"categorize", "categorise", "category", "breakdown", "group", "break down"})
+        is_clarification = (
+            _has(q, {"clarification", "clarifications", "calrification", "calrifications", "clarification request", "clarification requests", "clarification message", "clarification messages"})
+            or (
+                _has(q, {"clarification", "clarifications", "calrification", "calrifications"})
+                and _has(q, {"message", "messages", "asked", "received", "pending", "urgent", "resolved", "show", "list", "any", "do i have", "what", "which", "how many", "count"})
+            )
+        )
+        is_list = _has(q, {"list", "which patients", "which of my patients", "which of the patients", "who are", "who is", "show patients", "show my patients", "patient list", "my patients"}) or " names " in f" {q} " or (_has(q, {"which", "who", "show", "list"}) and _has(q, {"patient", "patients"}))
+        if role == "doctor":
+            if not patient_id:
+                blocked = _has(q, {"blocked from discharge", "discharge blocked", "blocked discharge", "pending discharge", "discharge clearance blocked"})
+                if blocked and (is_list or "which" in q or "who" in q or "blocked" in q):
+                    dims = {"ip", "blocked_discharge", "names"}
+                    if _has(q, {"why", "reason", "balance", "clearance"}): dims.add("why")
+                    return "doctor_patient_list", dims
+
+                # Check if conversation history has an active radiology topic
+                recent_rad = False
+                if conversation_history:
+                    for turn in reversed(conversation_history[-3:]):
+                        c = (turn.get("content") or "").lower()
+                        if any(w in c for w in ("xray", "xrays", "x ray", "x rays", "radiology", "radiologist", "radiology_order", "x-ray")):
+                            recent_rad = True
+                            break
+
+                # Radiology clarifications raised by or involving the doctor
+                if is_clarification:
+                    dims = set()
+                    if count: dims.add("count")
+                    if is_list or _has(q, {"show", "list", "any", "do i have", "what", "which", "view", "details", "asked", "received", "message", "messages"}) or not count:
+                        dims.add("list")
+                    if _has(q, {"urgent", "priority"}): dims.add("urgent")
+                    if _has(q, {"resolved", "pending", "open", "closed"}): dims.add("status")
+                    return "doctor_clarifications", dims
+
+                # Radiology orders / reports for my patients (urgent, routine, breakdown, status, or all worklist)
+                has_rad_topic = _has(q, {"xray", "xrays", "x ray", "x rays", "radiology", "scan", "scans", "imaging"}) or (
+                    recent_rad and (_has(q, {"urgent", "routine", "pending", "uploaded", "requested", "reviewed", "order", "orders", "request", "requests"}) or categorize or count)
+                ) or _has(q, {"urgent order", "urgent orders", "urgent request", "urgent requests", "how many urgent", "how many urget", "urgent xray", "urgent xrays", "any urgent"}) or (
+                    _has(q, {"urgent", "routine"}) and _has(q, {"order", "orders", "request", "requests"})
+                )
+
+                is_rad_worklist = has_rad_topic and not _has(q, {"clarification", "clarifications"}) and (
+                    _has(q, {"worklist", "work list", "urgent", "routine", "high priority", "priority", "stat", "pending", "order", "orders", "request", "requests", "uploaded", "requested", "reviewed"})
+                    or is_list
+                    or categorize
+                    or count
+                    or _has(q, {"my xray", "my xrays", "my scans", "my imaging", "my radiology", "all xray", "all xrays", "all scans"})
+                )
+                if is_rad_worklist:
+                    dims = set()
+                    has_urgent = _has(q, {"urgent", "high priority", "priority", "stat"})
+                    has_routine = _has(q, {"routine"})
+                    if (has_urgent and has_routine) or (has_urgent and _has(q, {"breakdown", "break down", "categorize", "categorise", "category", "and"})):
+                        dims.add("breakdown")
+                    elif has_urgent:
+                        dims.add("urgent")
+                    elif has_routine:
+                        dims.add("routine")
+
+                    if _has(q, {"uploaded"}):
+                        dims.add("uploaded")
+                    elif _has(q, {"requested"}):
+                        dims.add("requested")
+                    if count:
+                        dims.add("count")
+                    if categorize or _has(q, {"breakdown", "break down", "group", "category"}):
+                        dims.add("categorize")
+                    return "doctor_radiology_worklist", dims
+
+                # Clinical tasks / doctor tasks / ward rounds
+                if _has(q, {"ward round", "ward rounds", "doctor tasks", "doctor task", "pending orders", "clinical orders", "clinical tasks", "rounds"}):
+                    return "doctor_ward_tasks", set()
+
+                # Abnormal / critical lab values or abnormal vitals
+                if (is_list or _has(q, {"which", "who", "show"})) and (_has(q, {"abnormal", "critical", "out of range"}) and _has(q, {"lab", "labs", "value", "values", "vital", "vitals", "result", "results"})):
+                    return "doctor_patient_list", {"ip", "names", "abnormal", "location"}
+
+                # Discharged patients list
+                is_discharged = _has(q, {"discharged", "discharge"}) and not blocked and not _has(q, {"clearance", "pending discharge", "summary", "draft", "readiness", "process"})
+                if is_discharged and not count and (
+                    is_list
+                    or _has(q, {"patient", "patients", "under me", "my", "who", "which", "show", "list", "names"})
+                    or q.strip() in {"discharged", "discharged patients", "discharged patient list", "discharged patient"}
+                ):
+                    dims = {"discharged", "names"}
+                    if _has(q, {"basic details", "details", "patient details"}): dims.add("basic")
+                    return "doctor_discharged_list", dims
+
+                # Outpatient (OP) list
+                is_op = _has(q, {"op", "opd", "outpatient", "outpatients"}) and not count and not _has(q, {"ip", "inpatient", "inpatients"})
+                if is_op and (
+                    is_list
+                    or _has(q, {"patient", "patients", "under me", "my", "who", "which", "show", "list", "any", "names"})
+                    or q.strip() in {"op", "opd", "outpatient", "outpatients", "any op", "op patients", "op patients under me"}
+                ):
+                    dims = {"op", "names"}
+                    if _has(q, {"basic details", "details", "patient details"}): dims.add("basic")
+                    return "doctor_op_list", dims
+
+                if is_list and not is_op and not is_discharged and _has(q, {"ip", "inpatient", "inpatients", "patient", "patients"}):
+                    dims = {"ip", "names"}
+                    if _has(q, {"basic details", "details", "patient details"}): dims.add("basic")
+                    if _has(q, {"bed", "beds", "ward", "wards", "room", "rooms", "bed number", "bed numbers", "location"}): dims.add("location")
+                    if _has(q, {"admission date", "admitted date", "date of admission", "when admitted", "admission dates"}): dims.add("admission_date")
+                    if _has(q, {"reason", "reasons", "reason for admission", "admission reason", "why admitted"}): dims.add("reason")
+                    if _has(q, {"diagnosis", "diagnoses", "condition", "clinical problem", "problem", "clinical diagnosis"}): dims.add("diagnosis")
+                    return "doctor_patient_list", dims
+        if role == "doctor" and area == "doctor_workspace" and not patient_id:
+            dims = set()
+            if _has(q, {"ip", "inpatient", "inpatients", "admitted patient", "admitted patients"}): dims.add("ip")
+            if _has(q, {"op", "outpatient", "outpatients", "opd"}): dims.add("op")
+            if _has(q, {"discharged", "discharge count"}): dims.add("discharged")
+            if _has(q, {"er", "emergency", "emergency patients"}): dims.add("er")
+            if count and dims: return "doctor_flow", dims
+            if count and _has(q, {"patients", "patient flow", "my patients"}):
+                return "doctor_flow", {"ip", "op", "discharged", "er"}
+        if area == "radiology" or role == "radiologist":
+            if is_clarification:
+                dims = set()
+                if count: dims.add("count")
+                if is_list or _has(q, {"show", "list", "any", "do i have", "what", "which", "view", "details", "asked", "received", "message", "messages"}) or not count:
+                    dims.add("list")
+                if _has(q, {"urgent", "priority"}): dims.add("urgent")
+                if _has(q, {"resolved", "pending", "open", "closed"}): dims.add("status")
+                # Unread clarification check
+                if _has(q, {"unread", "not read", "unseen", "new message", "new messages"}):
+                    dims.add("unread")
+                    dims.discard("list")  # unread check overrides full list
+                return "radiology_clarifications", dims
+
+            # ── Clinical findings queries — always route to documents, never aggregate ─
+            # These are patient-level AI screening / radiologist finding queries
+            is_clinical_finding = _has(q, {"lung opacity", "opacity", "consolidation", "pleural effusion",
+                                           "cardiomegaly", "pneumonia", "pneumothorax", "fracture",
+                                           "detected", "abnormal", "normal",
+                                           "review flag", "confirmed study", "pending review study"})
+            # Always send clinical finding queries to documents (not aggregate)
+            if is_clinical_finding:
+                return "documents", set()
+
+            # ── Detect specific examination type filters (PA, AP, PA+AP) ─────────
+            exam_type_filter = None
+            if _has(q, {"pa ap", "pa and ap", "pa + ap", "pa+ap"}):
+                exam_type_filter = "pa_and_ap"
+            elif _has(q, {"pa xray", "pa x ray", "pa request", "pa requests", "pa order", "pa orders",
+                          "chest pa", "pa view", "pa views", "pa study", "pa studies",
+                          "how many pa", "count pa", "pa scan", "chest x-ray pa"}):
+                exam_type_filter = "pa"
+            elif _has(q, {"ap xray", "ap x ray", "ap request", "ap requests", "ap order", "ap orders",
+                          "chest ap", "ap view", "ap views", "ap study", "ap studies",
+                          "how many ap", "count ap", "ap scan", "chest x-ray ap"}):
+                exam_type_filter = "ap"
+
+            # ── Study analysed/analyzed/reviewed count (from AI worklist) ────────
+            is_study_analyzed = _has(q, {"study analysed", "study analyzed", "study reviewed",
+                                         "studies analysed", "studies analyzed", "studies reviewed",
+                                         "how many study", "how many studies", "study completed",
+                                         "studies completed", "how may study", "how may studies",
+                                         "analysed study", "analyzed study", "reviewed study",
+                                         "high priority study", "high priority studies",
+                                         "how many high priority"})
+
+            # ── Date filter: today / recent requests ─────────────────────────
+            is_today = _has(q, {"today", "received today", "today request", "today requests",
+                                "this day", "current day"})
+            is_recent = _has(q, {"this week", "recent", "recently", "last 7 days", "past week",
+                                 "last week", "this month"})
+
+            # ── List route: list all requests / list the N requests / who raised ──
+            order_topic = _has(q, {"request", "requests", "order", "orders", "xray", "x ray", "worklist"})
+            is_investigative = _has(q, {"why", "conclude", "conclusion", "indication", "report"})
+            is_who_raised = _has(q, {"who raised", "who are all raised", "who ordered", "who requested",
+                                     "raised by", "ordered by", "requested by", "which doctor",
+                                     "which doctors"})
+            is_list_request = (is_list or is_who_raised) and order_topic and not is_investigative and not count
+            if is_list_request:
+                dims = set()
+                if exam_type_filter: dims.add(exam_type_filter)
+                if is_who_raised: dims.add("requested_by")
+                if _has(q, {"urgent"}): dims.add("urgent")
+                if _has(q, {"routine"}): dims.add("routine")
+                if _has(q, {"uploaded"}): dims.add("uploaded")
+                if _has(q, {"requested"}): dims.add("requested")
+                if is_today: dims.add("today")
+                elif is_recent: dims.add("recent")
+                return "radiology_list", dims
+
+            # Today/recent requests (count or show)
+            if (is_today or is_recent) and order_topic:
+                dims = {"today"} if is_today else {"recent"}
+                if count: dims.add("count")
+                return "radiology_list", dims
+
+            dims = set()
+            if _has(q, {"urgent", "routine", "priority", "priorities"}): dims.add("priority")
+            if _has(q, {"department", "departments", "which department", "what department"}): dims.add("department")
+            if _has(q, {"status", "pending", "requested", "uploaded", "reviewed"}): dims.add("status")
+            categorize = _has(q, {"categorize", "categorise", "category", "breakdown", "group"})
+            is_breakdown = _has(q, {"which department", "what department", "from which department", "raised from", "by department", "breakdown by"})
+            if is_study_analyzed:
+                dims.add("total")
+                dims.add("study_analyzed")
+                # If priority also asked (e.g., "high priority analyzed")
+                if _has(q, {"high priority", "urgent", "priority"}): dims.add("priority")
+                return "radiology_aggregate", dims
+            if exam_type_filter:
+                dims.add("total")
+                dims.add(exam_type_filter)
+                return "radiology_aggregate", dims
+            if count or categorize: dims.add("total")
+            if categorize and not ({"department", "status"} & dims): dims.add("priority")
+            if dims and (count or categorize or is_breakdown) and not (is_investigative and not (count or categorize)):
+                return "radiology_aggregate", dims
+        return "documents", set()
+
+    @staticmethod
+    def _source(context, title, content, doc_type, module, table, record_id, metadata, patient_id=None):
+        return {"id":0, "document_type":doc_type, "module":module, "source_table":table,
+                "source_record_id":record_id, "patient_id":patient_id, "admission_id":None,
+                "doctor_id":context.doctor_id, "order_id":None, "accession_number":None,
+                "study_instance_uid":None, "title":title, "content":content, "metadata":metadata,
+                "review_status":"Current", "is_verified":True, "relevance_score":1.0,
+                "keyword_score":1.0, "similarity_score":1.0}
+
+    def _doctor_flow(self, cur, context, dimensions: Set[str]):
+        cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
+        name = (cur.fetchone() or {}).get("display_name")
+        if not name: raise PermissionError(ACCESS_DENIED)
+        counts = {}
+        if "ip" in dimensions:
+            cur.execute("""SELECT COUNT(DISTINCT patient_id) total FROM dim_admission_inputs
+                WHERE (attending_doctor ILIKE %s OR admission_id IN
+                (SELECT admission_id FROM admissions WHERE doctor_id=%s))
+                AND LOWER(COALESCE(discharge_status,'')) <> 'discharged'""", (f"%{name}%", context.doctor_id))
+            counts["ip"] = int((cur.fetchone() or {}).get("total") or 0)
+        if "op" in dimensions:
+            cur.execute("""
+                SELECT COUNT(*) total FROM (
+                    SELECT DISTINCT ON (apt.patient_id)
+                        apt.patient_id,
+                        apt.doctor_id,
+                        COALESCE(d.display_name, 'Consultant Doctor') AS doctor
+                    FROM appointments apt
+                    JOIN patients p ON p.id = apt.patient_id
+                    LEFT JOIN doctors d ON d.id = apt.doctor_id
+                    WHERE (apt.booking_source IN ('OPD_DESK', 'Walk-in', 'Phone', 'Web Portal', 'ADMIN', 'DOCTOR') OR apt.booking_id LIKE 'APT-%%')
+                    ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC
+                    LIMIT 100
+                ) sub
+                WHERE sub.doctor_id IN (%s, %s) OR sub.doctor ILIKE %s
+            """, (context.doctor_id, context.user_id, f"%{name}%"))
+            counts["op"] = int((cur.fetchone() or {}).get("total") or 0)
+        if "discharged" in dimensions:
+            cur.execute("""SELECT COUNT(DISTINCT patient_id) total FROM dim_admission_inputs
+                WHERE (attending_doctor ILIKE %s OR admission_id IN
+                (SELECT admission_id FROM admissions WHERE doctor_id=%s))
+                AND LOWER(COALESCE(discharge_status,''))='discharged'""", (f"%{name}%", context.doctor_id))
+            counts["discharged"] = int((cur.fetchone() or {}).get("total") or 0)
+        if "er" in dimensions:
+            cur.execute("SELECT COUNT(*) total FROM emergency_triage WHERE doctor_name ILIKE %s", (f"%{name}%",))
+            counts["er"] = int((cur.fetchone() or {}).get("total") or 0)
+        labels = {"ip":"IP", "op":"OP", "discharged":"Discharged", "er":"ER"}
+        content = "Current authorized patient counts: " + "; ".join(f"{labels[k]}: {counts[k]} patients" for k in ("ip","op","discharged","er") if k in counts) + "."
+        return [self._source(context, "Authorized Patient Flow Counts", content, "patient_flow_summary", "ip",
+                "dim_admission_inputs,appointments,emergency_triage", "authorized_patient_flow_count",
+                {"module":"ip", "record_id":"authorized_patient_flow_count", **counts})], "authorized_sql_aggregate"
+
+    def _doctor_discharged_list(self, cur, context, dimensions: Set[str]):
+        if not context.doctor_id and not context.is_admin:
+            raise PermissionError(ACCESS_DENIED)
+        name = None
+        if context.doctor_id:
+            cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
+            doctor = cur.fetchone() or {}
+            name = doctor.get("display_name") if isinstance(doctor, dict) else doctor[0]
+            if not name: raise PermissionError(ACCESS_DENIED)
+
+        scope_clause = "(dai.attending_doctor ILIKE %s OR dai.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id=%s))" if name else "TRUE"
+        params = [f"%{name}%", context.doctor_id] if name else []
+
+        cur.execute(f"""
+            SELECT DISTINCT ON (dai.patient_id) dai.patient_id, dai.patient_number AS patient_code,
+                   dai.first_name, dai.last_name, dai.gender, dai.date_of_birth,
+                   dai.admission_number, dai.admission_date, dai.reason_for_admission,
+                   dai.bed_number, dai.room_number, dai.ward_name, dai.primary_diagnosis,
+                   dai.secondary_diagnoses, dai.bill_number, dai.bill_status,
+                   dai.bill_clearance_status, dai.outstanding_balance, dai.discharge_status
+            FROM dim_admission_inputs dai
+            WHERE {scope_clause}
+              AND LOWER(COALESCE(dai.discharge_status,'')) = 'discharged'
+            ORDER BY dai.patient_id, dai.admission_date DESC
+        """, params)
+        rows = [dict(row) for row in cur.fetchall()]
+        if not rows:
+            content = "No discharged patients found under your care."
+            return [self._source(context, "Discharged patients", content, "patient_admission_summary", "ip",
+                                 "dim_admission_inputs", "authorized_doctor_discharged_list",
+                                 {"module": "ip", "count": 0, "cohort": "discharged"})], "authorized_sql_list"
+        lines = []
+        patient_ids = []
+        for row in rows:
+            name_str = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
+            values = [name_str]
+            if "basic" in dimensions or "details" in dimensions:
+                values += [f"ID …{str(row.get('patient_code') or row['patient_id'])[-4:]}", f"gender {row.get('gender') or 'not recorded'}"]
+            if row.get("primary_diagnosis"):
+                values.append(f"clinical problem: {row['primary_diagnosis']}")
+            bal_str = f"Rs {row['outstanding_balance']}" if row.get('outstanding_balance') is not None else "not recorded"
+            values.append(f"discharge: {row.get('discharge_status') or 'Discharged'}; clearance: {row.get('bill_clearance_status') or 'not recorded'}; outstanding balance: {bal_str}")
+            lines.append(" — ".join(values))
+            patient_ids.append(int(row["patient_id"]))
+        content = f"Discharged patients ({len(rows)}):\n" + "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+        metadata = {
+            "module": "ip",
+            "record_id": "authorized_doctor_discharged_list",
+            "count": len(rows),
+            "patient_ids": patient_ids,
+            "cohort": "discharged",
+            "requested_fields": sorted(dimensions)
+        }
+        return [self._source(context, "Discharged patients", content, "patient_admission_summary", "ip",
+                             "admissions,patients,dim_admission_inputs", "authorized_doctor_discharged_list", metadata)], "authorized_sql_list"
+
+    def _doctor_op_list(self, cur, context, dimensions: Set[str]):
+        if not context.doctor_id and not context.is_admin:
+            raise PermissionError(ACCESS_DENIED)
+        name = ""
+        if context.doctor_id:
+            cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
+            doctor = cur.fetchone() or {}
+            name = doctor.get("display_name") if isinstance(doctor, dict) else doctor[0]
+            if not name: raise PermissionError(ACCESS_DENIED)
+
+        cur.execute("""
+            SELECT
+                sub.patient_id,
+                p.patient_code,
+                p.first_name,
+                p.last_name,
+                p.gender,
+                sub.appointment_date,
+                sub.appointment_time,
+                sub.status,
+                sub.booking_id,
+                COALESCE(sub.reason_for_visit, sub.patient_reason, 'Outpatient Consultation') AS reason
+            FROM (
+                SELECT DISTINCT ON (apt.patient_id)
+                    apt.patient_id,
+                    apt.doctor_id,
+                    apt.appointment_date,
+                    apt.appointment_time,
+                    apt.status,
+                    apt.booking_id,
+                    apt.reason_for_visit,
+                    apt.patient_reason,
+                    COALESCE(d.display_name, 'Consultant Doctor') AS doctor
+                FROM appointments apt
+                JOIN patients p ON p.id = apt.patient_id
+                LEFT JOIN doctors d ON d.id = apt.doctor_id
+                WHERE (apt.booking_source IN ('OPD_DESK', 'Walk-in', 'Phone', 'Web Portal', 'ADMIN', 'DOCTOR') OR apt.booking_id LIKE 'APT-%%')
+                ORDER BY apt.patient_id, apt.appointment_date DESC, apt.id DESC
+                LIMIT 100
+            ) sub
+            JOIN patients p ON p.id = sub.patient_id
+            WHERE sub.doctor_id IN (%s, %s) OR sub.doctor ILIKE %s
+            ORDER BY sub.appointment_date DESC, sub.appointment_time DESC
+        """, (context.doctor_id, context.user_id, f"%{name}%"))
+        rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            content = "No outpatient (OP) patients found under your care."
+            return [self._source(context, "Outpatient (OP) patients", content, "appointment_summary", "op",
+                                 "appointments,patients", "authorized_doctor_op_list",
+                                 {"module": "op", "count": 0, "cohort": "op"})], "authorized_sql_list"
+        lines = []
+        patient_ids = []
+        for i, row in enumerate(rows, 1):
+            name_str = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
+            values = [name_str]
+            id_str = str(row.get('patient_code') or row['patient_id'])[-4:]
+            values.append(f"ID …{id_str}")
+            if "basic" in dimensions and row.get("gender"):
+                values.append(f"gender {row['gender']}")
+            if row.get("appointment_date"):
+                time_str = f" {str(row['appointment_time'])[:5]}" if row.get("appointment_time") else ""
+                values.append(f"appointment: {row['appointment_date']}{time_str}")
+            if row.get("reason"):
+                values.append(f"reason: {row['reason']}")
+            if row.get("status"):
+                values.append(f"status: {row['status']}")
+            lines.append(" — ".join(values))
+            patient_ids.append(int(row["patient_id"]))
+        content = f"Outpatient (OP) patients ({len(rows)}):\n" + "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+        metadata = {
+            "module": "op",
+            "record_id": "authorized_doctor_op_list",
+            "count": len(rows),
+            "patient_ids": patient_ids,
+            "cohort": "op",
+            "requested_fields": sorted(dimensions)
+        }
+        return [self._source(context, "Outpatient (OP) patients", content, "appointment_summary", "op",
+                             "appointments,patients", "authorized_doctor_op_list", metadata)], "authorized_sql_list"
+
+    def _doctor_patient_list(self, cur, context, dimensions: Set[str]):
+        fields = {"name"}
+        if "basic" in dimensions: fields |= {"basic", "location"}
+        if "location" in dimensions: fields.add("location")
+        if "admission_date" in dimensions: fields.add("admission_date")
+        if "reason" in dimensions: fields.add("reason")
+        if "admission" in dimensions: fields.add("admission")
+        if "diagnosis" in dimensions: fields.add("diagnosis")
+        if "blocked_discharge" in dimensions or "why" in dimensions: fields.add("discharge")
+        if "abnormal" in dimensions: fields |= {"abnormal", "vitals", "diagnosis", "location"}
+        return self._patient_collection(cur, context, {
+            "requested_fields": sorted(fields), "collection_patient_ids": [],
+            "blocked_discharge": "blocked_discharge" in dimensions,
+            "abnormal": "abnormal" in dimensions,
+        })
+
+    def _patient_collection(self, cur, context, plan):
+        """Field-driven, structured collection retrieval inside one authorization scope."""
+        norm_q = plan.get("normalized_query", "")
+        dims = set(plan.get("dimensions") or ())
+        if (
+            plan.get("cohort") == "op"
+            or "op" in dims
+            or _has(norm_q, {"outpatient", "opd"})
+            or "op" in norm_q.split()
+            or "any op" in norm_q
+        ):
+            return self._doctor_op_list(cur, context, {"op", "names"})
+        if (
+            plan.get("cohort") == "discharged"
+            or "discharged" in dims
+            or ("discharged" in norm_q.split() and not _has(norm_q, {"clearance", "pending discharge", "summary", "draft"}))
+        ):
+            return self._doctor_discharged_list(cur, context, {"discharged", "names"})
+
+        fields = set(plan.get("requested_fields") or ()) or {"name"}
+        prior_ids = sorted({int(value) for value in plan.get("collection_patient_ids") or ()})
+        blocked = bool(plan.get("blocked_discharge")) or "blocked_discharge" in set(plan.get("dimensions") or ())
+        abnormal = bool(plan.get("abnormal")) or "abnormal" in fields
+        if not context.doctor_id:
+            if not context.is_admin:
+                raise PermissionError(ACCESS_DENIED)
+            doctor_name = None
+        else:
+            cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
+            doctor = cur.fetchone() or {}
+            doctor_name = doctor.get("display_name") if isinstance(doctor, dict) else doctor[0]
+            if not doctor_name: raise PermissionError(ACCESS_DENIED)
+        blocked_clause = ""
+        if blocked or ("discharge" in fields and plan.get("normalized_query", "").find("blocked") >= 0):
+            blocked_clause = """
+                AND EXISTS (
+                    SELECT 1 FROM bills b
+                    WHERE b.patient_id=dai.patient_id AND b.admission_id=dai.admission_id
+                      AND COALESCE(b.bill_status,'') NOT IN ('Settled','Paid','Cleared')
+                      AND (COALESCE(b.patient_amount,b.net_amount,0) - COALESCE((
+                          SELECT SUM(pay.amount) FROM payments pay
+                          WHERE pay.bill_id=b.bill_id AND pay.payment_status='Success'
+                      ),0)) > 0.01
+                )
+            """
+        abnormal_clause = ""
+        if abnormal:
+            abnormal_clause = """
+                AND (dai.latest_temperature >= 100.4 OR dai.latest_heart_rate >= 100 OR dai.latest_heart_rate < 60
+                     OR dai.latest_systolic_bp >= 140 OR dai.latest_systolic_bp < 90
+                     OR dai.latest_oxygen_saturation < 95.0)
+            """
+        scope_clauses, params = [], []
+        if context.role == "doctor":
+            scope_clauses.append("(dai.attending_doctor ILIKE %s OR dai.admission_id IN (SELECT admission_id FROM admissions WHERE doctor_id=%s))")
+            params.extend([f"%{doctor_name}%", context.doctor_id])
+        if prior_ids:
+            scope_clauses.append("dai.patient_id=ANY(%s)"); params.append(prior_ids)
+        scope_sql = " AND ".join(scope_clauses) if scope_clauses else "TRUE"
+        cur.execute(f"""
+            SELECT DISTINCT ON (dai.patient_id) dai.patient_id, dai.patient_number AS patient_code,
+                   dai.first_name, dai.last_name, dai.gender, dai.date_of_birth,
+                   dai.admission_number, dai.admission_date, dai.reason_for_admission,
+                   dai.bed_number, dai.room_number, dai.ward_name, dai.primary_diagnosis,
+                   dai.secondary_diagnoses, dai.latest_temperature, dai.latest_heart_rate,
+                   dai.latest_systolic_bp, dai.latest_diastolic_bp, dai.latest_oxygen_saturation,
+                   dai.bill_number, dai.bill_net_amount, dai.bill_status,
+                   dai.bill_clearance_status, dai.outstanding_balance, dai.discharge_status
+            FROM dim_admission_inputs dai
+            WHERE {scope_sql}
+              AND LOWER(COALESCE(dai.discharge_status,'')) <> 'discharged'
+              {blocked_clause}
+              {abnormal_clause}
+            ORDER BY dai.patient_id, dai.admission_date DESC
+        """, params)
+        rows = [dict(row) for row in cur.fetchall()]
+        if not rows:
+            return [], "authorized_sql_list"
+        lines, patient_ids = [], [int(row["patient_id"]) for row in rows]
+        for row in rows:
+            name = f"{row.get('first_name') or ''} {row.get('last_name') or ''}".strip()
+            values = [name]
+            if "basic" in fields:
+                values += [f"ID …{str(row.get('patient_code') or row['patient_id'])[-4:]}", f"gender {row.get('gender') or 'not recorded'}"]
+            if "diagnosis" in fields:
+                values.append(f"clinical problem: {row.get('primary_diagnosis') or 'not recorded'}")
+            if "location" in fields:
+                values.append(f"bed {row.get('bed_number') or 'not assigned'}, room {row.get('room_number') or 'not assigned'}, ward {row.get('ward_name') or 'not assigned'}")
+            if "admission_date" in fields:
+                adm_date = str(row.get('admission_date'))[:10] if row.get('admission_date') else "not recorded"
+                values.append(f"admission date: {adm_date}")
+            if "reason" in fields:
+                values.append(f"reason: {row.get('reason_for_admission') or 'not recorded'}")
+            if "admission" in fields and "admission_date" not in fields and "reason" not in fields:
+                adm_date = str(row.get('admission_date'))[:10] if row.get('admission_date') else None
+                adm_parts = []
+                if adm_date: adm_parts.append(f"admission date: {adm_date}")
+                if row.get('reason_for_admission'): adm_parts.append(f"reason: {row.get('reason_for_admission')}")
+                values.append(", ".join(adm_parts) if adm_parts else "admission: not recorded")
+            if "vitals" in fields:
+                bp = f"{row.get('latest_systolic_bp')}/{row.get('latest_diastolic_bp')}" if row.get('latest_systolic_bp') is not None else "not recorded"
+                values.append(f"latest vitals: BP {bp}, HR {row.get('latest_heart_rate') or 'not recorded'}, SpO2 {row.get('latest_oxygen_saturation') or 'not recorded'}, Temp {row.get('latest_temperature') or 'not recorded'}")
+            if "billing" in fields:
+                values.append(f"bill {row.get('bill_number') or 'not recorded'}; status {row.get('bill_status') or 'not recorded'}; outstanding {row.get('outstanding_balance') if row.get('outstanding_balance') is not None else 'not recorded'}")
+            if "discharge" in fields:
+                bal_str = f"Rs {row['outstanding_balance']}" if row.get('outstanding_balance') is not None else "not recorded"
+                values.append(f"discharge: {row.get('discharge_status') or 'not recorded'}; clearance: {row.get('bill_clearance_status') or 'not recorded'}; outstanding balance: {bal_str}")
+            lines.append(" — ".join(values))
+        if abnormal:
+            label = "Patients with abnormal/critical values"
+        elif blocked:
+            label = "Discharge-blocked patients"
+        else:
+            label = "Current IP patients"
+        content = f"{label} ({len(rows)}):\n" + "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+        metadata = {"module":"ip", "record_id":"authorized_doctor_patient_list",
+                    "count":len(rows), "patient_ids":patient_ids,
+                    "requested_fields":sorted(fields), "blocked_discharge":blocked,
+                    "abnormal":abnormal}
+        return [self._source(context, label, content, "patient_admission_summary", "ip",
+                "admissions,patients", "authorized_doctor_patient_list", metadata)], "authorized_sql_list"
+
+    def _doctor_radiology_worklist(self, cur, context, dimensions: Set[str]):
+        allowed = sorted(context.allowed_patient_ids or ())
+        if not allowed:
+            return [], "empty_authorized_scope"
+        clauses = ["ro.patient_id = ANY(%s)"]
+        params = [allowed]
+        if "breakdown" in dimensions or ("urgent" in dimensions and "routine" in dimensions):
+            # Breakdown across priorities, fetch all active orders
+            pass
+        elif "urgent" in dimensions:
+            clauses.append("LOWER(ro.priority) IN ('urgent', 'stat', 'high', 'emergency')")
+            clauses.append("LOWER(COALESCE(ro.status, '')) NOT IN ('finalized', 'completed', 'reviewed')")
+        elif "routine" in dimensions:
+            clauses.append("LOWER(ro.priority) NOT IN ('urgent', 'stat', 'high', 'emergency')")
+            clauses.append("LOWER(COALESCE(ro.status, '')) NOT IN ('finalized', 'completed', 'reviewed')")
+        elif "uploaded" in dimensions:
+            clauses.append("LOWER(COALESCE(ro.status, '')) = 'uploaded'")
+        elif "requested" in dimensions:
+            clauses.append("LOWER(COALESCE(ro.status, '')) = 'requested'")
+        where = " AND ".join(clauses)
+        cur.execute(f"""
+            SELECT ro.order_id, ro.accession_number, ro.patient_id, ro.examination, ro.priority, ro.status,
+                   p.first_name, p.last_name, p.patient_code
+            FROM radiology_orders ro
+            JOIN patients p ON p.id = ro.patient_id
+            WHERE {where}
+            ORDER BY ro.created_at DESC
+        """, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            if "urgent" in dimensions:
+                content = "No pending urgent or high-priority X-ray orders found for your admitted patients."
+            elif "routine" in dimensions:
+                content = "No routine X-ray orders found for your admitted patients."
+            elif "uploaded" in dimensions:
+                content = "No uploaded X-ray orders found for your admitted patients."
+            else:
+                content = "No X-ray orders or reports found for your admitted patients."
+            return [self._source(context, "Doctor Radiology Worklist", content, "xray_order", "radiology_order",
+                                 "radiology_orders", "authorized_doctor_radiology_worklist",
+                                 {"module": "radiology_order", "count": 0})], "authorized_sql_list"
+
+        if "breakdown" in dimensions or ("urgent" in dimensions and "routine" in dimensions):
+            urgent_rows = [r for r in rows if str(r.get("priority", "")).strip().lower() in ("urgent", "stat", "high", "emergency")]
+            routine_rows = [r for r in rows if str(r.get("priority", "")).strip().lower() not in ("urgent", "stat", "high", "emergency")]
+            if "count" in dimensions and "categorize" not in dimensions:
+                content = f"Authorized X-ray order priority counts: Urgent: {len(urgent_rows)} orders; Routine: {len(routine_rows)} orders (Total: {len(rows)} orders)."
+                label = "Authorized X-ray Order Counts"
+                return [self._source(context, label, content, "xray_order", "radiology_order",
+                                     "radiology_orders", "authorized_doctor_radiology_worklist",
+                                     {"module": "radiology_order", "count": len(rows), "urgent_count": len(urgent_rows), "routine_count": len(routine_rows)})], "authorized_sql_aggregate"
+
+            lines = []
+            if urgent_rows:
+                lines.append(f"• Urgent Priority ({len(urgent_rows)} orders):")
+                for i, r in enumerate(urgent_rows, 1):
+                    name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lines.append(f"  {i}. {name} (ID …{str(r.get('patient_code') or r['patient_id'])[-4:]}): {r.get('examination')} — Priority: {r.get('priority')}, Status: {r.get('status')}, Acc: #{r.get('accession_number')}")
+            if routine_rows:
+                if lines: lines.append("")
+                lines.append(f"• Routine Priority ({len(routine_rows)} orders):")
+                for i, r in enumerate(routine_rows, 1):
+                    name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lines.append(f"  {i}. {name} (ID …{str(r.get('patient_code') or r['patient_id'])[-4:]}): {r.get('examination')} — Priority: {r.get('priority')}, Status: {r.get('status')}, Acc: #{r.get('accession_number')}")
+
+            label = "Categorized X-ray Orders by Priority"
+            content = f"Categorized X-ray Orders ({len(rows)} orders: {len(urgent_rows)} Urgent, {len(routine_rows)} Routine):\n" + "\n".join(lines)
+            return [self._source(context, label, content, "xray_order", "radiology_order",
+                                 "radiology_orders", "authorized_doctor_radiology_worklist",
+                                 {"module": "radiology_order", "count": len(rows), "patient_ids": [r["patient_id"] for r in rows], "urgent_count": len(urgent_rows), "routine_count": len(routine_rows)})], "authorized_sql_list"
+
+        if "categorize" in dimensions:
+            urgent_rows = [r for r in rows if str(r.get("priority", "")).strip().lower() in ("urgent", "stat", "high", "emergency")]
+            routine_rows = [r for r in rows if str(r.get("priority", "")).strip().lower() not in ("urgent", "stat", "high", "emergency")]
+            lines = []
+            if urgent_rows:
+                lines.append(f"• Urgent Priority ({len(urgent_rows)} orders):")
+                for i, r in enumerate(urgent_rows, 1):
+                    name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lines.append(f"  {i}. {name} (ID …{str(r.get('patient_code') or r['patient_id'])[-4:]}): {r.get('examination')} — Priority: {r.get('priority')}, Status: {r.get('status')}, Acc: #{r.get('accession_number')}")
+            if routine_rows:
+                if lines: lines.append("")
+                lines.append(f"• Routine Priority ({len(routine_rows)} orders):")
+                for i, r in enumerate(routine_rows, 1):
+                    name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lines.append(f"  {i}. {name} (ID …{str(r.get('patient_code') or r['patient_id'])[-4:]}): {r.get('examination')} — Priority: {r.get('priority')}, Status: {r.get('status')}, Acc: #{r.get('accession_number')}")
+
+            label = "Categorized X-ray Orders by Priority"
+            content = f"Categorized X-ray Orders ({len(rows)} orders: {len(urgent_rows)} Urgent, {len(routine_rows)} Routine):\n" + "\n".join(lines)
+            return [self._source(context, label, content, "xray_order", "radiology_order",
+                                 "radiology_orders", "authorized_doctor_radiology_worklist",
+                                 {"module": "radiology_order", "count": len(rows), "patient_ids": [r["patient_id"] for r in rows], "urgent_count": len(urgent_rows), "routine_count": len(routine_rows)})], "authorized_sql_list"
+
+        lines = []
+        patient_ids = []
+        for i, r in enumerate(rows, 1):
+            name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+            lines.append(f"{i}. {name} (ID …{str(r.get('patient_code') or r['patient_id'])[-4:]}): {r.get('examination')} — Priority: {r.get('priority')}, Status: {r.get('status')}, Acc: #{r.get('accession_number')}")
+            patient_ids.append(r["patient_id"])
+
+        if "urgent" in dimensions:
+            label = "Patients with Pending Urgent/Priority X-rays"
+        elif "routine" in dimensions:
+            label = "Patients with Routine X-rays"
+        elif "uploaded" in dimensions:
+            label = "Patients with Uploaded X-rays"
+        elif "requested" in dimensions:
+            label = "Patients with Requested X-rays"
+        else:
+            label = "Patients with X-ray Orders / Reports"
+
+        content = f"{label} ({len(rows)} orders):\n" + "\n".join(lines)
+        return [self._source(context, label, content, "xray_order", "radiology_order",
+                             "radiology_orders", "authorized_doctor_radiology_worklist",
+                             {"module": "radiology_order", "count": len(rows), "patient_ids": patient_ids})], "authorized_sql_list"
+
+    def _doctor_clarifications(self, cur, context, dimensions: Set[str], patient_id: Optional[int] = None):
+        if not context.doctor_id and not context.user_id:
+            raise PermissionError(ACCESS_DENIED)
+        allowed = sorted(context.allowed_patient_ids or ())
+        clauses = []
+        params = []
+        if patient_id is not None:
+            clauses.append("ro.patient_id = %s")
+            params.append(patient_id)
+        elif context.role == "radiologist":
+            clauses.append("(rc.assigned_to = %s OR rc.created_by = %s OR rc.assigned_to IS NULL)")
+            params.extend([context.user_id, context.user_id])
+        elif context.is_admin:
+            pass
+        else:
+            clauses.append("(rc.created_by IN (%s, %s)" + (" OR ro.patient_id = ANY(%s))" if allowed else ")"))
+            params.extend([context.user_id, context.doctor_id])
+            if allowed:
+                params.append(allowed)
+
+        if "urgent" in dimensions:
+            clauses.append("LOWER(rc.priority) IN ('urgent', 'stat', 'high')")
+        if "status" in dimensions:
+            if "resolved" in dimensions or "closed" in dimensions:
+                clauses.append("LOWER(rc.status) = 'resolved'")
+            elif "pending" in dimensions or "open" in dimensions:
+                clauses.append("LOWER(rc.status) <> 'resolved'")
+
+        where = " AND ".join(clauses) if clauses else "1=1"
+
+        # ── Unread clarification check ───────────────────────────────────
+        if "unread" in dimensions:
+            viewer_id = context.user_id
+            cur.execute(f"""
+                SELECT rc.id, rc.subject, rc.status, rc.priority, rc.created_at,
+                       ro.accession_number, ro.examination,
+                       p.first_name, p.last_name, p.patient_code,
+                       COUNT(rcm.id) AS total_msgs,
+                       COUNT(rcr.message_id) AS read_msgs
+                FROM radiology_clarifications rc
+                JOIN radiology_orders ro ON ro.order_id = rc.order_id
+                JOIN patients p ON p.id = ro.patient_id
+                JOIN radiology_clarification_messages rcm ON rcm.thread_id = rc.id
+                LEFT JOIN radiology_clarification_reads rcr
+                    ON rcr.message_id = rcm.id AND rcr.user_id = %s
+                WHERE {where}
+                GROUP BY rc.id, rc.subject, rc.status, rc.priority, rc.created_at,
+                         ro.accession_number, ro.examination,
+                         p.first_name, p.last_name, p.patient_code
+                ORDER BY rc.created_at DESC
+            """, [viewer_id] + params)
+            rows = [dict(r) for r in cur.fetchall()]
+            unread_rows = [r for r in rows if int(r.get('total_msgs', 0)) > int(r.get('read_msgs', 0))]
+            if not unread_rows:
+                content = "No unread clarification messages. All clarifications have been read."
+                label = "Clarification Unread Status"
+            else:
+                lines = []
+                for i, r in enumerate(unread_rows, 1):
+                    pname = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    unread_cnt = int(r.get('total_msgs', 0)) - int(r.get('read_msgs', 0))
+                    lines.append(f"{i}. Patient: {pname} | Subject: \"{r.get('subject')}\" | "
+                                 f"Acc: #{r.get('accession_number')} | Unread: {unread_cnt} message(s) | "
+                                 f"Status: {r.get('status')}")
+                content = f"Unread clarifications ({len(unread_rows)}):\n" + "\n".join(lines)
+                label = f"Unread Radiology Clarifications ({len(unread_rows)})"
+            return [self._source(context, label, content, "radiology_clarification",
+                                 "radiology_clarification", "radiology_clarifications",
+                                 "authorized_doctor_clarifications",
+                                 {"module": "radiology_clarification", "count": len(unread_rows),
+                                  "unread_count": len(unread_rows)})], "authorized_sql_list"
+
+        cur.execute(f"""
+            SELECT rc.id, rc.order_id, rc.subject, rc.priority, rc.status, rc.created_at, rc.resolved_at,
+                   ro.accession_number, ro.examination,
+                   p.first_name, p.last_name, p.patient_code, p.id AS patient_id
+            FROM radiology_clarifications rc
+            JOIN radiology_orders ro ON ro.order_id = rc.order_id
+            JOIN patients p ON p.id = ro.patient_id
+            WHERE {where}
+            ORDER BY rc.created_at DESC
+        """, params)
+        rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            content = "No clarification messages are recorded in the provided radiology records."
+            return [self._source(context, "Radiology Clarifications", content, "radiology_clarification", "radiology_clarification",
+                                 "radiology_clarifications", "authorized_doctor_clarifications",
+                                 {"module": "radiology_clarification", "count": 0})], "authorized_sql_list"
+
+        urgent_count = sum(1 for r in rows if str(r.get("priority", "")).lower() in ("urgent", "stat", "high"))
+        routine_count = len(rows) - urgent_count
+        resolved_count = sum(1 for r in rows if str(r.get("status", "")).lower() == "resolved")
+        pending_count = len(rows) - resolved_count
+
+        if "count" in dimensions and "list" not in dimensions:
+            content = f"Authorized radiology clarifications: {len(rows)} clarifications recorded ({urgent_count} Urgent, {routine_count} Routine; {resolved_count} Resolved, {pending_count} Pending)."
+            label = "Authorized Radiology Clarification Counts"
+            return [self._source(context, label, content, "radiology_clarification", "radiology_clarification",
+                                 "radiology_clarifications", "authorized_doctor_clarifications",
+                                 {"module": "radiology_clarification", "count": len(rows), "urgent_count": urgent_count, "routine_count": routine_count, "resolved_count": resolved_count, "pending_count": pending_count})], "authorized_sql_aggregate"
+
+        # Get messages with sender info for all threads
+        thread_ids = [str(r["id"]) for r in rows]
+        cur.execute("""
+            SELECT rcm.thread_id, rcm.sender_name, rcm.sender_role, rcm.body, rcm.created_at
+            FROM radiology_clarification_messages rcm
+            WHERE rcm.thread_id = ANY(%s::uuid[])
+            ORDER BY rcm.created_at ASC
+        """, (thread_ids,))
+        all_messages = {}
+        for msg in cur.fetchall():
+            tid = str(msg['thread_id'])
+            if tid not in all_messages:
+                all_messages[tid] = []
+            all_messages[tid].append(dict(msg))
+
+        # Always build a structured list (ignore rag_documents for list queries)
+        lines = []
+        for i, r in enumerate(rows, 1):
+            pname = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+            tid = str(r['id'])
+            msgs = all_messages.get(tid, [])
+            # Raised by = first sender (doctor)
+            raised_by = msgs[0]['sender_name'] if msgs else "Unknown"
+            first_msg_body = msgs[0]['body'] if msgs else "(no message)"
+            line = (f"{i}. Patient: {pname} (Acc: #{r.get('accession_number')}) | "
+                    f"Subject: \"{r.get('subject')}\" | Raised By: {raised_by} | "
+                    f"Clarification: \"{first_msg_body[:80]}\" | "
+                    f"Status: {r.get('status')} | Priority: {r.get('priority')}")
+            lines.append(line)
+
+        label = f"Radiology Clarifications ({len(rows)})"
+        content = (f"Radiology clarifications ({len(rows)} total: {urgent_count} Urgent, {routine_count} Routine; "
+                   f"{resolved_count} Resolved, {pending_count} Pending):\n" + "\n".join(lines))
+        return [self._source(context, label, content, "radiology_clarification", "radiology_clarification",
+                             "radiology_clarifications", "authorized_doctor_clarifications",
+                             {"module": "radiology_clarification", "count": len(rows), "patient_ids": [r["patient_id"] for r in rows], "urgent_count": urgent_count, "routine_count": routine_count})], "authorized_sql_list"
+
+    def _doctor_ward_tasks(self, cur, context):
+        if not context.doctor_id:
+            raise PermissionError(ACCESS_DENIED)
+        cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
+        doc = cur.fetchone() or {}
+        doctor_name = doc.get("display_name") if isinstance(doc, dict) else (doc[0] if doc else "")
+        if not doctor_name:
+            raise PermissionError(ACCESS_DENIED)
+        cur.execute("""
+            SELECT nt.id, nt.bed_no, nt.patient_name, nt.uhid, nt.task_description, nt.status,
+                   nt.flag_status, nt.ward_name, nt.ews_score, nt.hr, nt.bp, nt.spo2, nt.temp
+            FROM nursing_tasks nt
+            WHERE nt.clinical_notes ILIKE %s AND nt.status IN ('Active', 'In Progress')
+            ORDER BY CASE WHEN nt.flag_status ILIKE '%%critical%%' THEN 1 ELSE 2 END, nt.id
+        """, (f"%{doctor_name}%",))
+        rows = [dict(r) for r in cur.fetchall()]
+        if not rows:
+            content = f"No active ward tasks or pending clinical orders for patients under {doctor_name}."
+            return [self._source(context, "Ward Rounds Clinical Task Summary", content, "patient_admission_summary", "ip",
+                                 "nursing_tasks", "authorized_doctor_ward_tasks",
+                                 {"module": "ip", "count": 0})], "authorized_sql_list"
+        lines = []
+        for i, r in enumerate(rows, 1):
+            pname = r.get("patient_name") or "Patient"
+            bed = r.get("bed_no") or "Bed"
+            ward = r.get("ward_name") or "Ward"
+            tdesc = r.get("task_description") or "Task"
+            flag = r.get("flag_status") or "Normal"
+            ews = r.get("ews_score")
+            ews_str = f", EWS: {ews}" if ews is not None else ""
+            lines.append(f"{i}. {pname} ({bed}, {ward}): {tdesc} [Flag: {flag}{ews_str}]")
+        label = "Pending Clinical Orders & Ward Tasks"
+        content = f"{label} ({len(rows)} tasks):\n" + "\n".join(lines)
+        return [self._source(context, label, content, "patient_admission_summary", "ip",
+                             "nursing_tasks", "authorized_doctor_ward_tasks",
+                             {"module": "ip", "count": len(rows)})], "authorized_sql_list"
+
+    def _radiology_aggregate(self, cur, context, dimensions, patient_id, order_id, accession_number):
+        clauses, params = ["1=1"], []
+        if context.role == "doctor":
+            allowed = sorted(context.allowed_patient_ids or ())
+            if not allowed: return [], "empty_authorized_scope"
+            clauses.append("o.patient_id=ANY(%s)"); params.append(allowed)
+        elif context.role == "radiologist":
+            pass
+        if patient_id is not None: clauses.append("o.patient_id=%s"); params.append(patient_id)
+        if order_id: clauses.append("o.order_id=%s"); params.append(str(order_id))
+        if accession_number: clauses.append("o.accession_number=%s"); params.append(accession_number)
+
+        # Examination type filter (PA / AP / PA+AP)
+        exam_label = None
+        if "pa_and_ap" in dimensions:
+            clauses.append("LOWER(o.examination) ILIKE %s"); params.append("%pa%ap%")
+            exam_label = "Chest X-ray PA + AP"
+        elif "pa" in dimensions:
+            clauses.append("LOWER(o.examination) ILIKE %s AND LOWER(o.examination) NOT ILIKE %s")
+            params.extend(["%pa%", "%pa%ap%"])
+            exam_label = "Chest X-ray PA"
+        elif "ap" in dimensions:
+            # AP-only: matches 'Chest X-ray AP' but NOT 'PA + AP'
+            clauses.append("(LOWER(o.examination) ILIKE %s AND LOWER(o.examination) NOT ILIKE %s)")
+            params.extend(["%ap%", "%pa%ap%"])
+            exam_label = "Chest X-ray AP"
+
+        where = " AND ".join(clauses)
+
+        # Study analyzed: count from radiology_scan (AI worklist)
+        if "study_analyzed" in dimensions:
+            # Base params for scan table (no join needed, scan has order_id)
+            scan_clauses = ["1=1"]
+            scan_params = []
+            if context.role == "doctor":
+                allowed = sorted(context.allowed_patient_ids or ())
+                if not allowed: return [], "empty_authorized_scope"
+                scan_clauses.append("s.patient_id=ANY(%s)"); scan_params.append(allowed)
+            scan_where = " AND ".join(scan_clauses)
+
+            cur.execute(f"SELECT COUNT(*) total FROM radiology_scan s WHERE {scan_where}", scan_params)
+            total_scans = int((cur.fetchone() or {}).get("total") or 0)
+
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE LOWER(COALESCE(s.review_status,'')) = 'confirmed') AS confirmed,
+                    COUNT(*) FILTER (WHERE LOWER(COALESCE(s.review_status,'')) = 'pending review') AS pending_review,
+                    COUNT(*) FILTER (WHERE s.review_status IS NULL) AS unreviewed
+                FROM radiology_scan s WHERE {scan_where}
+            """, scan_params)
+            stat = dict(cur.fetchone() or {})
+            confirmed = int(stat.get('confirmed') or 0)
+            pending_rev = int(stat.get('pending_review') or 0)
+            unreviewed = int(stat.get('unreviewed') or 0)
+            analyzed = confirmed + pending_rev  # "analyzed" = AI has processed it
+
+            if "priority" in dimensions:
+                cur.execute(f"""
+                    SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(s.priority,'')) = 'high priority') AS high_priority,
+                           COUNT(*) FILTER (WHERE LOWER(COALESCE(s.priority,'')) = 'routine') AS routine_priority
+                    FROM radiology_scan s WHERE {scan_where} AND s.review_status IS NOT NULL
+                """, scan_params)
+                pstat = dict(cur.fetchone() or {})
+                high_p = int(pstat.get('high_priority') or 0)
+                routine_p = int(pstat.get('routine_priority') or 0)
+                content = (f"Studies analyzed by AI worklist: {analyzed} out of {total_scans} total scans. "
+                           f"Confirmed: {confirmed}, Pending Review: {pending_rev}. "
+                           f"Priority breakdown (analyzed): High Priority: {high_p}, Routine: {routine_p}.")
+            else:
+                content = (f"Studies analyzed by AI worklist: {analyzed} out of {total_scans} total scans. "
+                           f"Confirmed: {confirmed}, Pending Review: {pending_rev}, Unreviewed: {unreviewed}.")
+            meta = {"module": "radiology_order", "record_id": "authorized_radiology_aggregate",
+                    "total": total_scans, "analyzed": analyzed, "confirmed": confirmed,
+                    "pending_review": pending_rev, "department": "radiology"}
+            return [self._source(context, "Authorized Radiology Study Analysis Count", content, "xray_order",
+                    "radiology_order", "radiology_scan", "authorized_radiology_aggregate", meta, patient_id)], "authorized_sql_aggregate"
+
+        cur.execute(f"SELECT COUNT(*) total FROM radiology_orders o WHERE {where}", params)
+        total = int((cur.fetchone() or {}).get("total") or 0)
+        meta = {"module":"radiology_order", "record_id":"authorized_radiology_aggregate", "total":total, "department":"radiology"}
+        if exam_label:
+            sections = [f"Total {exam_label} requests: {total}"]
+        else:
+            sections = [f"Total X-ray requests: {total}"]
+        for dim, expr in (("priority", "COALESCE(NULLIF(TRIM(o.priority),''),'Unassigned')"),
+                          ("status", "COALESCE(NULLIF(TRIM(o.status),''),'Unassigned')")):
+            if dim not in dimensions: continue
+            cur.execute(f"SELECT {expr} label,COUNT(*) total FROM radiology_orders o WHERE {where} GROUP BY {expr} ORDER BY total DESC,label", params)
+            rows = [{"label":r["label"], "total":int(r["total"])} for r in cur.fetchall()]
+            meta[dim] = rows; sections.append(dim.title()+": "+", ".join(f"{r['label']}: {r['total']}" for r in rows))
+        if "department" in dimensions:
+            cur.execute(f"""SELECT COALESCE(dep.department_name,'Unassigned') label,COUNT(*) total
+                FROM radiology_orders o LEFT JOIN users u ON u.id=o.requested_by
+                LEFT JOIN doctors d ON d.user_id=u.id LEFT JOIN departments dep ON dep.id=COALESCE(d.department_id,u.department_id)
+                WHERE {where} GROUP BY COALESCE(dep.department_name,'Unassigned') ORDER BY total DESC,label""", params)
+            rows = [{"label":r["label"], "total":int(r["total"])} for r in cur.fetchall()]
+            meta["department"] = rows; sections.append("Department: "+", ".join(f"{r['label']}: {r['total']}" for r in rows))
+        return [self._source(context, "Authorized Radiology Request Aggregate", ". ".join(sections)+".", "xray_order",
+                "radiology_order", "radiology_orders", "authorized_radiology_aggregate", meta, patient_id)], "authorized_sql_aggregate"
+
+    def _radiology_list(self, cur, context, dimensions: Set[str], patient_id: Optional[int] = None, query: str = ""):
+        """Return a full ordered list of radiology requests visible to this radiologist."""
+        clauses, params = ["1=1"], []
+        if context.role == "doctor":
+            allowed = sorted(context.allowed_patient_ids or ())
+            if not allowed: return [], "empty_authorized_scope"
+            clauses.append("o.patient_id=ANY(%s)"); params.append(allowed)
+        # radiologist sees all orders (scoped by department if needed)
+        if patient_id is not None:
+            clauses.append("o.patient_id=%s"); params.append(patient_id)
+
+        # Examination type filter
+        if "pa_and_ap" in dimensions:
+            clauses.append("LOWER(o.examination) ILIKE %s"); params.append("%pa%ap%")
+        elif "pa" in dimensions:
+            clauses.append("LOWER(o.examination) ILIKE %s AND LOWER(o.examination) NOT ILIKE %s")
+            params.extend(["%pa%", "%pa%ap%"])
+        elif "ap" in dimensions:
+            clauses.append("(LOWER(o.examination) ILIKE %s AND LOWER(o.examination) NOT ILIKE %s)")
+            params.extend(["%ap%", "%pa%ap%"])
+
+        # Priority/status filter
+        if "urgent" in dimensions:
+            clauses.append("LOWER(o.priority) IN ('urgent','stat','high','emergency')")
+        elif "routine" in dimensions:
+            clauses.append("LOWER(o.priority) NOT IN ('urgent','stat','high','emergency')")
+        if "uploaded" in dimensions:
+            clauses.append("LOWER(COALESCE(o.status,'')) = 'uploaded'")
+        elif "requested" in dimensions:
+            clauses.append("LOWER(COALESCE(o.status,'')) = 'requested'")
+
+        # Date filter
+        from datetime import date, timedelta
+        if "today" in dimensions:
+            clauses.append("DATE(o.created_at AT TIME ZONE 'Asia/Kolkata') = CURRENT_DATE")
+        elif "recent" in dimensions:
+            clauses.append("o.created_at AT TIME ZONE 'Asia/Kolkata' >= NOW() AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days'")
+
+        where = " AND ".join(clauses)
+        show_doctor = "requested_by" in dimensions
+
+        if show_doctor:
+            cur.execute(f"""
+                SELECT o.order_id, o.accession_number, o.patient_id, o.examination,
+                       o.priority, o.status, o.created_at,
+                       p.first_name AS p_first, p.last_name AS p_last, p.patient_code,
+                       u.first_name AS d_first, u.last_name AS d_last
+                FROM radiology_orders o
+                JOIN patients p ON p.id = o.patient_id
+                LEFT JOIN users u ON u.id = o.requested_by
+                WHERE {where}
+                ORDER BY o.created_at DESC
+            """, params)
+        else:
+            cur.execute(f"""
+                SELECT o.order_id, o.accession_number, o.patient_id, o.examination,
+                       o.priority, o.status, o.created_at,
+                       p.first_name AS p_first, p.last_name AS p_last, p.patient_code
+                FROM radiology_orders o
+                JOIN patients p ON p.id = o.patient_id
+                WHERE {where}
+                ORDER BY o.created_at DESC
+            """, params)
+
+        rows = [dict(r) for r in cur.fetchall()]
+
+        # Date filter: if "today" and no rows, give informative message
+        if not rows:
+            if "today" in dimensions:
+                content = "No X-ray requests received today."
+            elif "recent" in dimensions:
+                content = "No X-ray requests received in the last 7 days."
+            else:
+                content = "No X-ray requests found matching the specified criteria."
+            return [self._source(context, "Radiology Request List", content, "xray_order",
+                                 "radiology_order", "radiology_orders", "authorized_radiology_list",
+                                 {"module": "radiology_order", "count": 0}, patient_id)], "authorized_sql_list"
+
+        # If count-only requested
+        if "count" in dimensions and not ("list" in dimensions or show_doctor):
+            date_label = "today" if "today" in dimensions else ("this week" if "recent" in dimensions else "total")
+            content = f"X-ray requests ({date_label}): {len(rows)}."
+            return [self._source(context, "Radiology Request Count", content, "xray_order",
+                                 "radiology_order", "radiology_orders", "authorized_radiology_list",
+                                 {"module": "radiology_order", "count": len(rows)}, patient_id)], "authorized_sql_aggregate"
+
+        lines = []
+        for i, r in enumerate(rows, 1):
+            pname = f"{r.get('p_first') or ''} {r.get('p_last') or ''}".strip() or "Unknown Patient"
+            acc = r.get("accession_number") or "N/A"
+            exam = r.get("examination") or "X-ray"
+            priority = r.get("priority") or "Routine"
+            status = r.get("status") or "Unknown"
+            created = ""
+            if r.get("created_at"):
+                try: created = f" | Ordered: {r['created_at'].strftime('%Y-%m-%d %H:%M')}"
+                except Exception: pass
+            line = f"{i}. Patient: {pname} | Examination: {exam} | Priority: {priority} | Status: {status} | Acc: #{acc}{created}"
+            if show_doctor:
+                d_first = r.get("d_first") or ""
+                d_last = r.get("d_last") or ""
+                dname = f"Dr. {d_first} {d_last}".strip()
+                if dname != "Dr.":
+                    line += f" | Requested By: {dname}"
+            lines.append(line)
+
+        # Determine label based on filters
+        exam_label = ""
+        if "pa_and_ap" in dimensions: exam_label = "PA+AP "
+        elif "pa" in dimensions: exam_label = "PA "
+        elif "ap" in dimensions: exam_label = "AP "
+        date_label = " (Today)" if "today" in dimensions else (" (Last 7 Days)" if "recent" in dimensions else "")
+        label = f"All {exam_label}X-ray Requests{date_label} ({len(rows)} total)"
+        content = f"{label}:\n" + "\n".join(lines)
+        return [self._source(context, label, content, "xray_order",
+                             "radiology_order", "radiology_orders", "authorized_radiology_list",
+                             {"module": "radiology_order", "count": len(rows),
+                              "patient_ids": [r["patient_id"] for r in rows]}, patient_id)], "authorized_sql_list"
+
+    def _documents(self, cur, query, area, context, patient_id, admission_id, order_id, accession_number, status_filter, limit, expanded_phrases=None, query_plan=None):
+        # is_active is the backwards-compatible tombstone. Migration 024 adds a
+        # dedicated is_deleted column; ingestion mirrors deletion into is_active.
+        clauses, params = ["is_active=TRUE"], []
+        if context.role == "doctor":
+            allowed = sorted(context.allowed_patient_ids or ())
+            if not allowed: return [], "empty_authorized_scope"
+            clauses.append("patient_id=ANY(%s)"); params.append(allowed)
+        elif context.role == "radiologist":
+            types = [k for k,v in DOCUMENT_MODULE.items() if v in context.allowed_modules]
+            clauses.append("document_type=ANY(%s)"); params.append(types)
+            if context.department:
+                clauses.append("(metadata->>'department' IS NULL OR LOWER(metadata->>'department') = LOWER(%s))")
+                params.append(context.department)
+        is_patient_wide_query = (
+            patient_id is not None
+            and (
+                area == "patient360"
+                or _has(_normalized(query), {
+                    "diagnosis", "diagnoses", "all diagnosis", "all diagnoses", "diagnosis list", "dx",
+                    "result", "results", "investigation", "investigations", "workup", "lab", "labs",
+                    "xray", "x ray", "radiology", "scan", "imaging", "all records", "everything",
+                    "history", "all", "condition", "conditions", "test", "tests"
+                })
+            )
+            and not _has(_normalized(query), {"this admission", "admission id", "current stay", "why admitted", "still admitted"})
+        )
+        effective_admission_id = None if is_patient_wide_query else admission_id
+        for clause, value in (("patient_id=%s",patient_id),("order_id=%s",str(order_id) if order_id else None),("accession_number=%s",accession_number)):
+            if value is not None: clauses.append(clause); params.append(value)
+        if effective_admission_id is not None:
+            clauses.append("(admission_id=%s OR admission_id IS NULL)")
+            params.append(effective_admission_id)
+        modules = {"radiology":{"radiology_order","radiology_ai","radiology_report","radiology_clarification"},
+                   "discharge":{"ip","diagnosis","vitals","medications","lab","procedures","bill","radiology_report","discharge"}}.get(area)
+        if modules:
+            clauses.append("document_type=ANY(%s)"); params.append([k for k,v in DOCUMENT_MODULE.items() if v in modules])
+        if status_filter:
+            if status_filter.strip().lower() == "verified":
+                clauses.append("(is_verified=TRUE OR review_status ILIKE %s)")
+                params.append(f"%{status_filter}%")
+            else:
+                clauses.append("review_status ILIKE %s")
+                params.append(f"%{status_filter}%")
+        comprehensive = patient_id is not None and _has(_normalized(query), {"everything","complete overview","full overview","360","all records"})
+        fetch = max(limit*8,80) if comprehensive else max(limit*4,40)
+        retrieval_query = " ".join(dict.fromkeys([query] + list(expanded_phrases or [])))[:4000]
+        cur.execute(f"""SELECT id,document_type,source_table,source_record_id,patient_id,admission_id,doctor_id,
+            order_id,accession_number,study_instance_uid,title,content,metadata,review_status,is_verified,embedding,
+            ts_rank_cd(COALESCE(search_vector,tsv),plainto_tsquery('english',%s)) kw_score
+            FROM rag_documents WHERE {' AND '.join(clauses)} ORDER BY kw_score DESC,is_verified DESC,updated_at DESC LIMIT %s""",
+            [retrieval_query]+params+[fetch])
+        rows = cur.fetchall()
+
+        if not rows and patient_id is not None:
+            from services.rag_ingestion_service import ingestion_service
+            try:
+                ingestion_service.reindex_patient(patient_id)
+                cur.execute(f"""SELECT id,document_type,source_table,source_record_id,patient_id,admission_id,doctor_id,
+                    order_id,accession_number,study_instance_uid,title,content,metadata,review_status,is_verified,embedding,
+                    ts_rank_cd(COALESCE(search_vector,tsv),plainto_tsquery('english',%s)) kw_score
+                    FROM rag_documents WHERE {' AND '.join(clauses)} ORDER BY kw_score DESC,is_verified DESC,updated_at DESC LIMIT %s""",
+                    [retrieval_query]+params+[fetch])
+                rows = cur.fetchall()
+            except Exception:
+                pass
+
+        # Supplement admission/discharge records if missing or if query relates to admission/discharge
+        if patient_id is not None:
+            has_admission_or_dc = any(
+                (r.get("document_type") in ("patient_admission_summary", "verified_discharge_summary"))
+                for r in rows
+            )
+            is_adm_or_dc_q = any(w in _normalized(query) for w in [
+                "admit", "admitted", "admission", "discharg", "stay", "inpatient", "status", "leave", "released"
+            ])
+            if is_adm_or_dc_q or not has_admission_or_dc:
+                try:
+                    cur.execute("""
+                        SELECT id,document_type,source_table,source_record_id,patient_id,admission_id,doctor_id,
+                               order_id,accession_number,study_instance_uid,title,content,metadata,review_status,is_verified,embedding,
+                               0.95 as kw_score
+                        FROM rag_documents
+                        WHERE patient_id = %s
+                          AND document_type IN ('patient_admission_summary', 'verified_discharge_summary')
+                          AND is_active = TRUE
+                        ORDER BY document_type DESC, updated_at DESC LIMIT 3
+                    """, (patient_id,))
+                    extra_adm_rows = cur.fetchall()
+                    if extra_adm_rows:
+                        existing_ids = {r.get("id") for r in rows}
+                        for er in extra_adm_rows:
+                            if er.get("id") not in existing_ids:
+                                rows.append(er)
+                                existing_ids.add(er.get("id"))
+                except Exception:
+                    pass
+
+        if not rows and patient_id is not None:
+            cur.execute("""
+                SELECT dai.*, p.patient_code, p.first_name, p.last_name, p.gender, p.blood_group, p.date_of_birth
+                FROM dim_admission_inputs dai
+                JOIN patients p ON p.id = dai.patient_id
+                WHERE dai.patient_id = %s
+                ORDER BY dai.admission_date DESC LIMIT 1
+            """, (patient_id,))
+            adm = cur.fetchone()
+            if adm:
+                adm = dict(adm)
+                pname = f"{adm.get('first_name') or ''} {adm.get('last_name') or ''}".strip()
+                title = f"Inpatient Admission Summary - ADM #{adm.get('admission_number') or adm.get('admission_id')} ({pname})"
+                content = (
+                    f"Patient: {pname} (ID: {adm.get('patient_code') or patient_id}, Gender: {adm.get('gender') or 'N/A'})\n"
+                    f"Admission Reason: {adm.get('reason_for_admission') or 'Medical admission'}\n"
+                    f"Primary Diagnosis: {adm.get('primary_diagnosis') or 'Clinical evaluation'}\n"
+                    f"Attending Doctor: {adm.get('attending_doctor') or 'Assigned Physician'}\n"
+                    f"Location: Bed {adm.get('bed_number') or 'Unassigned'}, Room {adm.get('room_number') or 'Unassigned'}, Ward {adm.get('ward_name') or 'General'}\n"
+                    f"Vitals: BP {adm.get('latest_systolic_bp')}/{adm.get('latest_diastolic_bp')}, HR {adm.get('latest_heart_rate')}, SpO2 {adm.get('latest_oxygen_saturation')}%, Temp {adm.get('latest_temperature')}F\n"
+                    f"Discharge Status: {adm.get('discharge_status') or 'Admitted'}, Balance: Rs {adm.get('outstanding_balance') or 0}"
+                )
+                return [self._source(context, title, content, "patient_admission_summary", "ip",
+                                     "dim_admission_inputs", str(adm.get("admission_id") or patient_id),
+                                     {"module": "ip", "patient_id": patient_id}, patient_id)], "authorized_direct_summary"
+
+        qemb = self.embedding_service.generate_embedding(retrieval_query)
+        results = []
+        target_modules = set((query_plan or {}).get("modules") or [])
+        if area == "radiology" or target_modules & {"radiology_report", "radiology_order", "radiology_ai", "radiology_clarification", "radiology"} or _has(_normalized(query), {"xray", "x ray", "radiology", "scan", "scans"}):
+            target_modules |= {"radiology_report", "radiology_order", "radiology_ai", "radiology_clarification"}
+        for row in rows:
+            emb = row.get("embedding")
+            if isinstance(emb,str):
+                try: emb=json.loads(emb)
+                except Exception: emb=None
+            vec = self.embedding_service.cosine_similarity(qemb,emb) if qemb and isinstance(emb,list) else 0.0
+            kw=float(row.get("kw_score") or 0); item=dict(row); item.pop("embedding",None)
+            item["order_id"]=str(item["order_id"]) if item.get("order_id") else None
+            item["metadata"]=item.get("metadata") if isinstance(item.get("metadata"),dict) else {}
+            item["module"]=item["metadata"].get("module") or DOCUMENT_MODULE.get(item["document_type"])
+            boost = 0.25 if (target_modules and item["module"] in target_modules) else 0.0
+            if item.get("document_type") == "radiologist_final_report" and _has(_normalized(query), {"result", "results", "report", "reports", "finding", "findings", "impression", "conclude", "conclusion", "final report"}):
+                boost += 0.1
+            if _has(_normalized(query), {"priority", "urgent", "high priority", "triage"}):
+                if any(p in str(item.get("content", "")).lower() for p in ["priority: urgent", "priority level: high priority", "high priority", "urgent"]):
+                    boost += 0.15
+            if _has(_normalized(query), {"indication", "clinical indication"}):
+                if "clinical indication:" in str(item.get("content", "")).lower() or "indication:" in str(item.get("content", "")).lower():
+                    boost += 0.1
+            if item.get("document_type") == "radiology_clarification":
+                if _has(_normalized(query), {"clarification", "clarifications", "calrification", "calrifications", "thread", "threads", "message", "messages", "discuss", "chat"}):
+                    boost += 0.35
+                else:
+                    boost -= 0.15
+            if admission_id is not None:
+                item_adm = item.get("admission_id") or item["metadata"].get("admission_id")
+                if item_adm == admission_id or str(admission_id) in str(item.get("content", "")):
+                    boost += 0.15
+            score = round(min(1.0, 0.45*kw + 0.55*vec + (0.1 if item.get("is_verified") else 0) + boost), 4)
+            item.update(relevance_score=score, keyword_score=round(kw, 4), similarity_score=round(vec, 4))
+            results.append(item)
+        results.sort(key=lambda x:x["relevance_score"],reverse=True)
+        is_multi_domain = patient_id is not None and (
+            comprehensive
+            or _has(_normalized(query), {
+                "why is this patient still admitted", "why still admitted", "why admitted", "reason for admission",
+                "current condition", "summarize condition", "summarize this patient",
+                "ready to discharge", "pending discharge", "discharge readiness"
+            })
+        )
+        if is_multi_domain:
+            selected=[]; seen=set()
+            for item in results:
+                if item["module"] not in seen: selected.append(item); seen.add(item["module"])
+            ids={x["id"] for x in selected}; selected.extend(x for x in results if x["id"] not in ids)
+            return selected[:max(limit,len(seen))], "authorized_module_balanced_hybrid"
+        return results[:limit], "authorized_hybrid" if qemb else "authorized_keyword"
+
+
 search_service = RagSearchService()

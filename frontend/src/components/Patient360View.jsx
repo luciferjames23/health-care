@@ -6,7 +6,7 @@ import { groupImagingOrders, studyVersion, scanStudyLabel, orderViewResults, sca
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import { clarificationApi } from '../services/clarificationApi';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
-import { apiService, resolveClinicalDiagnosis } from '../services/api';
+import { apiService, resolveClinicalDiagnosis, cleanDoctorName } from '../services/api';
 import { financialApi } from '../services/financialApi';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
@@ -481,7 +481,7 @@ export default function Patient360View({
 
     const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || (isER ? 'Emergency Medicine' : 'Clinical Services');
     const ward = isOP ? 'Outpatient Services' : isER ? 'Emergency Department' : (assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept);
-    const doctor = d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || (isER ? 'Emergency Physician' : 'Dr. Sneha Das');
+    const doctor = cleanDoctorName(d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || (isER ? 'Emergency Physician' : 'Dr. Sneha Das'));
     const insurer = liveBill?.claims?.[0]?.insurance_provider
       || liveBill?.insurance_provider
       || liveBill?.insurer
@@ -497,17 +497,20 @@ export default function Patient360View({
     const attendant = d.attendant || (demo.emergency_contact_name ? `${demo.emergency_contact_name} · ${lang}` : 'Family Member · ' + lang);
 
     // Dynamic database billing information
-    const defaultBillAmount = isOP ? (Number(d.bill_amount) || 800) : isER ? (Number(d.bill_amount) || 2500) : 246000;
-    const billNumber = liveBill?.bill_number || raw.bill_number || d.bill_number || billing.bill_number || (isOP ? `OP-BIL-${String(rawPid || '101').padStart(6, '0')}` : isER ? `ER-BIL-${String(rawPid || '101').padStart(6, '0')}` : (rawAdmId ? `MER-BIL-${String(rawAdmId).padStart(7, '0')}` : 'MER-BIL-0000000'));
-    const billGrossAmount = Number(liveBill?.gross_amount ?? billing.bill_gross_amount ?? raw.gross_amount ?? raw.bill_gross_amount ?? d.bill_amount ?? defaultBillAmount);
-    const rawBillNet = liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? d.bill_amount ?? billGrossAmount;
+    const hasLiveBillData = Boolean(liveBill?.gross_amount || billing.bill_gross_amount || raw.gross_amount || raw.bill_gross_amount || d.bill_amount);
+    const billGrossAmount = hasLiveBillData
+      ? Number(liveBill?.gross_amount ?? billing.bill_gross_amount ?? raw.gross_amount ?? raw.bill_gross_amount ?? d.bill_amount ?? 0)
+      : (isOP ? 800 : isER ? 2500 : 0);
+    const rawBillNet = hasLiveBillData
+      ? Number(liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? billGrossAmount)
+      : billGrossAmount;
     const billNetAmount = Number(rawBillNet);
     const discountAmount = Number(liveBill?.discount_amount ?? billing.bill_discount_amount ?? 0);
     const taxAmount = Number(liveBill?.tax_amount ?? billing.bill_tax_amount ?? 0);
     const insuranceAmount = Number(liveBill?.insurance_amount ?? billing.bill_insurance_portion ?? 0);
     
-    const rawBillStatus = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || 'Pending').trim();
-    const rawClearance = String(raw.bill_clearance_status || d.bill_clearance_status || billing.bill_clearance_status || '').trim();
+    const rawBillStatus = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || (hasLiveBillData ? 'Pending' : 'Open')).trim();
+    const rawClearance = String(raw.bill_clearance_status || d.bill_clearance_status || billing.bill_clearance_status || (hasLiveBillData ? '' : 'Active Care')).trim();
 
     // Check if admission record has an explicit outstanding balance
     const rawAdmOutstanding = (raw.outstanding_balance != null && raw.outstanding_balance !== '')
@@ -542,8 +545,9 @@ export default function Patient360View({
         );
     const outstandingBalance = isCleared ? 0 : Math.max(0, calculatedOutstanding);
 
-    const billStatus = isOP ? 'Paid' : isCleared ? 'Settled' : rawBillStatus;
-    const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || 'Pending');
+    const billStatus = isOP ? 'Paid' : isCleared ? 'Settled' : (hasLiveBillData ? rawBillStatus : 'Open');
+    const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || (hasLiveBillData ? 'Pending' : 'Active Care'));
+    const billNumber = liveBill?.bill_number || raw.bill_number || billing.bill_number || d.bill_number || (hasLiveBillData ? `BILL-2026-${String(rawPid || '1001').slice(-4)}` : (rawPid ? `BILL-2026-${String(rawPid).slice(-4)}` : '—'));
 
     const billingStatusDisplay = isOP
       ? 'Settled · Outpatient Fee'
@@ -553,7 +557,7 @@ export default function Patient360View({
           ? 'Discharged · Settled'
           : (isCleared
               ? 'Cleared · Paid'
-              : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Pending Clearance'));
+              : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : (hasLiveBillData ? 'Pending Clearance' : 'New Admission · Ledger Open')));
 
     const status = isOP
       ? 'Outpatient Consultation'
@@ -561,13 +565,13 @@ export default function Patient360View({
         ? 'Emergency Triage Active'
         : isDischarged
           ? 'Discharged'
-          : (d.status || d._status || (isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted · Pending Clearance'));
+          : (d.status || d._status || (isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted'));
 
     let statusBadge = {
-      text: isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted · Pending Clearance',
-      bg: isCleared ? '#dcfce7' : '#fee2e2',
-      color: isCleared ? '#15803d' : '#991b1b',
-      border: isCleared ? '#bbf7d0' : '#fecaca',
+      text: isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : (outstandingBalance > 0 ? `Pending Clearance · ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Admitted · Active Inpatient Care'),
+      bg: isCleared || outstandingBalance === 0 ? '#dcfce7' : '#fee2e2',
+      color: isCleared || outstandingBalance === 0 ? '#15803d' : '#991b1b',
+      border: isCleared || outstandingBalance === 0 ? '#bbf7d0' : '#fecaca',
     };
     if (isOP) {
       statusBadge = {
@@ -596,13 +600,6 @@ export default function Patient360View({
         bg: '#dcfce7',
         color: '#15803d',
         border: '#bbf7d0',
-      };
-    } else if (outstandingBalance > 0) {
-      statusBadge = {
-        text: `Pending Clearance · ₹${outstandingBalance.toLocaleString('en-IN')}`,
-        bg: '#fee2e2',
-        color: '#991b1b',
-        border: '#fecaca',
       };
     }
     
@@ -723,26 +720,67 @@ export default function Patient360View({
       });
     }
     const admitted = d.admitted || `${admittedDate}, ${admittedTime}`;
-    const condition = d.condition || `Clinically stable (${doctor})`;
     const dischargeInfo = isOP
       ? 'Active Outpatient Consultation (Same-day OPD)'
       : isER
         ? 'Active emergency observation in Bay'
-        : (d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}`));
+        : (d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : (hasLiveBillData && outstandingBalance > 0 ? `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Active inpatient clinical care')));
 
-    // Vitals summary
-    const latestVitalRec = patientVitalsHistory[0];
-    const sbp = latestVitalRec?.systolic_bp || Number(vitals.latest_systolic_bp ?? raw.latest_systolic_bp ?? raw.systolic_bp ?? raw.sbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[0] : null)) || (rawPid ? 110 + (Number(String(rawPid).replace(/\D/g, '')) % 40) : 120);
-    const dbp = latestVitalRec?.diastolic_bp || Number(vitals.latest_diastolic_bp ?? raw.latest_diastolic_bp ?? raw.diastolic_bp ?? raw.dbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[1] : null)) || (rawPid ? 70 + (Number(String(rawPid).replace(/\D/g, '')) % 20) : 80);
-    const hr = latestVitalRec?.heart_rate || Number(vitals.latest_heart_rate ?? raw.latest_heart_rate ?? raw.heart_rate ?? raw.hr ?? d.vitals?.hr) || (rawPid ? 65 + (Number(String(rawPid).replace(/\D/g, '')) % 35) : 78);
+    // Genuine vitals summary from database (never fabricated with mock modulo)
+    const latestVitalRec = (patientVitalsHistory && patientVitalsHistory.length > 0) ? patientVitalsHistory[0] : null;
+    const hasRealVitals = Boolean(
+      latestVitalRec ||
+      (vitals.latest_systolic_bp != null) ||
+      (raw.latest_systolic_bp != null) ||
+      (raw.systolic_bp != null) ||
+      (raw.sbp != null) ||
+      (d.vitals?.bp)
+    );
+
+    const sbp = hasRealVitals
+      ? (latestVitalRec?.systolic_bp || Number(vitals.latest_systolic_bp ?? raw.latest_systolic_bp ?? raw.systolic_bp ?? raw.sbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[0] : 120)))
+      : '—';
+    const dbp = hasRealVitals
+      ? (latestVitalRec?.diastolic_bp || Number(vitals.latest_diastolic_bp ?? raw.latest_diastolic_bp ?? raw.diastolic_bp ?? raw.dbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[1] : 80)))
+      : '—';
+    const hr = hasRealVitals
+      ? (latestVitalRec?.heart_rate || Number(vitals.latest_heart_rate ?? raw.latest_heart_rate ?? raw.heart_rate ?? raw.hr ?? d.vitals?.hr ?? 78))
+      : '—';
     
-    const rawSpo2 = latestVitalRec?.oxygen_saturation ?? vitals.latest_oxygen_saturation ?? raw.latest_oxygen_saturation ?? raw.oxygen_saturation ?? raw.spo2 ?? d.vitals?.spo2;
-    const spo2 = rawSpo2 != null ? (Number(rawSpo2) > 100 ? (Number(rawSpo2)/10).toFixed(2) : Number(rawSpo2).toFixed(2).replace(/\.00$/, '')) : (rawPid ? (96 + (Number(String(rawPid).replace(/\D/g, '')) % 3) + 0.5).toFixed(2) : '98.5');
+    const rawSpo2 = hasRealVitals
+      ? (latestVitalRec?.oxygen_saturation ?? vitals.latest_oxygen_saturation ?? raw.latest_oxygen_saturation ?? raw.oxygen_saturation ?? raw.spo2 ?? d.vitals?.spo2)
+      : null;
+    const spo2 = (rawSpo2 != null && !isNaN(Number(rawSpo2)))
+      ? (Number(rawSpo2) > 100 ? (Number(rawSpo2)/10).toFixed(1) : Number(rawSpo2).toFixed(1).replace(/\.0$/, ''))
+      : (hasRealVitals ? '98.5' : '—');
     
-    const rawTemp = latestVitalRec?.temperature ?? vitals.latest_temperature ?? raw.latest_temperature ?? raw.temperature ?? raw.temp ?? d.vitals?.temp;
-    const temp = rawTemp != null ? Number(rawTemp).toFixed(2).replace(/\.00$/, '') : (rawPid ? (98 + (Number(String(rawPid).replace(/\D/g, '')) % 2) + 0.4).toFixed(2) : '98.6');
+    const rawTemp = hasRealVitals
+      ? (latestVitalRec?.temperature ?? vitals.latest_temperature ?? raw.latest_temperature ?? raw.temperature ?? raw.temp ?? d.vitals?.temp)
+      : null;
+    const temp = (rawTemp != null && !isNaN(Number(rawTemp)))
+      ? Number(rawTemp).toFixed(1).replace(/\.0$/, '')
+      : (hasRealVitals ? '98.6' : '—');
     
-    const rr = latestVitalRec?.respiratory_rate || Number(vitals.latest_respiratory_rate ?? raw.respiratory_rate ?? raw.rr ?? 18);
+    const rr = hasRealVitals
+      ? (latestVitalRec?.respiratory_rate || Number(vitals.latest_respiratory_rate ?? raw.respiratory_rate ?? raw.rr ?? 18))
+      : '—';
+
+    const spo2Num = parseFloat(spo2);
+    const tempNum = parseFloat(temp);
+    const tempFVal = !isNaN(tempNum) ? (tempNum < 50 ? (tempNum * 9 / 5) + 32 : tempNum) : 98.6;
+    const hrNum = typeof hr === 'number' ? hr : parseFloat(hr);
+    const sbpNum = typeof sbp === 'number' ? sbp : parseFloat(sbp);
+    const dbpNum = typeof dbp === 'number' ? dbp : parseFloat(dbp);
+
+    const isVitalsAbnormal = hasRealVitals && (
+      (!isNaN(spo2Num) && spo2Num < 92.0) ||
+      (!isNaN(hrNum) && (hrNum < 50 || hrNum > 110)) ||
+      (!isNaN(tempFVal) && (tempFVal >= 100.4 || tempFVal < 95.0)) ||
+      (!isNaN(sbpNum) && (sbpNum < 90 || sbpNum > 160)) ||
+      (!isNaN(dbpNum) && (dbpNum < 50 || dbpNum > 100))
+    );
+
+    const condition = d.condition || (hasRealVitals ? (isVitalsAbnormal ? `Vitals require observation (${doctor})` : `Clinically stable (${doctor})`) : `Newly admitted · Active care (${doctor})`);
     
     // Strict clinical temporal synchronization
     let dischargeFormattedDate;
@@ -758,23 +796,20 @@ export default function Patient360View({
       dischargeFormattedTime = 'Active Observation';
       dischargeDateTime = 'Emergency Observation';
     } else if (isDischarged) {
-      // Completed discharge: discharged on 23 Sept 2026 (or discharge_date)
       const rawDisDate = dischargeSummary?.discharge_date || liveAdmission?.discharge_date || raw.discharge_date || d.discharge_date || adm.discharge_date;
       dischargeFormattedDate = rawDisDate
         ? new Date(rawDisDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        : '23 Sept 2026';
+        : 'Discharged';
       
       if (rawDisDate && (String(rawDisDate).includes('T') || String(rawDisDate).includes(':'))) {
         dischargeFormattedTime = new Date(rawDisDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
       }
       dischargeDateTime = `${dischargeFormattedDate}, ${dischargeFormattedTime}`;
     } else if (isCleared) {
-      // Ready for discharge sign-off: scheduled for today afternoon
-      dischargeFormattedDate = '24 Sept 2026';
+      dischargeFormattedDate = 'Scheduled';
       dischargeFormattedTime = '04:30 PM';
-      dischargeDateTime = `Scheduled: ${dischargeFormattedDate}, ${dischargeFormattedTime}`;
+      dischargeDateTime = `Scheduled: Today, ${dischargeFormattedTime}`;
     } else {
-      // Inactive / Blocked / Pending: show '-'
       dischargeFormattedDate = '-';
       dischargeFormattedTime = '-';
       dischargeDateTime = '-';
@@ -784,22 +819,50 @@ export default function Patient360View({
     let vitalsTakenTime;
     if (latestVitalRec?.recorded_at) {
       vitalsTakenTime = new Date(latestVitalRec.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } else if (isOP) {
+    } else if (hasRealVitals) {
       vitalsTakenTime = `${admittedDate}, ${admittedTime}`;
-    } else if (isER) {
-      vitalsTakenTime = '24 Sept 2026, 09:45 AM';
-    } else if (isDischarged) {
-      vitalsTakenTime = `${dischargeFormattedDate}, 10:00 AM`;
-    } else if (isCleared) {
-      vitalsTakenTime = '24 Sept 2026, 09:30 AM';
     } else {
-      vitalsTakenTime = '24 Sept 2026, 07:30 AM';
+      vitalsTakenTime = 'Pending measurement';
     }
 
-    const latestBp = latestVitalRec
+    const latestBp = hasRealVitals
       ? `BP ${sbp}/${dbp} · HR ${hr} bpm · SpO2 ${spo2}% · Temp ${temp}°F`
-      : (isOP ? 'Baseline OPD triage vitals normal' : 'Monitored vitals stable');
-    const stayDays = (isOP || isER) ? 1 : (adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24))) : (rawPid ? ((Number(String(rawPid).replace(/\D/g, '')) % 14) + 1) : 14)));
+      : 'No vitals recorded yet (Pending nursing intake)';
+    const isSummaryApproved = Boolean(
+      summaryApproval === 'approved' ||
+      summaryApproval === 'signed off' ||
+      summaryApproval === 'completed' ||
+      (dischargeSummary && ['approved', 'signed'].some(s =>
+        String(dischargeSummary.approval_status || '').toLowerCase().includes(s) ||
+        String(dischargeSummary.status || '').toLowerCase().includes(s)
+      ))
+    );
+
+    const isDischargeApprovalRequired = !isOP && !isER && !isDischarged && (
+      (isCleared || isExplicitlyCleared) && !isSummaryApproved && !isReadyForDischarge
+    );
+
+    const dischargePredicted = isDischarged
+      ? 'Completed'
+      : (isDischargeApprovalRequired
+          ? 'Approval required'
+          : ((isReadyForDischarge || (isCleared && isSummaryApproved)) ? 'Ready' : 'Blocked'));
+
+    const dischargeStatusLabel = isDischarged
+      ? 'Discharged · Signed Off'
+      : (isDischargeApprovalRequired
+          ? 'Approval required · Doctor Sign-Off'
+          : ((isReadyForDischarge || (isCleared && isSummaryApproved))
+              ? 'Ready for Discharge'
+              : 'Blocked · Pending Bill Clearance'));
+
+    const dischargeOwner = isDischarged
+      ? (doctor || 'Attending Physician')
+      : (isDischargeApprovalRequired
+          ? (doctor || 'Clinical Discharge Agent')
+          : (isCleared ? 'Clinical Discharge Agent' : `Doctor: ${doctor}`));
+
+    const stayDays = (isOP || isER) ? 1 : (adm.current_stay_days || (rawDate ? Math.max(1, Math.floor((Date.now() - new Date(rawDate).getTime()) / (1000 * 60 * 60 * 24)) + 1) : 1));
 
     return {
       isOP,
@@ -861,10 +924,16 @@ export default function Patient360View({
       outstandingBalance,
       isCleared,
       isDischarged,
+      isSummaryApproved,
+      isDischargeApprovalRequired,
+      dischargePredicted,
+      dischargeStatusLabel,
+      dischargeOwner,
       dischargeSummary,
       billingStatusDisplay,
       latestBp,
       vitalsTakenTime,
+      hasRealVitals,
       vitalsHistory: patientVitalsHistory,
       vitalsObject: { sbp, dbp, hr, spo2, temp, rr, takenTime: vitalsTakenTime },
       medications: meds,
@@ -923,27 +992,30 @@ export default function Patient360View({
   const timeline = useMemo(() => {
     const list = [];
     const todayDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    const currentActivityDate = (p.current_stay_days && p.current_stay_days > 1) ? todayDate : p.admittedDate;
     
     if (p.isOP) {
-      list.push({
-        t: `${p.admittedDate} 11:30`,
-        ts: 100,
-        c: '#0284c7',
-        e: `Prescription issued · ${p.procedure || p.primaryDiagnosis}`
-      });
+      if (livePrescriptions?.length > 0) {
+        list.push({
+          t: `${p.admittedDate} 11:30`,
+          ts: 100,
+          c: '#0284c7',
+          e: `Prescription issued · ${livePrescriptions[0].drug_name || 'Prescription'}`
+        });
+      }
       list.push({
         t: `${p.admittedDate} 10:45`,
         ts: 90,
         c: 'oklch(0.5 0.1 200)',
         e: `OPD Consultation encounter · ${p.doctor} (${p.dept})`
       });
-      list.push({
-        t: `${p.admittedDate} 10:15`,
-        ts: 80,
-        c: '#64748b',
-        e: `Vitals & Clinical Check-in · Outpatient Desk`
-      });
+      if (p.hasRealVitals) {
+        list.push({
+          t: `${p.admittedDate} 10:15`,
+          ts: 80,
+          c: '#64748b',
+          e: `Vitals & Clinical Check-in · Outpatient Desk`
+        });
+      }
       list.push({
         t: `${p.admittedDate} 09:30`,
         ts: 70,
@@ -966,68 +1038,35 @@ export default function Patient360View({
         c: '#ef4444',
         e: `Emergency Intake & Triage · Assigned to ${p.bed}`
       });
-      list.push({
-        t: `${p.admittedDate} 09:50`,
-        ts: 80,
-        c: '#64748b',
-        e: `STAT Vitals & Clinical Assessment · Stabilized`
-      });
+      if (p.hasRealVitals) {
+        list.push({
+          t: `${p.admittedDate} 09:50`,
+          ts: 80,
+          c: '#64748b',
+          e: `STAT Vitals & Clinical Assessment · Stabilized`
+        });
+      }
       return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     }
 
-    // 1. Recent Patient Communications & Care Updates (Current / Active Day)
-    list.push({
-      t: `${currentActivityDate} 12:47`,
-      ts: 100,
-      c: '#64748b',
-      e: `Email · Diagnostic and progress summary ready (${p.lang?.slice(0, 2)?.toUpperCase() || 'EN'})`
-    });
-    list.push({
-      t: `${currentActivityDate} 11:10`,
-      ts: 90,
-      c: '#64748b',
-      e: `WhatsApp · Discharge status · expected ~4:20 PM (${p.lang?.slice(0, 2)?.toUpperCase() || 'EN'})`
-    });
-    list.push({
-      t: `${currentActivityDate} 09:12`,
-      ts: 80,
-      c: '#64748b',
-      e: `Mobile push · Discharge planning has started (${p.lang?.slice(0, 2)?.toUpperCase() || 'EN'})`
-    });
-    list.push({
-      t: `${currentActivityDate} 09:03`,
-      ts: 70,
-      c: 'oklch(0.5 0.1 300)',
-      e: `Discharge Orchestration Agent · ${p.isCleared ? 'Ready' : 'Waiting'}`
-    });
+    // Inpatient Timeline
+    if (p.isDischarged) {
+      list.push({
+        t: `${todayDate} 14:00`,
+        ts: 100,
+        c: '#15803d',
+        e: `Discharge Complete · Patient discharged in stable condition`
+      });
+    } else if (p.isCleared) {
+      list.push({
+        t: `${todayDate} 11:30`,
+        ts: 95,
+        c: 'oklch(0.5 0.1 300)',
+        e: `Discharge Clearance · Ready for discharge sign-off`
+      });
+    }
 
-    // 2. Admission Day Clinical Activity
-    list.push({
-      t: `${p.admittedDate} 14:10`,
-      ts: 60,
-      c: 'oklch(0.5 0.1 300)',
-      e: 'Diagnostic Coordination Agent · Completed'
-    });
-    list.push({
-      t: `${p.admittedDate} 12:45`,
-      ts: 50,
-      c: '#64748b',
-      e: `Email · Initial admission package confirmed (${p.lang?.slice(0, 2)?.toUpperCase() || 'EN'})`
-    });
-    list.push({
-      t: `${p.admittedDate} 12:00`,
-      ts: 40,
-      c: 'oklch(0.5 0.1 200)',
-      e: `Inpatient encounter · ${p.doctor}`
-    });
-    list.push({
-      t: `${p.admittedDate} 10:15`,
-      ts: 30,
-      c: 'oklch(0.5 0.13 70)',
-      e: `Admission · ${p.bed}`
-    });
-
-    // 3. Lab Orders / Results (with full date & time)
+    // Real Lab Orders / Results
     const labEntries = (liveBill?.lab_items || []).slice(0, 3);
     if (labEntries.length > 0) {
       labEntries.forEach((item, idx) => {
@@ -1039,28 +1078,29 @@ export default function Patient360View({
           : '10:00 am';
         list.push({
           t: `${itemDate} ${itemTime}`,
-          ts: 20 - idx,
+          ts: 50 - idx,
           c: '#64748b',
           e: `Laboratory order · ${item.item_name || 'Investigation'} · ${item.order_status || 'Completed'}`
         });
       });
-    } else {
-      list.push({
-        t: `${p.admittedDate} 10:00 am`,
-        ts: 20,
-        c: '#64748b',
-        e: `Laboratory order · CBC (Complete Blood Count) · Completed`
-      });
-      list.push({
-        t: `${p.admittedDate} 10:00 am`,
-        ts: 19,
-        c: '#64748b',
-        e: `Laboratory order · CRP (C-Reactive Protein) · Completed`
-      });
     }
 
+    // Admission Day Clinical Activity
+    list.push({
+      t: `${p.admittedDate} 12:00`,
+      ts: 40,
+      c: 'oklch(0.5 0.1 200)',
+      e: `Inpatient encounter · ${p.doctor} (${p.dept})`
+    });
+    list.push({
+      t: `${p.admittedDate} 10:15`,
+      ts: 30,
+      c: 'oklch(0.5 0.13 70)',
+      e: `Admission · Bed ${p.bed}`
+    });
+
     return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  }, [liveBill, p]);
+  }, [liveBill, livePrescriptions, p]);
 
   // AI Activity on this patient
   const aiAgents = useMemo(() => {
@@ -1140,7 +1180,7 @@ export default function Patient360View({
     return [
       {
         id: `EXE-2026-${String(p.admission_id || 118204).slice(-6)}`,
-        agent: 'Discharge Orchestration Agent',
+        agent: 'Discharge Summary Agent',
         version: '3.0.2',
         status: p.isCleared ? 'Completed' : 'Waiting',
         steps: 12,
@@ -1148,31 +1188,13 @@ export default function Patient360View({
         fg: p.isCleared ? '#15803d' : '#92400e',
       },
       {
-        id: `EXE-2026-${String((p.admission_id || 117656) - 548).slice(-6)}`,
-        agent: 'Diagnostic Coordination Agent',
-        version: '1.5.1',
-        status: 'Completed',
-        steps: 5,
-        bg: '#dcfce7',
-        fg: '#15803d',
-      },
-      {
-        id: `EXE-2026-${String((p.admission_id || 117666) - 538).slice(-6)}`,
-        agent: 'Queue / Flow Agent',
-        version: '2.0.4',
-        status: 'Completed',
-        steps: 6,
-        bg: '#dcfce7',
-        fg: '#15803d',
-      },
-      {
-        id: `EXE-2026-${String((p.admission_id || 117718) - 486).slice(-6)}`,
-        agent: 'Feedback Agent',
+        id: `EXE-2026-${String((p.admission_id || 118204) - 82).slice(-6)}`,
+        agent: 'Nurse Handover Agent',
         version: '1.2.0',
-        status: 'Completed',
-        steps: 4,
-        bg: '#dcfce7',
-        fg: '#15803d',
+        status: p.isDischarged ? 'Completed' : (p.isCleared ? 'Active' : 'Standby'),
+        steps: p.isDischarged ? 8 : (p.isCleared ? 4 : 0),
+        bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#f1f5f9'),
+        fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#475569'),
       },
     ];
   }, [p]);
@@ -2177,12 +2199,42 @@ export default function Patient360View({
             admissionId={p.admission_id}
             patientName={p.name}
             initialPrompts={[
-              "Why is this patient still admitted?",
-              "What are the latest abnormal vital signs?",
-              "What medicines is this patient receiving?",
-              "What is pending before discharge?",
+              // 1. Clinical Overview & Daily Progression
               "Summarize this patient’s current condition.",
-              "What changed since yesterday?"
+              "Why is this patient still admitted?",
+              "What changed since yesterday?",
+              "What was the primary reason for admission, and what has progressed since admission date?",
+              "Give me a quick 30-second handover summary for rounds.",
+              // 2. Vitals & Hemodynamic Trends
+              "What are the latest abnormal vital signs?",
+              "Show blood pressure and heart rate trends over the last 24 hours.",
+              "Has the patient had any episodes of desaturation (SpO2 < 92%) or tachycardia?",
+              "What was the patient's temperature trend since morning?",
+              // 3. Medications & Orders
+              "What medicines is this patient currently receiving?",
+              "Are there any active antiplatelet or anticoagulant prescriptions (e.g., Aspirin, Clopidogrel, Heparin)?",
+              "What is the current dosage and frequency of their antihypertensive drugs?",
+              "Were there any medication changes or held doses in the last 48 hours?",
+              // 4. Diagnostic & Lab Results
+              "What are the latest lab results?",
+              "Show the latest cardiac markers (Troponin I/T, CK-MB) and trend.",
+              "Are there any critical lab flags in the complete blood count (CBC) or renal function test (RFT/Creatinine)?",
+              "What is the patient’s latest serum potassium and electrolyte status?",
+              "What were the HbA1c and lipid profile values on admission?",
+              // 5. Radiology & Imaging
+              "What did the latest chest X-ray show?",
+              "What was the radiologist's final verified conclusion versus the AI preliminary finding?",
+              "Is the urgent chest X-ray report ready or still pending radiologist sign-off?",
+              "Show the clinical indication for the ordered echocardiogram/CT scan.",
+              // 6. Discharge Readiness & Blockers
+              "What is pending before this patient can be safely discharged?",
+              "Are there any outstanding diagnostic tests, pending consultant notes, or medication reconciliations?",
+              "Draft a discharge summary based on verified records.",
+              "What discharge instructions and follow-up timeline are recommended for this patient?",
+              // 7. Billing & Financial Clearance
+              "What is the billing clearance status for this admission?",
+              "Is there an outstanding patient balance or pending insurance pre-authorization that blocks discharge?",
+              "Has the pharmacy bill and diagnostic package been settled?"
             ]}
           />
         </div>
@@ -2395,14 +2447,11 @@ export default function Patient360View({
                 })
               : (p.isOP ? [
                   [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, `${p.dept} Outpatient Consultation`, 'OPD Desk', 'Confirmed'],
-                  [`APT-FOLLOWUP-${p.patient_id || '01'}`, p.doctor, 'Next Week 10:00 AM', 'Outpatient Follow-up Review', 'OPD Portal', 'Scheduled'],
                 ] : p.isER ? [
                   [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Emergency Triage & Assessment', 'Emergency Desk', 'Active'],
-                  [`ER-OBS-${p.patient_id || '01'}`, p.doctor, 'Observation Bay Review', 'Clinical Trauma Monitoring', 'ER Station', 'In Progress'],
-                ] : [
-                  [`APT-${p.patient_id || p.admission_id || '01'}-01`, p.doctor, p.admittedDate || '17 May 2025', `${p.dept} Inpatient Admission`, 'Clinical Referral', 'Completed'],
-                  [`APT-${p.patient_id || p.admission_id || '01'}-02`, p.doctor, 'Daily Round 10:00 AM', 'Inpatient Ward Review', 'Ward Workstation', 'Completed'],
-                ])
+                ] : (p.admission_id ? [
+                  [`APT-${p.patient_id || p.admission_id || '01'}`, p.doctor, p.admittedDate || 'Admission Day', `${p.dept} Inpatient Admission`, 'Clinical Intake', p.isDischarged ? 'Completed' : (p.status || 'Active')],
+                ] : []))
           }
           onRowClick={(row) => {
             if (onOpenDrawer) {
@@ -2453,17 +2502,11 @@ export default function Patient360View({
                 ]
               : (p.isOP ? [
                   [p.encounter, 'Outpatient Consultation', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Confirmed'],
-                  [`ENC-OPD-VITALS-${p.patient_id || '01'}`, 'OPD Baseline Vitals & Check-in', p.doctor, p.admittedDate, 'Completed'],
-                  [`ENC-OPD-RX-${p.patient_id || '01'}`, 'Prescription & Consultation Note', p.doctor, p.admittedDate, 'Completed'],
                 ] : p.isER ? [
                   [p.encounter, 'Emergency Room Intake & Triage', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Active Triage'],
-                  [`ENC-ER-TRAUMA-${p.patient_id || '01'}`, 'Emergency Bay Assessment', p.doctor, p.admittedDate, 'Active'],
-                  [`ENC-ER-WORKUP-${p.patient_id || '01'}`, 'STAT Emergency Lab & Imaging', p.doctor, p.admittedDate, 'In Progress'],
-                ] : [
+                ] : (p.admission_id ? [
                   [p.encounter || `ENC-${p.admission_number || p.admission_id}`, `${p.admission_type || 'Inpatient'} Admission`, p.doctor, p.admitted, p.isDischarged ? 'Discharged' : (p.status || 'Active')],
-                  [`ENC-TRIAGE-${p.patient_id || '01'}`, 'Initial Emergency & Clinical Triage', p.doctor, p.admittedDate, 'Completed'],
-                  [`ENC-WORKUP-${p.patient_id || '01'}`, 'Diagnostic Lab & Imaging Workup', p.doctor, p.admittedDate, 'Completed'],
-                ])
+                ] : []))
           }
         />
       )}
@@ -2540,7 +2583,11 @@ export default function Patient360View({
               </div>
             </div>
 
-            {p.vitalsHistory && p.vitalsHistory.length > 0 && (
+            {(!p.vitalsHistory || p.vitalsHistory.length === 0) ? (
+              <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '6px', textAlign: 'center', color: '#64748b', fontSize: '12px', border: '1px dashed #cbd5e1' }}>
+                No vital signs series recorded yet for this admission. Pending initial nursing intake vitals.
+              </div>
+            ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '10.5px', fontWeight: 700 }}>
@@ -2554,23 +2601,50 @@ export default function Patient360View({
                   </tr>
                 </thead>
                 <tbody>
-                  {p.vitalsHistory.slice(0, 5).map((v, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '8px 10px', color: '#0f172a', fontFamily: 'monospace' }}>
-                        {new Date(v.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp}/{v.diastolic_bp} mmHg</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate} bpm</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{Number(v.oxygen_saturation).toFixed(1)}%</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{Number(v.temperature).toFixed(1)}°F</td>
-                      <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate} /min</td>
-                      <td style={{ padding: '8px 10px' }}>
-                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontSize: '10.5px', fontWeight: 600 }}>
-                          Normal
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {p.vitalsHistory.slice(0, 5).map((v, idx) => {
+                    const spo2Val = v.oxygen_saturation != null ? parseFloat(v.oxygen_saturation) : null;
+                    const hrVal = v.heart_rate != null ? parseFloat(v.heart_rate) : null;
+                    const tempVal = v.temperature != null ? parseFloat(v.temperature) : null;
+                    const sbpVal = v.systolic_bp != null ? parseFloat(v.systolic_bp) : null;
+                    const dbpVal = v.diastolic_bp != null ? parseFloat(v.diastolic_bp) : null;
+
+                    const tempF = tempVal != null ? (tempVal < 50 ? (tempVal * 9 / 5) + 32 : tempVal) : null;
+                    const isAbnormal = (spo2Val != null && !isNaN(spo2Val) && spo2Val < 92.0) ||
+                                       (hrVal != null && !isNaN(hrVal) && (hrVal < 50 || hrVal > 110)) ||
+                                       (tempF != null && !isNaN(tempF) && (tempF >= 100.4 || tempF < 95.0)) ||
+                                       (sbpVal != null && !isNaN(sbpVal) && (sbpVal < 90 || sbpVal > 160)) ||
+                                       (dbpVal != null && !isNaN(dbpVal) && (dbpVal < 50 || dbpVal > 100));
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '8px 10px', color: '#0f172a', fontFamily: 'monospace' }}>
+                          {new Date(v.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp}/{v.diastolic_bp} mmHg</td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate} bpm</td>
+                        <td style={{ padding: '8px 10px', color: isAbnormal && spo2Val != null && spo2Val < 92 ? '#dc2626' : '#334155', fontWeight: isAbnormal && spo2Val != null && spo2Val < 92 ? 700 : 400 }}>
+                          {Number(v.oxygen_saturation).toFixed(1)}%
+                        </td>
+                        <td style={{ padding: '8px 10px', color: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? '#dc2626' : '#334155', fontWeight: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? 700 : 400 }}>
+                          {Number(v.temperature).toFixed(1)}°F
+                        </td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate} /min</td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <span style={{
+                            background: isAbnormal ? '#fee2e2' : '#dcfce7',
+                            color: isAbnormal ? '#b91c1c' : '#15803d',
+                            border: isAbnormal ? '1px solid #fca5a5' : '1px solid #bbf7d0',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 600
+                          }}>
+                            {isAbnormal ? 'Abnormal' : 'Normal'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -2584,42 +2658,52 @@ export default function Patient360View({
           {/* Sub-filter tabs */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('all')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'all' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'all' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                All Records ({p.diagnoses_list?.length || 1} {p.diagnoses_list?.length === 1 ? 'Diagnosis' : 'Diagnoses'} + {((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (isOP ? 0 : 2)) + patientXrayOrders.length} Diagnostic Orders)
-              </button>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('diagnoses')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'diagnoses' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'diagnoses' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'diagnoses' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                Clinical Diagnoses ({p.diagnoses_list?.length || 1})
-              </button>
-              <button
-                type="button"
-                onClick={() => setDiagFilter('labs')}
-                style={{
-                  padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-                  border: diagFilter === 'labs' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                  background: diagFilter === 'labs' ? 'oklch(0.96 0.04 200)' : '#fff',
-                  color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
-                }}
-              >
-                Lab &amp; Diagnostic Orders ({((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) || (isOP ? 0 : 2)) + patientXrayOrders.length})
-              </button>
+              {(() => {
+                const actualLabCount = (liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length || 0);
+                const actualXrayCount = (patientXrayOrders?.length || 0);
+                const totalDiagnosticCount = actualLabCount + actualXrayCount;
+                const actualDiagCount = p.diagnoses_list?.length || (p.primary_diagnosis ? 1 : 0);
+                return (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('all')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'all' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'all' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'all' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      All Records ({actualDiagCount} {actualDiagCount === 1 ? 'Diagnosis' : 'Diagnoses'}{totalDiagnosticCount > 0 ? ` + ${totalDiagnosticCount} Diagnostic ${totalDiagnosticCount === 1 ? 'Order' : 'Orders'}` : ''})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('diagnoses')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'diagnoses' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'diagnoses' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'diagnoses' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      Clinical Diagnoses ({actualDiagCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiagFilter('labs')}
+                      style={{
+                        padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                        border: diagFilter === 'labs' ? '1px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
+                        background: diagFilter === 'labs' ? 'oklch(0.96 0.04 200)' : '#fff',
+                        color: diagFilter === 'labs' ? 'oklch(0.4 0.12 200)' : '#52585e'
+                      }}
+                    >
+                      Lab &amp; Diagnostic Orders ({totalDiagnosticCount})
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -2687,11 +2771,7 @@ export default function Patient360View({
                       `${lr.test_parameter}: ${lr.result_value} ${lr.unit || ''} (Ref: ${lr.reference_range || 'Normal'})`,
                       lr.verification_status || 'Verified'
                     ])
-                  : (isOP ? [] : [
-                      [`ORD-${p.admission_id || '87248'}`, 'CBC (Complete Blood Count)', 'Hematology', p.admittedDate || 'Admission Day', 'Param: 10.5 g/dL', 'Verified'],
-                      [`ORD-${(p.admission_id || 87248) + 1}`, 'Electrolytes Panel', 'Biochemistry', p.admittedDate || 'Admission Day', 'K: 4.1, Na: 138 mEq/L', 'Verified'],
-                      [`ORD-${(p.admission_id || 87248) + 2}`, 'HbA1c Glycated Hemoglobin', 'LIS', p.admittedDate || 'Admission Day', '6.8% · Good control', 'Verified']
-                    ]);
+                  : []
 
             const xrayRows = patientXrayOrders.map((xo) => {
               const isUrgent = (xo.priority || '').toLowerCase() === 'urgent';
@@ -3203,9 +3283,7 @@ export default function Patient360View({
                       'Standard',
                       'Dispensed'
                     ])
-                  : [
-                      [`RX-${p.admission_id || '87248'}`, 'Inj. Vancomycin HCl', '40 mg SC OD', '30 Days · 30 units', '⚠ High Alert', 'Prescribed']
-                    ]
+                  : []
           }
           onRowClick={(row) => {
             if (onOpenDrawer) {
@@ -3387,10 +3465,9 @@ export default function Patient360View({
                       `₹${Number(bi.unit_price || 0).toLocaleString('en-IN')}`,
                       `₹${Number(bi.net_amount || bi.gross_amount || 0).toLocaleString('en-IN')}`
                     ])
-                  : [
-                      ['Inpatient Bed Clearance & Dietary Food Bill', 'BED-CLR', p.admittedDate || '17 May 2025', `${p.current_stay_days || 487} days`, '₹500.00', `₹${hospitalSum.toLocaleString('en-IN')}`],
-                      ['Inpatient Base Fee & Clinical Nursing Care', 'BASE-FEE', p.admittedDate || '17 May 2025', '1 unit', '₹2,500.00', '₹2,500.00']
-                    ]
+                  : (hospitalSum > 0 ? [
+                      ['Inpatient Base Fee & Clinical Nursing Care', 'BASE-FEE', p.admittedDate || 'Admission Day', '1 unit', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
+                    ] : [])
               }
               onRowClick={handleOpenBillDrawer}
             />
@@ -3431,9 +3508,7 @@ export default function Patient360View({
                         'Standard Rate',
                         'Billed'
                       ])
-                    : [
-                        ['Tab. Paracetamol 650mg', 'Paracetamol', 'Analgesic', p.admittedDate || '17 May 2025', '10 tabs', '₹10.00', '₹100.00']
-                      ]
+                    : []
               }
               onRowClick={handleOpenBillDrawer}
             />
@@ -3472,9 +3547,7 @@ export default function Patient360View({
                         '₹450.00',
                         lr.verification_status || 'Verified'
                       ])
-                    : [
-                        ['Complete Blood Count (CBC)', 'Hematology', p.admittedDate || '17 May 2025', 'Param: 10.5 g/dL', '₹450.00', 'Completed']
-                      ]
+                    : []
               }
               onRowClick={handleOpenBillDrawer}
             />
@@ -3584,10 +3657,10 @@ export default function Patient360View({
               [
                 `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
                 p.admittedDate || '17 May 2025',
-                p.isDischarged ? 'Completed' : (p.isCleared ? 'Ready' : 'Blocked'),
+                p.dischargePredicted,
                 p.dischargeDateTime,
-                p.isDischarged ? (p.doctor || 'Clinical Care Desk / Doctor') : (p.isCleared ? 'Clinical Discharge Agent' : `Doctor: ${p.doctor}`),
-                p.isDischarged ? 'Discharged · Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Blocked · Pending Bill Clearance')
+                p.dischargeOwner,
+                p.dischargeStatusLabel
               ],
             ]
           }
@@ -3618,7 +3691,23 @@ export default function Patient360View({
                 title: `${row[0]} · ${p.name}`,
                 sub: `Discharge Status: ${row[5]} | Date & Time: ${row[3]}`,
                 badges: [
-                  { t: p.isDischarged ? 'Discharged & Signed Off' : (p.isCleared ? 'Ready for Sign-Off' : 'Pending Clearance'), bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#fef3c7'), fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#92400e') }
+                  {
+                    t: p.isDischarged
+                      ? 'Discharged & Signed Off'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? 'Approval Required · Doctor Sign-Off'
+                          : (p.dischargePredicted === 'Ready' ? 'Ready for Discharge' : 'Pending Clearance')),
+                    bg: p.isDischarged
+                      ? '#dcfce7'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? '#fef3c7'
+                          : (p.dischargePredicted === 'Ready' ? '#dcfce7' : '#fee2e2')),
+                    fg: p.isDischarged
+                      ? '#15803d'
+                      : (p.dischargePredicted === 'Approval required'
+                          ? '#92400e'
+                          : (p.dischargePredicted === 'Ready' ? '#15803d' : '#b91c1c'))
+                  }
                 ],
                 facts: [
                   { k: 'Discharge Case ID', v: row[0], b: true },
@@ -3684,7 +3773,9 @@ export default function Patient360View({
           rows={[
             ['Discharge Summary', 'v1 draft', `AI draft · ${p.doctor}`, p.isCleared ? 'Approved & Signed' : 'DRAFT — HUMAN REVIEW'],
             ['Itemized Hospital & Pharmacy Bill', 'v1', 'Finance & Revenue Lead', p.isCleared ? 'Paid in Full' : 'Pending Settlement'],
-            ['Diagnostic & Lab Investigation Panel', 'Final', 'LIS Pathology Lead', 'Verified & Signed'],
+            ...((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) ? [
+              ['Diagnostic & Lab Investigation Panel', 'Final', 'LIS Pathology Lead', 'Verified & Signed']
+            ] : []),
             ['Patient Admission & Consent Form', 'v1', 'Front Office Lead', 'Signed'],
           ]}
         />
@@ -4271,59 +4362,65 @@ function TableContainer({ cols, grid, rows, onRowClick }) {
           <span key={col}>{col}</span>
         ))}
       </div>
-      {rows.map((row, idx) => (
-        <div
-          key={idx}
-          onClick={() => onRowClick && onRowClick(row)}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: grid,
-            gap: '8px',
-            padding: '8px 14px',
-            borderBottom: idx === rows.length - 1 ? 'none' : '1px solid #f2f3f4',
-            alignItems: 'center',
-            fontSize: '12px',
-            minWidth: '600px',
-            cursor: onRowClick ? 'pointer' : 'default',
-            transition: 'background 0.1s',
-          }}
-          onMouseEnter={(e) => {
-            if (onRowClick) e.currentTarget.style.background = '#f8fafc';
-          }}
-          onMouseLeave={(e) => {
-            if (onRowClick) e.currentTarget.style.background = 'transparent';
-          }}
-        >
-          {row.map((cell, cIdx) => {
-            if (React.isValidElement(cell)) {
-              return (
-                <div key={cIdx} style={{ minWidth: 0, overflow: 'hidden' }}>
-                  {cell}
-                </div>
-              );
-            }
-            const cellStr = String(cell ?? '');
-            const isMono = cIdx === 0 || cellStr.includes('₹') || cellStr.includes(':') || /^\d/.test(cellStr) || /^D-\d+/i.test(cellStr);
-            const isRed = cellStr.includes('Blocked') || cellStr.includes('⚠') || cellStr.includes('Pending Clearance');
-            const isGreen = cellStr.includes('Completed') || cellStr.includes('Verified') || cellStr.includes('Final') || cellStr.includes('Cleared') || cellStr.includes('Paid') || cellStr.includes('Active');
-            return (
-              <span
-                key={cIdx}
-                style={{
-                  fontFamily: isMono ? 'ui-monospace, Menlo, monospace' : 'inherit',
-                  fontWeight: cIdx === 0 || cIdx === 1 ? 600 : 400,
-                  color: isRed ? '#dc2626' : isGreen ? '#15803d' : '#15181b',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {cellStr}
-              </span>
-            );
-          })}
+      {(!rows || rows.length === 0) ? (
+        <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+          No records on file for this patient.
         </div>
-      ))}
+      ) : (
+        rows.map((row, idx) => (
+          <div
+            key={idx}
+            onClick={() => onRowClick && onRowClick(row)}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: grid,
+              gap: '8px',
+              padding: '8px 14px',
+              borderBottom: idx === rows.length - 1 ? 'none' : '1px solid #f2f3f4',
+              alignItems: 'center',
+              fontSize: '12px',
+              minWidth: '600px',
+              cursor: onRowClick ? 'pointer' : 'default',
+              transition: 'background 0.1s',
+            }}
+            onMouseEnter={(e) => {
+              if (onRowClick) e.currentTarget.style.background = '#f8fafc';
+            }}
+            onMouseLeave={(e) => {
+              if (onRowClick) e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            {row.map((cell, cIdx) => {
+              if (React.isValidElement(cell)) {
+                return (
+                  <div key={cIdx} style={{ minWidth: 0, overflow: 'hidden' }}>
+                    {cell}
+                  </div>
+                );
+              }
+              const cellStr = String(cell ?? '');
+              const isMono = cIdx === 0 || cellStr.includes('₹') || cellStr.includes(':') || /^\d/.test(cellStr) || /^D-\d+/i.test(cellStr);
+              const isRed = cellStr.includes('Blocked') || cellStr.includes('⚠') || cellStr.includes('Pending Clearance');
+              const isGreen = cellStr.includes('Completed') || cellStr.includes('Verified') || cellStr.includes('Final') || cellStr.includes('Cleared') || cellStr.includes('Paid') || cellStr.includes('Active');
+              return (
+                <span
+                  key={cIdx}
+                  style={{
+                    fontFamily: isMono ? 'ui-monospace, Menlo, monospace' : 'inherit',
+                    fontWeight: cIdx === 0 || cIdx === 1 ? 600 : 400,
+                    color: isRed ? '#dc2626' : isGreen ? '#15803d' : '#15181b',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {cellStr}
+                </span>
+              );
+            })}
+          </div>
+        ))
+      )}
     </div>
   );
 }

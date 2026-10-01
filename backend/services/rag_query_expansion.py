@@ -145,6 +145,21 @@ class RagQueryExpansionService:
             entities = {}
             status_filter = self._infer_status_filter(sanitized_query)
 
+        # If query asks about financial/billing balances, dues, amounts, payments, or bills,
+        # do not treat 'pending' as a document review status filter so all patient billing records are retrieved.
+        if status_filter and any(w in sanitized_query.lower() for w in ("amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges", "रकम", "राशि", "தொகை", "మొత్తం", "saldo")):
+            status_filter = None
+
+        q_low = sanitized_query.lower()
+        icd_match = re.search(r'\b(D-\d+)\b', sanitized_query, re.I)
+        if icd_match:
+            code_str = icd_match.group(1).upper()
+            search_phrases.extend([f"ICD Code: {code_str}", f"Code: {code_str}", f"Diagnosis {code_str}", "clinical diagnosis"])
+        if any(w in q_low for w in ("diagnosis", "diagnoses", "dx")):
+            search_phrases.extend(["clinical diagnosis", "primary diagnosis", "diagnosis summary"])
+            if any(w in q_low for w in ("result", "results", "investigation", "workup", "all", "order")):
+                search_phrases.extend(["diagnostic investigations lab results", "laboratory test results", "xray imaging orders reports"])
+
         # Always preserve explicit context identifiers
         effective_patient_id = patient_id
         effective_admission_id = admission_id
@@ -174,12 +189,23 @@ class RagQueryExpansionService:
                     variants.append(lower_q.replace(term, s))
 
         # Area-specific default search variants
-        if area == "radiology" and not any(k in lower_q for k in ("x-ray", "cxr", "scan", "study")):
-            variants.append(f"{lower_q} x-ray imaging findings")
-            variants.append(f"{lower_q} radiologist review report")
-        elif area == "discharge" and not any(k in lower_q for k in ("discharge", "clearance", "billing")):
-            variants.append(f"{lower_q} discharge readiness pending clearance")
-            variants.append(f"{lower_q} verified discharge summary")
+        is_clarif = any(w in lower_q for w in ("clarification", "clarifications", "calrification", "calrifications", "thread", "threads", "message", "messages"))
+        if area == "radiology":
+            if is_clarif:
+                variants.append(f"{lower_q} radiology clinical clarification messages discussion")
+                variants.append("radiology clarification discussions and messages")
+            elif not any(k in lower_q for k in ("x-ray", "cxr", "scan", "study")):
+                variants.append(f"{lower_q} x-ray imaging findings")
+                variants.append(f"{lower_q} radiologist review report")
+        elif area == "discharge" and not any(k in lower_q for k in ("discharge", "clearance", "billing", "bill")):
+            if any(w in lower_q for w in ("amount", "balance", "due", "dues", "payment", "cost", "fee", "fees", "charge", "charges", "settled", "settle", "outstanding")):
+                variants.append(f"{lower_q} bill billing clearance outstanding balance")
+            elif any(w in lower_q for w in ("condition", "summarize", "summary", "overview", "diagnosis", "diagnoses", "vitals", "vital", "medication", "medicine")):
+                variants.append(f"{lower_q} clinical diagnosis inpatient admission vitals medications")
+                variants.append(f"{lower_q} verified clinical condition")
+            else:
+                variants.append(f"{lower_q} discharge readiness pending clearance")
+                variants.append(f"{lower_q} verified discharge summary")
         elif area == "patient360" and any(k in lower_q for k in ("why", "still here", "status")):
             variants.append("admission diagnosis chief complaint current stay")
             variants.append("pending discharge clearance active orders")
@@ -189,6 +215,8 @@ class RagQueryExpansionService:
     def _infer_intent_rule_based(self, query: str, area: str) -> str:
         """Determines clinical intent when LLM is unavailable, supporting multilingual queries."""
         q = query.lower()
+        if any(w in q for w in ("clarification", "clarifications", "calrification", "calrifications", "thread")):
+            return "CLARIFICATION_QUERY"
         if any(w in q for w in ("vital", "bp", "heart rate", "pulse", "temp", "spo2", "वाइटल", "रक्तचाप", "तापमान", "வைட்டல்", "వైటల్స్", "signos vitales")):
             return "VITAL_SIGNS_QUERY"
         if any(w in q for w in ("medicine", "medication", "drug", "dose", "tablet", "injection", "prescript", "दवा", "औषधि", "மருந்து", "మందులు", "medicamento")):
@@ -197,7 +225,12 @@ class RagQueryExpansionService:
             return "LAB_RESULTS_QUERY"
         if any(w in q for w in ("x-ray", "radiolog", "cxr", "imaging", "dicom", "finding", "orthanc", "एक्स", "रेडियोलॉजी", "ரேடியாலஜி", "எக்ஸ்ரே", "రేడియోలజీ", "radiografía", "rayos x")):
             return "RADIOLOGY_QUERY"
-        if any(w in q for w in ("discharge", "leave", "clearance", "bill", "summary", "draft", "blocked", "डिस्चार्ज", "बिल", "டிஸ்சார்ஜ்", "பில்", "డిశ్చార్జ్", "బిల్లు", "alta", "factura")):
+        if any(w in q for w in (
+            "discharge", "leave", "clearance", "bill", "billing", "summary", "draft", "blocked",
+            "amount", "balance", "due", "dues", "payment", "cost", "fee", "fees", "charge", "charges",
+            "settled", "settle", "outstanding",
+            "डिस्चार्ज", "बिल", "டிஸ்சார்ஜ்", "பில்", "డిశ్చార్జ్", "బిల్లు", "alta", "factura"
+        )):
             return "DISCHARGE_READINESS_QUERY"
         if any(w in q for w in ("why", "admitted", "stay", "reason", "condition", "diagnosis", "मरीज", "स्थिति", "हालत", "நோயாளி", "நிலைமை", "ரோగి", "paciente", "estado")):
             return "PATIENT_ADMISSION_STATUS"
@@ -207,6 +240,10 @@ class RagQueryExpansionService:
         q = query.lower()
         if any(w in q for w in ("abnormal", "critical", "elevated", "असामान्य", "गंभीर", "அசாதாரண", "తీవ్రమైన", "anormal", "crítico")):
             return "Abnormal"
+        # If query asks about financial/billing balances, dues, amounts, payments, or bills,
+        # do not treat 'pending' as a document review status filter so all patient billing records are retrieved.
+        if any(w in q for w in ("amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges", "रकम", "राशि", "தொகை", "మొత్తం", "saldo")):
+            return None
         if any(w in q for w in ("pending", "blocked", "लंबित", "अटका", "நிலுவை", "పెండింగ్", "pendiente", "bloqueado")):
             return "Pending"
         if any(w in q for w in ("verified", "confirmed", "सत्यापित", "पुष्ट", "சரிபார்க்கப்பட்டது", "ధృవీకరించబడింది", "verificado")):

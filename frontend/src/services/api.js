@@ -59,6 +59,7 @@ async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const authHeader = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hc_auth_token') : null) || 'demo-session-token';
   try {
     const res = await fetch(url, {
       ...fetchOptions,
@@ -66,6 +67,7 @@ async function fetchWithTimeout(url, options = {}) {
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authHeader}`,
         ...fetchOptions.headers,
       },
     });
@@ -362,6 +364,24 @@ export const apiService = {
 
   async getGeneratedDischargeSummaryById(summaryId, options = {}) {
     return await this.getDischargedPatientById(summaryId, options);
+  },
+
+  // -------------------------------------------------------------------------
+  // Manage Patient Vitals (Normal / Abnormal by patient_code)
+  // -------------------------------------------------------------------------
+  async managePatientVitals(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/manage-vitals`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated('/api/v1/discharge-agent/manage-vitals', data);
+    return data;
+  },
+
+  async getPatientVitalsByCode(patientCode, limit = 10) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/patient-code/${encodeURIComponent(patientCode)}/vitals?limit=${limit}`, { forceRefresh: true });
   },
 
   // -------------------------------------------------------------------------
@@ -840,14 +860,17 @@ export const apiService = {
     if (params.status && params.status !== 'All') q.append('status', params.status);
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
+    // Pass the current user role for role-based notification scoping on the backend
+    if (params.role) q.append('role', params.role);
     const url = `${API_BASE_URL}/api/v1/admin/notifications${q.toString() ? '?' + q.toString() : ''}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notifications`);
     return await res.json();
   },
 
-  async getNotificationCounts(options = {}) {
-    const url = `${API_BASE_URL}/api/v1/admin/notifications/count`;
+  async getNotificationCounts(role = null, options = {}) {
+    const q = role ? `?role=${encodeURIComponent(role)}` : '';
+    const url = `${API_BASE_URL}/api/v1/admin/notifications/count${q}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notification counts`);
     return await res.json();
@@ -1462,8 +1485,13 @@ export const apiService = {
 
   async getPatientRegistrationMeta(options = {}) {
     try {
-      return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/meta`, { ...options, revalidateMs: 15000 });
+      return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients/meta`, {
+        forceRefresh: true,
+        revalidateMs: 2000,
+        ...options
+      });
     } catch (e) {
+      console.warn('Failed to fetch patient registration meta:', e);
       return { success: true, departments: [], doctors: [], wards: [], beds: [] };
     }
   },
@@ -1549,6 +1577,111 @@ export const apiService = {
       ...options,
       revalidateMs: 2000
     });
+  },
+
+  // ── Patient Portal Endpoints (Authenticated Token-Bound) ───────────────
+  async getPatientPortalDashboard(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/dashboard`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to fetch patient portal dashboard' }));
+      throw new Error(err.detail || 'Failed to fetch patient portal dashboard');
+    }
+    return await res.json();
+  },
+
+  async getPatientPortalProfile(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/profile`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalAdmissions(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/admissions`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalDiagnoses(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/diagnoses`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalAppointments(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/appointments`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalVitals(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/vitals`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalPrescriptions(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/prescriptions`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalLabResults(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/lab-results`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalBills(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/bills`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalInsurance(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/insurance`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalDischargeSummaries(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/discharge-summaries`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalNotifications(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/notifications`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
   }
 };
 
@@ -1564,13 +1697,13 @@ export function extractDischargedPatientIds(dischargedRecords = []) {
   (dischargedRecords || []).forEach(r => {
     if (!r) return;
 
-    // Only actual approved or finalized discharges count as discharged.
-    // Drafts / 'Pending Approval' are still actively admitted inpatients.
-    const isApproved = r.approval_status ? String(r.approval_status).trim().toLowerCase() === 'approved' : false;
-    const isExplicitDischarge = r.status ? String(r.status).trim().toLowerCase() === 'discharged' : false;
-    const isDischargedFlag = r.is_discharged === true;
+    // Active admitted inpatients should NEVER be marked as discharged
+    const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
+    if (dcStatus === 'admitted') return;
 
-    if (!isApproved && !isExplicitDischarge && !isDischargedFlag) {
+    const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true || (dcStatus === 'ready' && r.discharge_date);
+
+    if (!isExplicitDischarge) {
       return;
     }
 
@@ -1614,6 +1747,30 @@ export function extractDischargedPatientIds(dischargedRecords = []) {
 export function filterDischargedPatients(admissions = [], discharges = []) {
   const tracker = extractDischargedPatientIds(discharges);
   return (admissions || []).filter(patient => !tracker.has(patient));
+}
+
+/**
+ * Normalizes doctor display name by stripping extraneous degrees, qualifications, and role suffixes.
+ * e.g. "Dr. Ravi Reddy, MBBS, MS (Administrator)" -> "Dr. Ravi Reddy"
+ */
+export function cleanDoctorName(doc) {
+  if (!doc) return 'Attending Physician';
+  if (typeof doc !== 'string') return String(doc);
+  let cleaned = doc.trim();
+  // Remove parenthetical roles or specialties: e.g. (Administrator), (Cardiologist), (General Medicine)
+  cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+  // Remove qualifications after comma: e.g. , MBBS, MS or , MD, EDIC
+  if (cleaned.includes(',')) {
+    cleaned = cleaned.split(',')[0].trim();
+  }
+  // Ensure "Dr. " prefix is formatted cleanly without duplicate "Dr. Dr."
+  if (!cleaned.toLowerCase().startsWith('dr.') && !cleaned.toLowerCase().startsWith('dr ')) {
+    cleaned = `Dr. ${cleaned}`;
+  } else if (cleaned.toLowerCase().startsWith('dr ')) {
+    cleaned = `Dr. ${cleaned.slice(3).trim()}`;
+  }
+  return cleaned;
 }
 
 /**
@@ -2380,7 +2537,7 @@ export function synthesizeClinicalDetails(data) {
   }
 
   const stayDays = data.current_stay_days || data.stay_days || data.length_of_stay || (rawAdmDate ? Math.max(1, Math.round((Date.now() - new Date(rawAdmDate).getTime()) / (1000 * 60 * 60 * 24))) : 20);
-  const doctor = data.attending_physician || data.attending_doctor || data.doctor || data.primary_consultant || 'Dr. Neha Nair';
+  const doctor = cleanDoctorName(data.attending_physician || data.attending_doctor || data.doctor || data.primary_consultant || 'Dr. Neha Nair');
   const spec = data.doctor_specialization || data.doctorRole || 'Treating Specialist';
 
   // Check if raw prompt is present
@@ -2479,7 +2636,8 @@ export function parseDischargeSummaryRecord(record) {
   }
   const isGenericExtracted = !extractedName || /^Patient\s+(PAT-|\d+)/i.test(extractedName) || /^Patient\s*$/i.test(extractedName);
   const resolvedPatientName = (!isGenericExtracted ? extractedName : null) || record.patient || extractedName || `Patient ${record.patient_number || record.patient_id || ''}`.trim();
-  const resolvedDoctorName = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
+  const rawDoctor = record.primary_consultant || record.doctor_name || record.attending_physician || 'Attending Physician';
+  const resolvedDoctorName = cleanDoctorName(rawDoctor);
   const resolvedDiagnoses = formatClinicalDiagnoses(record.diagnoses || '') || 'Clinical Discharge Completed';
   const resolvedInvestigations = formatClinicalInvestigations(record.investigations || '');
   const resolvedTreatment = formatClinicalTreatment(record.treatment || '');

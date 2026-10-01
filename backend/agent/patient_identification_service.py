@@ -22,6 +22,7 @@ if backend_dir not in sys.path:
     sys.path.append(backend_dir)
 
 import db_config
+import utils.cache_service as cache_service
 from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone
 
 
@@ -32,6 +33,12 @@ def get_all_patients_by_phone(phone_number: str) -> List[Dict[str, Any]]:
     """
     if not phone_number:
         return []
+
+    norm_phone = normalize_phone(phone_number)
+    cache_key = f"pat_phone_{norm_phone}"
+    cached_pats = cache_service.get_cache(cache_key)
+    if cached_pats is not None:
+        return cached_pats
 
     conn = db_config.get_db_connection()
     cur = conn.cursor()
@@ -73,10 +80,12 @@ def get_all_patients_by_phone(phone_number: str) -> List[Dict[str, Any]]:
                 "status": r[13],
                 "created_at": str(r[14]) if r[14] else None
             })
+        cache_service.set_cache(cache_key, patients, ttl_seconds=60.0)
         return patients
     finally:
         cur.close()
         conn.close()
+
 
 
 def identify_patient_by_phone(phone_number: str) -> Dict[str, Any]:

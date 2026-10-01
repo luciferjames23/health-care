@@ -943,6 +943,7 @@ def book_ot_slot(body: OtSlotBooking):
 # ---------------------------------------------------------------------------
 class VitalSignRecordCreate(BaseModel):
     patient_id: int
+    patient_code: Optional[str] = None
     admission_id: Optional[int] = None
     temperature: Optional[float] = 98.6
     heart_rate: Optional[int] = 72
@@ -953,7 +954,7 @@ class VitalSignRecordCreate(BaseModel):
     recorded_by: Optional[str] = 'Nurse Sheela J'
 
 @router.get("/vitals", summary="Get Patient Vital Signs Observations History")
-def get_patient_vitals(patient_id: Optional[int] = None, admission_id: Optional[int] = None, limit: int = 50):
+def get_patient_vitals(patient_id: Optional[int] = None, admission_id: Optional[int] = None, patient_code: Optional[str] = None, limit: int = 50):
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
@@ -965,6 +966,9 @@ def get_patient_vitals(patient_id: Optional[int] = None, admission_id: Optional[
         if admission_id:
             where_clauses.append("admission_id = %s")
             params.append(admission_id)
+        if patient_code:
+            where_clauses.append("(patient_code = %s OR patient_code ILIKE %s)")
+            params.extend([patient_code, f"%{patient_code}%"])
         
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         params.append(limit)
@@ -981,13 +985,19 @@ def record_patient_vitals(body: VitalSignRecordCreate):
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor()
+        pcode = body.patient_code
+        if not pcode and body.patient_id:
+            cur.execute("SELECT patient_code FROM patients WHERE id = %s LIMIT 1;", (body.patient_id,))
+            r = cur.fetchone()
+            if r and r[0]:
+                pcode = r[0]
         cur.execute("""
-            INSERT INTO vital_signs (patient_id, admission_id, temperature, heart_rate, systolic_bp, diastolic_bp, respiratory_rate, oxygen_saturation, recorded_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP) RETURNING vital_id;
-        """, (body.patient_id, body.admission_id, body.temperature, body.heart_rate, body.systolic_bp, body.diastolic_bp, body.respiratory_rate, body.oxygen_saturation))
+            INSERT INTO vital_signs (patient_id, admission_id, temperature, heart_rate, systolic_bp, diastolic_bp, respiratory_rate, oxygen_saturation, recorded_at, patient_code)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s) RETURNING vital_id;
+        """, (body.patient_id, body.admission_id, body.temperature, body.heart_rate, body.systolic_bp, body.diastolic_bp, body.respiratory_rate, body.oxygen_saturation, pcode))
         new_id = cur.fetchone()[0]
         conn.commit()
-        return {"success": True, "vital_id": new_id, "message": "Vitals measurement logged successfully"}
+        return {"success": True, "vital_id": new_id, "patient_code": pcode, "message": "Vitals measurement logged successfully"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

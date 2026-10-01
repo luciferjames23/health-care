@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Database snapshots (large files)
+backend/alter_db/*.json
+backend/alter_db/snapshot_data.json

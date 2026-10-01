@@ -2143,7 +2143,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     btn_id = interactive_id or (message_text.strip() if message_text and message_text.strip().startswith("btn_") else None)
     if not btn_id and message_text:
         m_strip = message_text.strip().lower()
-        if m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "new patient", "btn_first_time", "btn_first_time_visitor"]:
+        if m_strip in ["new patient", "register new patient", "btn_new_patient"]:
+            btn_id = "btn_new_patient"
+        elif m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "btn_first_time", "btn_first_time_visitor"]:
             btn_id = "btn_first_time"
         elif m_strip in ["existing patient", "existing", "btn_existing_patient"]:
             btn_id = "btn_existing_patient"
@@ -2179,8 +2181,17 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_pay_cancel"
         elif m_strip.startswith("pay ₹") or m_strip.startswith("pay rs") or m_strip.startswith("btn_pay_exec") or m_strip in ["pay", "pay now", "make payment", "pay fee", "confirm payment", "pay ₹800", "pay 800", "pay rs 800"]:
             btn_id = "btn_pay_exec"
-        elif any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]:
-            btn_id = "btn_book_appt"
+        elif (any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]):
+            rule_ext_check = entity_extractor.extract_entities(message_text)
+            has_entities_check = bool(
+                rule_ext_check.get("reason") or
+                rule_ext_check.get("doctor_id") or
+                rule_ext_check.get("department_id") or
+                rule_ext_check.get("appointment_date") or
+                entity_extractor.is_date_or_time_expression(m_strip)
+            )
+            if not has_entities_check:
+                btn_id = "btn_book_appt"
         elif any(kw in m_strip for kw in ["confirm appointment", "confirm appt"]) or m_strip in ["confirm"]:
             btn_id = "btn_confirm_appt"
         elif any(kw in m_strip for kw in ["cancel appointment", "cancel my appointment", "cancel appt", "cancel booking"]):
@@ -2260,10 +2271,13 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     pass
             if curr_doc or curr_stage in ["DATE_REQUIRED", "AWAITING_DATE", "DOCTOR_SELECTED", "DOCTOR_SELECTION_REQUIRED", "AWAITING_TIME", "AWAITING_DOCTOR"] or state.get("intent") == "BOOK_APPOINTMENT":
                 try:
-                    from agent.date_normalizer import parse_and_normalize_date
-                    norm_d, is_amb, err = parse_and_normalize_date(message_text)
-                    if norm_d:
-                        btn_id = f"btn_date_{norm_d}"
+                    rule_ext_date = entity_extractor.extract_entities(message_text)
+                    has_doc_or_reason_in_msg = bool(rule_ext_date.get("doctor_id") or rule_ext_date.get("reason"))
+                    if not has_doc_or_reason_in_msg:
+                        from agent.date_normalizer import parse_and_normalize_date
+                        norm_d, is_amb, err = parse_and_normalize_date(message_text)
+                        if norm_d:
+                            btn_id = f"btn_date_{norm_d}"
                 except Exception:
                     pass
 
@@ -2280,7 +2294,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # Check text replies for matching patient name or patient code linked to sender's WhatsApp number
         is_in_registration = (state.get("active_workflow") == "REGISTRATION" or 
                               state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
-                              state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"])
+                              state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+                              state.get("intent") in ["PATIENT_REGISTRATION", "NEW_PATIENT_REGISTRATION"])
         if not btn_id and message_text and not is_in_registration:
             m_txt = message_text.strip().lower()
             w_num = conversation_code.replace("WA_", "").split("_")[0]
@@ -2428,14 +2443,18 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     all_pats = []
     if wa_phone_lookup:
         all_pats = patient_id_service.get_all_patients_by_phone(wa_phone_lookup)
-        if len(all_pats) == 1:
+        is_registering = (state.get("active_workflow") == "REGISTRATION" or 
+                          state.get("conversation_state") == "REGISTER_NEW_PATIENT" or 
+                          state.get("registration_stage") in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+                          state.get("intent") in ["PATIENT_REGISTRATION", "NEW_PATIENT_REGISTRATION"])
+        if len(all_pats) == 1 and not is_registering:
             p_id = all_pats[0]["id"]
             state["patient_id"] = p_id
             state["selected_patient_id"] = p_id
             state.setdefault("entities", {})["patient_id"] = p_id
             if state.get("patient_identification_stage") not in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
                 state["patient_identification_stage"] = "COMPLETED"
-        elif len(all_pats) > 1:
+        elif len(all_pats) > 1 and not is_registering:
             sel_pid = state.get("selected_patient_id")
             if sel_pid and any(p["id"] == sel_pid for p in all_pats):
                 state["patient_id"] = sel_pid
@@ -2448,7 +2467,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         # UNKNOWN / UNREGISTERED PATIENT PRIORITY GATE:
         # If WhatsApp number has 0 registered patients OR patient identification stage is NOT COMPLETED:
         # Intercept and process ALWAYS in handle_unknown_patient_identification_flow!
-        if not all_pats or state.get("patient_identification_stage") in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID", "REGISTRATION"]:
+        if not all_pats or state.get("patient_identification_stage") in ["AWAITING_PATIENT_TYPE", "AWAITING_PATIENT_ID"]:
             if state.get("patient_identification_stage") != "COMPLETED":
                 return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
@@ -2848,7 +2867,13 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["conversation_state"] = "REGISTER_NEW_PATIENT"
             state["active_workflow"] = "REGISTRATION"
             state["registration_stage"] = "AWAITING_NAME"
+            state["patient_identification_stage"] = "REGISTRATION"
             state["intent"] = "PATIENT_REGISTRATION"
+            state["patient_id"] = None
+            state["selected_patient_id"] = None
+            state["registration_name"] = None
+            state["registration_dob"] = None
+            state["registration_gender"] = None
             resp = language_service.translate_response("NEW_PATIENT_PROMPT", language=current_lang)
             state["interactive_buttons"] = []
             state_manager.save_conversation_state(conversation_code, state)
@@ -3823,7 +3848,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 )
                 pay_prompt_buttons = [
                     {"id": "btn_pay_exec", "title": f"Pay {fee_str}"},
-                    {"id": "btn_pay_change", "title": "Change Payment Method"},
+                    {"id": "btn_pay_change", "title": "Change Payment"},
                     {"id": "btn_pay_cancel", "title": "Cancel"}
                 ]
                 state["interactive_buttons"] = pay_prompt_buttons
@@ -3926,7 +3951,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             pay_prompt_buttons = [
                 {"id": "btn_pay_exec", "title": f"Pay {fee_str}"},
-                {"id": "btn_pay_change", "title": "Change Payment Method"},
+                {"id": "btn_pay_change", "title": "Change Payment"},
                 {"id": "btn_pay_cancel", "title": "Cancel"}
             ]
             state["interactive_buttons"] = pay_prompt_buttons
@@ -4779,14 +4804,14 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     )
                     if str(a_status).upper() == "CANCELLED":
                         buttons = [
-                            {"id": "btn_my_appts", "title": "Back to My Appointments"},
+                            {"id": "btn_my_appts", "title": "My Appointments"},
                             {"id": "btn_hosp_info", "title": "Main Menu"}
                         ]
                     else:
                         buttons = [
                             {"id": f"btn_cancel_existing_{appt_db_id}", "title": "Cancel Appointment"},
-                            {"id": f"btn_reschedule_existing_{appt_db_id}", "title": "Reschedule Appointment"},
-                            {"id": "btn_my_appts", "title": "Back to My Appointments"}
+                            {"id": f"btn_reschedule_existing_{appt_db_id}", "title": "Reschedule"},
+                            {"id": "btn_my_appts", "title": "My Appointments"}
                         ]
                     state["interactive_buttons"] = buttons
                     state["intent"] = "APPOINTMENT_STATUS"
@@ -4820,7 +4845,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     # Bug 6: Patient ownership validation
                     if pat_id and a_pat_id != pat_id:
                         resp = "Unable to process request. Appointment record does not match selected patient."
-                        buttons = [{"id": "btn_my_appts", "title": "Back to My Appointments"}]
+                        buttons = [{"id": "btn_my_appts", "title": "My Appointments"}]
                         return {"response": resp, "intent": "CANCEL_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
 
                     # Bug 2, 5, 10: Check DB status for already cancelled
@@ -5804,7 +5829,29 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     FAREWELL_KEYWORDS = ["bye", "goodbye", "good bye", "see you", "take care", "good night", "பாய்", "வணக்கம்"]
     is_farewell_msg = llm_intent_name == "GOODBYE" or any(kw in msg_clean_greeting for kw in FAREWELL_KEYWORDS)
 
-    if is_farewell_msg:
+    reg_stage_check = state.get("registration_stage") or state.get("patient_identification_stage")
+    is_in_registration_flow = (
+        state.get("active_workflow") == "REGISTRATION" or
+        state.get("conversation_state") in ["REGISTER_NEW_PATIENT", "AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER"] or
+        reg_stage_check in ["AWAITING_NAME", "AWAITING_DOB", "AWAITING_GENDER", "REGISTRATION"] or
+        state.get("intent") in ["REGISTER_PATIENT", "PATIENT_REGISTRATION"] or
+        (state.get("booking_stage") or "").startswith("REGISTERING_")
+    ) and not state.get("registration_completed")
+
+    if is_in_registration_flow:
+        msg_lwr = safe_msg.lower().strip()
+        cancel_words = ["cancel", "exit", "stop", "never mind", "nevermind", "main menu"]
+        if any(w in msg_lwr for w in cancel_words) or btn_id == "btn_main_menu":
+            state["active_workflow"] = None
+            state["registration_stage"] = None
+            state["patient_identification_stage"] = None
+            state["conversation_state"] = "ACTIVE"
+            state["intent"] = "GREETING"
+            detected_intent = "GREETING"
+        else:
+            detected_intent = "REGISTER_PATIENT"
+            state["intent"] = "REGISTER_PATIENT"
+    elif is_farewell_msg:
         detected_intent = "GOODBYE"
         state["intent"] = "GOODBYE"
         state["booking_stage"] = None
@@ -5842,9 +5889,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "reason":          None,
             "symptoms":        []
         }
-    elif state.get("intent") == "REGISTER_PATIENT" or (state.get("booking_stage") or "").startswith("REGISTERING_"):
-        if not any(w in safe_msg.lower().strip() for w in ["cancel", "exit", "stop", "never mind", "nevermind"]):
-            detected_intent = "REGISTER_PATIENT"
 
     # Multi-patient selection gate: intercept patient-specific intents before downstream execution
     patient_specific_intents = [
@@ -8468,9 +8512,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 is_generic_booking_start = False
             else:
                 is_generic_booking_start = (
-                    (is_explicit_booking_request or not has_symptom_or_dept_or_doc) and
-                    not state.get("confirmation_pending") and not is_mid_booking_flow
-                ) or (is_explicit_booking_request and not is_mid_booking_flow)
+                    not has_symptom_or_dept_or_doc and
+                    not state.get("confirmation_pending") and
+                    not is_mid_booking_flow
+                )
 
             if is_generic_booking_start:
                 # Clear stale entities for fresh booking (including any leftover cancel reason)
@@ -10055,8 +10100,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
-                {"id": "btn_doctors", "title": "Doctors & Departments"},
-                {"id": "btn_book_another", "title": "Book Another Appointment"},
+                {"id": "btn_doctors", "title": "Doctors & Depts"},
+                {"id": "btn_book_another", "title": "Book Appointment"},
                 {"id": "btn_no_thanks", "title": "No, Thank You"}
             ]
         else:
@@ -10067,8 +10112,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
-                {"id": "btn_doctors", "title": "Doctors & Departments"},
-                {"id": "btn_book_another", "title": "Book Another Appointment"},
+                {"id": "btn_doctors", "title": "Doctors & Depts"},
+                {"id": "btn_book_another", "title": "Book Appointment"},
                 {"id": "btn_no_thanks", "title": "No, Thank You"}
             ]
 

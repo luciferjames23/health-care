@@ -336,7 +336,14 @@ def validate_extraction(
     if raw_dept:
         state_has_doc = bool(conversation_state.get("selected_doctor_id") or (conversation_state.get("entities") or {}).get("doctor_id") or conversation_state.get("selected_doctor_name"))
         state_dept = conversation_state.get("selected_department_name") or conversation_state.get("department_name")
-        if (state_has_doc or state_dept) and not _value_mentioned_in_message(raw_dept, msg_lower) and not _quote_in_message(raw_dept, msg_lower):
+        import agent.entity_extractor as entity_extractor
+        mapped_dept_from_msg = entity_extractor.map_symptom_to_department_name(msg_lower)
+        is_dept_grounded = (
+            _value_mentioned_in_message(raw_dept, msg_lower) or
+            _quote_in_message(raw_dept, msg_lower) or
+            (mapped_dept_from_msg and mapped_dept_from_msg.lower() == raw_dept.lower())
+        )
+        if (state_has_doc or state_dept) and not is_dept_grounded:
             _log(f"REJECT department={raw_dept!r} -- not mentioned in patient message, preserving active state department={state_dept!r}", grounding_log)
             cleaned["department"] = None
             if "department" not in rejected_fields:
@@ -484,9 +491,13 @@ def _value_mentioned_in_message(value: str, msg_lower: str) -> bool:
         if hour in msg_lower:
             return True
 
-    # For YYYY-MM-DD dates: check if year or a date component appears
+    # For YYYY-MM-DD dates: check if year, date component, or relative date expression matches
     date_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", val_lower)
     if date_match:
+        import agent.entity_extractor as entity_extractor
+        parsed_from_msg = entity_extractor.parse_natural_date(msg_lower)
+        if parsed_from_msg and parsed_from_msg == val_lower:
+            return True
         day = str(int(date_match.group(3)))
         month_num = int(date_match.group(2))
         MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",

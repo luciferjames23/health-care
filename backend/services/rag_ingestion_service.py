@@ -41,6 +41,7 @@ if BASE_DIR not in sys.path:
 
 import db_config
 from services.rag_embedding_service import embedding_service
+from services.rag_access_control import DOCUMENT_MODULE
 
 
 class RagIngestionService:
@@ -73,24 +74,40 @@ class RagIngestionService:
         if not content or not content.strip():
             return False
 
-        meta_dict = metadata or {}
+        module = DOCUMENT_MODULE.get(document_type)
+        if not module:
+            raise ValueError(f"Unmapped RAG document type: {document_type}")
+        meta_dict = dict(metadata or {})
+        # A stable authorization/routing contract on every indexed chunk.
+        meta_dict.update({
+            "patient_id": patient_id,
+            "doctor_id": doctor_id,
+            "module": module,
+            "department": meta_dict.get("department"),
+            "record_id": str(source_record_id),
+            "timestamp": meta_dict.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+            "version": int(meta_dict.get("version") or 1),
+            "is_deleted": bool(meta_dict.get("is_deleted", False)),
+        })
+        is_active = bool(is_active and not meta_dict["is_deleted"])
         content_clean = content.strip()
         content_hash = hashlib.sha256(content_clean.encode('utf-8')).hexdigest()
 
         # Check existing
         cur.execute("""
-            SELECT id, content_hash, is_active, is_verified, review_status
+            SELECT id, content_hash, is_active, is_verified, review_status, metadata
             FROM rag_documents
             WHERE source_table = %s AND source_record_id = %s AND document_type = %s;
         """, (source_table, str(source_record_id), document_type))
         existing = cur.fetchone()
 
         if existing:
-            doc_id, old_hash, old_active, old_verified, old_review = existing
+            doc_id, old_hash, old_active, old_verified, old_review, old_metadata = existing
             if (old_hash == content_hash and
                 old_active == is_active and
                 old_verified == is_verified and
-                old_review == review_status):
+                old_review == review_status and
+                (old_metadata or {}) == meta_dict):
                 # Unchanged - skip
                 return False
 
@@ -145,6 +162,12 @@ class RagIngestionService:
             SET title = EXCLUDED.title,
                 content = EXCLUDED.content,
                 content_hash = EXCLUDED.content_hash,
+                patient_id = EXCLUDED.patient_id,
+                admission_id = EXCLUDED.admission_id,
+                doctor_id = EXCLUDED.doctor_id,
+                order_id = EXCLUDED.order_id,
+                accession_number = EXCLUDED.accession_number,
+                study_instance_uid = EXCLUDED.study_instance_uid,
                 metadata = EXCLUDED.metadata,
                 review_status = EXCLUDED.review_status,
                 is_verified = EXCLUDED.is_verified,
@@ -173,7 +196,15 @@ class RagIngestionService:
             SELECT 
                 a.admission_id, a.admission_number, a.patient_id, a.doctor_id,
                 a.admission_date, a.admission_type, a.admission_source, a.reason_for_admission,
-                a.discharge_date, a.discharge_status,
+                COALESCE(
+                    a.discharge_date,
+                    (SELECT gds.discharge_date FROM dim_generated_discharge_summaries gds WHERE gds.admission_id = a.admission_id LIMIT 1)
+                ) as discharge_date,
+                COALESCE(
+                    (SELECT dai.discharge_status FROM dim_admission_inputs dai WHERE dai.admission_id = a.admission_id LIMIT 1),
+                    (SELECT CASE WHEN LOWER(gds.approval_status) IN ('approved', 'signed', 'completed', 'signed off') THEN 'Discharged' ELSE NULL END FROM dim_generated_discharge_summaries gds WHERE gds.admission_id = a.admission_id LIMIT 1),
+                    a.discharge_status
+                ) as discharge_status,
                 p.patient_code, p.first_name, p.last_name, p.gender, p.blood_group,
                 p.date_of_birth, EXTRACT(YEAR FROM age(CURRENT_DATE, p.date_of_birth)) as age,
                 COALESCE(d.display_name, CONCAT(d.first_name, ' ', d.last_name)) as doctor_name,
@@ -199,7 +230,8 @@ class RagIngestionService:
              dis_date, dis_status, p_code, first, last, gender, blood, dob, age, doc_name, spec) = r
 
             pat_name = f"{first} {last}".strip()
-            is_active_adm = dis_status in ('Admitted', 'Active', 'Inpatient') or not dis_date
+            is_discharged = str(dis_status).strip().lower() == 'discharged' or bool(dis_date and str(dis_date).lower() != 'none')
+            is_active_adm = not is_discharged and (dis_status in ('Admitted', 'Active', 'Inpatient') or not dis_date)
             title = f"Inpatient Admission Summary - ADM #{adm_num or adm_id} ({pat_name})"
             content = (
                 f"Patient: {pat_name} (Code: {p_code}, Age: {age or 'N/A'}, Gender: {gender or 'N/A'}, Blood Group: {blood or 'N/A'})\n"
@@ -208,7 +240,7 @@ class RagIngestionService:
                 f"Admission Type: {adm_type or 'General'} | Source: {adm_src or 'Emergency/Direct'}\n"
                 f"Reason for Admission: {reason or 'Inpatient medical evaluation and stabilization'}\n"
                 f"Attending Doctor: {doc_name or 'On-Duty Consultant'} ({spec or 'General Medicine'})\n"
-                f"Discharge Date: {dis_date or 'Currently Admitted'}"
+                f"Discharge Date: {dis_date or ('Currently Admitted' if not is_discharged else 'Discharged')}"
             )
             meta = {
                 "patient_code": p_code,
@@ -899,6 +931,72 @@ class RagIngestionService:
                 is_active=True
             ):
                 count += 1
+
+        # Also ingest approved discharge summaries from dim_generated_discharge_summaries
+        try:
+            gds_sql = """
+                SELECT 
+                    gds.summary_id, gds.admission_id, gds.patient_id, gds.doctor_id,
+                    gds.admission_date, gds.discharge_date, gds.diagnoses, gds.case_history,
+                    gds.investigations, gds.treatment, gds.primary_consultant, gds.discharge_advice,
+                    gds.patient_condition, gds.generated_at, gds.approval_status,
+                    p.first_name, p.last_name, p.patient_code
+                FROM dim_generated_discharge_summaries gds
+                JOIN patients p ON p.id = gds.patient_id
+                WHERE 1=1
+            """
+            gds_params = []
+            if admission_id:
+                gds_sql += " AND gds.admission_id = %s"
+                gds_params.append(admission_id)
+            if patient_id:
+                gds_sql += " AND gds.patient_id = %s"
+                gds_params.append(patient_id)
+
+            cur.execute(gds_sql, tuple(gds_params))
+            for r in cur.fetchall():
+                (s_id, adm_id, pat_id, doc_id, adm_date, dis_date, dx, history,
+                 inv, treat, doc_name, advice, cond, gen_at, appr_status, first, last, p_code) = r
+
+                pat_name = f"{first} {last}".strip()
+                title = f"Verified Discharge Summary - ADM #{adm_id} ({pat_name})"
+                content = (
+                    f"Patient: {pat_name} (Code: {p_code})\n"
+                    f"Admission ID: {adm_id} | Admission Date: {adm_date} | Discharge Date: {dis_date or 'Pending'}\n"
+                    f"Primary Attending Consultant: {doc_name}\n"
+                    f"Patient Condition at Discharge: {cond or 'Stable'}\n"
+                    f"Final Diagnoses: {dx or 'Resolved'}\n"
+                    f"Clinical History & Course: {history or 'N/A'}\n"
+                    f"Diagnostic Investigations: {inv or 'N/A'}\n"
+                    f"Inpatient Treatments Given: {treat or 'Standard medical therapy'}\n"
+                    f"Discharge Advice & Follow-up: {advice or 'Routine outpatient follow-up'}"
+                )
+                meta = {
+                    "consultant": doc_name,
+                    "discharge_date": str(dis_date),
+                    "patient_condition": cond,
+                    "approval_status": appr_status
+                }
+                is_ver = str(appr_status).strip().lower() in ('approved', 'signed', 'completed', 'signed off')
+                if self.upsert_document(
+                    cur=cur,
+                    document_type="verified_discharge_summary",
+                    source_table="dim_generated_discharge_summaries",
+                    source_record_id=str(s_id),
+                    title=title,
+                    content=content,
+                    patient_id=pat_id,
+                    admission_id=adm_id,
+                    doctor_id=doc_id,
+                    metadata=meta,
+                    review_status=appr_status or "Approved",
+                    is_verified=is_ver,
+                    is_active=True
+                ):
+                    count += 1
+        except Exception as e:
+            logger.warning(f"Failed to ingest from dim_generated_discharge_summaries: {e}")
+
         return count
 
     def ingest_clarifications(self, cur, order_id: Optional[str] = None, thread_id: Optional[str] = None) -> int:

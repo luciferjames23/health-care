@@ -208,25 +208,6 @@ def extract_entities(text: str) -> dict:
         if match_btn_doc:
             entities["doctor_id"] = int(match_btn_doc.group(1))
 
-        # Match doctor names (requiring "dr"/"doctor" context or full clean display_name)
-        cur.execute("SELECT id, display_name FROM doctors WHERE status = 'ACTIVE';")
-        doctors = cur.fetchall()
-        if "dr" in text_lower or "doctor" in text_lower:
-            for doc_id, display_name in doctors:
-                name_parts = re.findall(r"\b\w+\b", display_name.lower())
-                for part in name_parts:
-                    if len(part) <= 2 or part in ["dr", "dr.", "kumar", "ramesh", "mr", "mrs", "ms"]:
-                        continue
-                    if re.search(r"\b" + re.escape(part) + r"\b", text_lower):
-                        entities["doctor_id"] = doc_id
-                        break
-        else:
-            for doc_id, display_name in doctors:
-                d_clean = display_name.lower().replace("dr.", "").replace("dr", "").strip()
-                if d_clean and len(d_clean) > 3 and re.search(r"\b" + re.escape(d_clean) + r"\b", text_lower):
-                    entities["doctor_id"] = doc_id
-                    break
-
         # Match department names — ordered from MOST SPECIFIC to LEAST SPECIFIC
         cur.execute("SELECT id, department_name FROM departments WHERE status = 'ACTIVE' AND department_name NOT LIKE 'DummyDept%';")
         departments = cur.fetchall()
@@ -246,7 +227,7 @@ def extract_entities(text: str) -> dict:
             # Dermatology — MUST check before General Medicine (hair/skin keywords)
             if re.search(
                 r"\b(dermatology|dermatologist|skin|hair|scalp|rash|acne|pimple|pimples|"
-                r"eczema|psoriasis|hives|dermatitis|hair\s*fall|hair\s*loss|hairfall|"
+                r"eczema|psoriasis|hives|dermatitis|hair\s*fall|hair\s*loss|hairfal|hair\s*fal|"
                 r"bald|baldness|thinning\s*hair|itching|itch|itchy|allergy|skin\s*infection)\b",
                 text_lower
             ):
@@ -286,7 +267,7 @@ def extract_entities(text: str) -> dict:
 
             # Orthopedics
             elif re.search(
-                r"\b(ortho|orthopedics|orthopedist|orthopedic|bone|joint\s*pain|joiont\s*pain|knee|knne|"
+                r"\b(ortho|orthopedics|orthopedist|orthopedic|bone|joint\s*pain|joiont\s*pain|knee|knne|knee\s*pain|kneepain|"
                 r"spine|back\s*pain|backache|fracture|shoulder|neck\s*pain|arthritis|"
                 r"sprain|ligament)\b",
                 text_lower
@@ -318,7 +299,7 @@ def extract_entities(text: str) -> dict:
             # General Medicine — LAST (most general)
             elif re.search(
                 r"\b(general\s*medicine|general\s*physician|general\s*doctor|"
-                r"fever|fevr|high\s*temperature|running\s*a\s*temperature|feverish|cold|cld|cough|couggh|flu|nausea|vomiting|diarrhea|fatigue|weakness|"
+                r"fever|fevr|fevar|feveer|feverr|high\s*temperature|running\s*a\s*temperature|feverish|cold|cld|cough|couggh|flu|nausea|vomiting|diarrhea|fatigue|weakness|"
                 r"body\s*pain|pain|payn|payning|infection|ailment|sick|illness|general\s*checkup)\b"
                 r"|காய்ச்சல்|காய்ச்சல|बुखार|बुख़ार|జ్వరం|പനി|ಜ್ವರ|بخار",
                 text_lower
@@ -326,6 +307,37 @@ def extract_entities(text: str) -> dict:
                 did = dept_by_name.get("general medicine")
                 if did:
                     entities["department_id"] = did
+
+        # Match doctor names (requiring "dr"/"doctor"/"docter" context or full clean display_name)
+        # Prioritize doctor belonging to detected department if department_id is set
+        cur.execute("SELECT id, display_name, department_id FROM doctors WHERE status = 'ACTIVE';")
+        doctors = cur.fetchall()
+        match_btn_doc = re.search(r"btn_doc_(\d+)", text_lower)
+        if match_btn_doc:
+            entities["doctor_id"] = int(match_btn_doc.group(1))
+        elif "dr" in text_lower or "doctor" in text_lower or "docter" in text_lower or "docotr" in text_lower:
+            matched_doc = None
+            for doc_id, display_name, doc_dept_id in doctors:
+                name_parts = re.findall(r"\b\w+\b", display_name.lower())
+                for part in name_parts:
+                    if len(part) <= 2 or part in ["dr", "dr.", "mr", "mrs", "ms"]:
+                        continue
+                    if re.search(r"\b" + re.escape(part) + r"\b", text_lower):
+                        if entities["department_id"] and doc_dept_id == entities["department_id"]:
+                            matched_doc = doc_id
+                            break
+                        elif not matched_doc:
+                            matched_doc = doc_id
+                if matched_doc and entities["department_id"] and doc_dept_id == entities["department_id"]:
+                    break
+            if matched_doc:
+                entities["doctor_id"] = matched_doc
+        else:
+            for doc_id, display_name, doc_dept_id in doctors:
+                d_clean = display_name.lower().replace("dr.", "").replace("dr", "").strip()
+                if d_clean and len(d_clean) > 3 and re.search(r"\b" + re.escape(d_clean) + r"\b", text_lower):
+                    entities["doctor_id"] = doc_id
+                    break
 
         # If doctor was found but department wasn't, resolve department from doctor
         if entities["doctor_id"] and not entities["department_id"]:
@@ -338,21 +350,29 @@ def extract_entities(text: str) -> dict:
         cur.close()
         conn.close()
 
-    # 4. Extract symptoms/reason
+    # 4. Extract symptoms/reason with semantic typo normalization
     symptom_keywords = [
         "nose pain", "nos is payning", "nos pain", "noseache", "nose problem", "nasal pain", "nose", "nos",
-        "fever", "fevr", "cold", "cough", "couggh", "headache", "pain", "payn", "payning", "vomiting", "stomach pain", "stomach ache", "stomach",
-        "rash", "dizzy", "dizziness", "hair fall", "hair loss", "acne", "pimples",
+        "fever", "fevr", "fevar", "feveer", "feverr", "cold", "cld", "cough", "couggh", "headache", "pain", "payn", "payning", "vomiting", "stomach pain", "stomach ache", "stomach",
+        "rash", "dizzy", "dizziness", "hair fall", "hair loss", "hairfal", "hair fal", "acne", "pimples",
         "skin rash", "itching", "itchying", "eczema", "joint pain", "bone pain", "ear pain", "earache",
-        "migraine", "chest pain", "back pain", "knee pain", "neck pain", "shoulder pain", "leg pain",
+        "migraine", "chest pain", "back pain", "knee pain", "kneepain", "neck pain", "shoulder pain", "leg pain",
         "pregnancy", "weakness", "fatigue"
     ]
     sorted_keywords = sorted(symptom_keywords, key=len, reverse=True)
     raw_found = [w for w in sorted_keywords if w in text_lower]
     found_symptoms = [s for s in raw_found if not any(s != other and s in other for other in raw_found)]
 
-    if found_symptoms:
-        entities["reason"] = f"Symptoms: {', '.join(found_symptoms)}"
+    symptom_norm_map = {
+        "fevar": "fever", "feveer": "fever", "feverr": "fever", "fevr": "fever",
+        "hairfal": "hair fall", "hair fal": "hair fall", "kneepain": "knee pain",
+        "cld": "cold", "couggh": "cough", "payn": "pain", "payning": "pain"
+    }
+
+    normalized_symptoms = [symptom_norm_map.get(s, s) for s in found_symptoms]
+
+    if normalized_symptoms:
+        entities["reason"] = f"Symptoms: {', '.join(normalized_symptoms)}"
     elif "checkup" in text_lower or "regular checkup" in text_lower:
         entities["reason"] = "Regular Checkup"
 
@@ -433,7 +453,7 @@ def map_symptom_to_department_name(text: str) -> str:
         ),
         # 8. GENERAL MEDICINE — LAST (most generic)
         (
-            r"(?:\b(fever|fevr|cold|cld|cough|couggh|stomach|flu|nausea|vomiting|diarrhea|fatigue|"
+            r"(?:\b(fever|fevr|fevar|feveer|feverr|cold|cld|cough|couggh|stomach|flu|nausea|vomiting|diarrhea|fatigue|"
             r"weakness|body\s*pain|feverish|pain|payn|payning|infection|ailment|sick|illness|"
             r"general\s*checkup|headache|runny\s*nose|sneezing|sore\s*throat)\b|"
             r"காய்ச்சல்|வயிற்று\s*வலி|இருமல்|சளி|வயிறு|बुखार|खांसी|सर्दी|पेट\s*दर्द|జ్వరం|దగ్గు|నొప్పి|പനി|ചുമ|വയറുവേദന|ಜ್ವರ|ಕೆಮ್ಮು)",

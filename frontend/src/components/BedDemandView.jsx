@@ -20,16 +20,12 @@ export default function BedDemandView({ onSelectPatient }) {
     }
     setError(null);
     try {
-      // Fetch combined Ward -> Room -> Bed -> Patient data and Discharges from APIs
-      const [bmRes, wardsRes, dcRes] = await Promise.all([
+      // Fetch combined Ward -> Room -> Bed -> Patient data directly from DB APIs
+      const [bmRes, wardsRes] = await Promise.all([
         apiService.getBedManagementData({}, { forceRefresh: true }).catch(() => null),
-        apiService.getWards({ limit: 100 }).catch(() => ({ data: [] })),
-        apiService.getDischargedPatients().catch(() => ({ data: [] }))
+        apiService.getWards({ limit: 100 }).catch(() => ({ data: [] }))
       ]);
 
-      const dischargedTracker = extractDischargedPatientIds(dcRes?.data || []);
-
-      // Reconcile bed status with discharge records
       if (bmRes?.wards) {
         bmRes.wards.forEach(w => {
           (w.rooms || []).forEach(r => {
@@ -44,27 +40,16 @@ export default function BedDemandView({ onSelectPatient }) {
                 b.patient = p;
                 b.assigned_patient = p;
               }
-              const pid = b.patient_id || p?.patient_id || p?.id;
-              const pnum = b.patient_number || p?.patient_number;
-              const aid = b.admission_id || p?.admission_id;
-
-              const isDischarged = dischargedTracker.has({ patient_id: pid, patient_number: pnum, admission_id: aid });
-              if (isDischarged || !p) {
-                if (b.status === 'Maintenance') {
-                  b.status = 'Maintenance';
-                  b.is_occupied = false;
-                } else {
-                  b.status = 'Available';
-                  b.is_occupied = false;
-                  b.assigned_patient = null;
-                  b.patient = null;
-                }
+              const isOccupied = b.status === 'Occupied' || b.is_occupied;
+              if (isOccupied) {
+                b.status = 'Occupied';
+                b.is_occupied = true;
               } else if (b.status === 'Maintenance') {
                 b.status = 'Maintenance';
                 b.is_occupied = false;
               } else {
-                b.status = 'Occupied';
-                b.is_occupied = true;
+                b.status = 'Available';
+                b.is_occupied = false;
               }
             });
           });
@@ -99,6 +84,9 @@ export default function BedDemandView({ onSelectPatient }) {
 
   // Derived KPIs dynamically calculated from actual bed states
   const kpis = useMemo(() => {
+    if (bedManagement?.kpis) {
+      return bedManagement.kpis;
+    }
     if (!bedManagement?.wards || bedManagement.wards.length === 0) {
       return {
         total_wards: wardList.length || 0,

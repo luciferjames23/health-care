@@ -14,9 +14,11 @@ export async function selectAccount(username) {
   const userObj = {
     ...user,
     token: result.token,
-    role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
-    dept: user.department,
-    title: user.specialization || user.role
+    role: user.role.toLowerCase() === 'admin' 
+      ? 'Hospital Management' 
+      : (user.role.toLowerCase() === 'patient' ? 'Patient' : user.role),
+    dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
+    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
   };
   try {
     sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
@@ -39,9 +41,11 @@ export async function loginWithPassword(username, password) {
   const userObj = {
     ...user,
     token: result.token,
-    role: user.role.toLowerCase() === 'admin' ? 'Hospital Management' : user.role,
-    dept: user.department,
-    title: user.specialization || user.role
+    role: user.role.toLowerCase() === 'admin' 
+      ? 'Hospital Management' 
+      : (user.role.toLowerCase() === 'patient' ? 'Patient' : user.role),
+    dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
+    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
   };
   try {
     sessionStorage.setItem('meridian_user', JSON.stringify(userObj));

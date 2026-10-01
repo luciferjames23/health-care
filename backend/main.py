@@ -121,6 +121,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_prewarm():
+    """Eliminate cold-start delays by pre-warming DB pool, HTTP session pools, and DB indexes."""
+    try:
+        import db_config
+        conn = db_config.get_db_connection()
+        conn.close()
+        print("[STARTUP_PREWARM] PostgreSQL connection pool pre-warmed.")
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] DB pool prewarm: {e}")
+
+    try:
+        import voice.whatsapp_client as whatsapp_client
+        whatsapp_client.get_http_session()
+        print("[STARTUP_PREWARM] Outbound WhatsApp HTTP session pool initialized.")
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] HTTP session prewarm: {e}")
+
+    try:
+        import scripts.apply_indexes_and_pool as apply_indexes_and_pool
+        apply_indexes_and_pool.apply_indexes()
+    except Exception as e:
+        print(f"[STARTUP_PREWARM_WARNING] Index prewarm: {e}")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     import traceback
@@ -164,6 +189,8 @@ def appointment_error_handler(request, exc: AppointmentError):
         content={"success": False, "error_code": exc.error_code, "message": exc.message}
     )
 
+from routers.patient_portal import router as patient_portal_router
+
 app.include_router(proto_agent_routes.router)
 app.include_router(proto_agent_routes.knowledge_router)
 app.include_router(proto_whatsapp_routes.router)
@@ -171,6 +198,7 @@ app.include_router(proto_dashboard_routes.router)
 app.include_router(proto_auth_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
+app.include_router(patient_portal_router)
 
 from fastapi.staticfiles import StaticFiles
 static_dir = BASE_DIR / "static"

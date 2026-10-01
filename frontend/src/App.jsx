@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 import { selectAccount } from './services/accountSession';
-import { ROLE_PAGE_ACCESS } from './services/meridianData';
+import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/meridianData';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
 import AppSidebar from './components/AppSidebar';
@@ -19,8 +19,10 @@ import DiagnosticsView from './components/DiagnosticsView';
 import RadiologyView from './components/RadiologyView';
 import { FinancialRevenueView } from './components/FinancialRevenueView';
 import DetailDrawer from './components/DetailDrawer';
+import AlertsDrawer from './components/AlertsDrawer';
 import MasterModal from './components/MasterModal';
 import XrayOrdersView from './components/XrayOrdersView';
+import PatientPortalView from './components/PatientPortalView';
 
 // Databricks Gold Layer Views
 import BedDemandView from './components/BedDemandView';
@@ -132,9 +134,15 @@ export default function App() {
   const [showMobile, setShowMobile] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
+  const isRadiologist = Boolean(
+    auth?.canAccessRadiology ||
+    (role && String(role).trim().toLowerCase() === 'radiologist') ||
+    (auth?.role && String(auth.role).trim().toLowerCase() === 'radiologist')
+  );
   const [drawer, setDrawer] = useState(null);
   const [modal, setModal] = useState(null);
   const [alertsCount, setAlertsCount] = useState(0);
+  const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [soapReturnPage, setSoapReturnPage] = useState('patient360');
   const [dischargeCount, setDischargeCount] = useState(null);
   useEffect(() => {
@@ -142,35 +150,39 @@ export default function App() {
     setDischargeCount(null);
   }, [auth?.name, role]);
 
-
   useEffect(() => {
     let isMounted = true;
     async function loadAlerts() {
       try {
-        const res = await apiService.getDischargedPatients({}, { revalidateMs: 15000 });
-        if (!isMounted) return;
-        const pending = (res?.data || []).filter(r => {
-          const s = (r.approval_status || '').toLowerCase();
-          return !s.includes('approved') && !s.includes('signed');
-        });
-        setAlertsCount(pending.length);
+        // Pass role for role-scoped notification count (Hospital Management sees all; Doctor sees clinical; etc.)
+        const countData = await apiService.getNotificationCounts(role || null).catch(() => null);
+        if (countData && typeof countData.unread_count === 'number') {
+          if (isMounted) setAlertsCount(countData.unread_count);
+        } else {
+          const res = await apiService.getNotifications({ limit: 100, role: role || undefined }, { revalidateMs: 15000 });
+          if (!isMounted) return;
+          const unread = (res?.data || []).filter(n => n.status === 'UNREAD' || n.unread === true || (n.state || '').toUpperCase() === 'UNREAD');
+          setAlertsCount(unread.length || 0);
+        }
       } catch (e) {
         if (isMounted) setAlertsCount(0);
       }
     }
     loadAlerts();
-    const interval = setInterval(loadAlerts, 20000);
+    const interval = setInterval(loadAlerts, 15000);
+    const handleUpdate = () => loadAlerts();
+    window.addEventListener('hc_api_updated', handleUpdate);
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [role]);
 
   const setRole = (newRole) => {
     setRoleState(newRole);
-    const allowed = ROLE_PAGE_ACCESS[newRole];
-    if (allowed !== null && allowed !== undefined && !allowed.includes(activePage)) {
-      setActivePage(allowed[0] || 'patients');
+    if (newRole === 'Patient' || String(newRole).toLowerCase() === 'patient') {
+      setActivePage('portal');
     }
   };
 
@@ -229,6 +241,10 @@ export default function App() {
   }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
+    if (role && !isPageAllowed(role, newPage)) {
+      console.warn(`[RBAC] Access denied to page '${newPage}' for role '${role}'.`);
+      return;
+    }
     if (newPage === activePage && (newPatient === undefined || newPatient === selectedPatient)) {
       return;
     }
@@ -290,7 +306,11 @@ export default function App() {
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
-          setActivePage('command');
+          if (userObj.role === 'Patient' || String(userObj.role).toLowerCase() === 'patient') {
+            setActivePage('portal');
+          } else {
+            setActivePage('command');
+          }
           setAuthScreenUsername(null);
           setAuthScreenInfo('');
         }}
@@ -309,6 +329,7 @@ export default function App() {
         alertsCount={alertsCount}
         onSignOut={handleSignOut}
         onOpenMobile={() => setShowMobile(true)}
+        onOpenAlerts={() => setShowAlertsDrawer(true)}
         onAskAi={handleAskAi}
         onOpenModal={setModal}
         onSwitchUserPromptPassword={handleSwitchUserPromptPassword}
@@ -325,8 +346,8 @@ export default function App() {
         />
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
-          {/* Unified Module Step-Back Navigation Header for all non-root modules */}
-          {activePage !== 'command' && (
+          {/* Unified Module Step-Back Navigation Header for all non-root modules (hidden in patient portal) */}
+          {activePage !== 'command' && role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && (
             <div
               id="module-stepback-header"
               style={{
@@ -386,8 +407,99 @@ export default function App() {
             </div>
           )}
 
-          {activePage === 'radiology' && !auth?.canAccessRadiology && role !== 'Doctor' && role !== 'Hospital Management' && role !== 'Admin' ? (
-            <section role="alert"><h2>No access</h2><p>This workspace requires an active Radiologist account. Sign in with an authorized account.</p></section>
+          {['radiology', 'diagnostics'].includes(activePage) && !isRadiologist ? (
+            <section
+              role="alert"
+              style={{
+                maxWidth: '620px',
+                margin: '40px auto',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '36px 28px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.04)',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '14px'
+              }}
+            >
+              <div
+                style={{
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '50%',
+                  background: 'oklch(0.96 0.03 25)',
+                  color: 'oklch(0.45 0.17 25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '22px'
+                }}
+              >
+                🔒
+              </div>
+              <h2 style={{ fontSize: '19px', fontWeight: 700, color: '#15181b', margin: 0 }}>
+                No access
+              </h2>
+              <p style={{ fontSize: '13px', color: '#52585e', lineHeight: 1.55, margin: 0, maxWidth: '480px' }}>
+                This {activePage === 'diagnostics' ? 'diagnostics' : 'radiology'} workspace and diagnostic radiology data are restricted. A verified <strong>Radiologist</strong> account is required to inspect radiographs, localization overlays, and PACS studies.
+              </p>
+              <div
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  fontSize: '11.5px',
+                  color: '#64748b',
+                  marginTop: '2px'
+                }}
+              >
+                Current account: <strong style={{ color: '#0f172a' }}>{auth?.name || 'Staff User'}</strong> · Role: <span style={{ color: '#0284c7', fontWeight: 600 }}>{role || 'Staff'}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={handleStepBack}
+                  style={{
+                    height: '34px',
+                    padding: '0 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#334155',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ← Return Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSwitchUserPromptPassword({ username: 'jancy.selvam', name: 'Jancy Selvam', role: 'Radiologist' });
+                  }}
+                  style={{
+                    height: '34px',
+                    padding: '0 14px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: 'oklch(0.5 0.1 200)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Sign in as Radiologist →
+                </button>
+              </div>
+            </section>
+          ) : (role === 'Patient' || activePage === 'portal' || activePage === 'patient-portal') ? (
+            <PatientPortalView currentUser={auth} onSignOut={handleSignOut} />
           ) : <>
           {activePage === 'command' && (
             <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
@@ -706,8 +818,23 @@ export default function App() {
         <DetailDrawer
           drawer={drawer}
           onClose={() => setDrawer(null)}
+          onAction={(act) => {
+            if (act.modal) {
+              setModal(act.modal);
+              setDrawer(null);
+            }
+          }}
         />
       )}
+
+      {/* Slide-over Hospital Alerts Drawer */}
+      <AlertsDrawer
+        isOpen={showAlertsDrawer}
+        onClose={() => setShowAlertsDrawer(false)}
+        onNavigate={handleNavigate}
+        onOpenPatient={handleSelectPatient}
+        role={role}
+      />
 
       {/* Master Modal System */}
       {modal && (

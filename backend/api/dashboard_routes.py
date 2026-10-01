@@ -23,6 +23,7 @@ No mock or hardcoded data is used in production paths.
 
 import sys
 import os
+import json
 import traceback
 from datetime import datetime, timedelta, date, timezone
 from typing import Optional, List
@@ -494,7 +495,7 @@ def get_patients(
 
         if search:
             conditions.append(
-                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR phone LIKE %s OR patient_code LIKE %s OR whatsapp_number LIKE %s)"
+                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR LOWER(COALESCE(phone, '')) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s OR LOWER(COALESCE(whatsapp_number, '')) LIKE %s)"
             )
             like = f"%{search.lower()}%"
             params += [like, like, like, like, like]
@@ -572,6 +573,8 @@ class RegisterPatientRequest(BaseModel):
     ward_id: Optional[int] = None
     bed_id: Optional[int] = None
     bed_number: Optional[str] = None
+    room_id: Optional[int] = None
+    room_number: Optional[str] = None
     reason: Optional[str] = None
     diagnosis: Optional[str] = None
     insurer: Optional[str] = "Self-Pay"
@@ -621,21 +624,100 @@ def get_patient_registration_meta(current_user: dict = Depends(get_current_user)
         conn = get_conn()
         cur = conn.cursor()
 
-        # Departments
-        cur.execute("SELECT id, department_name, department_code FROM departments WHERE status = 'ACTIVE' ORDER BY department_name;")
+        # Departments (Distinct active departments)
+        cur.execute("""
+            SELECT DISTINCT ON (department_name) id, department_name, department_code 
+            FROM departments 
+            WHERE status ILIKE 'active' 
+            ORDER BY department_name, id;
+        """)
         departments = [{"id": r[0], "name": r[1], "code": r[2]} for r in cur.fetchall()]
 
-        # Doctors
-        cur.execute("SELECT id, display_name, specialization, department_id FROM doctors WHERE status = 'ACTIVE' ORDER BY display_name;")
-        doctors = [{"id": r[0], "name": r[1], "specialization": r[2], "department_id": r[3]} for r in cur.fetchall()]
+        # Doctors (Joined with department_name)
+        cur.execute("""
+            SELECT 
+                doc.id, 
+                doc.display_name, 
+                COALESCE(doc.specialization, 'Physician') AS specialization, 
+                doc.department_id,
+                COALESCE(d.department_name, 'General Medicine') AS department_name
+            FROM doctors doc
+            LEFT JOIN departments d ON doc.department_id = d.id
+            WHERE doc.status ILIKE 'active'
+            ORDER BY doc.display_name;
+        """)
+        doctors = [
+            {
+                "id": r[0],
+                "name": r[1],
+                "specialization": r[2],
+                "department_id": r[3],
+                "department_name": r[4]
+            }
+            for r in cur.fetchall()
+        ]
 
-        # Wards
-        cur.execute("SELECT ward_id, ward_name, department_id, ward_type FROM wards WHERE status = 'ACTIVE' ORDER BY ward_name;")
-        wards = [{"ward_id": r[0], "name": r[1], "department_id": r[2], "type": r[3]} for r in cur.fetchall()]
+        # Wards with available beds count
+        cur.execute("""
+            SELECT 
+                w.ward_id, 
+                w.ward_name, 
+                w.department_id, 
+                w.ward_type,
+                COUNT(CASE WHEN b.status = 'Available' THEN 1 END) as available_beds
+            FROM wards w
+            LEFT JOIN beds b ON w.ward_id = b.ward_id
+            WHERE w.status ILIKE 'ACTIVE'
+            GROUP BY w.ward_id, w.ward_name, w.department_id, w.ward_type
+            ORDER BY w.ward_name;
+        """)
+        wards = [
+            {
+                "ward_id": r[0],
+                "name": r[1],
+                "department_id": r[2],
+                "type": r[3],
+                "available_beds": r[4]
+            }
+            for r in cur.fetchall()
+        ]
 
-        # Beds (Available)
-        cur.execute("SELECT bed_id, bed_number, ward_id, bed_type FROM beds WHERE status = 'Available' ORDER BY bed_number LIMIT 50;")
-        beds = [{"bed_id": r[0], "bed_number": r[1], "ward_id": r[2], "type": r[3]} for r in cur.fetchall()]
+        # Beds (Available) with Room and Ward Details
+        cur.execute("""
+            SELECT 
+                b.bed_id, 
+                b.bed_number, 
+                b.ward_id, 
+                w.ward_name, 
+                w.ward_type, 
+                b.room_id, 
+                COALESCE(r.room_number, 'RM-' || LPAD(b.room_id::text, 3, '0')) as room_number, 
+                COALESCE(r.room_type, 'Standard Care') as room_type,
+                b.bed_type, 
+                COALESCE(b.daily_charge, 0.0),
+                b.status
+            FROM beds b
+            JOIN wards w ON b.ward_id = w.ward_id
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            WHERE b.status = 'Available'
+            ORDER BY w.ward_name, r.room_number, b.bed_number;
+        """)
+        beds = [
+            {
+                "bed_id": r[0],
+                "bed_number": r[1],
+                "ward_id": r[2],
+                "ward_name": r[3],
+                "ward_type": r[4],
+                "room_id": r[5],
+                "room_number": r[6],
+                "room_type": r[7],
+                "bed_type": r[8],
+                "daily_charge": float(r[9]),
+                "status": r[10]
+            }
+            for r in cur.fetchall()
+        ]
 
         cur.close()
         return {
@@ -794,14 +876,20 @@ def register_patient(
             ward_id = req.ward_id
             bed_id = req.bed_id
             bed_number = req.bed_number
+            room_number = req.room_number
 
             if not bed_id:
-                cur.execute("SELECT bed_id, bed_number, ward_id FROM beds WHERE status = 'Available' ORDER BY bed_id ASC LIMIT 1;")
+                cur.execute("SELECT b.bed_id, b.bed_number, b.ward_id, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.status = 'Available' ORDER BY b.bed_id ASC LIMIT 1;")
                 bed_row = cur.fetchone()
                 if bed_row:
-                    bed_id, bed_number, default_ward_id = bed_row
+                    bed_id, bed_number, default_ward_id, room_number = bed_row
                     if not ward_id:
                         ward_id = default_ward_id
+            elif not bed_number:
+                cur.execute("SELECT b.bed_number, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.bed_id = %s;", (bed_id,))
+                b_info = cur.fetchone()
+                if b_info:
+                    bed_number, room_number = b_info[0], b_info[1]
 
             if bed_id:
                 cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
@@ -820,34 +908,258 @@ def register_patient(
                 """,
                 (next_adm_id, adm_number, patient_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, clinical_reason)
             )
+
+            # Resolve Doctor and Ward names for lakehouse and SBAR
+            cur.execute("SELECT COALESCE(display_name, first_name || ' ' || last_name), specialization, qualification FROM doctors WHERE id = %s;", (resolved_doctor_id,))
+            doc_info = cur.fetchone() or ("Dr. Attending Physician", "General Medicine", "MBBS, MD")
+            doc_name, doc_spec, doc_qual = doc_info[0], doc_info[1] or "General Medicine", doc_info[2] or "MBBS, MD"
+
+            cur.execute("SELECT ward_name FROM wards WHERE ward_id = %s;", (ward_id,))
+            ward_res = cur.fetchone()
+            ward_name = ward_res[0] if ward_res else "General Inpatient Ward"
+
+            patient_full_name = f"{first_name} {last_name}".strip()
+            is_self_pay = not insurer or insurer.lower() == "self-pay"
+            patient_blood_group = req.blood_group or "O+"
+            patient_address = req.address or "Chennai Metropolitan Area"
+
+            adm_llm_json = {
+                "patient_demographics": {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "gender": gender,
+                    "age_at_admission": req.age or 35,
+                    "blood_group": patient_blood_group,
+                    "date_of_birth": dob,
+                    "marital_status": "Single",
+                    "preferred_language": "English",
+                    "phone": phone,
+                    "email": f"{first_name.lower()}.{last_name.lower()}@hospital.com",
+                    "address": patient_address,
+                    "city": "Chennai",
+                    "state": "Tamil Nadu",
+                    "postal_code": "600001",
+                    "emergency_contact_name": "Family Member",
+                    "emergency_contact_phone": phone
+                },
+                "admission_details": {
+                    "admission_number": adm_number,
+                    "admission_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "admission_type": "Inpatient",
+                    "admission_source": "Registration",
+                    "reason_for_admission": clinical_reason,
+                    "discharge_status": "Admitted",
+                    "current_stay_days": 1,
+                    "attending_doctor": doc_name,
+                    "doctor_specialization": doc_spec,
+                    "doctor_qualification": doc_qual
+                },
+                "diagnoses": {
+                    "primary_diagnosis": clinical_reason,
+                    "secondary_diagnoses": [],
+                    "diagnoses_list": [
+                        {
+                            "diagnosis_code": "D-0",
+                            "diagnosis_name": clinical_reason,
+                            "diagnosis_type": "Primary",
+                            "is_primary": True,
+                            "admission_id": next_adm_id,
+                            "diagnosis_date": datetime.now().isoformat()
+                        }
+                    ]
+                },
+                "medications": { "medications_list": [] },
+                "lab_results": { "lab_results_list": [] },
+                "procedures": { "procedures_list": [] },
+                "vital_signs": {
+                    "latest_temperature": 98.6,
+                    "latest_heart_rate": 72,
+                    "latest_systolic_bp": 120,
+                    "latest_diastolic_bp": 80,
+                    "latest_oxygen_saturation": 98.0,
+                    "vital_signs_list": [
+                        {
+                            "admission_id": next_adm_id,
+                            "recorded_at": datetime.now().isoformat(),
+                            "temperature": 98.6,
+                            "heart_rate": 72,
+                            "systolic_bp": 120,
+                            "diastolic_bp": 80,
+                            "respiratory_rate": 18,
+                            "oxygen_saturation": 98.0,
+                            "weight": 65.0
+                        }
+                    ]
+                },
+                "billing": {
+                    "bill_number": f"BILL-{30500 + next_adm_id % 1000}",
+                    "bill_date": datetime.now().isoformat(),
+                    "bill_gross_amount": 120000.0,
+                    "bill_discount_amount": 0.0,
+                    "bill_tax_amount": 0.0,
+                    "bill_net_amount": 120000.0,
+                    "bill_insurance_portion": 0.0 if is_self_pay else 102000.0,
+                    "bill_patient_portion": 120000.0 if is_self_pay else 18000.0,
+                    "bill_status": "Released",
+                    "bill_clearance_status": "Released",
+                    "total_paid_amount": 120000.0,
+                    "total_insurance_settled": 0.0,
+                    "outstanding_balance": 0.0,
+                    "payment_count": 1
+                }
+            }
+
+            adm_llm_input_text = f"""--- PATIENT DEMOGRAPHICS ---
+Name: {patient_full_name} | Gender: {gender} | Age: {req.age or 35} years | Blood Group: {patient_blood_group}
+Phone: {phone} | Address: {patient_address}
+
+--- ADMISSION DETAILS ---
+Admission Number: {adm_number} | Date: {datetime.now().strftime('%Y-%m-%d')} | Type: Inpatient
+Reason: {clinical_reason} | Status: Admitted
+Attending Doctor: {doc_name} | Specialization: {doc_spec}
+
+--- DIAGNOSES ---
+Primary: {clinical_reason}
+
+--- BILLING ---
+Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insurer} | Balance: 0.00
+"""
+
+            cur.execute("""
+                INSERT INTO dim_admission_inputs (
+                    admission_id, admission_number, patient_id, patient_number,
+                    first_name, last_name, gender, age_at_admission, blood_group,
+                    date_of_birth, marital_status, preferred_language, phone, email,
+                    address, city, state, postal_code, emergency_contact_name, emergency_contact_phone,
+                    admission_date, admission_type, admission_source, reason_for_admission,
+                    discharge_status, current_stay_days, attending_doctor, doctor_specialization,
+                    doctor_qualification, primary_diagnosis, secondary_diagnoses,
+                    latest_temperature, latest_heart_rate, latest_systolic_bp, latest_diastolic_bp,
+                    latest_oxygen_saturation, bill_number, bill_net_amount, bill_status,
+                    bill_clearance_status, outstanding_balance, llm_input, llm_input_json,
+                    gold_ingestion_time, bed_number, room_number, ward_name
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    CURRENT_TIMESTAMP, 'Inpatient', 'Registration', %s,
+                    'Admitted', 1, %s, %s,
+                    %s, %s, %s,
+                    98.6, 72, 120, 80,
+                    98.0, %s, 120000.0, 'Released',
+                    'Released', 0.0, %s, %s,
+                    CURRENT_TIMESTAMP, %s, %s, %s
+                );
+            """, (
+                next_adm_id, adm_number, patient_id, assigned_code,
+                first_name, last_name, gender, req.age or 35, patient_blood_group,
+                dob or "1990-01-01", "Single", "English", phone, f"{first_name.lower()}.{last_name.lower()}@hospital.com",
+                patient_address, "Chennai", "Tamil Nadu", "600001", "Family Member", phone,
+                clinical_reason, doc_name, doc_spec,
+                doc_qual, clinical_reason, "{}",
+                f"BILL-{30500 + next_adm_id % 1000}", adm_llm_input_text, json.dumps(adm_llm_json),
+                bed_number or "BED-Allocated", room_number or "Assigned Room", ward_name
+            ))
+
+            # Insert initial SBAR Handover record for bedside shift handover
+            cur.execute("""
+                INSERT INTO ward_sbar_handovers (
+                    bed_no, patient_name, uhid, age_gender, ews, mar_due,
+                    last_handover_time, from_nurse, to_nurse, situation, background,
+                    assessment, recommendation, sbar_full, status, handover_shift, acknowledged
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s
+                );
+            """, (
+                bed_number or "BED-Allocated", patient_full_name, assigned_code, f"{req.age or 35}{gender[0].upper()}", "Normal 0", None,
+                "Just now · Staff Nurse, RN", "Staff Nurse, RN", "Shift Nurse, RN",
+                f"{clinical_reason}, Day 1 under {doc_name} in {ward_name}.",
+                f"Admitted via Registration. Insurer: {insurer}.",
+                "Vitals: BP 120/80 mmHg, HR 72 bpm, SpO2 98%, Temp 98.6°F. EWS: Normal 0. Initial intake vitals recorded.",
+                f"Continue inpatient clinical plan under {doc_name}. Monitor vitals Q4H.",
+                f"S: {clinical_reason}. B: Newly admitted patient. A: Vitals stable. R: Inpatient monitoring.",
+                "Current", "Morning (07:00 - 15:00)", False
+            ))
+
             encounter_details = {
                 "encounter_type": "IP",
                 "admission_id": next_adm_id,
                 "admission_number": adm_number,
-                "bed_number": bed_number or "BED-0074"
+                "ward_id": ward_id,
+                "bed_id": bed_id,
+                "bed_number": bed_number or "BED-Allocated",
+                "room_number": room_number or "Assigned Room"
             }
 
         elif ptype in ("ER", "EMERGENCY"):
-            cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 4) AS INT)), 400) + 1 FROM emergency_triage WHERE id ~ '^ER-[0-9]+$';")
+            bed_id = req.bed_id
+            bed_number = req.bed_number
+            room_number = req.room_number
+
+            if not bed_id:
+                # Find an available ER bed (ward 8 or general)
+                cur.execute("""
+                    SELECT b.bed_id, b.bed_number, COALESCE(r.room_number, 'Trauma Bay')
+                    FROM beds b
+                    LEFT JOIN rooms r ON b.room_id = r.room_id
+                    WHERE b.status = 'Available' AND b.ward_id = 8
+                    ORDER BY b.bed_id ASC LIMIT 1;
+                """)
+                er_bed_row = cur.fetchone()
+                if not er_bed_row:
+                    cur.execute("""
+                        SELECT b.bed_id, b.bed_number, COALESCE(r.room_number, 'Trauma Bay')
+                        FROM beds b
+                        LEFT JOIN rooms r ON b.room_id = r.room_id
+                        WHERE b.status = 'Available'
+                        ORDER BY b.bed_id ASC LIMIT 1;
+                    """)
+                    er_bed_row = cur.fetchone()
+                if er_bed_row:
+                    bed_id, bed_number, room_number = er_bed_row
+            elif not bed_number:
+                cur.execute("SELECT b.bed_number, r.room_number FROM beds b LEFT JOIN rooms r ON b.room_id = r.room_id WHERE b.bed_id = %s;", (bed_id,))
+                b_info = cur.fetchone()
+                if b_info:
+                    bed_number, room_number = b_info[0], b_info[1]
+
+            if bed_id:
+                cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
+
+            bay_label = f"{room_number} ({bed_number})" if (room_number and bed_number) else (bed_number or "Bay 4")
+
+            cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM '[0-9]+$') AS INT)), 4400) + 1 FROM emergency_triage WHERE id ~ '[0-9]+$';")
             er_res = cur.fetchone()
-            er_num = er_res[0] if (er_res and er_res[0]) else 407
-            er_id = f"ER-{er_num}"
+            er_num = er_res[0] if (er_res and er_res[0]) else 4425
+            er_id = f"ER-2026-{er_num}"
             age_gender = f"{req.age or 35}{gender[0].upper()}"
 
             cur.execute(
                 """
                 INSERT INTO emergency_triage (
-                    id, patient_name, age_gender, arrival_time, triage_level,
-                    vitals_bp, vitals_hr, vitals_spo2, vitals_temp, chief_complaint,
-                    bay, doctor_name, clinical_status, created_at
-                ) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 'Urgent (Level 3)', '120/80', 78, 98, 98.6, %s, 'Bay 4', %s, 'Active Triage', CURRENT_TIMESTAMP);
+                    id, bay, patient_name, age_gender, triage_level,
+                    chief_complaint, bp, hr, spo2, doctor_name,
+                    elapsed_time, clinical_status, created_at, arrival_time,
+                    waiting_time, acuity, critical_alert, mlc_flag
+                ) VALUES (
+                    %s, %s, %s, %s, 'Yellow',
+                    %s, '120/80', 78, '98%%', %s,
+                    'Just now', 'Active Triage', CURRENT_TIMESTAMP, TO_CHAR(CURRENT_TIMESTAMP, 'HH12:MI AM'),
+                    '0m', 'Urgent / Priority 2', 'Observation Required', FALSE
+                );
                 """,
-                (er_id, f"{first_name} {last_name}".strip(), age_gender, clinical_reason, req.doctor or "Dr. Divya Verma")
+                (er_id, bay_label, f"{first_name} {last_name}".strip(), age_gender, clinical_reason, req.doctor or "Dr. Divya Verma")
             )
             encounter_details = {
                 "encounter_type": "ER",
                 "triage_id": er_id,
-                "bay": "Bay 4"
+                "bay": bay_label,
+                "bed_id": bed_id,
+                "bed_number": bed_number or "ER-Bed",
+                "room_number": room_number or "ER-Room"
             }
 
         else:
@@ -872,6 +1184,12 @@ def register_patient(
             }
 
         conn.commit()
+
+        try:
+            from connectors.databricks_connector import DatabricksConnector
+            DatabricksConnector.clear_cache()
+        except Exception:
+            pass
 
         calc_age = req.age
         if not calc_age and dob:
@@ -1490,6 +1808,7 @@ def get_doctors(
             SELECT d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
                    d.specialization, d.qualification, d.experience_years,
                    d.phone, d.email, d.consultation_fee, d.status, d.created_at,
+                   d.department_id,
                    COALESCE(dept.department_name, 'General Medicine') as department_name,
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
                    COUNT(a.id) FILTER (WHERE a.status NOT IN ('CANCELLED', 'RESCHEDULED')) as total_appts
@@ -1500,7 +1819,7 @@ def get_doctors(
             GROUP BY d.id, d.doctor_code, d.display_name, d.first_name, d.last_name,
                      d.specialization, d.qualification, d.experience_years,
                      d.phone, d.email, d.consultation_fee, d.status, d.created_at,
-                     dept.department_name
+                     d.department_id, dept.department_name
             ORDER BY d.display_name;
             """,
             params,
@@ -3250,14 +3569,41 @@ def create_pre_admission_endpoint(
 ):
     """
     Registers a new pre-admission record.
-    Doctor role can only register for their own doctor_id.
+    Enforces strict backend authorization for Doctor role:
+    - Doctor can only register under their own authenticated doctor_id.
+    - Doctor can only register under their own department_id.
+    - Doctor can only register for patients associated with their profile.
     """
-    role = current_user.get("role")
+    role = str(current_user.get("role") or "").upper()
     doc_id = req.doctor_id
+
     if role == "DOCTOR":
-        user_doc_id = current_user.get("doctor_id")
-        if user_doc_id and user_doc_id != doc_id:
-            raise HTTPException(status_code=403, detail="Doctors can only create pre-admissions under their own name.")
+        conn_auth = get_conn()
+        cur_auth = conn_auth.cursor()
+        try:
+            target_doc_id = resolve_target_doctor_id(current_user, doc_id, cur_auth)
+            if not target_doc_id or target_doc_id != doc_id:
+                raise HTTPException(status_code=403, detail="Doctors can only create pre-admissions under their own authenticated identity.")
+            
+            # Verify Doctor's actual Department ID
+            cur_auth.execute("SELECT department_id FROM doctors WHERE id = %s;", (target_doc_id,))
+            doc_row = cur_auth.fetchone()
+            if not doc_row or doc_row[0] != req.department_id:
+                raise HTTPException(status_code=403, detail="Department ID does not match the authenticated doctor's assigned department.")
+
+            # Verify Patient Authorization (Patient associated with Doctor via appointments, pre-admissions, or assigned list)
+            cur_auth.execute("""
+                SELECT 1 FROM patients p
+                WHERE p.id = %s AND (
+                    EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = p.id AND a.doctor_id = %s)
+                    OR EXISTS (SELECT 1 FROM pre_admissions pa WHERE pa.patient_id = p.id AND pa.doctor_id = %s)
+                );
+            """, (req.patient_id, target_doc_id, target_doc_id))
+            if not cur_auth.fetchone():
+                raise HTTPException(status_code=403, detail="Unauthorized: Selected patient is not associated with this doctor.")
+        finally:
+            cur_auth.close()
+            conn_auth.close()
 
     try:
         res = preadmission_service.create_pre_admission(

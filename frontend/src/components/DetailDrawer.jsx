@@ -205,6 +205,7 @@ export default function DetailDrawer({ drawer, onClose, onAction }) {
                 onClick={() => {
                   if (act.on) act.on();
                   if (onAction) onAction(act);
+                  if (act.closeDrawer) onClose();
                 }}
                 disabled={act.disabled}
                 style={{

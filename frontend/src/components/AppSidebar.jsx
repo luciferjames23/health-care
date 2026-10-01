@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, computeDischargeCasesCount } from '../services/api';
-import { isPageAllowed, ROLE_PAGE_ACCESS } from '../services/meridianData';
 
 export const NAV_GROUPS = [
   {
@@ -225,15 +224,10 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  // Filter menu items strictly based on role RBAC matrix from Meridian Prototype V2.1
+  // Sidepanel modules are fixed across the platform; data and access alone differ per role
   const visibleGroups = React.useMemo(() => {
     if (userRole === 'Patient') return [];
-    return NAV_GROUPS.map(group => ({
-      ...group,
-      items: group.items.filter(item => {
-        return isPageAllowed(userRole, item.id);
-      })
-    })).filter(group => group.items.length > 0);
+    return NAV_GROUPS;
   }, [userRole]);
 
   if (userRole === 'Patient' || visibleGroups.length === 0) {
@@ -251,6 +245,7 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     if (itemId === 'assistant' && (activePage === 'chat' || activePage === 'patient-chat' || activePage === 'ask')) return true;
     if (itemId === 'lab' && activePage === 'lab-dashboard') return true;
     if (itemId === 'criticalvalues' && activePage === 'laboratory') return true;
+    if (itemId === 'radiology' && activePage === 'xray-orders') return true;
     if (itemId === 'medications' && activePage === 'mar') return true;
     if (itemId === 'surgery' && activePage === 'ot') return true;
     if (itemId === 'deathmlc' && activePage === 'deaths') return true;
