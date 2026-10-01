@@ -1577,6 +1577,111 @@ export const apiService = {
       ...options,
       revalidateMs: 2000
     });
+  },
+
+  // ── Patient Portal Endpoints (Authenticated Token-Bound) ───────────────
+  async getPatientPortalDashboard(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/dashboard`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to fetch patient portal dashboard' }));
+      throw new Error(err.detail || 'Failed to fetch patient portal dashboard');
+    }
+    return await res.json();
+  },
+
+  async getPatientPortalProfile(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/profile`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalAdmissions(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/admissions`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalDiagnoses(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/diagnoses`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalAppointments(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/appointments`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalVitals(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/vitals`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalPrescriptions(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/prescriptions`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalLabResults(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/lab-results`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalBills(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/bills`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalInsurance(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/insurance`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalDischargeSummaries(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/discharge-summaries`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
+  },
+
+  async getPatientPortalNotifications(options = {}) {
+    const token = sessionStorage.getItem('hc_auth_token') || '';
+    const res = await fetch(`${API_BASE_URL}/api/v1/patient/notifications`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return await res.json();
   }
 };
 

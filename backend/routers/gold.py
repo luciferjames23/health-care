@@ -325,12 +325,16 @@ def get_executive_kpis():
         cur.execute("SELECT COUNT(*) as total FROM rooms")
         rooms_cnt = int(cur.fetchone()["total"] or 150)
 
+        # Inpatient Census dynamically from dim_admission_inputs
         cur.execute("""
-            SELECT COUNT(DISTINCT patient_id) as total 
-            FROM dim_generated_discharge_summaries 
-            WHERE LOWER(COALESCE(approval_status, '')) IN ('approved', 'signed', 'signed off', 'completed');
+            SELECT 
+                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'admitted' THEN 1 END) as active_adm,
+                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'discharged' THEN 1 END) as discharged_adm
+            FROM dim_admission_inputs;
         """)
-        discharged_cnt = int(cur.fetchone()["total"] or 11)
+        adm_stats = cur.fetchone() or {}
+        active_adm_cnt = int(adm_stats.get("active_adm") if adm_stats.get("active_adm") is not None else occ_beds)
+        discharged_cnt = int(adm_stats.get("discharged_adm") if adm_stats.get("discharged_adm") is not None else 11)
 
         return {
             "success": True,
@@ -339,7 +343,7 @@ def get_executive_kpis():
             "lab_orders": int(lab_count or 0),
             "total_beds": tot_beds,
             "occupied_beds": occ_beds,
-            "active_admissions": occ_beds,
+            "active_admissions": active_adm_cnt,
             "available_beds": avail_beds,
             "maintenance_beds": maint_beds,
             "occupancy_rate": occ_rate,

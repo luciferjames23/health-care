@@ -204,7 +204,7 @@ export const ROLE_PAGE_ACCESS = {
     'ai-command', 'audit', 'analytics', 'exceptions', 'risk', 'governance', 'assistant', 'approvals', 'schedules', 'deathmlc', 'soap'
   ],
   'Patient': [
-    'patients', 'appointments', 'billing', 'assistant'
+    'portal', 'patient-portal', 'appointments', 'billing', 'assistant', 'patient-chat'
   ]
 };
 

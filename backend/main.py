@@ -189,6 +189,8 @@ def appointment_error_handler(request, exc: AppointmentError):
         content={"success": False, "error_code": exc.error_code, "message": exc.message}
     )
 
+from routers.patient_portal import router as patient_portal_router
+
 app.include_router(proto_agent_routes.router)
 app.include_router(proto_agent_routes.knowledge_router)
 app.include_router(proto_whatsapp_routes.router)
@@ -196,6 +198,7 @@ app.include_router(proto_dashboard_routes.router)
 app.include_router(proto_auth_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
+app.include_router(patient_portal_router)
 
 from fastapi.staticfiles import StaticFiles
 static_dir = BASE_DIR / "static"

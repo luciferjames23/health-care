@@ -22,6 +22,7 @@ import DetailDrawer from './components/DetailDrawer';
 import AlertsDrawer from './components/AlertsDrawer';
 import MasterModal from './components/MasterModal';
 import XrayOrdersView from './components/XrayOrdersView';
+import PatientPortalView from './components/PatientPortalView';
 
 // Databricks Gold Layer Views
 import BedDemandView from './components/BedDemandView';
@@ -180,11 +181,8 @@ export default function App() {
 
   const setRole = (newRole) => {
     setRoleState(newRole);
-    if (newRole === 'Patient') {
-      const allowed = ROLE_PAGE_ACCESS[newRole];
-      if (allowed && !allowed.includes(activePage)) {
-        setActivePage(allowed[0] || 'patients');
-      }
+    if (newRole === 'Patient' || String(newRole).toLowerCase() === 'patient') {
+      setActivePage('portal');
     }
   };
 
@@ -308,7 +306,11 @@ export default function App() {
         onLoginSuccess={(userObj) => {
           setAuth(userObj);
           setRole(userObj.role);
-          setActivePage('command');
+          if (userObj.role === 'Patient' || String(userObj.role).toLowerCase() === 'patient') {
+            setActivePage('portal');
+          } else {
+            setActivePage('command');
+          }
           setAuthScreenUsername(null);
           setAuthScreenInfo('');
         }}
@@ -344,8 +346,8 @@ export default function App() {
         />
 
         <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
-          {/* Unified Module Step-Back Navigation Header for all non-root modules */}
-          {activePage !== 'command' && (
+          {/* Unified Module Step-Back Navigation Header for all non-root modules (hidden in patient portal) */}
+          {activePage !== 'command' && role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && (
             <div
               id="module-stepback-header"
               style={{
@@ -496,6 +498,8 @@ export default function App() {
                 </button>
               </div>
             </section>
+          ) : (role === 'Patient' || activePage === 'portal' || activePage === 'patient-portal') ? (
+            <PatientPortalView currentUser={auth} onSignOut={handleSignOut} />
           ) : <>
           {activePage === 'command' && (
             <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />

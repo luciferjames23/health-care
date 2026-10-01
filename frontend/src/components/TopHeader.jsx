@@ -236,58 +236,78 @@ export default function TopHeader({
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
         padding: '5px 14px 6px', borderTop: '1px solid #eef0f1', background: '#fff'
       }}>
-        {/* Role */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-          <span>Role</span>
-          <select
-            value={role}
-            title="Select role to switch user"
-            onChange={e => {
-              const nextRole = e.target.value;
-              setRole(nextRole);
-              const matched = combinedUsers.find(r =>
-                r.role?.toLowerCase() === nextRole.toLowerCase() ||
-                (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
-              );
-              if (matched && matched.username !== user?.username) {
-                if (onSwitchUserPromptPassword) {
-                  onSwitchUserPromptPassword(matched);
-                } else if (onSignOut) {
-                  onSignOut();
-                }
-              }
-            }}
-            style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
-          >
-            {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
-          </select>
-        </label>
+        {role === 'Patient' ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              background: 'oklch(0.95 0.03 200)',
+              color: 'oklch(0.4 0.1 200)',
+              padding: '3px 9px',
+              borderRadius: '6px',
+              fontSize: '11.5px',
+              fontWeight: 700
+            }}>
+              👤 Patient Portal
+            </span>
+            <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+              UHID: <strong style={{ color: '#0f172a' }}>{user?.patientCode || user?.patient_code || user?.specialization || 'Verified'}</strong>
+            </span>
+          </div>
+        ) : (
+          <>
+            {/* Role */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
+              <span>Role</span>
+              <select
+                value={role}
+                title="Select role to switch user"
+                onChange={e => {
+                  const nextRole = e.target.value;
+                  setRole(nextRole);
+                  const matched = combinedUsers.find(r =>
+                    r.role?.toLowerCase() === nextRole.toLowerCase() ||
+                    (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
+                  );
+                  if (matched && matched.username !== user?.username) {
+                    if (onSwitchUserPromptPassword) {
+                      onSwitchUserPromptPassword(matched);
+                    } else if (onSignOut) {
+                      onSignOut();
+                    }
+                  }
+                }}
+                style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
+              >
+                {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
+              </select>
+            </label>
 
-        {/* User */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-          <span>User</span>
-          <select
-            value={user?.username || (usersForCurrentRole[0]?.username)}
-            onChange={e => {
-              const selectedUsername = e.target.value;
-              const u = combinedUsers.find(r => r.username === selectedUsername);
-              if (u && u.username !== user?.username) {
-                if (onSwitchUserPromptPassword) {
-                  onSwitchUserPromptPassword(u);
-                } else if (onSignOut) {
-                  onSignOut();
-                }
-              }
-            }}
-            style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
-          >
-            {usersForCurrentRole.map(r => (
-              <option key={r.username} value={r.username}>
-                {r.name} · {r.specialization || r.dept || r.role}
-              </option>
-            ))}
-          </select>
-        </label>
+            {/* User */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
+              <span>User</span>
+              <select
+                value={user?.username || (usersForCurrentRole[0]?.username)}
+                onChange={e => {
+                  const selectedUsername = e.target.value;
+                  const u = combinedUsers.find(r => r.username === selectedUsername);
+                  if (u && u.username !== user?.username) {
+                    if (onSwitchUserPromptPassword) {
+                      onSwitchUserPromptPassword(u);
+                    } else if (onSignOut) {
+                      onSignOut();
+                    }
+                  }
+                }}
+                style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
+              >
+                {usersForCurrentRole.map(r => (
+                  <option key={r.username} value={r.username}>
+                    {r.name} · {r.specialization || r.dept || r.role}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
 
         {/* Avatar + name + specialization + sign out + mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', borderLeft: '1px solid #e3e6e8' }}>

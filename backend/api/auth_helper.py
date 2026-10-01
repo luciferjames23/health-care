@@ -183,3 +183,51 @@ def require_radiologist(credentials: HTTPAuthorizationCredentials = Depends(secu
     if not row or not row[3] or str(row[2]).strip().lower() != "radiologist":
         raise HTTPException(status_code=403, detail="No access. The Radiologist role is required.")
     return {"user_id": row[0], "username": row[1], "role": row[2], "name": row[4]}
+
+
+def require_patient_auth(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Validate that the request carries a valid signed token for a Patient, and return their patient identity."""
+    payload = decode_token(credentials.credentials) if credentials and credentials.credentials else None
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(
+            status_code=401,
+            detail="Patient authentication required. Please sign in to the Patient Portal.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    role = str(payload.get("role", "")).strip().upper()
+    user_id = payload.get("user_id")
+    patient_id = payload.get("patient_id")
+    
+    if role == "PATIENT":
+        if not patient_id:
+            try:
+                with db_config.get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT patient_id FROM users WHERE id = %s", (user_id,))
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            patient_id = row[0]
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="Unable to verify patient profile.") from exc
+                
+        if not patient_id:
+            raise HTTPException(status_code=403, detail="No patient record is linked with this account.")
+            
+        return {
+            "user_id": user_id,
+            "username": payload.get("username"),
+            "role": "PATIENT",
+            "patient_id": int(patient_id)
+        }
+        
+    if role in {"ADMIN", "DOCTOR", "HOSPITAL MANAGEMENT"}:
+        return {
+            "user_id": user_id,
+            "username": payload.get("username"),
+            "role": role,
+            "patient_id": int(patient_id) if patient_id else None
+        }
+
+    raise HTTPException(status_code=403, detail="Access denied. Patient credentials required.")
+
