@@ -92,12 +92,11 @@ export default function PatientsView({
       }
       setError(null);
       try {
-        const doctorParams = activeDoctorId ? { doctor_id: activeDoctorId } : {};
         const [ar, dr, opRes, erRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all', ...doctorParams }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({ ...doctorParams }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'OP', ...doctorParams }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ER', ...doctorParams }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP' }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER' }).catch(() => ({ data: [] })),
         ]);
         const allDirRes = { data: [] };
         if (!alive) return;
@@ -386,9 +385,9 @@ export default function PatientsView({
       });
     }
 
-    if (activeDoctorName) {
+    if (activeDoctorName || activeDoctorId) {
       list = list.filter(p =>
-        matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)
+        (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName))
       );
     }
 

@@ -53,6 +53,7 @@ import AIPatientDesk from './pages/admin/AIPatientDesk';
 import AppointmentManagement from './pages/admin/AppointmentManagement';
 import PreAdmissionPage from './pages/admin/PreAdmissionPage';
 import DoctorManagement from './pages/admin/DoctorManagement';
+import DoctorsView from './components/DoctorsView';
 import EscalationPage from './pages/admin/EscalationPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
 import DoctorSchedules from './pages/admin/DoctorSchedules';
@@ -674,7 +675,12 @@ export default function App() {
             )}
             {activePage === 'ai-desk' && <AIPatientDesk />}
             {activePage === 'pre-admission' && <PreAdmissionPage />}
-            {activePage === 'doctor-management' && <DoctorManagement />}
+            {activePage === 'doctor-management' && (
+              <DoctorsView
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
+                userRole={role}
+              />
+            )}
             {activePage === 'escalations' && <EscalationPage />}
             {activePage === 'doctor-portal' && (
               <DoctorDashboard
