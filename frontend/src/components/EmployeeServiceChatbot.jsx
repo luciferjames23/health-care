@@ -54,7 +54,7 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
     return null;
   }
 
-  const effectiveUsername = currentUser?.username || (currentRole === 'Nurse' ? 'nurse.priya' : 'anitha.kumar');
+  const effectiveUsername = currentUser?.username || currentUser?.name || currentUser?.staff_name || (currentRole === 'Nurse' ? 'nurse.priya' : 'dr.divya');
 
   const handleSendMessage = async (customMsg = null) => {
     const textToSend = customMsg || inputText;
@@ -77,7 +77,12 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: textToSend,
-          username: effectiveUsername
+          username: effectiveUsername,
+          history: messages.slice(-6).map(m => ({
+            sender: m.sender,
+            text: m.text,
+            interactive_slip: m.interactiveSlip || null
+          }))
         })
       });
 
@@ -129,23 +134,23 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
           leave_type: slip.leave_type || 'Comp-Off',
           from_date: slip.from_date,
           to_date: slip.to_date,
-          reason: `Comp-off applied via Employee Service Agent for ${slip.date_display}`
+          reason: `${slip.leave_type || 'Leave'} applied via Employee Service Agent for ${slip.date_display}`
         })
       });
 
       const res = await response.json();
-      if (res.success) {
+      if (response.ok && res && res.success) {
         const confirmMsg = {
           id: `bot-confirm-${Date.now()}`,
           sender: 'bot',
-          text: `Request filed successfully! Your **${slip.leave_type}** (${res.request.request_code}) has been routed to **${res.request.supervisor_name}** for sign-off.`,
+          text: `Done! Your **${slip.leave_type}** request (${res.request.request_code}) has been **submitted and created** for approval.`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           interactiveSlip: {
             type: 'leave_slip_confirmed',
             request_code: res.request.request_code,
             staff_name: slip.staff_name,
             leave_type: slip.leave_type,
-            status: 'Submitted · Pending Supervisor Approval',
+            status: 'Submitted · Pending Sign-off',
             date_display: slip.date_display,
             supervisor: res.request.supervisor_name
           },
@@ -154,9 +159,33 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
         setMessages(prev => [...prev, confirmMsg]);
         setActiveSlip(null);
         window.dispatchEvent(new CustomEvent('hc_api_updated'));
+      } else {
+        const errorMsg = res?.detail || res?.error || 'Multiple applications for the same date are not allowed.';
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `bot-dup-${Date.now()}`,
+            sender: 'bot',
+            text: `⚠️ **Leave Application Notice**: ${errorMsg}`,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isError: false,
+            quickActions: ['[My Shift Tomorrow]', '[Check Leave Balance]']
+          }
+        ]);
+        setActiveSlip(null);
       }
     } catch (err) {
       console.error('Error applying slip:', err);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `bot-err-${Date.now()}`,
+          sender: 'bot',
+          text: "Could not file the leave request. Please check your connection or contact HR operations.",
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isError: true
+        }
+      ]);
     } finally {
       setIsLoading(false);
     }
@@ -171,8 +200,9 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
     } else if (clean === 'Apply Comp-Off') {
       handleSendMessage('I would like to apply for a comp-off');
     } else if (clean.includes('Confirm & Submit') || clean.startsWith('Confirm')) {
-      handleSendMessage('Confirm & Submit Comp-Off');
+      handleSendMessage(clean);
     } else if (clean === 'Cancel') {
+      setActiveSlip(null);
       handleSendMessage('Cancel');
     } else if (clean.startsWith('Yes')) {
       handleSendMessage('Yes, please apply for Friday');
@@ -385,7 +415,7 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
                           background: msg.interactiveSlip.type === 'leave_slip_confirmed' ? '#dcfce7' : '#fef3c7',
                           color: msg.interactiveSlip.type === 'leave_slip_confirmed' ? '#15803d' : '#b45309'
                         }}>
-                          {msg.interactiveSlip.type === 'leave_slip_confirmed' ? 'ROUTED' : 'DRAFT'}
+                          {msg.interactiveSlip.type === 'leave_slip_confirmed' ? 'SUBMITTED' : 'DRAFT'}
                         </span>
                       </div>
 
@@ -393,10 +423,12 @@ export default function EmployeeServiceChatbot({ currentUser, currentRole }) {
                         <div><strong>Employee:</strong> {msg.interactiveSlip.staff_name}</div>
                         <div><strong>Leave Type:</strong> {msg.interactiveSlip.leave_type}</div>
                         <div><strong>Requested Date:</strong> {msg.interactiveSlip.date_display}</div>
-                        {msg.interactiveSlip.balance_available !== undefined && (
-                          <div><strong>Comp-Off Balance:</strong> {msg.interactiveSlip.balance_available} Days</div>
+                        {msg.interactiveSlip.days_count !== undefined && msg.interactiveSlip.days_count > 1 && (
+                          <div><strong>Duration:</strong> {msg.interactiveSlip.days_count} Days</div>
                         )}
-                        <div><strong>Routing To:</strong> {msg.interactiveSlip.supervisor}</div>
+                        {msg.interactiveSlip.balance_available !== undefined && (
+                          <div><strong>{msg.interactiveSlip.leave_type || 'Leave'} Balance:</strong> {msg.interactiveSlip.balance_available} Days</div>
+                        )}
                       </div>
 
                       {msg.interactiveSlip.can_apply && (

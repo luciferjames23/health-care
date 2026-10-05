@@ -123,7 +123,6 @@ export const NAV_GROUPS = [
     items: [
       { id: 'analytics', label: 'Analytics' },
       { id: 'forecasting', label: 'Forecasting' },
-      { id: 'scenario', label: 'Scenario Simulator' },
       { id: 'beforeafter', label: 'Before vs After' },
       { id: 'data-quality', label: 'Data Quality' },
     ]

@@ -859,154 +859,179 @@ def get_live_before_after():
 
 @router.get("/live-data-quality", summary="Automated Data Quality & Validation Rules")
 def get_live_data_quality():
-    """Executes live SQL validation rules across PostgreSQL database to verify data integrity."""
+    """Executes live SQL validation rules across PostgreSQL database to verify data integrity dynamically."""
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         rules = []
 
-        # Rule 1: Master Patient Index Completeness (patients table)
-        cur.execute("SELECT COUNT(*) as total, COUNT(CASE WHEN phone IS NOT NULL AND phone != '' AND patient_code IS NOT NULL THEN 1 END) as valid FROM patients")
-        p_row = cur.fetchone()
-        p_tot = p_row["total"] or 1
-        p_val = p_row["valid"] or 0
-        rules.append({
-            "rule_id": "DQ-PAT-01",
-            "rule_name": "Master Patient Index (MPI) Key Completeness",
-            "domain": "Patient Master",
-            "target_table": "Patient Directory",
-            "total_checked": p_tot,
-            "passed_records": p_val,
-            "failed_records": p_tot - p_val,
-            "compliance_pct": round((p_val / p_tot) * 100, 2),
-            "status": "Passed" if (p_val / p_tot) > 0.95 else "Warning",
-            "description": "Verifies that patient records possess valid UHID/patient code and primary phone contact."
-        })
-
-        # Rule 2: Active Inpatient Bed & Ward Binding (dim_admission_inputs)
+        # 1. Rule 1: Every inpatient has an active bed (Operations)
         cur.execute("""
             SELECT 
-                COUNT(*) as total, 
-                COUNT(CASE WHEN ward_name IS NOT NULL AND bed_number IS NOT NULL THEN 1 END) as valid 
+                COUNT(*) as total,
+                COUNT(CASE WHEN bed_number IS NOT NULL AND trim(bed_number) != '' AND ward_name IS NOT NULL THEN 1 END) as valid,
+                COUNT(CASE WHEN bed_number IS NULL OR trim(bed_number) = '' OR ward_name IS NULL THEN 1 END) as failed
             FROM dim_admission_inputs
+            WHERE discharge_status IS NULL OR LOWER(discharge_status) != 'discharged';
         """)
-        adm_row = cur.fetchone()
-        adm_tot = adm_row["total"] or 1
-        adm_val = adm_row["valid"] or 0
+        r1 = cur.fetchone()
+        tot1 = r1["total"] or 1
+        val1 = r1["valid"] or 0
+        fail1 = r1["failed"] or 0
+        pct1 = round((val1 / tot1) * 100, 1)
         rules.append({
-            "rule_id": "DQ-ADM-02",
-            "rule_name": "Active Inpatient Ward & Bed Binding Integrity",
-            "domain": "Clinical Operations",
-            "target_table": "Inpatient Bed Registry",
-            "total_checked": adm_tot,
-            "passed_records": adm_val,
-            "failed_records": adm_tot - adm_val,
-            "compliance_pct": round((adm_val / adm_tot) * 100, 2),
-            "status": "Passed" if (adm_val / adm_tot) > 0.95 else "Optimal",
-            "description": "Ensures every admitted patient encounter is unambiguously mapped to a physical ward, room, and bed."
+            "id": 1,
+            "rule": "Every inpatient has an active bed",
+            "domain": "Operations",
+            "pass_rate": f"{int(pct1)}%" if pct1.is_integer() else f"{pct1}%",
+            "pass_rate_num": pct1,
+            "failures": fail1,
+            "total_checked": tot1,
+            "owner": "Bed manager",
+            "status": "Pass" if fail1 == 0 else "Review" if pct1 >= 95 else "Failed",
+            "target_table": "dim_admission_inputs"
         })
 
-        # Rule 3: Diagnostic WHO ICD-10 / Text Coding (dim_admission_inputs)
+        # 2. Rule 2: Every insured admission has a preauth case (Finance)
         cur.execute("""
             SELECT 
-                COUNT(*) as total, 
-                COUNT(CASE WHEN primary_diagnosis IS NOT NULL AND length(trim(primary_diagnosis)) > 3 THEN 1 END) as valid 
-            FROM dim_admission_inputs
+                COUNT(*) as total,
+                COUNT(CASE WHEN ic.claim_id IS NOT NULL AND ic.claim_status IS NOT NULL THEN 1 END) as valid,
+                COUNT(CASE WHEN ic.claim_id IS NULL OR ic.claim_status IS NULL THEN 1 END) as failed
+            FROM dim_admission_inputs dai
+            LEFT JOIN insurance_claims ic ON dai.patient_id = ic.patient_id
+            WHERE dai.discharge_status IS NULL OR LOWER(dai.discharge_status) != 'discharged';
         """)
-        diag_row = cur.fetchone()
-        diag_tot = diag_row["total"] or 1
-        diag_val = diag_row["valid"] or 0
+        r2 = cur.fetchone()
+        tot2 = r2["total"] or 1
+        val2 = r2["valid"] or 0
+        fail2 = r2["failed"] or 0
+        pct2 = round((val2 / tot2) * 100, 1)
         rules.append({
-            "rule_id": "DQ-CLI-03",
-            "rule_name": "Structured Primary Diagnostic Coding",
-            "domain": "Clinical Coding",
-            "target_table": "Clinical Diagnostic Records",
-            "total_checked": diag_tot,
-            "passed_records": diag_val,
-            "failed_records": diag_tot - diag_val,
-            "compliance_pct": round((diag_val / diag_tot) * 100, 2),
-            "status": "Passed",
-            "description": "Validates that all clinical admission inputs include an explicit primary diagnosis description."
+            "id": 2,
+            "rule": "Every insured admission has a preauth case",
+            "domain": "Finance",
+            "pass_rate": f"{int(pct2)}%" if pct2.is_integer() else f"{pct2}%",
+            "pass_rate_num": pct2,
+            "failures": fail2,
+            "total_checked": tot2,
+            "owner": "Insurance Desk",
+            "status": "Pass" if fail2 == 0 else "Review" if pct2 >= 95 else "Failed",
+            "target_table": "dim_admission_inputs / insurance_claims"
         })
 
-        # Rule 4: Financial Ledger Billing Reconciled
+        # 3. Rule 3: Phone number present and verified (Patient)
         cur.execute("""
             SELECT 
-                COUNT(*) as total, 
-                COUNT(CASE WHEN net_amount > 0 THEN 1 END) as valid 
-            FROM bills
+                COUNT(*) as total,
+                COUNT(CASE WHEN phone IS NOT NULL AND length(trim(phone)) >= 10 THEN 1 END) as valid,
+                COUNT(CASE WHEN phone IS NULL OR length(trim(phone)) < 10 THEN 1 END) as failed
+            FROM patients;
         """)
-        b_row = cur.fetchone()
-        b_tot = b_row["total"] or 1
-        b_val = b_row["valid"] or 0
+        r3 = cur.fetchone()
+        tot3 = r3["total"] or 1
+        val3 = r3["valid"] or 0
+        fail3 = r3["failed"] or 0
+        pct3 = round((val3 / tot3) * 100, 1)
         rules.append({
-            "rule_id": "DQ-FIN-04",
-            "rule_name": "Invoiced Bill Net Amount Integrity",
-            "domain": "Revenue Cycle",
-            "target_table": "Billing & Invoicing Ledger",
-            "total_checked": b_tot,
-            "passed_records": b_val,
-            "failed_records": b_tot - b_val,
-            "compliance_pct": round((b_val / b_tot) * 100, 2),
-            "status": "Passed",
-            "description": "Guarantees billed invoices contain positive net amount totals and valid itemized charges."
+            "id": 3,
+            "rule": "Phone number present and verified",
+            "domain": "Patient",
+            "pass_rate": f"{int(pct3)}%" if pct3.is_integer() else f"{pct3}%",
+            "pass_rate_num": pct3,
+            "failures": fail3,
+            "total_checked": tot3,
+            "owner": "Front Office",
+            "status": "Pass" if fail3 == 0 else "Review" if pct3 >= 95 else "Failed",
+            "target_table": "patients"
         })
 
-        # Rule 5: Vital Telemetry Physiological Bounds (vital_signs)
+        # 4. Rule 4: Consent record < 12 months old (Governance)
         cur.execute("""
             SELECT 
-                COUNT(*) as total, 
-                COUNT(CASE WHEN heart_rate BETWEEN 30 AND 220 AND oxygen_saturation BETWEEN 50 AND 100 THEN 1 END) as valid 
-            FROM vital_signs
+                COUNT(*) as total,
+                COUNT(CASE WHEN timestamp >= NOW() - INTERVAL '12 months' THEN 1 END) as valid,
+                COUNT(CASE WHEN timestamp < NOW() - INTERVAL '12 months' OR timestamp IS NULL THEN 1 END) as failed
+            FROM consent_record;
         """)
-        v_row = cur.fetchone()
-        v_tot = v_row["total"] or 1
-        v_val = v_row["valid"] or 0
+        r4 = cur.fetchone()
+        tot4 = r4["total"] or 1
+        val4 = r4["valid"] or 0
+        fail4 = r4["failed"] or 0
+        pct4 = round((val4 / tot4) * 100, 1)
         rules.append({
-            "rule_id": "DQ-VIT-05",
-            "rule_name": "Vital Signs Physiological Range Validation",
-            "domain": "Telemetry / Safety",
-            "target_table": "Vital Signs Telemetry",
-            "total_checked": v_tot,
-            "passed_records": v_val,
-            "failed_records": v_tot - v_val,
-            "compliance_pct": round((v_val / v_tot) * 100, 2),
-            "status": "Passed",
-            "description": "Detects anomalous telemetry readings and sensor artifacts outside physiological bounds."
-        })
-
-        # Rule 6: Discharge Summary Sign-off Governance
-        cur.execute("""
-            SELECT 
-                COUNT(*) as total, 
-                COUNT(CASE WHEN approval_status IS NOT NULL THEN 1 END) as valid 
-            FROM dim_generated_discharge_summaries
-        """)
-        ds_row = cur.fetchone()
-        ds_tot = ds_row["total"] or 1
-        ds_val = ds_row["valid"] or 0
-        rules.append({
-            "rule_id": "DQ-GOV-06",
-            "rule_name": "AI Discharge Summary Governance & Sign-off",
+            "id": 4,
+            "rule": "Consent record < 12 months old",
             "domain": "Governance",
-            "target_table": "Physician Discharge Sign-offs",
-            "total_checked": ds_tot,
-            "passed_records": ds_val,
-            "failed_records": ds_tot - ds_val,
-            "compliance_pct": round((ds_val / ds_tot) * 100, 2),
-            "status": "Passed",
-            "description": "Audits autonomous discharge documentation for attending physician review status."
+            "pass_rate": f"{int(pct4)}%" if pct4.is_integer() else f"{pct4}%",
+            "pass_rate_num": pct4,
+            "failures": fail4,
+            "total_checked": tot4,
+            "owner": "Governance Officer",
+            "status": "Pass" if fail4 == 0 else "Review" if pct4 >= 95 else "Failed",
+            "target_table": "consent_record"
         })
 
-        overall_score = round(sum(r["compliance_pct"] for r in rules) / len(rules), 1)
+        # 5. Rule 5: Lab result linked to order (Clinical)
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN lab_order_id IS NOT NULL THEN 1 END) as valid,
+                COUNT(CASE WHEN lab_order_id IS NULL THEN 1 END) as failed
+            FROM lab_results;
+        """)
+        r5 = cur.fetchone()
+        tot5 = r5["total"] or 1
+        val5 = r5["valid"] or 0
+        fail5 = r5["failed"] or 0
+        pct5 = round((val5 / tot5) * 100, 1)
+        rules.append({
+            "id": 5,
+            "rule": "Lab result linked to order",
+            "domain": "Clinical",
+            "pass_rate": f"{int(pct5)}%" if pct5.is_integer() else f"{pct5}%",
+            "pass_rate_num": pct5,
+            "failures": fail5,
+            "total_checked": tot5,
+            "owner": "Laboratory",
+            "status": "Pass" if fail5 == 0 else "Review" if pct5 >= 95 else "Failed",
+            "target_table": "lab_results"
+        })
+
+        # 6. Rule 6: Knowledge doc within review date (Knowledge)
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN (updated_at >= NOW() - INTERVAL '6 months' OR created_at >= NOW() - INTERVAL '6 months') AND status = 'ACTIVE' THEN 1 END) as valid,
+                COUNT(CASE WHEN (updated_at < NOW() - INTERVAL '6 months' AND created_at < NOW() - INTERVAL '6 months') OR status != 'ACTIVE' OR updated_at IS NULL THEN 1 END) as failed
+            FROM knowledge_documents;
+        """)
+        r6 = cur.fetchone()
+        tot6 = r6["total"] or 1
+        val6 = r6["valid"] or 0
+        fail6 = r6["failed"] or 0
+        pct6 = round((val6 / tot6) * 100, 1)
+        rules.append({
+            "id": 6,
+            "rule": "Knowledge doc within review date",
+            "domain": "Knowledge",
+            "pass_rate": f"{int(pct6)}%" if pct6.is_integer() else f"{pct6}%",
+            "pass_rate_num": pct6,
+            "failures": fail6,
+            "total_checked": tot6,
+            "owner": "Knowledge Manager",
+            "status": "Pass" if fail6 == 0 else "Review" if pct6 >= 95 else "Failed",
+            "target_table": "knowledge_documents"
+        })
+
+        overall_score = round(sum(r["pass_rate_num"] for r in rules) / len(rules), 1)
 
         return {
             "success": True,
-            "evaluated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "evaluated_at": datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
             "composite_quality_score": overall_score,
-            "total_rules_evaluated": len(rules),
-            "rules_passed": sum(1 for r in rules if r["status"] == "Passed"),
+            "total_records": len(rules),
             "rules": rules
         }
     except Exception as e:

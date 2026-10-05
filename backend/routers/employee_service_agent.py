@@ -27,7 +27,7 @@ agent_service = EmployeeServiceAgentService()
 class ChatRequest(BaseModel):
     message: str = Field(..., description="Message from staff employee")
     username: Optional[str] = Field(default="nurse.priya", description="Logged-in staff username or ID")
-    history: Optional[List[Dict[str, str]]] = Field(default=None, description="Previous conversation turns")
+    history: Optional[List[Dict[str, Any]]] = Field(default=None, description="Previous conversation turns")
 
 class LeaveApplyRequest(BaseModel):
     username: str = Field(..., description="Logged in username")

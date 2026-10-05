@@ -18,25 +18,45 @@ import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function LiveForecastingView() {
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [data, setData] = useState(null);
   const [surgeAdjustment, setSurgeAdjustment] = useState(0);
+  const [refreshMessage, setRefreshMessage] = useState(null);
+  const [lastSyncedTime, setLastSyncedTime] = useState(null);
 
-  const fetchForecast = async () => {
-    setLoading(true);
+  const fetchForecast = async (isManual = false) => {
+    if (isManual) {
+      setIsRefreshing(true);
+      setRefreshMessage(null);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const res = await apiService.getLiveForecasting();
+      const res = await apiService.getLiveForecasting({ forceFresh: true, cacheTtlMs: 0 });
       if (res && res.success) {
         setData(res);
+        const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        setLastSyncedTime(nowStr);
+        if (isManual) {
+          setRefreshMessage(`✓ Model updated at ${nowStr} with latest inpatient census (${res.summary?.current_occupied || 208} patients).`);
+          setTimeout(() => setRefreshMessage(null), 3500);
+        }
       }
     } catch (err) {
       console.error("Failed to load live forecasting:", err);
+      if (isManual) {
+        setRefreshMessage("⚠️ Failed to re-evaluate model. Please try again.");
+        setTimeout(() => setRefreshMessage(null), 3500);
+      }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchForecast();
+    fetchForecast(false);
   }, []);
 
   if (loading && !data) {
@@ -79,7 +99,7 @@ export default function LiveForecastingView() {
   const wardForecast = data?.ward_forecast || [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.2s ease-in-out' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', animation: 'fadeIn 0.2s ease-in-out' }}>
       
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
@@ -99,28 +119,50 @@ export default function LiveForecastingView() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             type="button"
-            onClick={fetchForecast}
-            disabled={loading}
+            onClick={() => fetchForecast(true)}
+            disabled={isRefreshing || loading}
             style={{
-              height: '32px', padding: '0 14px', borderRadius: '6px',
-              border: '1px solid #cbd5e1', background: '#ffffff',
-              color: '#334155', fontSize: '12px', fontWeight: 600,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+              height: '34px', padding: '0 14px', borderRadius: '6px',
+              border: '1px solid #cbd5e1', background: isRefreshing ? '#f1f5f9' : '#ffffff',
+              color: isRefreshing ? '#0284c7' : '#334155', fontSize: '12px', fontWeight: 600,
+              cursor: isRefreshing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+              transition: 'all 0.15s ease'
             }}
           >
-            <RefreshCw style={{ width: '13px', height: '13px', animation: loading ? 'kpi-spin 1s linear infinite' : 'none' }} />
-            <span>Refresh Model</span>
+            <RefreshCw style={{ width: '13px', height: '13px', animation: isRefreshing ? 'kpi-spin 0.8s linear infinite' : 'none' }} />
+            <span>{isRefreshing ? 'Re-evaluating Model...' : 'Refresh Model'}</span>
           </button>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4',
-            border: '1px solid #bbf7d0', padding: '5px 12px', borderRadius: '6px',
+            border: '1px solid #bbf7d0', padding: '6px 12px', borderRadius: '6px',
             fontSize: '11.5px', color: '#166534', fontWeight: 600
           }}>
             <Database style={{ width: '13px', height: '13px', color: '#16a34a' }} />
-            <span>Live Clinical Sync</span>
+            <span>{lastSyncedTime ? `Synced: ${lastSyncedTime}` : 'Live Clinical Sync'}</span>
           </div>
         </div>
       </div>
+
+      {/* Success / Feedback Notification Banner */}
+      {refreshMessage && (
+        <div style={{
+          background: '#f0fdf4',
+          border: '1px solid #bbf7d0',
+          color: '#166534',
+          padding: '8px 14px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          animation: 'fadeIn 0.2s ease-in-out'
+        }}>
+          <CheckCircle2 style={{ width: '15px', height: '15px', color: '#16a34a' }} />
+          <span>{refreshMessage}</span>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>

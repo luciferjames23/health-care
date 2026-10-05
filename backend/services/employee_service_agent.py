@@ -60,6 +60,8 @@ class EmployeeServiceAgentService:
 
     def _resolve_user(self, cur, user_identifier: str) -> Optional[Dict[str, Any]]:
         """Resolves user by id, username, staff_name, or doctor code."""
+        clean_id = (user_identifier or "").strip()
+        stripped_name = clean_id.lower().replace("dr.", "").replace("dr ", "").replace("nurse.", "").replace("nurse ", "").strip()
         cur.execute("""
             SELECT u.id, u.username,
                    COALESCE(u.staff_name, d.display_name, NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.username) as staff_name,
@@ -73,12 +75,23 @@ class EmployeeServiceAgentService:
             LEFT JOIN departments dept ON dept.id = u.department_id
             LEFT JOIN doctors d ON d.user_id = u.id
             WHERE LOWER(u.username) = LOWER(%s)
+               OR LOWER(u.staff_name) = LOWER(%s)
+               OR LOWER(u.username) ILIKE %s
                OR LOWER(u.staff_name) ILIKE %s
+               OR (d.display_name IS NOT NULL AND LOWER(d.display_name) ILIKE %s)
                OR (d.doctor_code IS NOT NULL AND LOWER(d.doctor_code) = LOWER(%s))
                OR (LOWER(u.first_name) = LOWER(%s) AND LOWER(r.name) IN ('nurse', 'doctor'))
-            ORDER BY u.id ASC
+               OR (LOWER(u.first_name) ILIKE %s AND LOWER(r.name) IN ('nurse', 'doctor'))
+            ORDER BY 
+               CASE 
+                   WHEN LOWER(u.username) = LOWER(%s) THEN 0 
+                   WHEN LOWER(u.staff_name) = LOWER(%s) THEN 1
+                   WHEN LOWER(u.username) = LOWER(%s) THEN 2
+                   ELSE 3 
+               END,
+               u.id ASC
             LIMIT 1;
-        """, (user_identifier.strip(), f"%{user_identifier.strip()}%", user_identifier.strip(), user_identifier.strip()))
+        """, (clean_id, clean_id, f"%{stripped_name}%", f"%{clean_id}%", f"%{clean_id}%", clean_id, clean_id, f"%{stripped_name}%", clean_id, clean_id, stripped_name))
         row = cur.fetchone()
         return dict(row) if row else None
 
@@ -187,19 +200,78 @@ class EmployeeServiceAgentService:
             conn.close()
 
     def _get_supervisor(self, cur, user: Dict[str, Any]) -> tuple:
-        """Determines supervisor id and name based on employee role and department."""
-        if user.get("role_name") == "Doctor":
-            return 1, "Medical Director / Clinical Head"
+        """Determines supervisor id and title based on employee role and department."""
+        role = (user.get("role_name") or "").strip().lower()
+        dept = (user.get("department_name") or "").strip().lower()
+
+        # 1. Doctors & Clinical Specialists -> Medical Director / Clinical Head
+        if role == "doctor" or "physician" in role or "surgeon" in role:
+            cur.execute("""
+                SELECT id, staff_name FROM users 
+                WHERE LOWER(username) IN ('dr.radhakrishnan', 'meera.iyer', 'admin', 'manju.hr')
+                ORDER BY CASE WHEN LOWER(username) = 'dr.radhakrishnan' THEN 0 WHEN LOWER(username) = 'meera.iyer' THEN 1 ELSE 2 END
+                LIMIT 1;
+            """)
+            sup_doc = cur.fetchone()
+            sup_id = sup_doc["id"] if sup_doc else user["id"]
+            return sup_id, "Medical Director / Clinical Head"
+
+        # 2. Nursing Staff -> Nursing Superintendent / Ward In-Charge
+        if role == "nurse" or "nursing" in dept:
+            cur.execute("""
+                SELECT id, staff_name FROM users 
+                WHERE LOWER(username) IN ('anitha.kumar', 'l.revathi', 'meera.iyer', 'admin')
+                ORDER BY CASE WHEN LOWER(username) = 'anitha.kumar' THEN 0 ELSE 1 END
+                LIMIT 1;
+            """)
+            sup_nurse = cur.fetchone()
+            sup_id = sup_nurse["id"] if sup_nurse else user["id"]
+            return sup_id, "Nursing Superintendent (Nurse Anitha Kumar)"
+
+        # 3. Laboratory / Diagnostic Services -> HOD - Laboratory Services
+        if "lab" in role or "lab" in dept or "patholog" in dept:
+            cur.execute("""
+                SELECT id, staff_name FROM users 
+                WHERE LOWER(username) IN ('meera.iyer', 'admin', 'dr.radhakrishnan')
+                ORDER BY CASE WHEN LOWER(username) = 'meera.iyer' THEN 0 ELSE 1 END
+                LIMIT 1;
+            """)
+            sup_lab = cur.fetchone()
+            sup_id = sup_lab["id"] if sup_lab else user["id"]
+            return sup_id, "HOD - Laboratory Services"
+
+        # 4. Pharmacy Services -> Chief Pharmacist / Pharmacy Head
+        if "pharm" in role or "pharm" in dept:
+            cur.execute("""
+                SELECT id, staff_name FROM users 
+                WHERE LOWER(username) IN ('meera.iyer', 'admin')
+                LIMIT 1;
+            """)
+            sup_pharm = cur.fetchone()
+            sup_id = sup_pharm["id"] if sup_pharm else user["id"]
+            return sup_id, "Chief Pharmacist / Pharmacy In-Charge"
+
+        # 5. Radiology / Imaging -> Head of Radiology & Imaging
+        if "radio" in role or "radio" in dept or "imaging" in dept:
+            cur.execute("""
+                SELECT id, staff_name FROM users 
+                WHERE LOWER(username) IN ('meera.iyer', 'admin')
+                LIMIT 1;
+            """)
+            sup_rad = cur.fetchone()
+            sup_id = sup_rad["id"] if sup_rad else user["id"]
+            return sup_id, "Head of Radiology & Imaging"
+
+        # 6. General / Support / Administrative Staff -> Department Head / Operations Manager
         cur.execute("""
             SELECT id, staff_name FROM users 
-            WHERE LOWER(username) IN ('anitha.kumar', 'meera.iyer', 'l.revathi')
-            ORDER BY CASE WHEN LOWER(username) = 'anitha.kumar' THEN 0 ELSE 1 END
+            WHERE LOWER(username) IN ('meera.iyer', 'manju.hr', 'admin')
+            ORDER BY CASE WHEN LOWER(username) = 'meera.iyer' THEN 0 ELSE 1 END
             LIMIT 1;
         """)
-        sup_row = cur.fetchone()
-        supervisor_id = sup_row["id"] if sup_row else user["id"]
-        supervisor_name = sup_row["staff_name"] if sup_row else "Shift Supervisor (Ward In-Charge)"
-        return supervisor_id, supervisor_name
+        sup_gen = cur.fetchone()
+        sup_id = sup_gen["id"] if sup_gen else user["id"]
+        return sup_id, "Department Head / Operations Manager"
 
     def apply_leave(
         self,
@@ -209,7 +281,7 @@ class EmployeeServiceAgentService:
         to_date: Optional[str] = None,
         reason: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Records leave/comp-off application in PostgreSQL and updates ledger."""
+        """Records leave/comp-off application in PostgreSQL and updates ledger, preventing duplicate/overlapping requests."""
         conn = self.get_db()
         conn.autocommit = True
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -249,6 +321,74 @@ class EmployeeServiceAgentService:
 
             days_count = max(1.0, float((to_dt - from_dt).days + 1))
 
+            # Check available leave balance in employee_leave_balances
+            col_map = {
+                "Comp-Off": "comp_off_balance",
+                "Casual Leave": "casual_leave_balance",
+                "Sick Leave": "sick_leave_balance",
+                "Earned Leave": "earned_leave_balance"
+            }
+            bal_col = col_map.get(canonical_type, "casual_leave_balance")
+            cur.execute(f"""
+                SELECT id, {bal_col} as curr_bal
+                FROM employee_leave_balances
+                WHERE user_id = %s
+                LIMIT 1;
+            """, (user["id"],))
+            bal_record = cur.fetchone()
+            curr_balance = float(bal_record["curr_bal"]) if (bal_record and bal_record.get("curr_bal") is not None) else 0.0
+
+            if curr_balance <= 0.0:
+                return {
+                    "success": False,
+                    "insufficient_balance": True,
+                    "error": f"You do not have any {canonical_type} balance available (Current balance: 0 days). You cannot apply for a {canonical_type} at this time.",
+                    "available_balance": curr_balance,
+                    "leave_type": canonical_type
+                }
+            elif curr_balance < days_count:
+                return {
+                    "success": False,
+                    "insufficient_balance": True,
+                    "error": f"Insufficient {canonical_type} balance. You have {curr_balance} days available, but requested {days_count} days.",
+                    "available_balance": curr_balance,
+                    "leave_type": canonical_type
+                }
+
+            # Prevent duplicate or overlapping active/pending leave requests on the same date for the same employee
+            cur.execute("""
+                SELECT id, request_code, leave_type, from_date, to_date, status, supervisor_name
+                FROM employee_leave_requests
+                WHERE user_id = %s
+                  AND status IN ('Pending', 'Approved')
+                  AND from_date <= %s
+                  AND to_date >= %s
+                ORDER BY id DESC
+                LIMIT 1;
+            """, (user["id"], to_dt, from_dt))
+            existing_leave = cur.fetchone()
+            if existing_leave:
+                ex_from = existing_leave["from_date"]
+                ex_to = existing_leave["to_date"]
+                ex_date_str = ex_from.strftime('%A, %d %b %Y') if ex_from == ex_to else f"{ex_from.strftime('%d %b')} to {ex_to.strftime('%d %b %Y')}"
+                return {
+                    "success": False,
+                    "already_applied": True,
+                    "error": f"A {existing_leave['leave_type']} application ({existing_leave['request_code']}) for {ex_date_str} is already {existing_leave['status'].lower()}. Multiple leave applications for the same date are not allowed.",
+                    "existing_request": {
+                        "id": existing_leave["id"],
+                        "request_code": existing_leave["request_code"],
+                        "leave_type": existing_leave["leave_type"],
+                        "from_date": ex_from.strftime("%Y-%m-%d") if hasattr(ex_from, "strftime") else str(ex_from),
+                        "to_date": ex_to.strftime("%Y-%m-%d") if hasattr(ex_to, "strftime") else str(ex_to),
+                        "status": existing_leave["status"],
+                        "supervisor_name": existing_leave["supervisor_name"],
+                        "date_display": ex_date_str
+                    },
+                    "date_display": ex_date_str,
+                    "leave_type": existing_leave["leave_type"]
+                }
+
             supervisor_id, supervisor_name = self._get_supervisor(cur, user)
 
             req_code = f"LV-2026-{random.randint(1000, 9999)}"
@@ -268,13 +408,6 @@ class EmployeeServiceAgentService:
             created_req = cur.fetchone()
 
             # Decrement balance in employee_leave_balances
-            col_map = {
-                "Comp-Off": "comp_off_balance",
-                "Casual Leave": "casual_leave_balance",
-                "Sick Leave": "sick_leave_balance",
-                "Earned Leave": "earned_leave_balance"
-            }
-            bal_col = col_map.get(canonical_type, "casual_leave_balance")
             try:
                 cur.execute(f"""
                     UPDATE employee_leave_balances
@@ -289,7 +422,7 @@ class EmployeeServiceAgentService:
 
             return {
                 "success": True,
-                "message": f"Your {canonical_type} request ({req_code}) for {date_str} has been submitted and routed to {supervisor_name} for approval.",
+                "message": f"Your {canonical_type} request ({req_code}) for {date_str} has been submitted for approval.",
                 "request": dict(created_req),
                 "date_display": date_str,
                 "days_count": days_count,
@@ -530,9 +663,30 @@ class EmployeeServiceAgentService:
                 ])
             )
             if is_cancel:
+                leave_type_label = "leave"
+                if history:
+                    for turn in reversed(history):
+                        txt = (turn.get("text") or turn.get("content") or "").lower()
+                        slip = turn.get("interactiveSlip") or turn.get("interactive_slip") or {}
+                        if isinstance(slip, dict) and slip.get("leave_type"):
+                            leave_type_label = slip["leave_type"]
+                            break
+                        if "casual" in txt:
+                            leave_type_label = "Casual Leave"
+                            break
+                        elif "sick" in txt:
+                            leave_type_label = "Sick Leave"
+                            break
+                        elif "earned" in txt:
+                            leave_type_label = "Earned Leave"
+                            break
+                        elif "comp" in txt:
+                            leave_type_label = "Comp-Off"
+                            break
+
                 return {
                     "success": True,
-                    "text": "Your comp-off draft request has been cancelled. No leave was submitted to HR. Let me know if you would like to check your roster or balances!",
+                    "text": f"Your **{leave_type_label}** draft request has been cancelled. No leave was submitted to HR. Let me know if you would like to check your roster or balances!",
                     "agent": "Employee Service Agent",
                     "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]", "[Apply Comp-Off]"]
                 }
@@ -541,29 +695,58 @@ class EmployeeServiceAgentService:
             is_confirm_submit = (
                 msg_clean in [
                     "[Confirm & Submit Comp-Off]", "[Confirm & Submit]", "Confirm & Submit Comp-Off",
-                    "Confirm & Submit", "[Yes, Please Apply]", "Yes, please apply for Friday"
+                    "Confirm & Submit", "[Yes, Please Apply]", "Yes, please apply for Friday",
+                    "[Confirm & Submit Casual Leave]", "Confirm & Submit Casual Leave",
+                    "[Confirm & Submit Sick Leave]", "Confirm & Submit Sick Leave",
+                    "[Confirm & Submit Earned Leave]", "Confirm & Submit Earned Leave"
                 ] or
-                any(msg_lower == q for q in [
-                    "confirm & submit comp-off", "confirm & submit", "confirm and submit",
-                    "yes, please apply", "yes please apply", "yes, please apply for friday",
-                    "confirm comp-off", "confirm", "submit now", "yes apply", "confirm and submit comp-off"
+                any(msg_lower.startswith(q) for q in [
+                    "confirm & submit", "confirm and submit", "confirm", "submit now", "yes, please apply", "yes please apply", "yes apply"
                 ])
             )
             if is_confirm_submit:
                 tomorrow = today + datetime.timedelta(days=1)
+                confirm_lt = "Casual Leave"
+                if "comp" in msg_lower:
+                    confirm_lt = "Comp-Off"
+                elif "sick" in msg_lower:
+                    confirm_lt = "Sick Leave"
+                elif "earned" in msg_lower:
+                    confirm_lt = "Earned Leave"
+                elif "casual" in msg_lower:
+                    confirm_lt = "Casual Leave"
+                elif history:
+                    for turn in reversed(history):
+                        txt = (turn.get("text") or turn.get("content") or "").lower()
+                        slip = turn.get("interactiveSlip") or turn.get("interactive_slip") or {}
+                        if isinstance(slip, dict) and slip.get("leave_type"):
+                            confirm_lt = slip["leave_type"]
+                            break
+                        if "casual" in txt:
+                            confirm_lt = "Casual Leave"
+                            break
+                        elif "sick" in txt:
+                            confirm_lt = "Sick Leave"
+                            break
+                        elif "earned" in txt:
+                            confirm_lt = "Earned Leave"
+                            break
+                        elif "comp" in txt:
+                            confirm_lt = "Comp-Off"
+                            break
+
                 apply_res = self.apply_leave(
                     user_identifier=user["username"],
-                    leave_type="Comp-Off",
+                    leave_type=confirm_lt,
                     from_date=tomorrow.strftime("%Y-%m-%d"),
                     to_date=tomorrow.strftime("%Y-%m-%d"),
-                    reason="Comp-Off applied via Employee Service Agent"
+                    reason=f"{confirm_lt} applied via Employee Service Agent"
                 )
                 if apply_res.get("success"):
                     req = apply_res["request"]
                     reply_text = (
                         f"Done! Your **{req['leave_type']}** request for **{apply_res['date_display']}** "
-                        f"has been **submitted and created** ({req['request_code']}). "
-                        f"It has been routed to **{req['supervisor_name']}** for review.\n\n"
+                        f"has been **submitted and created** ({req['request_code']}).\n\n"
                         f"Your leave balance has been updated. You will receive an alert once sign-off is completed."
                     )
                     interactive_slip = {
@@ -571,10 +754,54 @@ class EmployeeServiceAgentService:
                         "request_code": req["request_code"],
                         "staff_name": user["staff_name"],
                         "leave_type": req["leave_type"],
-                        "status": "Pending Supervisor Approval",
+                        "status": "Pending Approval",
                         "date_display": apply_res["date_display"],
                         "supervisor": req["supervisor_name"]
                     }
+                    return {
+                        "success": True,
+                        "text": reply_text,
+                        "agent": "Employee Service Agent",
+                        "interactive_slip": interactive_slip,
+                        "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
+                    }
+                else:
+                    if apply_res.get("insufficient_balance"):
+                        l_type = apply_res.get("leave_type", "Leave")
+                        return {
+                            "success": True,
+                            "text": (
+                                f"⚠️ **Cannot Apply - Insufficient Balance**\n\n"
+                                f"You currently have **0 days** of **{l_type}** available in your HR leave ledger.\n"
+                                f"Under **HR Leave Policy v5.0**, no leave application can be submitted when the balance is 0.\n\n"
+                                f"Would you like to check your other available leave balances?"
+                            ),
+                            "agent": "Employee Service Agent",
+                            "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                        }
+
+                    existing = apply_res.get("existing_request", {})
+                    req_code = existing.get("request_code", "")
+                    status_lbl = existing.get("status", "Pending")
+                    sup_name = existing.get("supervisor_name", "Supervisor")
+                    d_disp = apply_res.get("date_display", "the requested date")
+                    l_type = existing.get("leave_type") or apply_res.get("leave_type", "Leave")
+
+                    reply_text = (
+                        f"⚠️ **Duplicate Request Blocked**: You already have an active **{l_type}** application "
+                        f"(**{req_code}**) for **{d_disp}** (Status: **{status_lbl}**).\n\n"
+                        f"Multiple leave submissions for the same date are not allowed."
+                    )
+                    interactive_slip = {
+                        "type": "leave_slip_confirmed",
+                        "request_code": req_code,
+                        "staff_name": user["staff_name"],
+                        "leave_type": l_type,
+                        "status": f"{status_lbl}",
+                        "date_display": d_disp,
+                        "supervisor": sup_name
+                    } if req_code else None
+
                     return {
                         "success": True,
                         "text": reply_text,
@@ -597,8 +824,61 @@ class EmployeeServiceAgentService:
                 from_date_str = tomorrow.strftime("%Y-%m-%d")
                 to_date_str = from_date_str
                 date_display = tomorrow.strftime("%A, %d %b %Y")
+
+                # 1. Check if balance is available
                 bal_res = self.get_user_leave_balance(user["username"])
-                comp_balance = bal_res.get("balances", {}).get("comp_off_balance", 2.0)
+                comp_balance = float(bal_res.get("balances", {}).get("comp_off_balance", 0.0))
+
+                if comp_balance <= 0.0:
+                    return {
+                        "success": True,
+                        "text": (
+                            f"⚠️ **Comp-Off Balance is 0**\n\n"
+                            f"You currently have **0 days** of **Comp-Off** available in your HR leave ledger.\n"
+                            f"Under **HR Leave Policy v5.0**, leave slips cannot be drafted or submitted when your balance is **0**.\n\n"
+                            f"Would you like to check your other leave balances (Casual Leave, Sick Leave, Earned Leave)?"
+                        ),
+                        "agent": "Employee Service Agent",
+                        "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                    }
+
+                # 2. Check if already applied
+                cur.execute("""
+                    SELECT id, request_code, leave_type, from_date, to_date, status, supervisor_name
+                    FROM employee_leave_requests
+                    WHERE user_id = %s
+                      AND status IN ('Pending', 'Approved')
+                      AND from_date <= %s
+                      AND to_date >= %s
+                    ORDER BY id DESC
+                    LIMIT 1;
+                """, (user["id"], tomorrow, tomorrow))
+                existing_leave = cur.fetchone()
+                if existing_leave:
+                    ex_from = existing_leave["from_date"]
+                    ex_to = existing_leave["to_date"]
+                    ex_date_str = ex_from.strftime('%A, %d %b %Y') if ex_from == ex_to else f"{ex_from.strftime('%d %b')} to {ex_to.strftime('%d %b %Y')}"
+                    return {
+                        "success": True,
+                        "text": (
+                            f"ℹ️ **Leave Already Applied**: You already have a **{existing_leave['leave_type']}** request "
+                            f"(**{existing_leave['request_code']}**) submitted for **{ex_date_str}**.\n\n"
+                            f"Current Status: **{existing_leave['status']}**.\n"
+                            f"You do not need to apply again for this date."
+                        ),
+                        "agent": "Employee Service Agent",
+                        "interactive_slip": {
+                            "type": "leave_slip_confirmed",
+                            "request_code": existing_leave["request_code"],
+                            "staff_name": user["staff_name"],
+                            "leave_type": existing_leave["leave_type"],
+                            "status": f"{existing_leave['status']}",
+                            "date_display": ex_date_str,
+                            "supervisor": existing_leave["supervisor_name"]
+                        },
+                        "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
+                    }
+
                 supervisor_id, supervisor_name = self._get_supervisor(cur, user)
 
                 interactive_slip = {
@@ -621,8 +901,7 @@ class EmployeeServiceAgentService:
                     f"• **Employee:** {user['staff_name']} ({user.get('department_name', 'Clinical')})\n"
                     f"• **Leave Type:** Comp-Off\n"
                     f"• **Requested Date:** {date_display} (1 day)\n"
-                    f"• **Comp-Off Balance:** {comp_balance} days available\n"
-                    f"• **Routing Approver:** {supervisor_name}\n\n"
+                    f"• **Comp-Off Balance:** {comp_balance} days available\n\n"
                     f"Please click **'Confirm & Submit'** below to file this request or **'Cancel'** to discard."
                 )
 
@@ -671,8 +950,7 @@ class EmployeeServiceAgentService:
                     req = apply_res["request"]
                     reply_text = (
                         f"Done! Your **{req['leave_type']}** request for **{apply_res['date_display']}** "
-                        f"has been **submitted and created** ({req['request_code']}). "
-                        f"It has been routed to **{req['supervisor_name']}** for review.\n\n"
+                        f"has been **submitted and created** ({req['request_code']}).\n\n"
                         f"Your leave balance has been updated. You will receive an alert once sign-off is completed."
                     )
                     interactive_slip = {
@@ -680,7 +958,7 @@ class EmployeeServiceAgentService:
                         "request_code": req["request_code"],
                         "staff_name": user["staff_name"],
                         "leave_type": req["leave_type"],
-                        "status": "Pending Supervisor Approval",
+                        "status": "Pending Approval",
                         "date_display": apply_res["date_display"],
                         "supervisor": req["supervisor_name"]
                     }
@@ -691,9 +969,65 @@ class EmployeeServiceAgentService:
                         "interactive_slip": interactive_slip,
                         "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
                     }
+                else:
+                    if apply_res.get("insufficient_balance"):
+                        l_type = apply_res.get("leave_type", "Leave")
+                        return {
+                            "success": True,
+                            "text": (
+                                f"⚠️ **Cannot Apply - Insufficient Balance**\n\n"
+                                f"You currently have **0 days** of **{l_type}** available in your HR leave ledger.\n"
+                                f"Under **HR Leave Policy v5.0**, no leave application can be submitted when the balance is 0.\n\n"
+                                f"Would you like to check your other available leave balances?"
+                            ),
+                            "agent": "Employee Service Agent",
+                            "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                        }
+
+                    existing = apply_res.get("existing_request", {})
+                    req_code = existing.get("request_code", "")
+                    status_lbl = existing.get("status", "Pending")
+                    sup_name = existing.get("supervisor_name", "Supervisor")
+                    d_disp = apply_res.get("date_display", "the requested date")
+                    l_type = existing.get("leave_type") or apply_res.get("leave_type", "Leave")
+
+                    reply_text = (
+                        f"⚠️ **Duplicate Request Blocked**: You already have an active **{l_type}** application "
+                        f"(**{req_code}**) for **{d_disp}** (Status: **{status_lbl}**).\n\n"
+                        f"Multiple leave submissions for the same date are not allowed."
+                    )
+                    interactive_slip = {
+                        "type": "leave_slip_confirmed",
+                        "request_code": req_code,
+                        "staff_name": user["staff_name"],
+                        "leave_type": l_type,
+                        "status": f"{status_lbl}",
+                        "date_display": d_disp,
+                        "supervisor": sup_name
+                    } if req_code else None
+
+                    return {
+                        "success": True,
+                        "text": reply_text,
+                        "agent": "Employee Service Agent",
+                        "interactive_slip": interactive_slip,
+                        "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
+                    }
 
             # ── Action 1b: Staff requested leave / comp-off -> Present Draft Slip ───
             if is_leave_flow:
+                try:
+                    f_dt = datetime.datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                    t_dt = datetime.datetime.strptime(to_date_str, "%Y-%m-%d").date()
+                    days_count = max(1.0, float((t_dt - f_dt).days + 1))
+                    date_display = f_dt.strftime('%A, %d %b %Y') if f_dt == t_dt else f"{f_dt.strftime('%d %b')} to {t_dt.strftime('%d %b %Y')}"
+                except Exception:
+                    f_dt = today + datetime.timedelta(days=1)
+                    t_dt = f_dt
+                    days_count = 1.0
+                    date_display = from_date_str
+
+                # 1. Check balance first
                 bal_res = self.get_user_leave_balance(user["username"])
                 b = bal_res.get("balances", {})
                 col_map = {
@@ -703,15 +1037,74 @@ class EmployeeServiceAgentService:
                     "Earned Leave": "earned_leave_balance"
                 }
                 bal_key = col_map.get(leave_type, "casual_leave_balance")
-                curr_balance = b.get(bal_key, 2.0)
-                supervisor_id, supervisor_name = self._get_supervisor(cur, user)
+                curr_balance = float(b.get(bal_key, 0.0))
 
-                try:
-                    f_dt = datetime.datetime.strptime(from_date_str, "%Y-%m-%d").date()
-                    t_dt = datetime.datetime.strptime(to_date_str, "%Y-%m-%d").date()
-                    date_display = f_dt.strftime('%A, %d %b %Y') if f_dt == t_dt else f"{f_dt.strftime('%d %b')} to {t_dt.strftime('%d %b %Y')}"
-                except Exception:
-                    date_display = from_date_str
+                if curr_balance <= 0.0:
+                    return {
+                        "success": True,
+                        "text": (
+                            f"⚠️ **{leave_type} Balance is 0**\n\n"
+                            f"You currently have **0 days** of **{leave_type}** available in your HR leave ledger.\n"
+                            f"Under **HR Leave Policy v5.0**, leave slips cannot be drafted or submitted when your balance is **0**.\n\n"
+                            f"Would you like to check your other available leave balances (Casual Leave, Sick Leave, Earned Leave)?"
+                        ),
+                        "agent": "Employee Service Agent",
+                        "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                    }
+                elif curr_balance < days_count:
+                    days_str = f"{int(days_count)} days" if days_count.is_integer() else f"{days_count} days"
+                    bal_str = f"{int(curr_balance)} days" if curr_balance.is_integer() else f"{curr_balance} days"
+                    return {
+                        "success": True,
+                        "text": (
+                            f"⚠️ **Insufficient {leave_type} Balance**\n\n"
+                            f"You requested **{days_str}** ({date_display}), but your available **{leave_type}** balance is only **{bal_str}**.\n\n"
+                            f"Under **HR Leave Policy v5.0**, leave applications cannot exceed your available balance.\n"
+                            f"Please adjust your requested date range or select another leave category."
+                        ),
+                        "agent": "Employee Service Agent",
+                        "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                    }
+
+                # 2. Check if already applied
+                cur.execute("""
+                    SELECT id, request_code, leave_type, from_date, to_date, status, supervisor_name
+                    FROM employee_leave_requests
+                    WHERE user_id = %s
+                      AND status IN ('Pending', 'Approved')
+                      AND from_date <= %s
+                      AND to_date >= %s
+                    ORDER BY id DESC
+                    LIMIT 1;
+                """, (user["id"], t_dt, f_dt))
+                existing_leave = cur.fetchone()
+                if existing_leave:
+                    ex_from = existing_leave["from_date"]
+                    ex_to = existing_leave["to_date"]
+                    ex_date_str = ex_from.strftime('%A, %d %b %Y') if ex_from == ex_to else f"{ex_from.strftime('%d %b')} to {ex_to.strftime('%d %b %Y')}"
+                    return {
+                        "success": True,
+                        "text": (
+                            f"ℹ️ **Leave Already Applied**: You already have a **{existing_leave['leave_type']}** request "
+                            f"(**{existing_leave['request_code']}**) submitted for **{ex_date_str}**.\n\n"
+                            f"Current Status: **{existing_leave['status']}**.\n"
+                            f"You do not need to apply again for this date."
+                        ),
+                        "agent": "Employee Service Agent",
+                        "interactive_slip": {
+                            "type": "leave_slip_confirmed",
+                            "request_code": existing_leave["request_code"],
+                            "staff_name": user["staff_name"],
+                            "leave_type": existing_leave["leave_type"],
+                            "status": f"{existing_leave['status']}",
+                            "date_display": ex_date_str,
+                            "supervisor": existing_leave["supervisor_name"]
+                        },
+                        "quick_actions": ["[My Shift Tomorrow]", "[Check Leave Balance]"]
+                    }
+
+                supervisor_id, supervisor_name = self._get_supervisor(cur, user)
+                days_label = f"{int(days_count)} day" if days_count == 1.0 else f"{int(days_count)} days"
 
                 interactive_slip = {
                     "type": "leave_slip",
@@ -721,7 +1114,7 @@ class EmployeeServiceAgentService:
                     "from_date": from_date_str,
                     "to_date": to_date_str,
                     "date_display": date_display,
-                    "days_count": 1.0,
+                    "days_count": days_count,
                     "balance_available": curr_balance,
                     "policy_reference": "HR Policy v5.0 §1.2",
                     "supervisor": supervisor_name,
@@ -732,11 +1125,18 @@ class EmployeeServiceAgentService:
                     f"Here are the details for your **{leave_type} Request Draft**. Please review before submitting to HR:\n\n"
                     f"• **Employee:** {user['staff_name']} ({user.get('department_name', 'Clinical')})\n"
                     f"• **Leave Type:** {leave_type}\n"
-                    f"• **Requested Date:** {date_display}\n"
-                    f"• **Available Balance:** {curr_balance} days\n"
-                    f"• **Routing Approver:** {supervisor_name}\n\n"
+                    f"• **Requested Date:** {date_display} ({days_label})\n"
+                    f"• **Available Balance:** {curr_balance} days\n\n"
                     f"Please click **'Confirm & Submit'** below to file this request or **'Cancel'** to discard."
                 )
+
+                return {
+                    "success": True,
+                    "text": reply_text,
+                    "agent": "Employee Service Agent",
+                    "interactive_slip": interactive_slip,
+                    "quick_actions": [f"[Confirm & Submit {leave_type}]", "[Cancel]"]
+                }
 
                 return {
                     "success": True,
@@ -759,7 +1159,19 @@ class EmployeeServiceAgentService:
                 shift_str = f"{sh.get('shift_name', 'Day Shift')} ({sh.get('shift_timing', '08:00 AM - 04:00 PM')}) in {sh.get('ward_name', 'Inpatient Unit')}"
 
                 bal_res = self.get_user_leave_balance(user["username"])
-                comp_balance = int(bal_res.get("balances", {}).get("comp_off_balance", 2))
+                comp_balance = float(bal_res.get("balances", {}).get("comp_off_balance", 0.0))
+
+                if comp_balance <= 0:
+                    reply_text = (
+                        f"You are scheduled for **{shift_str}** tomorrow. Under **HR Leave Policy v5.0**, your **Comp-Off balance is currently 0 days**.\n\n"
+                        f"You do not have any compensatory offs available to draft or apply for at this time. Would you like to check your other leave balances?"
+                    )
+                    return {
+                        "success": True,
+                        "text": reply_text,
+                        "agent": "Employee Service Agent",
+                        "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                    }
 
                 # Upcoming Friday calculation
                 days_until_friday = (4 - today.weekday()) % 7

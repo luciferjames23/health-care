@@ -760,7 +760,6 @@ export default function App() {
             {activePage === 'data-financial' && <DataDomainView domain="Financial Fact Ledger & AR/AP" onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'data-quality' && <LiveDataQualityView />}
             {activePage === 'forecasting' && <LiveForecastingView />}
-            {activePage === 'scenario' && <LiveScenarioSimulatorView />}
             {activePage === 'beforeafter' && <LiveBeforeAfterView />}
 
             {/* Standard Workspace Template for Other Domain Pages */}
@@ -779,7 +778,7 @@ export default function App() {
               'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
               'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
               'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
-              'forecasting', 'scenario', 'beforeafter'
+              'forecasting', 'beforeafter'
             ].includes(activePage) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

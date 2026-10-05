@@ -265,7 +265,7 @@ export const apiService = {
   },
 
   async getLiveForecasting(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-forecasting`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-forecasting`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   async getLiveScenarioBaseline(options = {}) {
@@ -277,7 +277,7 @@ export const apiService = {
   },
 
   async getLiveDataQuality(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-data-quality`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-data-quality`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   // Gold Summary
