@@ -1405,9 +1405,45 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
     governanceGate: 'Mandatory Physician Review & Digital Sign-off'
   };
 
+  const DEFAULT_EMPLOYEE_MODEL_CONFIG = {
+    primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
+    llmProvider: 'Groq Inference API (Groq Llama-3.3-70B)',
+    fallbackModel: 'gemini-3.5-flash-lite (Google Gemini)',
+    temperature: 0.20,
+    tokenLimit: '4,096 tokens (Max context: 128k)',
+    latencyTarget: '< 900 ms (Ultra-fast roster lookup)',
+    executionProtocol: 'Dual-Tool HR Protocol (PostgreSQL Roster Query + Policy Compliance + Bilingual Translation)',
+    governanceGate: 'HR Leave Policy v5.0 Boundary Check (No unauthorized clinical writes)'
+  };
+
+  const DEFAULT_ANALYTICS_MODEL_CONFIG = {
+    primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
+    llmProvider: 'Groq Inference API (Fast Lakehouse Query)',
+    fallbackModel: 'gemini-3.5-flash-lite (Google Gemini)',
+    temperature: 0.10,
+    tokenLimit: '8,192 tokens (Max context: 128k)',
+    latencyTarget: '< 1,200 ms (Fast Lakehouse Query)',
+    executionProtocol: 'Multi-Domain Lakehouse Aggregation (6 Clinical Service Domains + Financial Ledger)',
+    governanceGate: 'Aggregated Read-Only Boundary (Zero PHI Export)'
+  };
+
+  const DEFAULT_FORECASTING_MODEL_CONFIG = {
+    primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
+    llmProvider: 'Groq Inference API (LightGBM + Prophet)',
+    fallbackModel: 'gemini-3.5-flash-lite (Google Gemini)',
+    temperature: 0.10,
+    tokenLimit: '8,192 tokens (Max context: 128k)',
+    latencyTarget: '< 1,100 ms (Predictive Census Predictor)',
+    executionProtocol: '7-Day Rolling Census Time-Series (Admissions vs Discharges + Surge Risk Scoring)',
+    governanceGate: 'Capacity Decision Support (Human Supervisor Review for Ward Allocations)'
+  };
+
   const [agentModelConfigs, setAgentModelConfigs] = useState({
     'AG-19': { ...DEFAULT_MODEL_CONFIG },
-    'AG-18': { ...DEFAULT_NURSING_MODEL_CONFIG }
+    'AG-18': { ...DEFAULT_NURSING_MODEL_CONFIG },
+    'AG-04': { ...DEFAULT_EMPLOYEE_MODEL_CONFIG },
+    'AG-14': { ...DEFAULT_ANALYTICS_MODEL_CONFIG },
+    'AG-15': { ...DEFAULT_FORECASTING_MODEL_CONFIG }
   });
   const [modelSavedNotice, setModelSavedNotice] = useState(null);
   const [modelDeploying, setModelDeploying] = useState(false);
@@ -1423,6 +1459,21 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
       { id: 'tool-summary', tool: 'EMR Discharge Summariser', perm: 'Read Clinical History & Draft Discharge Card', read: true, write: true, appr: 'Mandatory Physician Review', enabled: true },
       { id: 'tool-bill', tool: 'Billing Clearance Engine', perm: 'Verify Inpatient Invoices & Insurance Claims', read: true, write: false, appr: 'None', enabled: true },
       { id: 'tool-rx-recon', tool: 'Medication Reconciliation', perm: 'Cross-check Discharge Rx against MAR', read: true, write: false, appr: 'None', enabled: true }
+    ],
+    'AG-04': [
+      { id: 'tool-roster', tool: 'Staff Roster API', perm: 'Read Shift Schedules, Duty Allocations & Leave Balances', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-leave', tool: 'Leave Workflow Engine', perm: 'Apply Comp-Off & Route Approval to Nursing Supervisor', read: true, write: true, appr: 'Selective (HR / Supervisor)', enabled: true },
+      { id: 'tool-bilingual', tool: 'Tamil Localization Engine', perm: 'Translate Natural Language Roster Queries (தமிழ்)', read: true, write: false, appr: 'None', enabled: true }
+    ],
+    'AG-14': [
+      { id: 'tool-gold-db', tool: 'Gold Lakehouse Query', perm: 'Read Inpatient Admissions, Triage & Doctor Workloads', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-rcm-claims', tool: 'RCM Claims Engine', perm: 'Compute Reimbursement Ratios, Disallowances & Payer Shares', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-diag-stats', tool: 'Diagnosis Trend Analyzer', perm: 'ICD-10 Clinical Condition Frequency & ALOS Metrics', read: true, write: false, appr: 'None', enabled: true }
+    ],
+    'AG-15': [
+      { id: 'tool-bed-census', tool: 'Live Bed Census Tracker', perm: 'Read Real-Time Inpatient Census & Ward Capacities', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-ml-forecast', tool: 'ML Census Predictor', perm: 'Compute 7-Day Rolling Inpatient Demand by Ward', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-surge-alert', tool: 'Surge Risk Early Warning', perm: 'Flag Capacity Bottlenecks & Recommend Staff Reallocation', read: true, write: true, appr: 'Selective (Ops Supervisor)', enabled: true }
     ]
   };
 
@@ -1812,7 +1863,10 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
   if (selectedAgent) {
     const isDischargeAgent = selectedAgent.id === 'AG-19' || selectedAgent.name === 'Discharge Summary Agent';
     const isNursingAgent = selectedAgent.id === 'AG-18' || selectedAgent.name === 'Nursing Handover Agent';
-    const isConfigurableAgent = isDischargeAgent || isNursingAgent;
+    const isEmployeeAgent = selectedAgent.id === 'AG-04' || selectedAgent.name === 'Employee Service Agent';
+    const isAnalyticsAgent = selectedAgent.id === 'AG-14' || selectedAgent.name === 'Analytics Agent';
+    const isForecastingAgent = selectedAgent.id === 'AG-15' || selectedAgent.name === 'Forecasting Agent';
+    const isConfigurableAgent = isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent;
     const currentAgentStatus = agentCustomStatuses[selectedAgent.id] || selectedAgent.status;
     const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
 
@@ -2371,17 +2425,25 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           </div>
         )}
 
-        {/* Tab 7: Model - Live Editable for Configurable Agents (AG-18, AG-19), Read-Only for others */}
+        {/* Tab 7: Model - Live Editable for Configurable Agents (AG-04, AG-14, AG-15, AG-18, AG-19) */}
         {activeTab === 'Model' && (() => {
           const currentAgentId = selectedAgent?.id || 'AG-18';
-          const currentModelConfig = agentModelConfigs[currentAgentId] || (isNursingAgent ? DEFAULT_NURSING_MODEL_CONFIG : DEFAULT_MODEL_CONFIG);
+          const getDefaultConfig = (id) => {
+            if (id === 'AG-18') return DEFAULT_NURSING_MODEL_CONFIG;
+            if (id === 'AG-04') return DEFAULT_EMPLOYEE_MODEL_CONFIG;
+            if (id === 'AG-14') return DEFAULT_ANALYTICS_MODEL_CONFIG;
+            if (id === 'AG-15') return DEFAULT_FORECASTING_MODEL_CONFIG;
+            return DEFAULT_MODEL_CONFIG;
+          };
+          const fallbackConfig = getDefaultConfig(currentAgentId);
+          const currentModelConfig = agentModelConfigs[currentAgentId] || fallbackConfig;
 
           const handleUpdateModelField = (key, value) => {
             if (!isConfigurableAgent) return;
             setAgentModelConfigs(prev => ({
               ...prev,
               [currentAgentId]: {
-                ...(prev[currentAgentId] || (isNursingAgent ? DEFAULT_NURSING_MODEL_CONFIG : DEFAULT_MODEL_CONFIG)),
+                ...(prev[currentAgentId] || fallbackConfig),
                 [key]: value
               }
             }));
@@ -2401,7 +2463,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             if (!isConfigurableAgent) return;
             setAgentModelConfigs(prev => ({
               ...prev,
-              [currentAgentId]: isNursingAgent ? { ...DEFAULT_NURSING_MODEL_CONFIG } : { ...DEFAULT_MODEL_CONFIG }
+              [currentAgentId]: { ...getDefaultConfig(currentAgentId) }
             }));
             setModelSavedNotice(`Model configuration reset to baseline defaults.`);
             setTimeout(() => setModelSavedNotice(null), 3000);
@@ -2837,6 +2899,26 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                     Groq LPU (openai/gpt-oss-120b)
                   </span>
                 )}
+                {isEmployeeAgent && (
+                  <span style={{ fontSize: '11px', color: '#0369a1', fontWeight: 600, background: '#e0f2fe', padding: '1px 8px', borderRadius: '4px' }}>
+                    Groq LPU (Llama-3.3-70B · தமிழ்)
+                  </span>
+                )}
+                {isAnalyticsAgent && (
+                  <span style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 600, background: '#f5f3ff', padding: '1px 8px', borderRadius: '4px' }}>
+                    Groq LPU (Fast Lakehouse Query)
+                  </span>
+                )}
+                {isForecastingAgent && (
+                  <span style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, background: '#fef3c7', padding: '1px 8px', borderRadius: '4px' }}>
+                    Groq LPU (LightGBM + Prophet)
+                  </span>
+                )}
+                {isDischargeAgent && (
+                  <span style={{ fontSize: '11px', color: '#0f766e', fontWeight: 600, background: '#f0fdfa', padding: '1px 8px', borderRadius: '4px' }}>
+                    Groq LPU (Batch Inpatient Orchestrator)
+                  </span>
+                )}
               </div>
 
               {/* Quick Bed Chips for AG-18 */}
@@ -2868,6 +2950,137 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                         }}
                       >
                         {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Chips for AG-04 (Employee Service Agent) */}
+              {isEmployeeAgent && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Quick Staff Operations Inquiry:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      'What is my shift tomorrow?',
+                      'Check my comp-off and leave balance',
+                      'Apply 1 day comp-off for Friday',
+                      'எனது நாளைய ஷிப்ட் விவரம் என்ன?'
+                    ].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setPlayPrompt(q)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          border: playPrompt === q ? '1px solid #0284c7' : '1px solid #e2e8f0',
+                          background: playPrompt === q ? '#f0f9ff' : '#fff',
+                          color: playPrompt === q ? '#0284c7' : '#475569',
+                          fontWeight: playPrompt === q ? 600 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Chips for AG-14 (Analytics Agent) */}
+              {isAnalyticsAgent && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Quick Executive Analytics Prompts:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      'Generate executive hospital KPI summary',
+                      'Analyze claims reimbursement ratio and insurer breakdown',
+                      'Show top 5 inpatient clinical diagnoses and stay durations',
+                      'Report bed occupancy rate across wards'
+                    ].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setPlayPrompt(q)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          border: playPrompt === q ? '1px solid #7c3aed' : '1px solid #e2e8f0',
+                          background: playPrompt === q ? '#f5f3ff' : '#fff',
+                          color: playPrompt === q ? '#7c3aed' : '#475569',
+                          fontWeight: playPrompt === q ? 600 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Chips for AG-15 (Forecasting Agent) */}
+              {isForecastingAgent && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Quick Census & Demand Forecasting Prompts:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      'Run 7-day rolling inpatient census demand forecast',
+                      'Identify peak surge risk wards and capacity headroom',
+                      'Predict ICU and Emergency bed occupancy',
+                      'Generate staffing capacity recommendation'
+                    ].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setPlayPrompt(q)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          border: playPrompt === q ? '1px solid #b45309' : '1px solid #e2e8f0',
+                          background: playPrompt === q ? '#fef3c7' : '#fff',
+                          color: playPrompt === q ? '#b45309' : '#475569',
+                          fontWeight: playPrompt === q ? 600 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Chips for AG-19 (Discharge Summary Agent) */}
+              {isDischargeAgent && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Quick Discharge Orchestration Prompts:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      'Generate discharge summaries for all eligible admitted patients',
+                      'Evaluate bill clearance and vitals for current inpatient batch',
+                      'Draft summary card for patient with cleared billing balance'
+                    ].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setPlayPrompt(q)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          border: playPrompt === q ? '1px solid #0f766e' : '1px solid #e2e8f0',
+                          background: playPrompt === q ? '#f0fdfa' : '#fff',
+                          color: playPrompt === q ? '#0f766e' : '#475569',
+                          fontWeight: playPrompt === q ? 600 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {q}
                       </button>
                     ))}
                   </div>
@@ -2910,10 +3123,90 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                 <div style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', background: '#f6f7f8', fontSize: '11.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                   <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'oklch(0.5 0.1 300)', fontWeight: 700, marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
                     <span>Output · AI Generated (Groq LPU)</span>
-                    <span style={{ color: '#059669', textTransform: 'none' }}>Live SBAR Card</span>
+                    <span style={{ color: '#059669', textTransform: 'none' }}>
+                      {isNursingAgent ? 'Live SBAR Card' : isDischargeAgent ? 'Live Inpatient Batch Summary' : isEmployeeAgent ? 'Live Staff Roster & Policy Response' : isAnalyticsAgent ? 'Live Lakehouse Analytics Report' : isForecastingAgent ? 'Live 7-Day Inpatient Forecast' : 'AI Output'}
+                    </span>
                   </div>
                   {playResult.output}
                 </div>
+
+                {/* Direct Action Link for AG-14 (Analytics Agent) */}
+                {isAnalyticsAgent && onNavigate && (
+                  <div style={{ marginTop: '12px', padding: '10px', borderRadius: '6px', background: '#f5f3ff', border: '1px solid #ddd6fe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#5b21b6' }}>Enterprise Clinical Analytics Active</div>
+                      <div style={{ fontSize: '11px', color: '#6d28d9' }}>Explore interactive visualizations, doctor workloads, and financial claims trends.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('analytics')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#7c3aed',
+                        color: '#fff',
+                        fontWeight: 600,
+                        fontSize: '11.5px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Open Analytics Command Centre →
+                    </button>
+                  </div>
+                )}
+
+                {/* Direct Action Link for AG-15 (Forecasting Agent) */}
+                {isForecastingAgent && onNavigate && (
+                  <div style={{ marginTop: '12px', padding: '10px', borderRadius: '6px', background: '#fffbeb', border: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400e' }}>7-Day Predictive Census Model Active</div>
+                      <div style={{ fontSize: '11px', color: '#b45309' }}>View rolling daily census projections, ward surge risks, and scenario adjustments.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('forecasting')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#d97706',
+                        color: '#fff',
+                        fontWeight: 600,
+                        fontSize: '11.5px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Open Predictive Census Desk →
+                    </button>
+                  </div>
+                )}
+
+                {/* Direct Action Link for AG-19 (Discharge Agent) */}
+                {isDischargeAgent && onNavigate && (
+                  <div style={{ marginTop: '12px', padding: '10px', borderRadius: '6px', background: '#f0fdfa', border: '1px solid #99f6e4', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#115e59' }}>Discharge Readiness Desk Active</div>
+                      <div style={{ fontSize: '11px', color: '#0f766e' }}>Review 42 ready discharge summaries and manage attending doctor sign-offs.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('discharge-desk')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#0f766e',
+                        color: '#fff',
+                        fontWeight: 600,
+                        fontSize: '11.5px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Open Discharge Management Desk →
+                    </button>
+                  </div>
+                )}
 
                 {/* Bedside RN Sign-off Button for AG-18 */}
                 {isNursingAgent && !handoverAcknowledged && (
