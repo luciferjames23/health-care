@@ -157,9 +157,16 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     else if (sort === 'oldest') rows.sort((a, b) => new Date(a.analyzed_at || 0) - new Date(b.analyzed_at || 0));
     else if (sort === 'newest') rows.sort((a, b) => new Date(b.analyzed_at || 0) - new Date(a.analyzed_at || 0));
     else rows.sort((a, b) => {
-      const viewed = Number(!!a.viewed) - Number(!!b.viewed);
-      if (viewed) return viewed;
+      // 1. Review Status group: Pending Review (non-confirmed) before Confirmed.
+      //    Any review_status containing "confirmed" (case-insensitive) is the
+      //    reviewed group; all others (Unread, Pending Review, Routine,
+      //    Needs Further Review, etc.) are the pending group.
+      const reviewRank = (s) => (s.review_status && s.review_status.toLowerCase().includes('confirmed') ? 1 : 0);
+      const reviewDiff = reviewRank(a) - reviewRank(b);
+      if (reviewDiff) return reviewDiff;
+      // 2. Within each review-status group, triage priority.
       const rank = (statusRank[a.combined_assessment?.status] ?? 3) - (statusRank[b.combined_assessment?.status] ?? 3);
+      // 3. Within each triage category, screening probability descending.
       return rank || ((b.triage?.probability || 0) - (a.triage?.probability || 0));
     });
     return rows;

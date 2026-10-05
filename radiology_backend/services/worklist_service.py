@@ -25,6 +25,20 @@ _STATUS_RANK = {
     "ROUTINE": 2,
 }
 
+# Review-status group rank: studies not yet confirmed appear before confirmed ones
+# Any review_status that contains "Confirmed" (e.g. "Confirmed",
+# "Confirmed (Finding Revised)") is treated as the "reviewed" group (rank 1).
+# Everything else (None, "Unread", "Pending Review", "Routine",
+# "Needs Further Review", "No acute finding", etc.) is "pending" (rank 0).
+def _review_group_rank(review_status: Optional[str]) -> int:
+    """Return 0 for studies awaiting review, 1 for confirmed/reviewed studies."""
+    if not review_status:
+        return 0
+    rs = review_status.strip()
+    if "confirmed" in rs.lower():
+        return 1
+    return 0
+
 
 def to_worklist_item(record: dict, mapping: Optional[dict] = None) -> dict:
     """Reshape a full stored analysis record into the compact worklist item."""
@@ -175,18 +189,24 @@ def enrich_study_detail(record: dict, mapping: Optional[dict] = None) -> dict:
 
 def default_sort_key(item: dict):
     """
-    Default worklist ordering (Section 6/14 of the brief):
-      1. Unviewed studies first; viewed studies move to the bottom
-      2. Inside each group, triage priority: HIGH PRIORITY -> REVIEW FLAG -> ROUTINE
-      3. Within each category, DenseNet probability descending
-    Uses only the existing triage probability and combined status - no new
-    "combined probability" is invented.
+    Default worklist ordering:
+      1. Review Status group: studies with Pending Review appear before
+         studies marked Confirmed.  Any review_status containing
+         "Confirmed" (case-insensitive) is treated as the confirmed group.
+         All other statuses (None, Unread, Pending Review, Needs Further
+         Review, No acute finding, etc.) are treated as Pending Review.
+      2. Within each review-status group, triage priority:
+         HIGH PRIORITY -> REVIEW FLAG -> ROUTINE
+      3. Within each triage category, DenseNet screening probability
+         descending (higher probability appears first).
+
+    Uses only the existing triage probability, combined_assessment status,
+    and review_status already stored on the record - no new values are
+    computed or invented here.
     """
-    # Unviewed studies always stay above viewed studies. Triage priority itself
-    # is never changed: a viewed HIGH PRIORITY study is still HIGH PRIORITY.
-    viewed_rank = 1 if item.get("viewed", False) else 0
+    review_rank = _review_group_rank(item.get("review_status"))
     status_rank = _STATUS_RANK.get(item["combined_assessment"]["status"], 3)
-    return (viewed_rank, status_rank, -item["triage"]["probability"])
+    return (review_rank, status_rank, -item["triage"]["probability"])
 
 
 def sort_worklist(items: List[dict]) -> List[dict]:
