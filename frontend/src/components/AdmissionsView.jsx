@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 export default function AdmissionsView({
   onSelectPatient,
@@ -522,175 +523,14 @@ export default function AdmissionsView({
 
         {/* Pagination Footer */}
         {filteredAdmissions.length > 0 && (
-          <div style={{
-            padding: '10px 14px',
-            background: '#fafbfc',
-            borderTop: '1px solid #eef0f1',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '12px',
-            color: '#64748b'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <span>
-                Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> admissions
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                {[15, 25, 50, 100].map(sz => (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                    style={{
-                      height: '24px',
-                      padding: '0 8px',
-                      borderRadius: '4px',
-                      border: '1px solid',
-                      borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                      background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                      color: pageSize === sz ? '#0369a1' : '#64748b',
-                      fontWeight: pageSize === sz ? 700 : 500,
-                      fontSize: '11px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {sz}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(1)}
-                disabled={safeCurrentPage <= 1}
-                title="First Page"
-                style={{
-                  height: '28px',
-                  width: '28px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                «
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={safeCurrentPage <= 1}
-                title="Previous Page"
-                style={{
-                  height: '28px',
-                  padding: '0 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '11.5px',
-                  fontWeight: 500
-                }}
-              >
-                ‹ Prev
-              </button>
-
-              {/* Page Number Pills */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                .reduce((acc, p, i, arr) => {
-                  if (i > 0 && p - arr[i - 1] > 1) {
-                    acc.push('ellipsis-' + p);
-                  }
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((item, idx) => {
-                  if (typeof item === 'string') {
-                    return (
-                      <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                        …
-                      </span>
-                    );
-                  }
-                  const isCurrent = item === safeCurrentPage;
-                  return (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setCurrentPage(item)}
-                      style={{
-                        height: '28px',
-                        minWidth: '28px',
-                        padding: '0 6px',
-                        borderRadius: '6px',
-                        border: '1px solid',
-                        borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                        background: isCurrent ? '#0284c7' : '#ffffff',
-                        color: isCurrent ? '#ffffff' : '#475569',
-                        fontWeight: isCurrent ? 700 : 500,
-                        fontSize: '12px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {item}
-                    </button>
-                  );
-                })}
-
-              <button
-                type="button"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={safeCurrentPage >= totalPages}
-                title="Next Page"
-                style={{
-                  height: '28px',
-                  padding: '0 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '11.5px',
-                  fontWeight: 500
-                }}
-              >
-                Next ›
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={safeCurrentPage >= totalPages}
-                title="Last Page"
-                style={{
-                  height: '28px',
-                  width: '28px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                »
-              </button>
-            </div>
-          </div>
+          <TablePagination
+            total={totalRows}
+            page={safeCurrentPage}
+            pageSize={pageSize}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(sz) => setPageSize(sz)}
+            label="admissions"
+          />
         )}
       </div>
     </div>

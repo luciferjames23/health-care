@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 // Design tokens
 const cardStyle = {
@@ -543,94 +544,16 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
       </div>
 
       {/* Pagination Footer */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 16px',
-        background: '#fff',
-        border: '1px solid #e3e6e8',
-        borderRadius: '8px',
-        fontSize: '12px',
-        color: '#64748b',
-        flexWrap: 'wrap',
-        gap: '12px'
-      }}>
-        <div>
-          Showing <strong>{totalCount > 0 ? (page - 1) * pageSize + 1 : 0}</strong>–<strong>{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount.toLocaleString('en-IN')}</strong> prescriptions
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Rows per page */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>Rows:</span>
-            {[10, 15, 25, 50].map(sz => (
-              <button
-                key={sz}
-                type="button"
-                onClick={() => { setPageSize(sz); setPage(1); }}
-                style={{
-                  height: '26px',
-                  padding: '0 8px',
-                  borderRadius: '4px',
-                  border: '1px solid',
-                  borderColor: pageSize === sz ? '#0f766e' : '#e2e8f0',
-                  background: pageSize === sz ? '#f0fdfa' : '#ffffff',
-                  color: pageSize === sz ? '#0f766e' : '#64748b',
-                  fontWeight: pageSize === sz ? 700 : 500,
-                  fontSize: '11px',
-                  cursor: 'pointer'
-                }}
-              >
-                {sz}
-              </button>
-            ))}
-          </div>
-
-          {/* Previous / Next buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page <= 1 ? '#f8fafc' : '#ffffff',
-                color: page <= 1 ? '#94a3b8' : '#334155',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Previous
-            </button>
-            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
-              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
-            </span>
-            <button
-              type="button"
-              disabled={page >= Math.ceil(totalCount / pageSize)}
-              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
-                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
-                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
+      {totalCount > 0 && (
+        <TablePagination
+          total={totalCount}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={(p) => setPage(p)}
+          onPageSizeChange={(sz) => setPageSize(sz)}
+          label="prescriptions"
+        />
+      )}
     </div>
   );
 }
@@ -644,6 +567,8 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchDrugs = async () => {
     try {
@@ -663,8 +588,14 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchDrugs();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (d) => {
     if (!onOpenDrawer) return;
@@ -812,7 +743,7 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(d => {
+              {paginatedData.map(d => {
                 const code = d.drug_code || d.code || d.id;
                 const generic = d.generic_name || d.generic || 'Generic';
                 const brand = d.brand_name || d.brand || '—';
@@ -866,6 +797,18 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="drugs"
+        />
+      )}
     </div>
   );
 }
@@ -1137,90 +1080,16 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
         )}
 
         {/* Pagination Footer */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '10px 14px',
-          borderTop: '1px solid #e2e8f0',
-          background: '#f8fafc',
-          fontSize: '12px',
-          color: '#64748b',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>
-              Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} records
-            </span>
-            <span style={{ color: '#cbd5e1' }}>|</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>Per page:</span>
-              <select
-                value={pageSize}
-                onChange={e => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  fontSize: '11.5px',
-                  outline: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {[10, 15, 25, 50].map(sz => (
-                  <option key={sz} value={sz}>{sz}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page <= 1 ? '#f8fafc' : '#ffffff',
-                color: page <= 1 ? '#94a3b8' : '#334155',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Previous
-            </button>
-            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
-              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
-            </span>
-            <button
-              type="button"
-              disabled={page >= Math.ceil(totalCount / pageSize)}
-              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
-                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
-                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        {totalCount > 0 && (
+          <TablePagination
+            total={totalCount}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p)}
+            onPageSizeChange={(sz) => setPageSize(sz)}
+            label="records"
+          />
+        )}
       </div>
     </div>
   );
@@ -1505,170 +1374,14 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
 
             {/* Pagination Controls */}
             {totalCount > 0 && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 16px',
-                background: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
-                fontSize: '12px',
-                color: '#64748b',
-                flexWrap: 'wrap',
-                gap: '12px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <span>
-                    Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{totalCount}</strong> batches
-                  </span>
-
-                  {/* Rows Per Page Selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Rows:</span>
-                    <select
-                      value={pageSize}
-                      onChange={e => setPageSize(Number(e.target.value))}
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: '11.5px',
-                        borderRadius: '4px',
-                        border: '1px solid #cbd5e1',
-                        background: '#ffffff',
-                        color: '#334155',
-                        outline: 'none',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {[10, 15, 25, 50].map(sz => (
-                        <option key={sz} value={sz}>{sz}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Page Navigation Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setPage(1)}
-                    disabled={page <= 1}
-                    title="First Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    « First
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                    title="Previous Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {/* Numbered Page Buttons */}
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => {
-                    if (totalPages > 6 && Math.abs(p - page) > 2 && p !== 1 && p !== totalPages) {
-                      return null;
-                    }
-                    const isActive = p === page;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setPage(p)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '5px',
-                          border: isActive ? '1px solid #0f766e' : '1px solid #e2e8f0',
-                          background: isActive ? '#0f766e' : '#ffffff',
-                          color: isActive ? '#ffffff' : '#334155',
-                          fontWeight: isActive ? 700 : 500,
-                          cursor: 'pointer',
-                          fontSize: '11.5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {p}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    title="Next Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    Next ›
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(totalPages)}
-                    disabled={page >= totalPages}
-                    title="Last Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    Last »
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                total={totalCount}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p) => setPage(p)}
+                onPageSizeChange={(sz) => setPageSize(sz)}
+                label="batches"
+              />
             )}
           </>
         )}
@@ -1883,6 +1596,8 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchProcurement = async () => {
     try {
@@ -1902,8 +1617,14 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchProcurement();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (po) => {
     if (!onOpenDrawer) return;
@@ -2061,7 +1782,7 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(po => {
+              {paginatedData.map(po => {
                 const poNo = po.po_number || po.poNumber || po.id;
                 const vendorName = po.vendor_name || po.vendor || 'Vendor';
                 const vendorCode = po.vendor_code || po.vendorCode || 'VND';
@@ -2118,6 +1839,18 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="purchase orders"
+        />
+      )}
     </div>
   );
 }
@@ -2131,6 +1864,8 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchVendors = async () => {
     try {
@@ -2150,8 +1885,14 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchVendors();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (v) => {
     if (!onOpenDrawer) return;
@@ -2294,7 +2035,7 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(v => {
+              {paginatedData.map(v => {
                 const vCode = v.code || v.vendor_code || 'VND';
                 const vName = v.name || v.vendor_name || 'Vendor';
                 const vCat = v.category || 'Pharmaceuticals';
@@ -2351,6 +2092,18 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="vendors"
+        />
+      )}
     </div>
   );
 }
@@ -2364,6 +2117,8 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [actionLoading, setActionLoading] = useState(null);
 
   const fetchCssd = async () => {
@@ -2384,8 +2139,14 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchCssd();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRelease = async (record, e) => {
     if (e) e.stopPropagation();
@@ -2555,7 +2316,7 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(rec => {
+              {paginatedData.map(rec => {
                 const cycleNo = rec.cycle_number || rec.cycle || 'CSSD-001';
                 const equipName = rec.equipment_name || rec.sterilizer || 'Steam Autoclave';
                 const packName = rec.pack_name || rec.pack || 'Surgical Instrument Tray';
@@ -2630,6 +2391,18 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="CSSD cycles"
+        />
+      )}
     </div>
   );
 }

@@ -425,9 +425,9 @@ def get_pre_admissions(
                    pa.instructions, pa.remarks, pa.created_at, pa.updated_at,
                    (SELECT n.status FROM notifications n WHERE n.patient_id = pa.patient_id AND n.notification_type = 'ADMISSION_REMINDER' ORDER BY n.id DESC LIMIT 1) as last_notif_status
             FROM pre_admissions pa
-            JOIN patients p ON pa.patient_id = p.id
-            JOIN doctors d ON pa.doctor_id = d.id
-            JOIN departments dept ON pa.department_id = dept.id
+            LEFT JOIN patients p ON pa.patient_id = p.id
+            LEFT JOIN doctors d ON pa.doctor_id = d.id
+            LEFT JOIN departments dept ON pa.department_id = dept.id
             LEFT JOIN appointments appt ON pa.appointment_id = appt.id
         """
         conditions = []

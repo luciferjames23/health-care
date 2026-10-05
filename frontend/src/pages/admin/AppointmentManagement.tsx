@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Filter, CheckCircle, XCircle, RefreshCw, ChevronLeft, ChevronRight,
+  Search, Filter, CheckCircle, XCircle, RefreshCw,
   Download, ArrowUpDown, Clock, Calendar, User, Stethoscope, Building
 } from 'lucide-react';
 import {
@@ -15,6 +15,7 @@ import {
   toYMD
 } from '../../components/DateRangeFilter';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import TablePagination from '../../components/TablePagination';
 
 import { useAuth } from '../../context/AuthContext';
 
@@ -152,7 +153,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   const [sortBy, setSortBy] = useState('appointment_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
-  const perPage = 15;
+  const [perPage, setPerPage] = useState(25);
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [total, setTotal] = useState(0);
@@ -234,7 +235,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
+  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page, perPage]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -719,57 +720,14 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         )}
 
         {/* Pagination */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', color: '#8a9096', flexWrap: 'wrap', gap: 8 }}>
-          <span>
-            {loading ? 'Loading...' : `Showing ${Math.min((page - 1) * perPage + 1, total)}–${Math.min(page * perPage, total)} of ${total} appointments`}
-          </span>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              style={{
-                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
-                background: '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.4 : 1
-              }}
-            >
-              <ChevronLeft size={13} />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const pg = i + Math.max(1, page - 3);
-              if (pg > totalPages) return null;
-              const isActive = page === pg;
-              return (
-                <button
-                  key={pg}
-                  type="button"
-                  onClick={() => setPage(pg)}
-                  style={{
-                    height: '26px', minWidth: '26px', padding: '0 6px', borderRadius: '4px',
-                    border: '1px solid #e3e6e8',
-                    background: isActive ? 'oklch(0.5 0.1 200)' : '#fff',
-                    color: isActive ? '#fff' : '#15181b',
-                    fontWeight: isActive ? 600 : 400,
-                    fontSize: '11.5px', cursor: 'pointer'
-                  }}
-                >
-                  {pg}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-              style={{
-                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
-                background: '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.4 : 1
-              }}
-            >
-              <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
+        <TablePagination
+          total={total}
+          page={page}
+          pageSize={perPage}
+          onPageChange={setPage}
+          onPageSizeChange={(sz: number) => { setPerPage(sz); setPage(1); }}
+          label="appointments"
+        />
       </div>
     </div>
   );

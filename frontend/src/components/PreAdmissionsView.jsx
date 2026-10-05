@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
+import TablePagination from "./TablePagination";
 
 const GRID = "140px minmax(140px,1fr) 140px 140px 120px 120px 110px";
 
 export default function PreAdmissionsView({ onNavigate }) {
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [preAdmissions, setPreAdmissions] = useState([
     { id: "pa1", code: "PRE-2026-001", patient_name: "Karthik Raja", guardian_name: "Raja M (Father)", procedure: "Coronary Angioplasty", department: "Cardiology", proposed_date: "2026-09-20", cost: "₹1,85,000", status: "PENDING" },
     { id: "pa2", code: "PRE-2026-002", patient_name: "Priya Sharma", guardian_name: "Self", procedure: "Total Knee Replacement", department: "Orthopedics", proposed_date: "2026-09-22", cost: "₹2,40,000", status: "APPROVED" },
@@ -14,6 +17,8 @@ export default function PreAdmissionsView({ onNavigate }) {
   const updateStatus = (id, newStatus) => {
     setPreAdmissions(prev => prev.map(p => p.id === id ? { ...p, status: newStatus } : p));
   };
+
+  const paginated = preAdmissions.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -37,7 +42,7 @@ export default function PreAdmissionsView({ onNavigate }) {
           {["PRE-ADM ID", "PATIENT / GUARDIAN", "PROCEDURE", "DEPARTMENT", "PROPOSED DATE", "EST. COST", "ACTION / STATUS"].map(h => <span key={h}>{h}</span>)}
         </div>
 
-        {preAdmissions.map((p) => {
+        {paginated.map((p) => {
           const isPending = p.status === "PENDING";
           const isApproved = p.status === "APPROVED";
           return (
@@ -70,6 +75,15 @@ export default function PreAdmissionsView({ onNavigate }) {
             </div>
           );
         })}
+
+        <TablePagination
+          total={preAdmissions.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="pre-admissions"
+        />
       </div>
     </div>
   );

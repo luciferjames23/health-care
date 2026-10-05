@@ -1250,6 +1250,108 @@ export const apiService = {
     return data;
   },
 
+  // -------------------------------------------------------------------------
+  // Doctor Desk & Administration APIs (/api/dashboard/...)
+  // -------------------------------------------------------------------------
+  async getDashboardDoctors(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/doctors`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async getDashboardDepartments(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/departments`, {
+      revalidateMs: 5000,
+      ...options
+    });
+  },
+
+  async getDashboardSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/summary`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async getDoctorSchedules(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.doctor_id) q.append('doctor_id', params.doctor_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/schedules${qs}`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async toggleDoctorStatus(doctorId, isActive) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ is_active: isActive })
+    });
+    if (!res.ok) throw new Error(`Failed to update doctor status: ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async createDoctor(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to create doctor: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async updateDoctor(doctorId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to update doctor: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async createDoctorSchedule(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to create doctor schedule: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
+  async deleteDoctorSchedule(scheduleId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`Failed to delete schedule: ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
   // =========================================================================
   // AG-18 · NURSING HANDOVER AGENT (Groq openai/gpt-oss-120b)
   // =========================================================================

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
 import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
@@ -14,6 +15,10 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
   const [isSearching, setIsSearching] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState('All');
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [schedPage, setSchedPage] = useState(1);
+  const [schedPageSize, setSchedPageSize] = useState(25);
 
   useEffect(() => {
     if (search.trim()) {
@@ -273,6 +278,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
     });
   }, [doctors, departmentFilter, debouncedSearch]);
 
+  const paginatedDoctors = useMemo(() => {
+    return filteredDoctors.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredDoctors, page, pageSize]);
+
+  const paginatedSchedules = useMemo(() => {
+    return schedules.slice((schedPage - 1) * schedPageSize, schedPage * schedPageSize);
+  }, [schedules, schedPage, schedPageSize]);
+
   const totalActive = doctors.filter(d => d.status === 'ACTIVE').length;
 
   return (
@@ -465,7 +478,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDoctors.map(doc => {
+                  {paginatedDoctors.map(doc => {
                     const isActive = doc.status === 'ACTIVE';
                     return (
                       <tr key={doc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -528,6 +541,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                 </tbody>
               </table>
             )}
+            <TablePagination
+              total={filteredDoctors.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+              label="doctors"
+            />
           </div>
         </>
       )}
@@ -636,7 +657,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                   </tr>
                 </thead>
                 <tbody>
-                  {schedules.map(s => (
+                  {paginatedSchedules.map(s => (
                     <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{s.doctor_name}</td>
                       <td style={{ padding: '10px 14px', color: '#0369a1' }}>{s.department_name}</td>
@@ -662,6 +683,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                 </tbody>
               </table>
             )}
+            <TablePagination
+              total={schedules.length}
+              page={schedPage}
+              pageSize={schedPageSize}
+              onPageChange={setSchedPage}
+              onPageSizeChange={(sz) => { setSchedPageSize(sz); setSchedPage(1); }}
+              label="schedules"
+            />
           </div>
         </div>
       )}

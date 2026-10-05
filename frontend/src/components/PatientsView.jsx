@@ -4,6 +4,7 @@ import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extra
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import PatientRegistrationModal from "./PatientRegistrationModal";
 import SearchInput from "./SearchInput";
+import TablePagination from "./TablePagination";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -624,142 +625,14 @@ export default function PatientsView({
             })}
 
             {/* Pagination Controls Footer */}
-            <div style={{
-              padding: "10px 14px",
-              background: "#fafbfc",
-              borderTop: "1px solid #eef0f1",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "10px",
-              fontSize: "12px",
-              color: "#64748b"
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> patients
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                  <span style={{ fontSize: "11.5px", color: "#8a9096" }}>Per page:</span>
-                  {[15, 25, 50, 100].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: "24px",
-                        padding: "0 8px",
-                        borderRadius: "4px",
-                        border: "1px solid",
-                        borderColor: pageSize === sz ? "#0284c7" : "#e2e8f0",
-                        background: pageSize === sz ? "#f0f9ff" : "#ffffff",
-                        color: pageSize === sz ? "#0369a1" : "#64748b",
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: "11px",
-                        cursor: "pointer"
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronsLeft style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronLeft style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <span style={{ padding: "0 8px", fontWeight: 600, color: "#0f172a", fontSize: "12px" }}>
-                  Page {safeCurrentPage} of {totalPages}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronRight style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronsRight style={{ width: "14px", height: "14px" }} />
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="patients"
+            />
           </>
         )}
       </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { apiService } from "../services/api";
 import SearchInput from "./SearchInput";
+import TablePagination from "./TablePagination";
 
 function getAppointmentStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Scheduled" };
@@ -21,6 +22,8 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [filter, setFilter] = useState("All");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
     if (search.trim()) {
@@ -103,6 +106,10 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
     return list.filter(a => [a.patient_name, a.appointment_number, a.doctor_name, a.department].some(v => v && v.toLowerCase().includes(s)));
   }, [appointments, filter, debouncedSearch]);
 
+  const paginatedRows = useMemo(() => {
+    return filteredRows.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredRows, page, pageSize]);
+
   const exportCsv = () => {
     if (!filteredRows.length) return alert("No appointments to export");
     const hdr = ["Appointment #","Patient Name","Doctor","Department","Date","Slot Time","Source","Status"];
@@ -128,8 +135,8 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <SearchInput
             value={search}
-            onChange={e => setSearch(e.target.value)}
-            onClear={() => setSearch("")}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            onClear={() => { setSearch(""); setPage(1); }}
             placeholder="Search appointments…"
             loading={isSearching || loading}
             width="240px"
@@ -144,7 +151,7 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
 
       <div style={{ display: "flex", gap: "4px" }}>
         {["All", "WhatsApp AI", "Confirmed", "Pending"].map(f => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
+          <button key={f} type="button" onClick={() => { setFilter(f); setPage(1); }}
             style={{ height: "28px", padding: "0 14px", borderRadius: "14px", border: "1px solid #e3e6e8",
               background: filter === f ? "#15181b" : "#fff", color: filter === f ? "#fff" : "#52585e",
               fontWeight: filter === f ? 600 : 400, fontSize: "12px", cursor: "pointer" }}>
@@ -217,7 +224,7 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
               {["APT CODE", "PATIENT NAME", "CONSULTANT", "DEPARTMENT", "DATE & SLOT", "SOURCE", "STATUS"].map(h => <span key={h}>{h}</span>)}
             </div>
 
-            {filteredRows.map((a, idx) => {
+            {paginatedRows.map((a, idx) => {
               const pill = getAppointmentStatusPill(a.status);
               const isWa = String(a.booking_source || "").toUpperCase().includes("WHATSAPP");
               return (
@@ -240,6 +247,15 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
                 </div>
               );
             })}
+
+            <TablePagination
+              total={filteredRows.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+              label="appointments"
+            />
           </>
         )}
       </div>

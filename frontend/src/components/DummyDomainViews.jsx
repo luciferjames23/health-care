@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { apiService, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import TablePagination from './TablePagination';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -848,175 +849,14 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
 
           {/* Pagination Footer */}
           {filtered.length > 0 && (
-            <div style={{
-              padding: '10px 14px',
-              background: '#fafbfc',
-              borderTop: '1px solid #eef0f1',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '10px',
-              fontSize: '12px',
-              color: '#64748b'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> emergency cases
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                  {[10, 15, 25, 50].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: '24px',
-                        padding: '0 8px',
-                        borderRadius: '4px',
-                        border: '1px solid',
-                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                        color: pageSize === sz ? '#0369a1' : '#64748b',
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  «
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  ‹ Prev
-                </button>
-
-                {/* Page Numbers */}
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                  .reduce((acc, p, i, arr) => {
-                    if (i > 0 && p - arr[i - 1] > 1) {
-                      acc.push('ellipsis-' + p);
-                    }
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, idx) => {
-                    if (typeof item === 'string') {
-                      return (
-                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                          …
-                        </span>
-                      );
-                    }
-                    const isCurrent = item === safeCurrentPage;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setCurrentPage(item)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                          background: isCurrent ? '#0284c7' : '#ffffff',
-                          color: isCurrent ? '#ffffff' : '#475569',
-                          fontWeight: isCurrent ? 700 : 500,
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  Next ›
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  »
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="emergency cases"
+            />
           )}
         </div>
       )}
@@ -1402,175 +1242,14 @@ export function SchedulesView({ onOpenDrawer, onOpenModal }) {
 
           {/* Pagination Footer */}
           {totalRows > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 18px',
-              borderTop: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              flexWrap: 'wrap',
-              gap: '10px',
-              fontSize: '12px',
-              color: '#64748b'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> consultant schedules
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                  {[15, 25, 50, 100].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: '24px',
-                        padding: '0 8px',
-                        borderRadius: '4px',
-                        border: '1px solid',
-                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                        color: pageSize === sz ? '#0369a1' : '#64748b',
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  «
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  ‹ Prev
-                </button>
-
-                {/* Page Numbers */}
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                  .reduce((acc, p, i, arr) => {
-                    if (i > 0 && p - arr[i - 1] > 1) {
-                      acc.push('ellipsis-' + p);
-                    }
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, idx) => {
-                    if (typeof item === 'string') {
-                      return (
-                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                          …
-                        </span>
-                      );
-                    }
-                    const isCurrent = item === safeCurrentPage;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setCurrentPage(item)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                          background: isCurrent ? '#0284c7' : '#ffffff',
-                          color: isCurrent ? '#ffffff' : '#475569',
-                          fontWeight: isCurrent ? 700 : 500,
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  Next ›
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  »
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="consultant schedules"
+            />
           )}
         </div>
       )}
@@ -2068,175 +1747,14 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
 
           {/* Pagination Footer */}
           {totalRows > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 18px',
-              borderTop: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              flexWrap: 'wrap',
-              gap: '10px',
-              fontSize: '12px',
-              color: '#64748b'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> inpatients
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                  {[15, 25, 50, 100].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: '24px',
-                        padding: '0 8px',
-                        borderRadius: '4px',
-                        border: '1px solid',
-                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                        color: pageSize === sz ? '#0369a1' : '#64748b',
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  «
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  ‹ Prev
-                </button>
-
-                {/* Page Numbers */}
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                  .reduce((acc, p, i, arr) => {
-                    if (i > 0 && p - arr[i - 1] > 1) {
-                      acc.push('ellipsis-' + p);
-                    }
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, idx) => {
-                    if (typeof item === 'string') {
-                      return (
-                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                          …
-                        </span>
-                      );
-                    }
-                    const isCurrent = item === safeCurrentPage;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setCurrentPage(item)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                          background: isCurrent ? '#0284c7' : '#ffffff',
-                          color: isCurrent ? '#ffffff' : '#475569',
-                          fontWeight: isCurrent ? 700 : 500,
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  Next ›
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  »
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="death registry records"
+            />
           )}
         </div>
       )}
@@ -2598,7 +2116,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
               <button
                 key={f}
                 type="button"
-                onClick={() => setSelectedFilter(f)}
+                onClick={() => { setSelectedFilter(f); setPage(1); }}
                 style={{
                   padding: '4px 14px',
                   borderRadius: '16px',
@@ -2827,175 +2345,14 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
 
           {/* Pagination Footer */}
           {totalRows > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 18px',
-              borderTop: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              flexWrap: 'wrap',
-              gap: '10px',
-              fontSize: '12px',
-              color: '#64748b'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> medication doses
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                  {[15, 25, 50, 100].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: '24px',
-                        padding: '0 8px',
-                        borderRadius: '4px',
-                        border: '1px solid',
-                        borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                        background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                        color: pageSize === sz ? '#0369a1' : '#64748b',
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: '11px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  «
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  ‹ Prev
-                </button>
-
-                {/* Page Numbers */}
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                  .reduce((acc, p, i, arr) => {
-                    if (i > 0 && p - arr[i - 1] > 1) {
-                      acc.push('ellipsis-' + p);
-                    }
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, idx) => {
-                    if (typeof item === 'string') {
-                      return (
-                        <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                          …
-                        </span>
-                      );
-                    }
-                    const isCurrent = item === safeCurrentPage;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setCurrentPage(item)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                          background: isCurrent ? '#0284c7' : '#ffffff',
-                          color: isCurrent ? '#ffffff' : '#475569',
-                          fontWeight: isCurrent ? 700 : 500,
-                          fontSize: '12px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: '28px',
-                    padding: '0 10px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '11.5px',
-                    fontWeight: 500
-                  }}
-                >
-                  Next ›
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: '28px',
-                    width: '28px',
-                    borderRadius: '6px',
-                    border: '1px solid #e2e8f0',
-                    background: '#ffffff',
-                    color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                    cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  »
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="medication doses"
+            />
           )}
         </div>
       )}
@@ -3013,6 +2370,8 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedCardId, setSelectedCardId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const loadSurgeryData = async () => {
     setLoading(true);
@@ -3311,6 +2670,10 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
     return true;
   });
 
+  const paginated = useMemo(() => {
+    return filtered.slice((page - 1) * pageSize, page * pageSize);
+  }, [filtered, page, pageSize]);
+
   const filterOptions = ['All', 'Requested', 'Approved', 'Scheduled', 'Pre-op', 'In OT', 'Recovery (PACU)', 'Completed', 'Cancelled'];
 
   const kanbanColumns = useMemo(() => [
@@ -3349,7 +2712,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
             type="text"
             placeholder="Search..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             style={{
               width: '100%',
               padding: '7px 14px',
@@ -3466,7 +2829,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
               <button
                 key={f}
                 type="button"
-                onClick={() => setSelectedFilter(f)}
+                onClick={() => { setSelectedFilter(f); setPage(1); }}
                 style={{
                   padding: '4px 12px',
                   borderRadius: '16px',
@@ -3604,7 +2967,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => (
+              {paginated.map(row => (
                 <tr
                   key={row.id}
                   onClick={() => handleRowClick(row)}
@@ -3695,6 +3058,15 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
               ))}
             </tbody>
           </table>
+
+          <TablePagination
+            total={filtered.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            label="surgery cases"
+          />
         </div>
       )}
     </div>
@@ -3813,6 +3185,8 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const loadBloodData = async () => {
     setLoading(true);
@@ -3967,6 +3341,10 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
     return true;
   });
 
+  const paginated = useMemo(() => {
+    return filtered.slice((page - 1) * pageSize, page * pageSize);
+  }, [filtered, page, pageSize]);
+
   const filterOptions = ['All', 'Available', 'Reserved', 'Issued', 'Transfused', 'Quarantine', 'Expired', 'Discarded'];
 
   return (
@@ -3995,7 +3373,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
             type="text"
             placeholder="Search..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             style={{
               width: '100%',
               padding: '7px 14px',
@@ -4121,7 +3499,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => {
+              {paginated.map(row => {
                 const isCrossMatched = row.status.includes('Cross-matched');
                 const isRequested = row.status.includes('requested');
                 const isCompleted = row.status === 'Completed';
@@ -4181,6 +3559,15 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
               })}
             </tbody>
           </table>
+
+          <TablePagination
+            total={filtered.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            label="blood units"
+          />
         </div>
       )}
     </div>
@@ -5055,72 +4442,17 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
             </tbody>
           </table>
 
-          {/* Footer Info Bar */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '10px 16px',
-            borderTop: '1px solid #e2e8f0',
-            background: '#ffffff',
-            fontSize: '12px',
-            color: '#64748b',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span>Page {currentPage} of {totalPages} · {filtered.length} live inpatient beds</span>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  style={{
-                    padding: '3px 9px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: currentPage <= 1 ? '#cbd5e1' : '#334155',
-                    cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                    fontSize: '11px',
-                    fontWeight: 600
-                  }}
-                >
-                  ◀ Prev
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  style={{
-                    padding: '3px 9px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: currentPage >= totalPages ? '#cbd5e1' : '#334155',
-                    cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                    fontSize: '11px',
-                    fontWeight: 600
-                  }}
-                >
-                  Next ▶
-                </button>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <span>Rows per page:</span>
-              <select
-                value={pageSize}
-                onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
-                style={{ padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '11.5px' }}
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-          </div>
+          {/* Pagination Footer */}
+          {filtered.length > 0 && (
+            <TablePagination
+              total={filtered.length}
+              page={currentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="inpatients"
+            />
+          )}
         </div>
       )}
     </div>
@@ -5362,6 +4694,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
   const loadData = async () => {
@@ -5491,6 +4824,10 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
     );
   });
 
+  const paginated = useMemo(() => {
+    return filtered.slice((page - 1) * pageSize, page * pageSize);
+  }, [filtered, page, pageSize]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Header section */}
@@ -5517,7 +4854,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
             type="text"
             placeholder="Search..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
             style={{
               width: '100%',
               padding: '7px 14px',
@@ -5629,7 +4966,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
                   </td>
                 </tr>
               ) : (
-                filtered.map(row => (
+                paginated.map(row => (
                   <tr
                     key={row.id || row.regNo}
                     onClick={() => handleRowClick(row)}
@@ -5679,43 +5016,15 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
             </tbody>
           </table>
 
-          {/* Footer Pagination / Info Bar */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '10px 16px',
-            borderTop: '1px solid #e2e8f0',
-            background: '#ffffff',
-            fontSize: '12px',
-            color: '#64748b'
-          }}>
-            <div>
-              Page 1 of 1 · {filtered.length} records · click a header to sort, a row for detail and actions
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>Rows</span>
-              {[25, 50, 100].map(sz => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setPageSize(sz)}
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    border: pageSize === sz ? '1px solid #0f172a' : '1px solid #cbd5e1',
-                    background: pageSize === sz ? '#0f172a' : '#ffffff',
-                    color: pageSize === sz ? '#ffffff' : '#475569',
-                    fontSize: '11.5px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {sz}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Footer Pagination */}
+          <TablePagination
+            total={filtered.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            label="statutory records"
+          />
         </div>
       )}
     </div>
@@ -6545,9 +5854,6 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
                     <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{q.time}</td>
                     <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{q.employee}</td>
                     <td style={{ padding: '10px 14px' }}>{q.department}</td>
-                    <td style={{ padding: '10px 14px' }}>{q.question}</td>
-                    <td style={{ padding: '10px 14px', color: '#0f766e' }}>{q.source}</td>
-                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: parseInt(q.conf) < 70 ? '#dc2626' : '#15803d' }}>{q.conf}</td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={pillStyle(q.conf && q.conf.startsWith('4') ? '#fee2e2' : '#dcfce7', q.conf && q.conf.startsWith('4') ? '#b91c1c' : '#15803d')}>
                         {q.outcome}
@@ -6560,177 +5866,14 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
 
             {/* Pagination Footer */}
             {totalCount > 0 && (
-              <div style={{
-                padding: '10px 14px',
-                background: '#fafbfc',
-                borderTop: '1px solid #eef0f1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '10px',
-                fontSize: '12px',
-                color: '#64748b'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <span>
-                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                    {[10, 20, 50, 100].map(sz => (
-                      <button
-                        key={sz}
-                        type="button"
-                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                        style={{
-                          height: '24px',
-                          padding: '0 8px',
-                          borderRadius: '4px',
-                          border: '1px solid',
-                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                          color: pageSize === sz ? '#0369a1' : '#64748b',
-                          fontWeight: pageSize === sz ? 700 : 500,
-                          fontSize: '11px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {sz}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage <= 1}
-                    title="First Page"
-                    style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      padding: '0 6px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    « First
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage <= 1}
-                    title="Previous Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
-                    let pageNum = idx + 1;
-                    if (totalPages > 5) {
-                      if (currentPage <= 3) {
-                        pageNum = idx + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + idx;
-                      } else {
-                        pageNum = currentPage - 2 + idx;
-                      }
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        type="button"
-                        onClick={() => setCurrentPage(pageNum)}
-                        style={{
-                          height: '28px',
-                          width: '28px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
-                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
-                          color: currentPage === pageNum ? '#ffffff' : '#475569',
-                          fontWeight: currentPage === pageNum ? 700 : 500,
-                          fontSize: '11.5px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage >= totalPages}
-                    title="Next Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    Next ›
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage >= totalPages}
-                    title="Last Page"
-                    style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      padding: '0 6px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    Last »
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                total={totalCount}
+                page={currentPage}
+                pageSize={pageSize}
+                onPageChange={(p) => setCurrentPage(p)}
+                onPageSizeChange={(sz) => setPageSize(sz)}
+                label="records"
+              />
             )}
           </>
         )}
@@ -7063,166 +6206,14 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
 
             {/* Pagination Controls */}
             {totalCount > 0 && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 16px',
-                background: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
-                fontSize: '12px',
-                color: '#64748b',
-                flexWrap: 'wrap',
-                gap: '12px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <span>
-                    Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{totalCount}</strong> notifications
-                  </span>
-                  
-                  {/* Rows Per Page Selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Rows:</span>
-                    <select
-                      value={pageSize}
-                      onChange={e => setPageSize(Number(e.target.value))}
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: '11.5px',
-                        borderRadius: '4px',
-                        border: '1px solid #cbd5e1',
-                        background: '#ffffff',
-                        color: '#334155',
-                        outline: 'none',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {[10, 15, 25, 50].map(sz => (
-                        <option key={sz} value={sz}>{sz}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Page Navigation Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setPage(1)}
-                    disabled={page <= 1}
-                    title="First Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    « First
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                    title="Previous Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {getPageNumbers().map(pageNum => (
-                    <button
-                      key={pageNum}
-                      type="button"
-                      onClick={() => setPage(pageNum)}
-                      style={{
-                        height: '28px',
-                        minWidth: '28px',
-                        padding: '0 6px',
-                        borderRadius: '5px',
-                        border: '1px solid',
-                        borderColor: page === pageNum ? '#0284c7' : '#e2e8f0',
-                        background: page === pageNum ? '#0284c7' : '#ffffff',
-                        color: page === pageNum ? '#ffffff' : '#475569',
-                        fontWeight: page === pageNum ? 700 : 500,
-                        fontSize: '11.5px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    >
-                      {pageNum}
-                    </button>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    title="Next Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    Next ›
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(totalPages)}
-                    disabled={page >= totalPages}
-                    title="Last Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    Last »
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                total={totalCount}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p) => setPage(p)}
+                onPageSizeChange={(sz) => setPageSize(sz)}
+                label="notifications"
+              />
             )}
           </>
         )}
@@ -7820,177 +6811,14 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
 
             {/* Pagination Footer */}
             {totalCount > 0 && (
-              <div style={{
-                padding: '10px 14px',
-                background: '#fafbfc',
-                borderTop: '1px solid #eef0f1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '10px',
-                fontSize: '12px',
-                color: '#64748b'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <span>
-                    Showing <strong>{startRow}</strong>–<strong>{endRow}</strong> of <strong>{totalCount}</strong> records
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                    {[10, 20, 50, 100].map(sz => (
-                      <button
-                        key={sz}
-                        type="button"
-                        onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                        style={{
-                          height: '24px',
-                          padding: '0 8px',
-                          borderRadius: '4px',
-                          border: '1px solid',
-                          borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                          background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                          color: pageSize === sz ? '#0369a1' : '#64748b',
-                          fontWeight: pageSize === sz ? 700 : 500,
-                          fontSize: '11px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {sz}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage <= 1}
-                    title="First Page"
-                    style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      padding: '0 6px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    « First
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage <= 1}
-                    title="Previous Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
-                    let pageNum = idx + 1;
-                    if (totalPages > 5) {
-                      if (currentPage <= 3) {
-                        pageNum = idx + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + idx;
-                      } else {
-                        pageNum = currentPage - 2 + idx;
-                      }
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        type="button"
-                        onClick={() => setCurrentPage(pageNum)}
-                        style={{
-                          height: '28px',
-                          width: '28px',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: currentPage === pageNum ? '#0284c7' : '#e2e8f0',
-                          background: currentPage === pageNum ? '#0284c7' : '#ffffff',
-                          color: currentPage === pageNum ? '#ffffff' : '#475569',
-                          fontWeight: currentPage === pageNum ? 700 : 500,
-                          fontSize: '11.5px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage >= totalPages}
-                    title="Next Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11.5px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    Next ›
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage >= totalPages}
-                    title="Last Page"
-                    style={{
-                      height: '28px',
-                      minWidth: '28px',
-                      padding: '0 6px',
-                      borderRadius: '6px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: currentPage >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    Last »
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                total={totalCount}
+                page={currentPage}
+                pageSize={pageSize}
+                onPageChange={(p) => setCurrentPage(p)}
+                onPageSizeChange={(sz) => setPageSize(sz)}
+                label="records"
+              />
             )}
           </>
         )}

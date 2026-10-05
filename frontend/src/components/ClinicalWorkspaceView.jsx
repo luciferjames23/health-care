@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
+import TablePagination from './TablePagination';
 
 export default function ClinicalWorkspaceView({
   doctorName = 'Dr. Priya Patel',
@@ -14,6 +15,8 @@ export default function ClinicalWorkspaceView({
   const [patientList, setPatientList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? doctorName : null;
@@ -88,21 +91,27 @@ export default function ClinicalWorkspaceView({
     );
   }, [patientList, activeDoctorName]);
 
-  const filtered = scopedPatientList.filter(p => {
-    if (!search.trim()) return true;
-    const s = search.toLowerCase().trim();
-    const isDigits = /^\d+$/.test(s);
-    if (isDigits) {
-      const pid = String(p.patient_id || '');
-      const patNum = String(p.patient_number || p.mrn || '').toLowerCase();
-      return pid === s || patNum.endsWith(s);
-    }
-    return (p.name && p.name.toLowerCase().includes(s)) ||
-           (p.bed && p.bed.toLowerCase().includes(s)) ||
-           (p.diagnosis && p.diagnosis.toLowerCase().includes(s)) ||
-           (p.mrn && p.mrn.toLowerCase().includes(s)) ||
-           (p.doctor && p.doctor.toLowerCase().includes(s));
-  });
+  const filtered = useMemo(() => {
+    return scopedPatientList.filter(p => {
+      if (!search.trim()) return true;
+      const s = search.toLowerCase().trim();
+      const isDigits = /^\d+$/.test(s);
+      if (isDigits) {
+        const pid = String(p.patient_id || '');
+        const patNum = String(p.patient_number || p.mrn || '').toLowerCase();
+        return pid === s || patNum.endsWith(s);
+      }
+      return (p.name && p.name.toLowerCase().includes(s)) ||
+             (p.bed && p.bed.toLowerCase().includes(s)) ||
+             (p.diagnosis && p.diagnosis.toLowerCase().includes(s)) ||
+             (p.mrn && p.mrn.toLowerCase().includes(s)) ||
+             (p.doctor && p.doctor.toLowerCase().includes(s));
+    });
+  }, [scopedPatientList, search]);
+
+  const paginated = useMemo(() => {
+    return filtered.slice((page - 1) * pageSize, page * pageSize);
+  }, [filtered, page, pageSize]);
 
   if (loading && patientList.length === 0) {
     return (
@@ -185,7 +194,7 @@ export default function ClinicalWorkspaceView({
             <input
               type="text"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
               placeholder="Search..."
               style={{
                 height: '30px', width: '220px', border: '1px solid #e3e6e8',
@@ -314,7 +323,7 @@ export default function ClinicalWorkspaceView({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {paginated.map((p) => (
                 <tr
                   key={p.id}
                   style={{ borderBottom: '1px solid #f2f3f4', cursor: 'pointer', transition: 'background 0.1s' }}
@@ -395,6 +404,15 @@ export default function ClinicalWorkspaceView({
             </tbody>
           </table>
         )}
+
+        <TablePagination
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="inpatients"
+        />
       </div>
       </>
       )}
