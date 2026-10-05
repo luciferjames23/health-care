@@ -285,6 +285,39 @@ export const apiService = {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/summary`, options);
   },
 
+  // Employee Service Agent (AG-04)
+  async getEmployeeAgentProfile(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/profile`, options);
+  },
+
+  async getEmployeeShift(username = 'nurse.priya', date = 'tomorrow', options = {}) {
+    const p = new URLSearchParams({ username, date });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/shift?${p}`, options);
+  },
+
+  async getEmployeeLeaveBalance(username = 'nurse.priya', options = {}) {
+    const p = new URLSearchParams({ username });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/leave-balance?${p}`, options);
+  },
+
+  async applyEmployeeLeave(payload) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/employee-agent/apply-leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  async chatEmployeeAgent(payload) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/employee-agent/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
   // Gold Table Schema
   async getGoldTableSchema(tableName, options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/schema/${tableName}`, options);
