@@ -20,6 +20,7 @@ import json
 import hmac
 import hashlib
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -49,6 +50,10 @@ from utils.phone_utils import normalize_phone
 # Module-level aggregator singleton — 3 s debounce window
 _aggregator = message_aggregator.get_aggregator(window_seconds=1.5)
 _processed_test_wamids = set()
+_wamid_lock = threading.Lock()
+_processing_wamids = set()
+_processing_lock = threading.Lock()
+_idempotency_table_created = False
 
 router = APIRouter(prefix="/api/whatsapp", tags=["WhatsApp Webhook"])
 
@@ -57,19 +62,83 @@ VERIFY_TOKEN = os.getenv("META_WHATSAPP_VERIFY_TOKEN", os.getenv("WHATSAPP_VERIF
 META_APP_SECRET = os.getenv("META_APP_SECRET")
 
 
-def is_duplicate_message(msg_id: str) -> bool:
-    """Returns True if this msg_id was already processed or is currently being processed."""
-    if not msg_id:
-        return False
-    if msg_id in _processed_test_wamids:
-        return True
+def ensure_idempotency_table_exists():
+    global _idempotency_table_created
+    if _idempotency_table_created:
+        return
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT id FROM messages 
-            WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
+            CREATE TABLE IF NOT EXISTS processed_inbound_wamids (
+                wamid VARCHAR(255) PRIMARY KEY,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        _idempotency_table_created = True
+    except Exception as e:
+        print(f"[ERROR] Failed creating processed_inbound_wamids table: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+def claim_inbound_wamid(msg_id: str) -> bool:
+    """
+    Atomically claims an inbound WhatsApp message ID (wamid) in PostgreSQL table processed_inbound_wamids.
+    Returns True if successfully claimed (first time seen), False if already claimed (duplicate).
+    """
+    if not msg_id:
+        return True
+
+    # 1. Fast in-memory check
+    with _wamid_lock:
+        if msg_id in _processed_test_wamids:
+            return False
+        _processed_test_wamids.add(msg_id)
+        if len(_processed_test_wamids) > 5000:
+            _processed_test_wamids.clear()
+
+    # 2. Atomic PostgreSQL claim
+    ensure_idempotency_table_exists()
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO processed_inbound_wamids (wamid, processed_at)
+            VALUES (%s, CURRENT_TIMESTAMP)
+            ON CONFLICT (wamid) DO NOTHING;
         """, (msg_id,))
+        conn.commit()
+        claimed = (cur.rowcount > 0)
+        return claimed
+    except Exception as e:
+        print(f"[ERROR] claim_inbound_wamid database execution error for {msg_id}: {e}")
+        return True
+    finally:
+        cur.close()
+        conn.close()
+
+
+def is_duplicate_message(msg_id: str) -> bool:
+    """Returns True if this msg_id was already processed or is currently being processed."""
+    if not msg_id:
+        return False
+    with _wamid_lock:
+        if msg_id in _processed_test_wamids:
+            return True
+    ensure_idempotency_table_exists()
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT 1 FROM processed_inbound_wamids WHERE wamid = %s;", (msg_id,))
+        if cur.fetchone() is not None:
+            return True
+        cur.execute("""
+            SELECT id FROM messages 
+            WHERE metadata::text LIKE %s;
+        """, (f"%{msg_id}%",))
         return cur.fetchone() is not None
     except Exception as e:
         print("Error checking message duplicate:", e)
@@ -111,18 +180,18 @@ def record_outbound_wamid(session_code: str, outbound_wamid: str):
     try:
         cur.execute("""
             UPDATE messages
-            SET metadata = jsonb_set(
-                COALESCE(metadata, '{}'::jsonb),
-                '{whatsapp_message_id}',
-                to_jsonb(%s::text)
-            ) || jsonb_build_object('whatsapp_status', 'SENT', 'status_updated_at', CURRENT_TIMESTAMP::text)
+            SET metadata = CASE 
+                WHEN metadata IS NULL OR metadata = '' THEN jsonb_build_object('whatsapp_message_id', %s::text, 'whatsapp_status', 'SENT', 'status_updated_at', CURRENT_TIMESTAMP::text)::text
+                WHEN metadata ~ '^\\s*\\{' THEN (metadata::jsonb || jsonb_build_object('whatsapp_message_id', %s::text, 'whatsapp_status', 'SENT', 'status_updated_at', CURRENT_TIMESTAMP::text))::text
+                ELSE jsonb_build_object('raw', metadata, 'whatsapp_message_id', %s::text, 'whatsapp_status', 'SENT', 'status_updated_at', CURRENT_TIMESTAMP::text)::text
+            END
             WHERE id = (
                 SELECT id FROM messages 
                 WHERE conversation_id = (SELECT id FROM conversations WHERE conversation_code = %s)
                 AND sender_type = 'AI_AGENT'
                 ORDER BY id DESC LIMIT 1
             );
-        """, (outbound_wamid, session_code))
+        """, (outbound_wamid, outbound_wamid, outbound_wamid, session_code))
         conn.commit()
         print(f"[WHATSAPP_MESSAGE_SENT] wamid={outbound_wamid}")
     except Exception as e:
@@ -275,6 +344,14 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
 def process_and_send_reply(session_code: str, sender_num: str, message_id: str, body_text: str, button_id: str = None):
     t_total_start = time.monotonic()
     masked_num = f"***{sender_num[-4:]}" if sender_num and len(sender_num) >= 4 else "****"
+    print(f"[TRACE_WH] [PROCESS_REPLY_ENTER] wamid={message_id} | session={session_code} | text='{body_text}' | button_id={button_id}")
+
+    if message_id:
+        with _processing_lock:
+            if message_id in _processing_wamids:
+                print(f"[TRACE_WH] [PROCESS_REPLY_BLOCKED] wamid={message_id} is already actively processing in another worker thread")
+                return None
+            _processing_wamids.add(message_id)
 
     try:
         t_agent_start = time.monotonic()
@@ -296,10 +373,18 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
         if is_welcome:
             welcome_img_path = os.path.join(backend_dir, "static", "welcome_banner.jpg")
             if os.path.exists(welcome_img_path):
+                print(f"[TRACE_WH] [SENDING_WELCOME_IMAGE] wamid={message_id}")
                 whatsapp_client.send_image_message(sender_num, welcome_img_path)
 
         t_send_start = time.monotonic()
-        if agent_res.get("interactive_buttons"):
+        print(f"[TRACE_WH] [DISPATCHING_RESPONSE] wamid={message_id} | intent={agent_res.get('intent')} | type={agent_res.get('interactive_type')}")
+        if agent_res.get("interactive_type") == "flow":
+            send_res = whatsapp_client.send_registration_flow_message(
+                sender_num,
+                text=agent_res.get("response"),
+                current_lang=agent_res.get("language", "ENGLISH")
+            )
+        elif agent_res.get("interactive_buttons"):
             agent_res = response_validator.normalize_interactive_type(agent_res)
             list_title, sec_title = resolve_context_aware_interactive_titles(agent_res)
             send_res = whatsapp_client.send_button_message(
@@ -314,7 +399,6 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             send_res = whatsapp_client.send_text_message(sender_num, agent_res["response"])
         t_send_ms = int((time.monotonic() - t_send_start) * 1000)
 
-
         t_total_ms = int((time.monotonic() - t_total_start) * 1000)
         print(
             f"[PERF] num={masked_num} intent={agent_res.get('intent','?')} | "
@@ -326,7 +410,7 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             record_outbound_wamid(session_code, outbound_wamid)
 
         record_whatsapp_message_id(session_code, message_id)
-        print(f"[DEBUG] Outbound message dispatch complete for {message_id}")
+        print(f"[TRACE_WH] [PROCESS_REPLY_COMPLETE] wamid={message_id} | outbound_wamid={outbound_wamid}")
         return agent_res
     except Exception as e:
         t_total_ms = int((time.monotonic() - t_total_start) * 1000)
@@ -342,6 +426,10 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             except Exception as _err_send:
                 print(f"[ERROR] Failed to send fallback error reply: {_err_send}")
         return None
+    finally:
+        if message_id:
+            with _processing_lock:
+                _processing_wamids.discard(message_id)
 
 
 def _global_whatsapp_flush_callback(phone_num: str, merged_text: str, metadata: dict = None):
@@ -622,27 +710,27 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
 
     print(f"[WHATSAPP_MESSAGE_RECEIVED] wamid={msg_id}, type={msg_type}, from={from_number}")
 
+    trace_id = f"tr_{uuid.uuid4().hex[:8]}"
+    print(f"[TRACE_WH] [WEBHOOK_HIT] trace_id={trace_id} | wamid={msg_id} | type={msg_type} | from={from_number}")
+
+    # Layer 1 Idempotency Guard: Atomic PostgreSQL & In-Memory Claim at Entry Point
+    if msg_id:
+        claimed = claim_inbound_wamid(msg_id)
+        print(f"[TRACE_WH] [ATOMIC_CLAIM] trace_id={trace_id} | wamid={msg_id} | claimed={claimed}")
+        if not claimed:
+            print(f"[TRACE_WH] [DUPLICATE_REJECTED] trace_id={trace_id} | wamid={msg_id} | reason=already_claimed")
+            return {
+                "status": "success",
+                "message_id": msg_id,
+                "detail": "Duplicate message ignored"
+            }
+
     # Centralized Typing Indicator & Read Status Trigger (Meta WhatsApp Cloud API Requirement)
-    # Immediately marks inbound message as read AND shows typing bubble simultaneously using exact wamid.
     if msg_id:
         background_tasks.add_task(whatsapp_client.send_typing_indicator, msg_id)
 
     try:
         session_id = get_or_create_whatsapp_session(from_number)
-
-        # Message deduplication check (Meta webhook retry guard)
-        if msg_id and is_duplicate_message(msg_id):
-            print(f"[STATUS] Duplicate message ID detected: {msg_id}. Skipping processing.")
-            return {
-                "status": "success",
-                "message_id": msg_id,
-                "session_id": session_id,
-                "detail": "Duplicate message ignored"
-            }
-        if msg_id:
-            _processed_test_wamids.add(msg_id)
-            if len(_processed_test_wamids) > 2000:
-                _processed_test_wamids.clear()
 
         # 1. Text or Interactive Message flow
         if msg_type in ["text", "interactive"]:
