@@ -323,7 +323,7 @@ export default function DischargeCommandCentre({
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
         apiService.getDischargedPatients().catch(() => null),
-        apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => null),
+        apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => null),
         apiService.getBeds().catch(() => null),
         apiService.getWards().catch(() => null)
       ]);

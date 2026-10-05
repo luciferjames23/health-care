@@ -1595,29 +1595,36 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
     try {
       const res = await apiService.getNursingTasks({ forceRefresh: true });
       if (res?.data && Array.isArray(res.data)) {
-        const mapped = res.data.map(r => ({
-          id: r.id,
-          bed: r.bed_no || '',
-          patient: r.patient_name || '',
-          uhid: r.uhid || '',
-          task: r.task_description || '',
-          status: r.status || 'Active',
-          nurse: r.assigned_nurse || '',
-          notes: r.clinical_notes || '',
-          lastVitals: r.last_vitals_time || '07:30',
-          hr: r.hr ?? 75,
-          bp: r.bp || '120/80',
-          spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2)/10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
-          temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9/5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
-          rr: r.rr ?? 18,
-          pain: r.pain_score ?? 0,
-          ews: r.ews_score ?? 0,
-          fall: r.fall_risk || 'Low / Low',
-          diet: r.diet_type || 'Standard',
-          overdueMeds: r.overdue_meds || '—',
-          flag: r.flag_status || 'Normal',
-          ward: r.ward_name || 'General Multi-Specialty Ward'
-        }));
+        const seen = new Set();
+        const mapped = [];
+        for (const r of res.data) {
+          const dedupeKey = r.uhid || r.bed_no || r.id;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          mapped.push({
+            id: r.id,
+            bed: r.bed_no || '',
+            patient: r.patient_name || '',
+            uhid: r.uhid || '',
+            task: r.task_description || '',
+            status: r.status || 'Active',
+            nurse: r.assigned_nurse || '',
+            notes: r.clinical_notes || '',
+            lastVitals: r.last_vitals_time || '07:30',
+            hr: r.hr ?? 75,
+            bp: r.bp || '120/80',
+            spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2)/10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
+            temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9/5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
+            rr: r.rr ?? 18,
+            pain: r.pain_score ?? 0,
+            ews: r.ews_score ?? 0,
+            fall: r.fall_risk || 'Low / Low',
+            diet: r.diet_type || 'Standard',
+            overdueMeds: r.overdue_meds || '—',
+            flag: r.flag_status || 'Normal',
+            ward: r.ward_name || 'General Multi-Specialty Ward'
+          });
+        }
         setData(mapped);
       } else {
         setData([]);

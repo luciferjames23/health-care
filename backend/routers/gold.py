@@ -240,69 +240,69 @@ def get_gold_executive_summary():
         raise HTTPException(status_code=500, detail=f"Failed to generate executive summary: {str(e)}")
 
 
+_EXECUTIVE_KPIS_CACHE = {"timestamp": 0.0, "data": None}
+
+
 @router.get("/executive-kpis", summary="Live Executive Dashboard KPIs across all Hospital Systems")
 def get_executive_kpis():
     """Returns 100% real live operational counts from PostgreSQL for Executive Command Centre."""
+    import time
+    now = time.time()
+    if _EXECUTIVE_KPIS_CACHE["data"] is not None and (now - _EXECUTIVE_KPIS_CACHE["timestamp"]) < 3.0:
+        return _EXECUTIVE_KPIS_CACHE["data"]
+
     conn = db_connector.get_connection()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 1. Appointments recorded
-        cur.execute("SELECT COUNT(*) as total FROM appointments")
-        appts_count = cur.fetchone()["total"]
+        # Batch 1: All scalar counts in a single consolidated query
+        cur.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM appointments) as appointments_count,
+                (SELECT COUNT(*) FROM dim_admission_inputs WHERE LOWER(admission_type) = 'emergency') as emergency_count,
+                (SELECT COUNT(*) FROM lab_orders) as lab_count,
+                (SELECT COUNT(*) FROM agent_action_logs) as agent_runs,
+                (SELECT COUNT(*) FROM doctors) as doctors_count,
+                (SELECT COUNT(*) FROM ot_surgeries) as surgeries_count,
+                (SELECT COUNT(*) FROM wards) as wards_count,
+                (SELECT COUNT(*) FROM rooms) as rooms_count,
+                (SELECT COUNT(*) FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved') as approved_discharges,
+                (SELECT COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) != 'discharged' THEN 1 END) FROM dim_admission_inputs) as active_adm,
+                (SELECT COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'discharged' THEN 1 END) FROM dim_admission_inputs) as discharged_adm
+        """)
+        scalars = cur.fetchone() or {}
 
-        # 2. Emergency load (dim_admission_inputs emergency encounters)
-        cur.execute("SELECT COUNT(*) as total FROM dim_admission_inputs WHERE LOWER(admission_type) = 'emergency'")
-        em_count = cur.fetchone()["total"]
-
-        # 3. Lab tests & diagnostic orders
-        cur.execute("SELECT COUNT(*) as total FROM lab_orders")
-        lab_count = cur.fetchone()["total"]
-
-        # 4. Invoiced Revenue & collections
+        # Batch 2: Bills & Payments financial totals
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
                 COALESCE(SUM(net_amount), 0) as total_revenue, 
                 (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'SUCCESS') as total_collected 
-            FROM bills
+            FROM bills;
         """)
-        bills_row = cur.fetchone()
+        bills_row = cur.fetchone() or {}
 
-        # 5. Insurance Claims & preauth
+        # Batch 3: Insurance claims & Pharmacy inventory valuation
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
                 COALESCE(SUM(claimed_amount), 0) as claimed, 
                 COALESCE(SUM(approved_amount), 0) as approved, 
                 COALESCE(SUM(outstanding_amount), 0) as outstanding 
-            FROM insurance_claims
+            FROM insurance_claims;
         """)
-        claims_row = cur.fetchone()
+        claims_row = cur.fetchone() or {}
 
-        # 6. Pharmacy & Inventory Stock Valuation
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
                 COALESCE(SUM(available_quantity * selling_price), 0) as valuation, 
                 COUNT(CASE WHEN available_quantity <= reorder_level THEN 1 END) as low_stock 
-            FROM pharmacy_inventory
+            FROM pharmacy_inventory;
         """)
-        inv_row = cur.fetchone()
+        inv_row = cur.fetchone() or {}
 
-        # 7. Agent runs & telemetry
-        cur.execute("SELECT COUNT(*) as total FROM agent_action_logs")
-        agent_runs = cur.fetchone()["total"]
-
-        # 8. Doctors & Specialists
-        cur.execute("SELECT COUNT(*) as total FROM doctors")
-        doctors_count = cur.fetchone()["total"]
-
-        # 9. Surgeries & OT
-        cur.execute("SELECT COUNT(*) as total FROM ot_surgeries")
-        surgeries_count = cur.fetchone()["total"]
-
-        # 10. Live Beds & Inpatient Census from PostgreSQL
+        # Batch 4: Live Bed counts
         cur.execute("""
             SELECT 
                 COUNT(*) as total_beds,
@@ -311,44 +311,24 @@ def get_executive_kpis():
                 COUNT(CASE WHEN status NOT IN ('Occupied', 'Available') THEN 1 END) as maintenance_beds
             FROM beds;
         """)
-        bed_counts = cur.fetchone()
-        
-        tot_beds = int(bed_counts["total_beds"] or 312)
-        occ_beds = int(bed_counts["occupied_beds"] or 209)
-        avail_beds = int(bed_counts["available_beds"] or 103)
-        maint_beds = int(bed_counts["maintenance_beds"] or 0)
+        bed_counts = cur.fetchone() or {}
+
+        tot_beds = int(bed_counts.get("total_beds") or 312)
+        occ_beds = int(bed_counts.get("occupied_beds") or 209)
+        avail_beds = int(bed_counts.get("available_beds") or 103)
+        maint_beds = int(bed_counts.get("maintenance_beds") or 0)
         occ_rate = round((occ_beds / tot_beds) * 100, 1) if tot_beds > 0 else 0.0
 
-        cur.execute("SELECT COUNT(*) as total FROM wards")
-        wards_cnt = int(cur.fetchone()["total"] or 8)
+        wards_cnt = int(scalars.get("wards_count") or 8)
+        rooms_cnt = int(scalars.get("rooms_count") or 150)
+        active_adm_cnt = int(scalars.get("active_adm") if scalars.get("active_adm") is not None else occ_beds)
+        discharged_cnt = int(scalars.get("approved_discharges") if scalars.get("approved_discharges") is not None else (scalars.get("discharged_adm") or 11))
 
-        cur.execute("SELECT COUNT(*) as total FROM rooms")
-        rooms_cnt = int(cur.fetchone()["total"] or 150)
-
-        # Inpatient Census dynamically from dim_admission_inputs
-        cur.execute("""
-            SELECT 
-                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) != 'discharged' THEN 1 END) as active_adm,
-                COUNT(CASE WHEN LOWER(COALESCE(discharge_status, '')) = 'discharged' THEN 1 END) as discharged_adm
-            FROM dim_admission_inputs;
-        """)
-        adm_stats = cur.fetchone() or {}
-        active_adm_cnt = int(adm_stats.get("active_adm") if adm_stats.get("active_adm") is not None else occ_beds)
-
-        # Discharged count dynamically from approved summaries in dim_generated_discharge_summaries
-        cur.execute("""
-            SELECT COUNT(*) as approved_cnt 
-            FROM dim_generated_discharge_summaries 
-            WHERE LOWER(COALESCE(approval_status, '')) = 'approved';
-        """)
-        ds_row = cur.fetchone() or {}
-        discharged_cnt = int(ds_row.get("approved_cnt") if ds_row.get("approved_cnt") is not None else adm_stats.get("discharged_adm", 11))
-
-        return {
+        result = {
             "success": True,
-            "appointments": int(appts_count or 0),
-            "emergency_load": int(em_count or 0),
-            "lab_orders": int(lab_count or 0),
+            "appointments": int(scalars.get("appointments_count") or 0),
+            "emergency_load": int(scalars.get("emergency_count") or 0),
+            "lab_orders": int(scalars.get("lab_count") or 0),
             "total_beds": tot_beds,
             "occupied_beds": occ_beds,
             "active_admissions": active_adm_cnt,
@@ -359,25 +339,28 @@ def get_executive_kpis():
             "total_rooms": rooms_cnt,
             "discharged_patients": discharged_cnt,
             "bills": {
-                "count": int(bills_row["count"] or 0),
-                "total_revenue": float(bills_row["total_revenue"] or 0),
-                "total_collected": float(bills_row["total_collected"] or 0)
+                "count": int(bills_row.get("count") or 0),
+                "total_revenue": float(bills_row.get("total_revenue") or 0),
+                "total_collected": float(bills_row.get("total_collected") or 0)
             },
             "claims": {
-                "count": int(claims_row["count"] or 0),
-                "claimed": float(claims_row["claimed"] or 0),
-                "approved": float(claims_row["approved"] or 0),
-                "outstanding": float(claims_row["outstanding"] or 0)
+                "count": int(claims_row.get("count") or 0),
+                "claimed": float(claims_row.get("claimed") or 0),
+                "approved": float(claims_row.get("approved") or 0),
+                "outstanding": float(claims_row.get("outstanding") or 0)
             },
             "inventory": {
-                "count": int(inv_row["count"] or 0),
-                "valuation": float(inv_row["valuation"] or 0),
-                "low_stock": int(inv_row["low_stock"] or 0)
+                "count": int(inv_row.get("count") or 0),
+                "valuation": float(inv_row.get("valuation") or 0),
+                "low_stock": int(inv_row.get("low_stock") or 0)
             },
-            "agent_runs": int(agent_runs or 0),
-            "doctors": int(doctors_count or 0),
-            "surgeries": int(surgeries_count or 0)
+            "agent_runs": int(scalars.get("agent_runs") or 0),
+            "doctors": int(scalars.get("doctors_count") or 0),
+            "surgeries": int(scalars.get("surgeries_count") or 0)
         }
+        _EXECUTIVE_KPIS_CACHE["timestamp"] = now
+        _EXECUTIVE_KPIS_CACHE["data"] = result
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch live executive KPIs: {str(e)}")
     finally:
@@ -1233,14 +1216,14 @@ def get_dim_admission_inputs(
                 LEFT JOIN beds b ON a.bed_id = b.bed_id
                 LEFT JOIN rooms r ON b.room_id = r.room_id
                 LEFT JOIN wards w ON b.ward_id = w.ward_id
-                LEFT JOIN (
-                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
-                    FROM insurance_claims ORDER BY patient_id, claim_date DESC, claim_id DESC
-                ) ic ON ic.patient_id = p.id
-                LEFT JOIN (
-                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
-                    FROM patient_insurance ORDER BY patient_id, insurance_id DESC
-                ) pi ON pi.patient_id = p.id
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider
+                    FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_date DESC, claim_id DESC LIMIT 1
+                ) ic ON true
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider
+                    FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
+                ) pi ON true
                 WHERE {" AND ".join(adm_where)}
                 ORDER BY {order_clause}
                 LIMIT %s;
@@ -1253,10 +1236,18 @@ def get_dim_admission_inputs(
                 live_data = [dict(r) for r in fb_rows]
                 existing_adm_ids = {r.get('admission_id') for r in data if r.get('admission_id') is not None}
                 existing_pat_ids = {r.get('patient_id') for r in data if r.get('patient_id') is not None}
-                new_records = [r for r in live_data if r.get('admission_id') not in existing_adm_ids and r.get('patient_id') not in existing_pat_ids]
+                existing_beds = {str(r.get('bed_number')).strip().upper() for r in data if r.get('bed_number')}
+                new_records = [
+                    r for r in live_data 
+                    if r.get('admission_id') not in existing_adm_ids 
+                    and r.get('patient_id') not in existing_pat_ids
+                    and str(r.get('bed_number')).strip().upper() not in existing_beds
+                ]
                 if clean_aid or clean_pid or clean_anum or clean_pnum:
                     data = new_records if new_records else (data if data else live_data)
-                else:
+                elif not data:
+                    data = live_data
+                elif new_records:
                     data = new_records + data
                 res["count"] = len(data)
                 res["data"] = data

@@ -274,50 +274,99 @@ def get_nursing_tasks():
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
+        # 1. Auto-provision nursing tasks for any admitted patients missing in nursing_tasks
+        try:
+            cur.execute("""
+                INSERT INTO nursing_tasks (
+                    bed_no, patient_name, uhid, task_description, status, 
+                    assigned_nurse, clinical_notes, last_vitals_time, 
+                    hr, bp, spo2, temp, rr, pain_score, ews_score, 
+                    fall_risk, diet_type, overdue_meds, flag_status, ward_name
+                )
+                SELECT 
+                    COALESCE(dai.bed_number, 'BED-TBD'),
+                    TRIM(COALESCE(dai.first_name, '') || ' ' || COALESCE(dai.last_name, '')),
+                    dai.patient_number,
+                    'Routine Q4H vitals round, oral medication administration & intake/output chart',
+                    'Active',
+                    'Staff Nurse Sneha Rao',
+                    'Attending: ' || COALESCE(dai.attending_doctor, 'General Medical Consultant') || '. Diagnosis: ' || COALESCE(dai.primary_diagnosis, 'Inpatient Care') || '. Patient resting in bed.',
+                    '08:00',
+                    COALESCE(dai.latest_heart_rate, 75),
+                    COALESCE(dai.latest_systolic_bp || '/' || dai.latest_diastolic_bp, '120/80'),
+                    COALESCE(dai.latest_oxygen_saturation::text, '98'),
+                    COALESCE(dai.latest_temperature, 98.6),
+                    18,
+                    0,
+                    0,
+                    'Low / Low',
+                    'Standard Hospital Diet',
+                    '—',
+                    'Normal',
+                    COALESCE(dai.ward_name, 'General Multi-Specialty Ward')
+                FROM dim_admission_inputs dai
+                WHERE LOWER(COALESCE(dai.discharge_status, '')) != 'discharged'
+                AND NOT EXISTS (
+                    SELECT 1 FROM nursing_tasks nt WHERE nt.uhid = dai.patient_number
+                );
+            """)
+            conn.commit()
+        except Exception as sync_err:
+            conn.rollback()
+
+        # 2. Query distinct inpatient nursing tasks, filtering out discharged patients
         cur.execute("""
-            SELECT 
-                nt.id,
-                nt.bed_no,
-                nt.patient_name,
-                nt.uhid,
-                nt.task_description,
-                nt.status,
-                nt.assigned_nurse,
-                nt.clinical_notes,
-                COALESCE(TO_CHAR(vs.recorded_at, 'HH24:MI'), nt.last_vitals_time) AS last_vitals_time,
-                COALESCE(vs.heart_rate, nt.hr) AS hr,
-                CASE 
-                    WHEN vs.systolic_bp IS NOT NULL AND vs.diastolic_bp IS NOT NULL 
-                    THEN vs.systolic_bp || '/' || vs.diastolic_bp
-                    ELSE nt.bp
-                END AS bp,
-                COALESCE(ROUND(vs.oxygen_saturation::numeric, 1)::text, nt.spo2::text) AS spo2,
-                COALESCE(ROUND(vs.temperature::numeric, 2), nt.temp) AS temp,
-                COALESCE(vs.respiratory_rate, nt.rr) AS rr,
-                nt.pain_score,
-                nt.ews_score,
-                nt.fall_risk,
-                nt.diet_type,
-                nt.overdue_meds,
-                nt.flag_status,
-                nt.ward_name,
-                nt.created_at,
-                nt.completed_at
-            FROM nursing_tasks nt
-            LEFT JOIN patients p ON nt.uhid = p.patient_code
-            LEFT JOIN LATERAL (
-                SELECT * FROM vital_signs 
-                WHERE vital_signs.patient_id = p.id 
-                ORDER BY recorded_at DESC LIMIT 1
-            ) vs ON true
+            WITH distinct_tasks AS (
+                SELECT DISTINCT ON (COALESCE(nt.uhid, nt.bed_no))
+                    nt.id,
+                    nt.bed_no,
+                    nt.patient_name,
+                    nt.uhid,
+                    nt.task_description,
+                    nt.status,
+                    nt.assigned_nurse,
+                    nt.clinical_notes,
+                    COALESCE(TO_CHAR(vs.recorded_at, 'HH24:MI'), nt.last_vitals_time) AS last_vitals_time,
+                    COALESCE(vs.heart_rate, nt.hr) AS hr,
+                    CASE 
+                        WHEN vs.systolic_bp IS NOT NULL AND vs.diastolic_bp IS NOT NULL 
+                        THEN vs.systolic_bp || '/' || vs.diastolic_bp
+                        ELSE nt.bp
+                    END AS bp,
+                    COALESCE(ROUND(vs.oxygen_saturation::numeric, 1)::text, nt.spo2::text) AS spo2,
+                    COALESCE(ROUND(vs.temperature::numeric, 2), nt.temp) AS temp,
+                    COALESCE(vs.respiratory_rate, nt.rr) AS rr,
+                    nt.pain_score,
+                    nt.ews_score,
+                    nt.fall_risk,
+                    nt.diet_type,
+                    nt.overdue_meds,
+                    nt.flag_status,
+                    nt.ward_name,
+                    nt.created_at,
+                    nt.completed_at
+                FROM nursing_tasks nt
+                LEFT JOIN dim_admission_inputs dai ON nt.uhid = dai.patient_number
+                LEFT JOIN patients p ON nt.uhid = p.patient_code
+                LEFT JOIN LATERAL (
+                    SELECT * FROM vital_signs 
+                    WHERE vital_signs.patient_id = p.id 
+                    ORDER BY recorded_at DESC LIMIT 1
+                ) vs ON true
+                WHERE (dai.discharge_status IS NULL OR LOWER(dai.discharge_status) != 'discharged')
+                ORDER BY 
+                    COALESCE(nt.uhid, nt.bed_no),
+                    nt.id DESC
+            )
+            SELECT * FROM distinct_tasks
             ORDER BY 
                 CASE 
-                    WHEN nt.flag_status LIKE '%Critical%' OR nt.flag_status LIKE '%escalate%' THEN 0
-                    WHEN nt.flag_status LIKE '%watch%' OR nt.flag_status LIKE '%Pending%' THEN 1
+                    WHEN flag_status LIKE '%Critical%' OR flag_status LIKE '%escalate%' THEN 0
+                    WHEN flag_status LIKE '%watch%' OR flag_status LIKE '%Pending%' THEN 1
                     ELSE 2
                 END,
-                nt.ews_score DESC,
-                nt.id ASC;
+                ews_score DESC,
+                id ASC;
         """)
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
@@ -1032,6 +1081,7 @@ def get_all_patients_directory(
         clean_offset = offset if isinstance(offset, int) else 0
         doc_id_val = doctor_id if isinstance(doctor_id, int) else None
         cat = clean_cat
+        domain_limit = clean_limit or 250
 
         # 1. Inpatients (IP)
         if cat in ("ALL", "IP"):
@@ -1040,7 +1090,12 @@ def get_all_patients_directory(
             if doc_id_val:
                 ip_where.append("a.doctor_id = %s")
                 ip_params.append(doc_id_val)
+            if clean_search:
+                ip_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR a.admission_number ILIKE %s)")
+                s_param = f"%{clean_search}%"
+                ip_params.extend([s_param, s_param, s_param, s_param])
 
+            ip_params.append(domain_limit)
             cur.execute(f"""
                 SELECT 
                     p.id AS patient_id,
@@ -1076,29 +1131,56 @@ def get_all_patients_directory(
                 LEFT JOIN doctors d ON d.id = a.doctor_id
                 LEFT JOIN beds b ON b.bed_id = a.bed_id
                 LEFT JOIN wards w ON w.ward_id = a.ward_id
-                LEFT JOIN (
-                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider 
-                    FROM insurance_claims ORDER BY patient_id, claim_id DESC
-                ) ic ON ic.patient_id = p.id
-                LEFT JOIN (
-                    SELECT DISTINCT ON (patient_id) patient_id, insurance_provider
-                    FROM patient_insurance ORDER BY patient_id, insurance_id DESC
-                ) pi ON pi.patient_id = p.id
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider 
+                    FROM insurance_claims 
+                    WHERE patient_id = p.id 
+                    ORDER BY claim_id DESC 
+                    LIMIT 1
+                ) ic ON true
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider 
+                    FROM patient_insurance 
+                    WHERE patient_id = p.id 
+                    ORDER BY insurance_id DESC 
+                    LIMIT 1
+                ) pi ON true
                 WHERE {' AND '.join(ip_where)}
-                ORDER BY a.admission_id DESC;
+                ORDER BY a.admission_id DESC
+                LIMIT %s;
             """, ip_params)
             patients.extend(cur.fetchall())
 
         # 2. Outpatients (OP) - Active Outpatient consultations & WhatsApp appointments
         if cat in ("ALL", "OP"):
-            op_where = ["apt.status != 'CANCELLED'"]
+            op_where = ["apt.status != 'CANCELLED'", "p.first_name NOT LIKE 'Patient'"]  # exclude seeded IP-only dummy rows
             op_params = []
             if doc_id_val:
                 op_where.append("apt.doctor_id = %s")
                 op_params.append(doc_id_val)
+            if clean_search:
+                op_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR apt.booking_id ILIKE %s)")
+                s_param = f"%{clean_search}%"
+                op_params.extend([s_param, s_param, s_param, s_param])
 
+            op_params.append(domain_limit)
             cur.execute(f"""
-                SELECT DISTINCT ON (apt.patient_id, apt.doctor_id)
+                WITH latest_apt AS (
+                    SELECT DISTINCT ON (apt.patient_id)
+                        apt.id AS apt_id,
+                        apt.patient_id,
+                        apt.doctor_id,
+                        apt.department_id,
+                        apt.booking_id,
+                        apt.appointment_date,
+                        apt.status,
+                        apt.reason_for_visit
+                    FROM appointments apt
+                    JOIN patients p ON p.id = apt.patient_id
+                    WHERE {' AND '.join(op_where)}
+                    ORDER BY apt.patient_id, apt.id DESC
+                )
+                SELECT 
                     p.id AS patient_id,
                     p.patient_code,
                     p.first_name,
@@ -1111,45 +1193,66 @@ def get_all_patients_directory(
                     COALESCE(p.preferred_language, 'English') AS preferred_language,
                     p.blood_group,
                     NULL::int AS admission_id,
-                    apt.booking_id AS admission_number,
-                    apt.appointment_date AS admission_date,
+                    la.booking_id AS admission_number,
+                    la.appointment_date AS admission_date,
                     NULL::date AS discharge_date,
-                    apt.status AS discharge_status,
-                    COALESCE(apt.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS diagnosis,
-                    COALESCE(apt.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS primary_diagnosis,
-                    COALESCE(apt.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS chief_complaint,
-                    COALESCE(apt.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS reason_for_visit,
+                    la.status AS discharge_status,
+                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS diagnosis,
+                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS primary_diagnosis,
+                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS chief_complaint,
+                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS reason_for_visit,
                     COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
                     'OPD Desk' AS bed_number,
                     COALESCE(d.display_name, 'Consultant Doctor') AS doctor,
                     'OP' AS patient_type,
-                    COALESCE(apt.status, 'CONFIRMED') AS status,
-                    'Direct / Outpatient' AS insurer
-                FROM appointments apt
-                JOIN patients p ON p.id = apt.patient_id
-                LEFT JOIN doctors d ON d.id = apt.doctor_id
-                LEFT JOIN departments dep ON dep.id = apt.department_id
-                LEFT JOIN patient_visits pv ON pv.appointment_id = apt.id
-                WHERE {' AND '.join(op_where)}
-                ORDER BY apt.patient_id, apt.doctor_id, apt.appointment_date DESC, apt.id DESC;
+                    COALESCE(la.status, 'CONFIRMED') AS status,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
+                FROM latest_apt la
+                JOIN patients p ON p.id = la.patient_id
+                LEFT JOIN doctors d ON d.id = la.doctor_id
+                LEFT JOIN departments dep ON dep.id = la.department_id
+                LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider
+                    FROM insurance_claims
+                    WHERE patient_id = p.id
+                    ORDER BY claim_id DESC LIMIT 1
+                ) ic ON true
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider
+                    FROM patient_insurance
+                    WHERE patient_id = p.id
+                    ORDER BY insurance_id DESC LIMIT 1
+                ) pi ON true
+                ORDER BY la.apt_id DESC
+                LIMIT %s;
             """, op_params)
             patients.extend(cur.fetchall())
 
         # 3. Emergency Patients (ER) - Return active ER triage patients
         if cat in ("ALL", "ER"):
-            cur.execute("""
+            er_where = ["et.id IS NOT NULL"]
+            er_params = []
+            if clean_search:
+                er_where.append("(et.patient_name ILIKE %s OR et.id ILIKE %s OR et.chief_complaint ILIKE %s)")
+                s_param = f"%{clean_search}%"
+                er_params.extend([s_param, s_param, s_param])
+
+            er_params.append(100)
+            cur.execute(f"""
                 SELECT 
-                    COALESCE(p.id, 87460 + ROW_NUMBER() OVER ()) AS patient_id,
-                    COALESCE(p.patient_code, et.id) AS patient_code,
-                    COALESCE(p.first_name, split_part(et.patient_name, ' ', 1)) AS first_name,
-                    COALESCE(p.last_name, split_part(et.patient_name, ' ', 2)) AS last_name,
-                    COALESCE(et.patient_name, (p.first_name || ' ' || COALESCE(p.last_name, ''))) AS patient_name,
-                    p.date_of_birth,
-                    COALESCE(EXTRACT(YEAR FROM AGE(p.date_of_birth))::int, 40) AS age,
-                    COALESCE(p.gender, CASE WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'F' THEN 'Female' ELSE 'Male' END) AS gender,
-                    COALESCE(p.phone, '+91 98401 24200') AS phone,
-                    COALESCE(p.preferred_language, 'English') AS preferred_language,
-                    p.blood_group,
+                    (87460 + ROW_NUMBER() OVER ())::int AS patient_id,
+                    et.id AS patient_code,
+                    split_part(et.patient_name, ' ', 1) AS first_name,
+                    split_part(et.patient_name, ' ', 2) AS last_name,
+                    et.patient_name,
+                    NULL::date AS date_of_birth,
+                    40 AS age,
+                    CASE WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'F' THEN 'Female' ELSE 'Male' END AS gender,
+                    '+91 98401 24200' AS phone,
+                    'English' AS preferred_language,
+                    'B+' AS blood_group,
                     NULL::int AS admission_id,
                     et.id AS admission_number,
                     et.created_at AS admission_date,
@@ -1163,12 +1266,13 @@ def get_all_patients_directory(
                     COALESCE(et.doctor_name, 'Dr. Divya Verma') AS doctor,
                     'ER' AS patient_type,
                     COALESCE(et.clinical_status, 'Active Triage') AS status,
-                    'Emergency Cover / Star Health' AS insurer
+                    'Emergency Cover / Star Health' AS insurer,
+                    'Emergency Cover / Star Health' AS insurance_provider
                 FROM emergency_triage et
-                LEFT JOIN patients p ON (p.first_name || ' ' || p.last_name) = et.patient_name
-                WHERE et.id IS NOT NULL
-                ORDER BY et.id ASC;
-            """)
+                WHERE {' AND '.join(er_where)}
+                ORDER BY et.id ASC
+                LIMIT %s;
+            """, er_params)
             patients.extend(cur.fetchall())
 
         # 4. Discharged Patients
@@ -1178,7 +1282,12 @@ def get_all_patients_directory(
             if doc_id_val:
                 dis_where.append("(a.doctor_id = %s OR ds.doctor_id = %s)")
                 dis_params.extend([doc_id_val, doc_id_val])
+            if clean_search:
+                dis_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR a.admission_number ILIKE %s)")
+                s_param = f"%{clean_search}%"
+                dis_params.extend([s_param, s_param, s_param, s_param])
 
+            dis_params.append(domain_limit)
             cur.execute(f"""
                 SELECT DISTINCT ON (p.id)
                     p.id AS patient_id,
@@ -1203,20 +1312,28 @@ def get_all_patients_directory(
                     COALESCE(ds.primary_consultant, d.display_name, 'Attending Doctor') AS doctor,
                     'Discharged' AS patient_type,
                     'Discharged' AS status,
-                    'Settled' AS insurer
+                    'Settled' AS insurer,
+                    'Settled' AS insurance_provider
                 FROM admissions a
                 JOIN patients p ON p.id = a.patient_id
-                LEFT JOIN dim_generated_discharge_summaries ds ON ds.admission_id = a.admission_id OR ds.patient_id = a.patient_id
+                LEFT JOIN dim_generated_discharge_summaries ds ON ds.admission_id = a.admission_id
                 LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
                 LEFT JOIN wards w ON w.ward_id = a.ward_id
                 WHERE {' AND '.join(dis_where)}
-                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC;
+                ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC
+                LIMIT %s;
             """, dis_params)
             patients.extend(cur.fetchall())
 
         # 5. Direct / Newly Registered Patients from database
         if cat in ("ALL", "OP"):
-            cur.execute("""
+            reg_where = ["1=1"]
+            reg_params = []
+            if clean_search:
+                reg_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s)")
+                s_param = f"%{clean_search}%"
+                reg_params.extend([s_param, s_param, s_param])
+            cur.execute(f"""
                 SELECT 
                     p.id AS patient_id,
                     p.patient_code,
@@ -1240,32 +1357,22 @@ def get_all_patients_directory(
                     'Attending Physician' AS doctor,
                     'OP' AS patient_type,
                     'ACTIVE' AS status,
-                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurer
+                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurer,
+                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurance_provider
                 FROM patients p
-                LEFT JOIN patient_insurance pi ON pi.patient_id = p.id
+                LEFT JOIN LATERAL (
+                    SELECT insurance_provider FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
+                ) pi ON true
+                WHERE {' AND '.join(reg_where)}
                 ORDER BY p.id DESC
                 LIMIT 50;
-            """)
+            """, reg_params)
             registered_patients = cur.fetchall()
             existing_pids = {p.get('patient_id') for p in patients}
             for rp in registered_patients:
                 if rp.get('patient_id') not in existing_pids:
                     patients.append(rp)
                     existing_pids.add(rp.get('patient_id'))
-
-        # Filter by search if provided
-        if clean_search:
-            s = clean_search.lower()
-            patients = [
-                p for p in patients
-                if s in str(p.get('patient_id', '')).lower()
-                or s in str(p.get('patient_code', '')).lower()
-                or s in str(p.get('patient_name', '')).lower()
-                or s in str(p.get('doctor', '')).lower()
-                or s in str(p.get('diagnosis', '')).lower()
-                or s in str(p.get('department', '')).lower()
-                or s in str(p.get('admission_number', '')).lower()
-            ]
 
         total_count = len(patients)
         if clean_limit is not None:
@@ -1539,4 +1646,277 @@ def get_lab_orders(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+# ---------------------------------------------------------------------------
+# 13. COMMUNICATIONS LOGS (Live PostgreSQL Notifications & Messages)
+# ---------------------------------------------------------------------------
+@router.get("/communications", summary="Get Patient Communications Logs from DB")
+def get_patient_communications(
+    patient_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+        if patient_id is not None:
+            where_clauses.append("n.patient_id = %s")
+            params.append(patient_id)
+        
+        where_sql = " AND ".join(where_clauses)
+        cur.execute(f"""
+            SELECT 
+                n.id,
+                n.patient_id,
+                COALESCE(n.notification_type, 'COMMUNICATION') as notification_type,
+                COALESCE(n.channel, 'SMS') as channel,
+                n.message,
+                COALESCE(n.status, 'Sent') as status,
+                n.created_at,
+                n.sent_at
+            FROM notifications n
+            WHERE {where_sql}
+            ORDER BY n.created_at DESC NULLS LAST, n.id DESC
+            LIMIT %s OFFSET %s;
+        """, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            ts = r.get('sent_at') or r.get('created_at')
+            dt_str = ts.strftime('%d %b %Y, %I:%M %p') if ts else 'Recent'
+            formatted.append({
+                "id": f"MSG-{r['id']}",
+                "channel": r['channel'],
+                "type": r['notification_type'],
+                "message": r['message'],
+                "status": r['status'],
+                "time": dt_str
+            })
+
+        return {"success": True, "count": len(formatted), "data": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ---------------------------------------------------------------------------
+# 14. PATIENT FEEDBACK & ESCALATIONS (Live PostgreSQL Escalations)
+# ---------------------------------------------------------------------------
+@router.get("/feedback", summary="Get Patient Feedback & Escalations from DB")
+def get_patient_feedback(
+    patient_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+        if patient_id is not None:
+            where_clauses.append("e.patient_id = %s")
+            params.append(patient_id)
+        
+        where_sql = " AND ".join(where_clauses)
+        cur.execute(f"""
+            SELECT 
+                e.id,
+                e.patient_id,
+                e.escalation_reason,
+                e.patient_question,
+                e.status,
+                e.resolution_notes,
+                e.created_at,
+                e.resolved_at
+            FROM escalations e
+            WHERE {where_sql}
+            ORDER BY e.created_at DESC NULLS LAST, e.id DESC
+            LIMIT %s OFFSET %s;
+        """, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            dt_str = r['created_at'].strftime('%d %b %Y') if r.get('created_at') else 'Recent'
+            formatted.append({
+                "id": f"FDB-{r['id']}",
+                "reason": r['escalation_reason'],
+                "feedback": r['patient_question'] or r['escalation_reason'],
+                "status": r['status'] or 'In Progress',
+                "resolution": r['resolution_notes'] or 'Pending Clinical Review',
+                "date": dt_str
+            })
+
+        return {"success": True, "count": len(formatted), "data": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ---------------------------------------------------------------------------
+# 15. PATIENT CLINICAL DOCUMENTS (Live PostgreSQL Patient Reports)
+# ---------------------------------------------------------------------------
+@router.get("/documents", summary="Get Patient Clinical Documents from DB")
+def get_patient_documents(
+    patient_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+        if patient_id is not None:
+            where_clauses.append("pr.patient_id = %s")
+            params.append(patient_id)
+        
+        where_sql = " AND ".join(where_clauses)
+        cur.execute(f"""
+            SELECT 
+                pr.id,
+                pr.report_reference,
+                pr.patient_id,
+                pr.report_type,
+                pr.report_title,
+                pr.report_date,
+                pr.status,
+                pr.summary,
+                doc.display_name as doctor_name
+            FROM patient_reports pr
+            LEFT JOIN doctors doc ON pr.doctor_id = doc.id
+            WHERE {where_sql}
+            ORDER BY pr.report_date DESC NULLS LAST, pr.id DESC
+            LIMIT %s OFFSET %s;
+        """, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            dt_str = r['report_date'].strftime('%d %b %Y') if r.get('report_date') else 'On File'
+            formatted.append({
+                "id": r['report_reference'] or f"DOC-{r['id']}",
+                "title": r['report_title'],
+                "type": r['report_type'] or 'Clinical Document',
+                "date": dt_str,
+                "author": r['doctor_name'] or 'Attending Clinician',
+                "status": r['status'] or 'Available',
+                "summary": r['summary'] or ''
+            })
+
+        return {"success": True, "count": len(formatted), "data": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ---------------------------------------------------------------------------
+# 16. PATIENT CONSENT RECORDS (Live PostgreSQL Consent Records)
+# ---------------------------------------------------------------------------
+@router.get("/consent", summary="Get Patient Consent Records from DB")
+def get_patient_consent(
+    patient_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+        if patient_id is not None:
+            where_clauses.append("cr.patient_id = %s")
+            params.append(patient_id)
+        
+        where_sql = " AND ".join(where_clauses)
+        cur.execute(f"""
+            SELECT 
+                cr.consent_id,
+                cr.patient_id,
+                cr.consent_type,
+                cr.channel,
+                cr.timestamp
+            FROM consent_record cr
+            WHERE {where_sql}
+            ORDER BY cr.timestamp DESC NULLS LAST, cr.consent_id DESC
+            LIMIT %s OFFSET %s;
+        """, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            dt_str = r['timestamp'].strftime('%d %b %Y, %I:%M %p') if r.get('timestamp') else 'Recorded'
+            formatted.append({
+                "id": f"CNS-{r['consent_id']}",
+                "purpose": r['consent_type'],
+                "channel": r['channel'] or 'Digital Signature',
+                "verified": dt_str,
+                "status": "Active / Verified"
+            })
+
+        return {"success": True, "count": len(formatted), "data": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ---------------------------------------------------------------------------
+# 17. PATIENT AI ACTIVITY LOGS (Live PostgreSQL Agent Action Logs)
+# ---------------------------------------------------------------------------
+@router.get("/ai-activity", summary="Get AI Agent Action Logs for Patient from DB")
+def get_patient_ai_activity(
+    patient_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        where_clauses = ["1=1"]
+        params = []
+        if patient_id is not None:
+            where_clauses.append("aal.patient_id = %s")
+            params.append(patient_id)
+        
+        where_sql = " AND ".join(where_clauses)
+        cur.execute(f"""
+            SELECT 
+                aal.id,
+                aal.conversation_id,
+                aal.patient_id,
+                aal.action_name,
+                aal.intent,
+                aal.status,
+                aal.input_data,
+                aal.output_data,
+                aal.error_message,
+                aal.created_at
+            FROM agent_action_logs aal
+            WHERE {where_sql}
+            ORDER BY aal.id DESC
+            LIMIT %s OFFSET %s;
+        """, tuple(params + [limit, offset]))
+        rows = cur.fetchall()
+
+        formatted = []
+        for r in rows:
+            dt_str = r['created_at'].strftime('%d %b %Y, %I:%M %p') if r.get('created_at') else 'Logged'
+            formatted.append({
+                "id": f"RUN-{r['id']}",
+                "agent": r['action_name'] or 'Clinical AI Agent',
+                "intent": r['intent'] or 'Clinical Optimization',
+                "status": r['status'] or 'COMPLETED',
+                "time": dt_str,
+                "details": r['output_data'] or r['input_data'] or ''
+            })
+
+        return {"success": True, "count": len(formatted), "data": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 

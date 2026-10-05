@@ -668,6 +668,8 @@ export default function App() {
               <AppointmentManagement
                 doctorName={role === 'Doctor' ? auth?.name : null}
                 userRole={role}
+                onSelectPatient={handleSelectPatient}
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
               />
             )}
             {activePage === 'ai-desk' && <AIPatientDesk />}

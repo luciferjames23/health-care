@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import SearchInput from './SearchInput';
 
 // Design tokens
 const cardStyle = {
@@ -138,6 +139,8 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
     }, 280);
     return () => clearTimeout(timer);
   }, [search]);
+
+  const isSearching = loading || (search.trim() !== debouncedSearch.trim());
 
   const fetchPrescriptions = async () => {
     const reqId = ++reqIdRef.current;
@@ -302,17 +305,42 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <span style={{ position: 'absolute', left: '10px', color: '#94a3b8', fontSize: '13px', pointerEvents: 'none' }}>
+            🔍
+          </span>
           <input
             type="text"
             placeholder="Search by Rx #, Patient, Doctor, or Drug..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
-              padding: '6px 30px 6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-              width: '280px', outline: 'none'
+              padding: '7px 56px 7px 32px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: isSearching ? '1px solid #0f766e' : '1px solid #cbd5e1',
+              width: '320px',
+              outline: 'none',
+              boxShadow: isSearching ? '0 0 0 2px rgba(15, 118, 110, 0.15)' : 'none',
+              transition: 'border-color 0.2s, box-shadow 0.2s'
             }}
           />
+          {isSearching && (
+            <span
+              style={{
+                position: 'absolute',
+                right: search ? '28px' : '10px',
+                display: 'inline-block',
+                width: '14px',
+                height: '14px',
+                border: '2px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite'
+              }}
+              title="Searching prescriptions..."
+            />
+          )}
           {search && (
             <button
               type="button"
@@ -330,18 +358,89 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
       </div>
 
       {/* Main Table */}
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading && data.length === 0 ? (
-          <div style={{ padding: '16px' }}>
-            <ModuleLoadingScreen
-              title="Loading Inpatient Prescriptions..."
-              subtitle="Retrieving active patient prescriptions, drug orders, and clinical dosage schedules..."
-              badgeText="Live Pharmacy Sync"
-              showKpis={false}
-              tableRows={8}
-              tableColumns={8}
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', position: 'relative' }}>
+        {/* Top Slim Loading Progress Bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'linear-gradient(90deg, #0f766e, #14b8a6, #2dd4bf, #0f766e)',
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 1.2s infinite linear',
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching Overlay when data exists but search is loading */}
+        {(loading || isSearching) && data.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(255, 255, 255, 0.65)',
+              backdropFilter: 'blur(1.5px)',
+              zIndex: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#0f766e'
+            }}
+          >
+            <div
+              style={{
+                width: '18px',
+                height: '18px',
+                border: '2.5px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.7s linear infinite'
+              }}
             />
+            <span>Filtering prescriptions in database...</span>
           </div>
+        )}
+
+        {(loading || isSearching) && data.length === 0 ? (
+          search ? (
+            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#0f766e' }}>
+              <div
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  border: '3px solid #0f766e',
+                  borderTopColor: 'transparent',
+                  borderRadius: '50%',
+                  animation: 'spin 0.7s linear infinite',
+                  margin: '0 auto 12px'
+                }}
+              />
+              <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
+                Searching Prescriptions...
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                Querying PostgreSQL database records for &ldquo;{search}&rdquo;...
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Inpatient Prescriptions..."
+                subtitle="Retrieving active patient prescriptions, drug orders, and clinical dosage schedules..."
+                badgeText="Live Pharmacy Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={8}
+              />
+            </div>
+          )
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No prescription records found matching current query.
@@ -669,15 +768,14 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search generic, brand, category, or code..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search generic, brand, category, or code..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -939,30 +1037,15 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <div style={{ position: 'relative', width: '280px' }}>
-          <input
-            type="text"
-            placeholder="Search by sale #, patient, Rx #..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{
-              padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-              width: '100%', outline: 'none', boxSizing: 'border-box'
-            }}
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              style={{
-                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-                background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '14px'
-              }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
+          placeholder="Search by sale #, patient, Rx #..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
+        />
       </div>
 
       {/* Main Table */}
@@ -1308,15 +1391,14 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search batch #, drug, location, supplier..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search batch #, drug, location, supplier..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -1937,15 +2019,14 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search PO #, vendor, items..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search PO #, vendor, items..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -2170,15 +2251,14 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search vendor name, GSTIN, category, or contact..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search vendor name, GSTIN, category, or contact..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -2432,15 +2512,14 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search cycle #, equipment, surgical pack, operator..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search cycle #, equipment, surgical pack, operator..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 

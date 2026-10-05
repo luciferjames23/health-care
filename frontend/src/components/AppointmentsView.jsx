@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { apiService } from "../services/api";
+import SearchInput from "./SearchInput";
 
 function getAppointmentStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Scheduled" };
@@ -17,7 +18,23 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
   const [loading, setLoading] = useState(false);
   const [appointments, setAppointments] = useState([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [filter, setFilter] = useState("All");
+
+  useEffect(() => {
+    if (search.trim()) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        setDebouncedSearch(search);
+        setIsSearching(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedSearch("");
+      setIsSearching(false);
+    }
+  }, [search]);
 
   useEffect(() => {
     let alive = true;
@@ -81,10 +98,10 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
     else if (filter === "Confirmed") list = list.filter(a => String(a.status || "").toLowerCase().includes("confirmed"));
     else if (filter === "Pending") list = list.filter(a => String(a.status || "").toLowerCase().includes("pending"));
     
-    if (!search.trim()) return list;
-    const s = search.toLowerCase();
+    if (!debouncedSearch.trim()) return list;
+    const s = debouncedSearch.toLowerCase();
     return list.filter(a => [a.patient_name, a.appointment_number, a.doctor_name, a.department].some(v => v && v.toLowerCase().includes(s)));
-  }, [appointments, filter, search]);
+  }, [appointments, filter, debouncedSearch]);
 
   const exportCsv = () => {
     if (!filteredRows.length) return alert("No appointments to export");
@@ -109,8 +126,15 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search appointments…"
-            style={{ height: "30px", width: "220px", border: "1px solid #e3e6e8", borderRadius: "6px", padding: "0 10px", fontSize: "12px", outline: "none" }} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch("")}
+            placeholder="Search appointments…"
+            loading={isSearching || loading}
+            width="240px"
+            accentColor="#0284c7"
+          />
           <button type="button" onClick={exportCsv}
             style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
@@ -129,7 +153,55 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
         ))}
       </div>
 
-      <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
+      <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto", position: "relative" }}>
+        {/* Shimmer loading progress bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: "3px",
+              background: "linear-gradient(90deg, #0284c7, #38bdf8, #7dd3fc, #0284c7)",
+              backgroundSize: "200% 100%",
+              animation: "shimmer 1.2s infinite linear",
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching overlay */}
+        {(loading || isSearching) && filteredRows.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(255, 255, 255, 0.6)",
+              backdropFilter: "blur(1px)",
+              zIndex: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "#0284c7"
+            }}
+          >
+            <div
+              style={{
+                width: "16px",
+                height: "16px",
+                border: "2px solid #0284c7",
+                borderTopColor: "transparent",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite"
+              }}
+            />
+            <span>Filtering appointments...</span>
+          </div>
+        )}
         {loading ? (
           <div style={{ padding: "32px", textAlign: "center", color: "#8a9096" }}>Loading appointments…</div>
         ) : filteredRows.length === 0 ? (

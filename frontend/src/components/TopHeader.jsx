@@ -57,10 +57,17 @@ export default function TopHeader({
   const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
   const liveTimeStr = `${String(hours12).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${ampm}`;
 
-  const handleAskSubmit = (e) => {
+  const [askingLoading, setAskingLoading] = React.useState(false);
+
+  const handleAskSubmit = async (e) => {
     e.preventDefault();
     if (askInput.trim() && onAskAi) {
-      onAskAi(askInput.trim());
+      setAskingLoading(true);
+      try {
+        await onAskAi(askInput.trim());
+      } finally {
+        setTimeout(() => setAskingLoading(false), 800);
+      }
     }
   };
 
@@ -157,18 +164,36 @@ export default function TopHeader({
         </div>
 
         {/* AI search */}
-        <form onSubmit={handleAskSubmit} style={{ flex: '1 1 240px', maxWidth: '460px', display: 'flex' }}>
+        <form onSubmit={handleAskSubmit} style={{ flex: '1 1 240px', maxWidth: '460px', display: 'flex', position: 'relative', alignItems: 'center' }}>
           <input
             value={askInput}
             onChange={e => setAskInput(e.target.value)}
             placeholder={`Ask Hospital AI — “Which patients are blocked from discharge and why?”`}
             style={{
-              width: '100%', height: '30px', border: '1px solid #e3e6e8', borderRadius: '8px',
-              padding: '0 10px 0 28px',
+              width: '100%', height: '30px', border: askingLoading ? '1px solid oklch(0.5 0.1 300)' : '1px solid #e3e6e8', borderRadius: '8px',
+              padding: '0 34px 0 28px',
               background: '#f6f7f8 no-repeat 10px center/8px 8px radial-gradient(circle,oklch(0.5 0.1 300) 0 4px,transparent 4.5px)',
-              fontSize: '11.5px', outline: 'none'
+              fontSize: '11.5px', outline: 'none',
+              boxShadow: askingLoading ? '0 0 0 2px rgba(168, 85, 247, 0.15)' : 'none',
+              transition: 'border-color 0.2s, box-shadow 0.2s'
             }}
           />
+          {askingLoading && (
+            <span
+              style={{
+                position: 'absolute',
+                right: '42px',
+                display: 'inline-block',
+                width: '13px',
+                height: '13px',
+                border: '2px solid oklch(0.5 0.1 300)',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite'
+              }}
+              title="Querying Hospital AI..."
+            />
+          )}
           <button
             type="button"
             onClick={() => { setAskInput('Which patients are currently blocked from discharge and why?'); if (onAskAi) onAskAi('Which patients are currently blocked from discharge and why?'); }}

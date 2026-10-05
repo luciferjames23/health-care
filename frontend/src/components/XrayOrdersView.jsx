@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
 import { apiService } from '../services/api';
+import SearchInput from './SearchInput';
 
 /**
  * XrayOrdersView — Standalone "Request an X-Ray" page accessible from the sidebar.
@@ -72,22 +73,16 @@ export default function XrayOrdersView({ userRole, doctorName, onSelectPatient }
             🔍 Select Patient
           </div>
           <div style={{ position: 'relative' }}>
-            <input
-              type="text"
+            <SearchInput
               value={search}
               onChange={e => setSearch(e.target.value)}
+              onClear={() => { setSearch(''); setPatients([]); }}
               placeholder="Search by name, MRN, or encounter…"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                height: '36px', padding: '0 12px', fontSize: '13px',
-                border: '1px solid #d0d4d8', borderRadius: '7px', outline: 'none',
-              }}
+              loading={searching}
+              width="100%"
+              height="36px"
+              accentColor="#0284c7"
             />
-            {searching && (
-              <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#94a3b8' }}>
-                Searching…
-              </span>
-            )}
             {patients.length > 0 && (
               <div style={{
                 position: 'absolute', top: '40px', left: 0, right: 0, zIndex: 20,

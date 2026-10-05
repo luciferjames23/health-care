@@ -34,10 +34,10 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       }
       try {
         const results = await Promise.allSettled([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }),
-          apiService.getDischargedPatients({}, { forceRefresh: true }),
-          apiService.getBedManagementData({}, { forceRefresh: true }),
-          apiService.getExecutiveKpis({}, { forceRefresh: true })
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }),
+          apiService.getDischargedPatients({}),
+          apiService.getBedManagementData({}),
+          apiService.getExecutiveKpis({})
         ]);
 
         if (!isMounted) return;

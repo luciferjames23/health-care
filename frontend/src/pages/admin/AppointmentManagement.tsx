@@ -106,11 +106,15 @@ function getStatusBadge(status: string) {
 interface AppointmentManagementProps {
   doctorName?: string | null;
   userRole?: string;
+  onSelectPatient?: (patient: any) => void;
+  onNavigate?: (page: string, patient?: any) => void;
 }
 
 const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
-  userRole = 'Hospital Management'
+  userRole = 'Hospital Management',
+  onSelectPatient,
+  onNavigate
 }) => {
   const { user: authUser } = useAuth();
   const user = authUser || (() => {
@@ -583,8 +587,39 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: 'oklch(0.4 0.1 200)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       {a.booking_id}
                     </td>
-                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
-                      <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{a.patient_name}</div>
+                    <td 
+                      style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle', cursor: (onSelectPatient || onNavigate) ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        const patObj = {
+                          id: a.patient_id,
+                          patient_id: a.patient_id,
+                          name: a.patient_name,
+                          patient_name: a.patient_name,
+                          patient_code: a.patient_code,
+                          uhid: a.patient_code,
+                          mrn: a.patient_code,
+                          phone: a.patient_phone,
+                          doctor: a.doctor_name,
+                          department: a.department_name,
+                          status: a.status,
+                          patient_type: 'OP',
+                          _type: 'OP'
+                        };
+                        if (onSelectPatient) onSelectPatient(patObj);
+                        else if (onNavigate) onNavigate('patient360', patObj);
+                      }}
+                    >
+                      <div 
+                        style={{ 
+                          fontWeight: 600, 
+                          color: (onSelectPatient || onNavigate) ? 'oklch(0.4 0.1 200)' : '#15181b', 
+                          whiteSpace: 'nowrap',
+                          textDecoration: (onSelectPatient || onNavigate) ? 'underline' : 'none'
+                        }}
+                        title="Click to view Patient 360"
+                      >
+                        {a.patient_name}
+                      </div>
                       <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap', marginTop: '1px' }}>
                         {a.patient_code} · {a.patient_phone}
                       </div>

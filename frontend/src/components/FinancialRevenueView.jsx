@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { financialApi } from "../services/financialApi";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
+import SearchInput from "./SearchInput";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
@@ -789,8 +790,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         </div>
 
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            type="text"
+          <SearchInput
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -799,17 +799,22 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
               else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
             }}
-            placeholder="Search…"
-            style={{
-              height: "30px",
-              width: "220px",
-              border: `1px solid ${PALETTE.border}`,
-              borderRadius: "6px",
-              padding: "0 10px",
-              background: "#fff",
-              outline: "none",
-              fontSize: "12px"
+            onClear={() => {
+              setSearchQuery('');
+              if (activeTab === "billing") { setBillPage(1); setLoadingBills(true); }
+              else if (activeTab === "insurance") { setPreauthPage(1); setLoadingPreauth(true); }
+              else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
+              else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
             }}
+            placeholder="Search…"
+            loading={
+              (activeTab === "billing" && loadingBills) ||
+              (activeTab === "insurance" && loadingPreauth) ||
+              (activeTab === "claims" && loadingClaims) ||
+              (activeTab === "finance" && loadingDashboard)
+            }
+            width="220px"
+            accentColor="oklch(0.5 0.1 200)"
           />
           <button
             type="button"

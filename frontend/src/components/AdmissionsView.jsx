@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import SearchInput from './SearchInput';
 
 export default function AdmissionsView({
   onSelectPatient,
@@ -16,9 +17,25 @@ export default function AdmissionsView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [selectedType, setSelectedType] = useState('All');
   const [selectedWard, setSelectedWard] = useState('All');
   const [wardOptions, setWardOptions] = useState([]);
+
+  useEffect(() => {
+    if (search.trim()) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        setDebouncedSearch(search);
+        setIsSearching(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedSearch('');
+      setIsSearching(false);
+    }
+  }, [search]);
 
   useEffect(() => {
     let isMounted = true;
@@ -29,10 +46,10 @@ export default function AdmissionsView({
       setError(null);
       try {
         const [admRes, bedsRes, wardsRes, dcRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getBeds({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getWards({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
+          apiService.getBeds({}).catch(() => ({ data: [] })),
+          apiService.getWards({}).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}).catch(() => ({ data: [] }))
         ]);
 
         if (!isMounted) return;
@@ -102,7 +119,7 @@ export default function AdmissionsView({
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedType, selectedWard, pageSize]);
+  }, [debouncedSearch, selectedType, selectedWard, pageSize]);
 
   const scopedAdmissions = useMemo(() => {
     if (!activeDoctorName) return admissions;
@@ -128,8 +145,8 @@ export default function AdmissionsView({
         return false;
       }
       // Search
-      if (!search.trim()) return true;
-      const s = search.toLowerCase();
+      if (!debouncedSearch.trim()) return true;
+      const s = debouncedSearch.toLowerCase();
       return (item.name && item.name.toLowerCase().includes(s)) ||
              (item.mrn && item.mrn.toLowerCase().includes(s)) ||
              (item.admission_number && item.admission_number.toLowerCase().includes(s)) ||
@@ -141,7 +158,7 @@ export default function AdmissionsView({
              (item.bed && item.bed.toLowerCase().includes(s)) ||
              (item.ward && item.ward.toLowerCase().includes(s));
     });
-  }, [scopedAdmissions, selectedType, selectedWard, search]);
+  }, [scopedAdmissions, selectedType, selectedWard, debouncedSearch]);
 
   // KPIs dynamically derived from DB
   const totalAdmissions = scopedAdmissions.length;
@@ -325,20 +342,67 @@ export default function AdmissionsView({
           </select>
         </div>
 
-        <input
-          type="text"
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
           placeholder="Search patient, MRN, admission #, doctor, bed..."
-          style={{
-            height: '30px', width: '280px', border: '1px solid #e3e6e8',
-            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
-          }}
+          loading={isSearching || loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
       {/* Admissions Table */}
-      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+        {/* Shimmer loading progress bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'linear-gradient(90deg, #0f766e, #14b8a6, #2dd4bf, #0f766e)',
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 1.2s infinite linear',
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching overlay */}
+        {(loading || isSearching) && filteredAdmissions.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(255, 255, 255, 0.6)',
+              backdropFilter: 'blur(1px)',
+              zIndex: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#0f766e'
+            }}
+          >
+            <div
+              style={{
+                width: '16px',
+                height: '16px',
+                border: '2px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite'
+              }}
+            />
+            <span>Filtering admissions...</span>
+          </div>
+        )}
         {loading && admissions.length === 0 ? (
           <div style={{ padding: '12px' }}>
             <TableSkeleton rows={7} columns={8} />
@@ -377,11 +441,11 @@ export default function AdmissionsView({
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ fontWeight: 600, color: '#15181b', fontSize: '12.5px' }}>{a.name}</div>
                         <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                          {a.age} Yrs / {a.sex} · Blood: {a.bloodGroup}
+                          {a.age} Yrs / {a.sex} · Blood: {a.bloodGroup} · {a.patient_number || a.uhid || a.mrn}
                         </div>
                       </td>
                       <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
-                        {a.mrn || `ADM-${a.admission_id}`}
+                        {a.admission_number || (a.admission_id ? `MER-ADM-${String(a.admission_id).padStart(7, '0')}` : '—')}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ marginBottom: '3px' }}>

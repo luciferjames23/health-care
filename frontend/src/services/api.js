@@ -218,7 +218,10 @@ export const apiService = {
   },
 
   async getExecutiveKpis(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/executive-kpis`, { ...options, forceRefresh: true });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/executive-kpis`, {
+      revalidateMs: 3000,
+      ...options
+    });
   },
 
   async getClinicalPatients(params = {}, options = {}) {
@@ -1054,8 +1057,19 @@ export const apiService = {
     return data;
   },
 
-  async getEmarRecords(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+  async getEmarRecords(paramsOrOptions = {}, maybeOptions = {}) {
+    let params = {};
+    let options = {};
+    if (paramsOrOptions && (paramsOrOptions.patient_id || paramsOrOptions.forceRefresh === undefined)) {
+      params = paramsOrOptions;
+      options = maybeOptions;
+    } else {
+      options = paramsOrOptions;
+    }
+    const q = new URLSearchParams();
+    if (params.patient_id) q.append('patient_id', params.patient_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar${qs}`, {
       forceRefresh: true,
       ...options,
       revalidateMs: 0
@@ -1313,9 +1327,9 @@ export const apiService = {
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions?${q.toString()}`, {
-      ...options,
       forceRefresh: Boolean(params.search),
-      revalidateMs: params.search ? 0 : 2000
+      revalidateMs: params.search ? 0 : 2000,
+      ...options
     });
   },
 
@@ -1589,12 +1603,67 @@ export const apiService = {
     });
   },
 
-  async getPatientAppointments(patientId, options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/patients/${patientId}/appointments`, {
+  async getDashboardAppointments(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.status) query.append('status', params.status);
+    if (params.department) query.append('department', params.department);
+    if (params.doctor_id) query.append('doctor_id', params.doctor_id);
+    if (params.booking_source) query.append('booking_source', params.booking_source);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
+    if (params.page) query.append('page', params.page);
+    if (params.per_page) query.append('per_page', params.per_page);
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/appointments?${query.toString()}`, {
       ...options,
       revalidateMs: 2000
     });
   },
+
+  async getPatientAppointments(patientId, options = {}) {
+    if (!patientId) return [];
+    return await fetchCachedJson(`${API_BASE_URL}/api/patients/${encodeURIComponent(patientId)}/appointments`, {
+      forceRefresh: true,
+      ...options,
+      revalidateMs: 1000
+    });
+  },
+
+  async getPatientCommunications(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/communications?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientFeedback(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/feedback?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientDocuments(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/documents?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientConsent(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/consent?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientAiActivity(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/ai-activity?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
 
   // ── Patient Portal Endpoints (Authenticated Token-Bound) ───────────────
   async getPatientPortalDashboard(options = {}) {
