@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  AlertTriangle, RefreshCw, CheckCircle, Clock, ChevronLeft, ChevronRight,
+  AlertTriangle, RefreshCw, CheckCircle, Clock,
   MessageSquare, User, Phone
 } from 'lucide-react';
 import { fetchEscalations, updateEscalationStatus, type Escalation } from '../../services/dashboardApi';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import TablePagination from '../../components/TablePagination';
 
 const STATUS_COLORS: Record<string, { badge: string; label: string }> = {
   OPEN: { badge: 'cancelled', label: '🔴 Open' },
@@ -17,6 +18,7 @@ const EscalationPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -34,7 +36,7 @@ const EscalationPage: React.FC = () => {
       const res = await fetchEscalations({
         status: statusFilter || undefined,
         page,
-        per_page: 15,
+        per_page: perPage,
       });
       setEscalations(res.escalations);
       setTotal(res.total);
@@ -42,7 +44,7 @@ const EscalationPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, page]);
+  }, [statusFilter, page, perPage]);
 
   useEffect(() => {
     loadEscalations();
@@ -275,20 +277,14 @@ const EscalationPage: React.FC = () => {
           )}
         </div>
 
-        <div className="pagination" style={{ padding: '16px 22px' }}>
-          <span className="pagination-info">
-            {loading ? 'Loading...' : `${total} escalation(s) total`}
-          </span>
-          <div className="pagination-buttons">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft size={14} /></button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const pg = i + Math.max(1, page - 3);
-              if (pg > totalPages) return null;
-              return <button key={pg} className={page === pg ? 'active' : ''} onClick={() => setPage(pg)}>{pg}</button>;
-            })}
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight size={14} /></button>
-          </div>
-        </div>
+        <TablePagination
+          total={total}
+          page={page}
+          pageSize={perPage}
+          onPageChange={setPage}
+          onPageSizeChange={(sz: number) => { setPerPage(sz); setPage(1); }}
+          label="escalations"
+        />
       </div>
 
       {/* Resolve Modal */}

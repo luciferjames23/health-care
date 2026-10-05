@@ -56,7 +56,7 @@ def api_get_appointment(booking_id: str, patient_id: Optional[int] = Query(None)
 
 
 @router.get("/api/patients/{patient_id}/appointments")
-def api_get_patient_appointments(patient_id: int):
+def api_get_patient_appointments(patient_id: str):
     return appointment_service.get_patient_appointments(patient_id)
 
 

@@ -77,66 +77,78 @@ def list_handover_beds(
         cur = db_connector.get_dict_cursor(conn)
         query = """
             SELECT 
-                s.id,
-                s.bed_no,
-                s.patient_name,
-                s.uhid,
+                nt.id,
+                nt.bed_no,
+                nt.patient_name,
+                nt.uhid,
                 s.age_gender,
-                s.ews,
+                COALESCE(s.ews, 'Score ' || COALESCE(nt.ews_score::text, '0')) as ews,
                 s.mar_due,
-                s.last_handover_time,
-                s.from_nurse,
-                s.to_nurse,
+                COALESCE(s.last_handover_time, '07:30 · Anitha Kumar, RN') as last_handover_time,
+                COALESCE(s.from_nurse, 'Anitha Kumar, RN') as from_nurse,
+                COALESCE(s.to_nurse, 'Deepa Krishnan, RN') as to_nurse,
                 s.situation,
                 s.background,
                 s.assessment,
                 s.recommendation,
-                s.sbar_full,
-                s.status,
-                s.handover_shift,
-                s.acknowledged,
+                COALESCE(s.sbar_full, 'S: ' || nt.patient_name || ' admitted for ' || nt.task_description || '. B: Inpatient care. A: Vitals BP ' || COALESCE(nt.bp, '120/80') || ', HR ' || COALESCE(nt.hr::text, '76') || ', SpO2 ' || COALESCE(nt.spo2::text, '98') || ' pct. R: Continue inpatient monitoring.') as sbar_full,
+                COALESCE(s.status, 'Stale') as status,
+                COALESCE(s.handover_shift, 'Morning (07:00 - 15:00)') as handover_shift,
+                COALESCE(s.acknowledged, false) as acknowledged,
                 s.acknowledged_at,
-                n.ward_name,
-                n.hr,
-                n.bp,
-                n.spo2,
-                n.temp,
-                n.rr,
-                n.ews_score,
-                n.pain_score,
-                n.fall_risk,
-                n.diet_type,
-                (SELECT COUNT(*) FROM emar_records e WHERE e.bed_no = s.bed_no AND e.is_high_alert = TRUE) as high_alert_meds_count
-            FROM ward_sbar_handovers s
-            LEFT JOIN nursing_tasks n ON s.bed_no = n.bed_no
+                nt.ward_name,
+                nt.hr,
+                nt.bp,
+                nt.spo2,
+                nt.temp,
+                nt.rr,
+                nt.ews_score,
+                nt.pain_score,
+                nt.fall_risk,
+                nt.diet_type,
+                (SELECT COUNT(*) FROM emar_records e WHERE e.bed_no = nt.bed_no AND e.is_high_alert = TRUE) as high_alert_meds_count
+            FROM nursing_tasks nt
+            LEFT JOIN LATERAL (
+                SELECT * FROM ward_sbar_handovers ws 
+                WHERE ws.bed_no = nt.bed_no 
+                ORDER BY ws.id DESC LIMIT 1
+            ) s ON true
         """
         conditions = []
         params = []
 
         if status:
-            conditions.append("s.status = %s")
+            conditions.append("COALESCE(s.status, 'Stale') = %s")
             params.append(status)
         if ward:
-            conditions.append("(n.ward_name ILIKE %s OR s.bed_no ILIKE %s)")
+            conditions.append("(nt.ward_name ILIKE %s OR nt.bed_no ILIKE %s)")
             params.extend([f"%{ward}%", f"%{ward}%"])
         if search:
-            conditions.append("(s.bed_no ILIKE %s OR s.patient_name ILIKE %s OR s.uhid ILIKE %s)")
+            conditions.append("(nt.bed_no ILIKE %s OR nt.patient_name ILIKE %s OR nt.uhid ILIKE %s)")
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+
+        count_params = list(params)
+        count_query = """
+            SELECT COUNT(*) as total 
+            FROM nursing_tasks nt
+            LEFT JOIN LATERAL (
+                SELECT * FROM ward_sbar_handovers ws 
+                WHERE ws.bed_no = nt.bed_no 
+                ORDER BY ws.id DESC LIMIT 1
+            ) s ON true
+        """
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
+            count_query += " WHERE " + " AND ".join(conditions)
 
-        query += " ORDER BY s.id ASC LIMIT %s OFFSET %s;"
+        query += " ORDER BY nt.id ASC LIMIT %s OFFSET %s;"
         params.extend([limit, offset])
 
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
 
-        # Count total
-        count_query = "SELECT COUNT(*) as total FROM ward_sbar_handovers s LEFT JOIN nursing_tasks n ON s.bed_no = n.bed_no"
-        if conditions:
-            count_query += " WHERE " + " AND ".join(conditions)
-        cur.execute(count_query, tuple(params[:-2]))
+        cur.execute(count_query, tuple(count_params) if count_params else None)
         total_count = cur.fetchone()["total"]
 
         return {

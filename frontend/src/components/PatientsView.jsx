@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, UserPlus, Check
 import { apiService, parseAdmissionLlmRecord, parseDischargeSummaryRecord, extractDischargedPatientIds, matchesDoctor, cleanDiagnosis, cleanDoctorName } from "../services/api";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import PatientRegistrationModal from "./PatientRegistrationModal";
+import SearchInput from "./SearchInput";
+import TablePagination from "./TablePagination";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -40,6 +42,16 @@ export default function PatientsView({
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? (doctorName || currentUser?.name || null) : null;
 
+  const authUser = useMemo(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const activeDoctorId = isDoctor ? (authUser.doctorId || authUser.doctor_id || null) : null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [admitted, setAdmitted] = useState([]);
@@ -47,6 +59,8 @@ export default function PatientsView({
   const [opPatients, setOpPatients] = useState([]);
   const [erPatients, setErPatients] = useState([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [filter, setFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -54,8 +68,22 @@ export default function PatientsView({
   const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
+    if (search.trim()) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        setDebouncedSearch(search);
+        setIsSearching(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedSearch("");
+      setIsSearching(false);
+    }
+  }, [search]);
+
+  useEffect(() => {
     setCurrentPage(1);
-  }, [filter, search, activeDoctorName]);
+  }, [filter, debouncedSearch, activeDoctorName, activeDoctorId]);
 
   useEffect(() => {
     let alive = true;
@@ -65,17 +93,17 @@ export default function PatientsView({
       }
       setError(null);
       try {
-        const [ar, dr, opRes, erRes, allDirRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ALL' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+        const [ar, dr, opRes, erRes] = await Promise.all([
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP' }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER' }).catch(() => ({ data: [] })),
         ]);
+        const allDirRes = { data: [] };
         if (!alive) return;
 
-        const rawDischarges = dr?.data || [];
-        const rawAdmissions = ar?.data || [];
+        const rawDischarges = Array.isArray(dr) ? dr : (dr?.data || []);
+        const rawAdmissions = Array.isArray(ar) ? ar : (ar?.data || []);
 
         const dischargeMapByPid = {};
         const dischargeMapByAid = {};
@@ -194,31 +222,40 @@ export default function PatientsView({
         });
 
         // 3. Outpatient (OP) Records from Live Directory API
-        const parsedOp = (opRes?.data || []).map(r => ({
-          patient_id: r.patient_id,
-          id: r.patient_id,
-          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
-          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
-          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
-          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-          age: r.age || 40,
-          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
-          gender: r.gender || 'Male',
-          language: r.preferred_language || 'English',
-          department: r.department || 'Outpatient Clinic',
-          doctor: cleanDoctorName(r.doctor || 'Consultant Doctor'),
-          insurer: r.insurer || 'Direct / Outpatient',
-          status: r.status || 'CONFIRMED',
-          _status: r.status || 'CONFIRMED',
-          diagnosis: cleanDiagnosis(r.diagnosis || 'Outpatient Consultation'),
-          _type: "OP",
-          appointment_date: r.admission_date,
-          appointment_time: r.appointment_time
-        }));
+        const rawOpList = Array.isArray(opRes) ? opRes : (opRes?.data || []);
+        const seenOpPids = new Set();
+        const parsedOp = [];
+        rawOpList.forEach(r => {
+          const pid = String(r.patient_id || r.id || '').trim();
+          if (pid && seenOpPids.has(pid)) return;
+          if (pid) seenOpPids.add(pid);
+          parsedOp.push({
+            patient_id: r.patient_id,
+            id: r.patient_id,
+            uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+            patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+            patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'OPD-0000'),
+            name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+            patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+            age: r.age || 40,
+            sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+            gender: r.gender || 'Male',
+            language: r.preferred_language || 'English',
+            department: r.department || 'Outpatient Clinic',
+            doctor: cleanDoctorName(r.doctor || 'Consultant Doctor'),
+            insurer: r.insurer || r.insurance_provider || 'Self-Pay',
+            status: r.status || 'CONFIRMED',
+            _status: r.status || 'CONFIRMED',
+            diagnosis: cleanDiagnosis(r.diagnosis || 'Outpatient Consultation'),
+            _type: "OP",
+            appointment_date: r.admission_date,
+            appointment_time: r.appointment_time
+          });
+        });
 
         // 4. Emergency (ER) Records from Live Directory API
-        const parsedEr = (erRes?.data || []).map(r => ({
+        const rawErList = Array.isArray(erRes) ? erRes : (erRes?.data || []);
+        const parsedEr = rawErList.map(r => ({
           patient_id: r.patient_id,
           id: r.patient_id,
           uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
@@ -310,21 +347,24 @@ export default function PatientsView({
     let baseEr = erPatients;
     let baseDischarged = discharged;
 
-    if (activeDoctorName) {
-      baseAdmitted = baseAdmitted.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseOp = baseOp.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseEr = baseEr.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
-      baseDischarged = baseDischarged.filter(p => matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName));
+    if (activeDoctorName || activeDoctorId) {
+      baseAdmitted = baseAdmitted.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseOp = baseOp.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseEr = baseEr.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
+      baseDischarged = baseDischarged.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
     }
 
+    const allCombined = [...baseAdmitted, ...baseOp, ...baseEr, ...baseDischarged];
+    const uniqueAllPids = new Set(allCombined.map(p => String(p.patient_id || p.id || '').trim()).filter(Boolean));
+
     return {
-      All: baseAdmitted.length + baseOp.length + baseEr.length + baseDischarged.length,
+      All: uniqueAllPids.size || allCombined.length,
       IP: baseAdmitted.length,
       OP: baseOp.length,
       ER: baseEr.length,
       Discharged: baseDischarged.length,
     };
-  }, [admitted, opPatients, erPatients, discharged, activeDoctorName]);
+  }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
 
   const rows = useMemo(() => {
     let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients, ...discharged]
@@ -334,14 +374,26 @@ export default function PatientsView({
             : filter === "Discharged" ? discharged
               : [...admitted, ...opPatients, ...erPatients, ...discharged].filter(p => p._type === filter);
 
-    if (activeDoctorName) {
+    if (filter === "All") {
+      const seenPids = new Set();
+      list = list.filter(p => {
+        const pid = String(p.patient_id || p.id || '').trim();
+        if (pid) {
+          if (seenPids.has(pid)) return false;
+          seenPids.add(pid);
+        }
+        return true;
+      });
+    }
+
+    if (activeDoctorName || activeDoctorId) {
       list = list.filter(p =>
-        matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)
+        (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName))
       );
     }
 
-    if (!search.trim()) return list;
-    const s = search.toLowerCase().trim();
+    if (!debouncedSearch.trim()) return list;
+    const s = debouncedSearch.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
 
     return list.filter(p => {
@@ -376,7 +428,7 @@ export default function PatientsView({
         phone.includes(s)
       );
     });
-  }, [admitted, opPatients, erPatients, discharged, filter, search, activeDoctorName]);
+  }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName]);
 
   const total = admitted.length + opPatients.length + erPatients.length + discharged.length;
   const totalRows = rows.length;
@@ -415,8 +467,15 @@ export default function PatientsView({
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by Name, Patient ID, UHID..."
-            style={{ height: "30px", width: "240px", border: "1px solid #e3e6e8", borderRadius: "6px", padding: "0 10px", fontSize: "12px", outline: "none" }} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch("")}
+            placeholder="Search by Name, Patient ID, UHID..."
+            loading={isSearching || loading}
+            width="260px"
+            accentColor="#0284c7"
+          />
           <button type="button" onClick={exportCsv}
             style={{ height: "30px", padding: "0 12px", borderRadius: "6px", border: "1px solid #e3e6e8", background: "#fff", cursor: "pointer", fontSize: "12px" }}>
             Export CSV
@@ -464,7 +523,56 @@ export default function PatientsView({
       </div>
 
       {/* table */}
-      <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto" }}>
+      <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto", position: "relative" }}>
+        {/* Shimmer loading progress bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: "3px",
+              background: "linear-gradient(90deg, #0284c7, #38bdf8, #7dd3fc, #0284c7)",
+              backgroundSize: "200% 100%",
+              animation: "shimmer 1.2s infinite linear",
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching overlay */}
+        {(loading || isSearching) && rows.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(255, 255, 255, 0.6)",
+              backdropFilter: "blur(1px)",
+              zIndex: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "#0284c7"
+            }}
+          >
+            <div
+              style={{
+                width: "16px",
+                height: "16px",
+                border: "2px solid #0284c7",
+                borderTopColor: "transparent",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite"
+              }}
+            />
+            <span>Filtering patient directory...</span>
+          </div>
+        )}
+
         {loading && rows.length === 0 ? (
           <div style={{ padding: "16px" }}>
             <ModuleLoadingScreen
@@ -517,142 +625,14 @@ export default function PatientsView({
             })}
 
             {/* Pagination Controls Footer */}
-            <div style={{
-              padding: "10px 14px",
-              background: "#fafbfc",
-              borderTop: "1px solid #eef0f1",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "10px",
-              fontSize: "12px",
-              color: "#64748b"
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                <span>
-                  Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> patients
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                  <span style={{ fontSize: "11.5px", color: "#8a9096" }}>Per page:</span>
-                  {[15, 25, 50, 100].map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                      style={{
-                        height: "24px",
-                        padding: "0 8px",
-                        borderRadius: "4px",
-                        border: "1px solid",
-                        borderColor: pageSize === sz ? "#0284c7" : "#e2e8f0",
-                        background: pageSize === sz ? "#f0f9ff" : "#ffffff",
-                        color: pageSize === sz ? "#0369a1" : "#64748b",
-                        fontWeight: pageSize === sz ? 700 : 500,
-                        fontSize: "11px",
-                        cursor: "pointer"
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={safeCurrentPage <= 1}
-                  title="First Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronsLeft style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={safeCurrentPage <= 1}
-                  title="Previous Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage <= 1 ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage <= 1 ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronLeft style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <span style={{ padding: "0 8px", fontWeight: 600, color: "#0f172a", fontSize: "12px" }}>
-                  Page {safeCurrentPage} of {totalPages}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Next Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronRight style={{ width: "14px", height: "14px" }} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={safeCurrentPage >= totalPages}
-                  title="Last Page"
-                  style={{
-                    height: "28px",
-                    width: "28px",
-                    borderRadius: "6px",
-                    border: "1px solid #e2e8f0",
-                    background: "#ffffff",
-                    cursor: safeCurrentPage >= totalPages ? "not-allowed" : "pointer",
-                    opacity: safeCurrentPage >= totalPages ? 0.35 : 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#334155"
-                  }}
-                >
-                  <ChevronsRight style={{ width: "14px", height: "14px" }} />
-                </button>
-              </div>
-            </div>
+            <TablePagination
+              total={totalRows}
+              page={safeCurrentPage}
+              pageSize={pageSize}
+              onPageChange={(p) => setCurrentPage(p)}
+              onPageSizeChange={(sz) => setPageSize(sz)}
+              label="patients"
+            />
           </>
         )}
       </div>

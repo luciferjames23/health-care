@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, Eye, ChevronLeft, ChevronRight, RefreshCw, MessageSquare, UserPlus } from 'lucide-react';
+import { Search, Filter, Eye, RefreshCw, MessageSquare, UserPlus } from 'lucide-react';
 import { fetchPatients, type Patient } from '../../services/dashboardApi';
 import AddPatientModal from '../../components/AddPatientModal';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import TablePagination from '../../components/TablePagination';
 
 const PatientManagement: React.FC = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
   const [isAddPatientOpen, setIsAddPatientOpen] = useState(false);
-  const perPage = 15;
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [total, setTotal] = useState(0);
@@ -32,7 +33,7 @@ const PatientManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, page]);
+  }, [search, statusFilter, page, perPage]);
 
   useEffect(() => {
     const timer = setTimeout(loadPatients, 300);
@@ -165,22 +166,14 @@ const PatientManagement: React.FC = () => {
           )}
         </div>
 
-        <div className="pagination" style={{ padding: '16px 22px' }}>
-          <span className="pagination-info">
-            {loading ? 'Loading...' : `Showing ${Math.min((page - 1) * perPage + 1, total)}–${Math.min(page * perPage, total)} of ${total} patients`}
-          </span>
-          <div className="pagination-buttons">
-            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}><ChevronLeft size={14} /></button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const pg = i + Math.max(1, page - 3);
-              if (pg > totalPages) return null;
-              return (
-                <button key={pg} className={page === pg ? 'active' : ''} onClick={() => setPage(pg)}>{pg}</button>
-              );
-            })}
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight size={14} /></button>
-          </div>
-        </div>
+        <TablePagination
+          total={total}
+          page={page}
+          pageSize={perPage}
+          onPageChange={setPage}
+          onPageSizeChange={(sz: number) => { setPerPage(sz); setPage(1); }}
+          label="patients"
+        />
       </div>
 
       <AddPatientModal

@@ -218,7 +218,10 @@ export const apiService = {
   },
 
   async getExecutiveKpis(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/executive-kpis`, { ...options, forceRefresh: true });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/executive-kpis`, {
+      revalidateMs: 3000,
+      ...options
+    });
   },
 
   async getClinicalPatients(params = {}, options = {}) {
@@ -262,7 +265,7 @@ export const apiService = {
   },
 
   async getLiveForecasting(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-forecasting`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-forecasting`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   async getLiveScenarioBaseline(options = {}) {
@@ -274,12 +277,45 @@ export const apiService = {
   },
 
   async getLiveDataQuality(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-data-quality`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-data-quality`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   // Gold Summary
   async getGoldSummary(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/summary`, options);
+  },
+
+  // Employee Service Agent (AG-04)
+  async getEmployeeAgentProfile(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/profile`, options);
+  },
+
+  async getEmployeeShift(username = 'nurse.priya', date = 'tomorrow', options = {}) {
+    const p = new URLSearchParams({ username, date });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/shift?${p}`, options);
+  },
+
+  async getEmployeeLeaveBalance(username = 'nurse.priya', options = {}) {
+    const p = new URLSearchParams({ username });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/employee-agent/leave-balance?${p}`, options);
+  },
+
+  async applyEmployeeLeave(payload) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/employee-agent/apply-leave`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  },
+
+  async chatEmployeeAgent(payload) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/employee-agent/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
   },
 
   // Gold Table Schema
@@ -862,14 +898,25 @@ export const apiService = {
     if (params.offset) q.append('offset', params.offset);
     // Pass the current user role for role-based notification scoping on the backend
     if (params.role) q.append('role', params.role);
+    if (params.username) q.append('username', params.username);
+    if (params.user_name) q.append('user_name', params.user_name);
     const url = `${API_BASE_URL}/api/v1/admin/notifications${q.toString() ? '?' + q.toString() : ''}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notifications`);
     return await res.json();
   },
 
-  async getNotificationCounts(role = null, options = {}) {
-    const q = role ? `?role=${encodeURIComponent(role)}` : '';
+  async getNotificationCounts(roleOrParams = null, options = {}) {
+    let q = '';
+    if (typeof roleOrParams === 'string') {
+      q = `?role=${encodeURIComponent(roleOrParams)}`;
+    } else if (roleOrParams && typeof roleOrParams === 'object') {
+      const sp = new URLSearchParams();
+      if (roleOrParams.role) sp.append('role', roleOrParams.role);
+      if (roleOrParams.username) sp.append('username', roleOrParams.username);
+      if (roleOrParams.user_name) sp.append('user_name', roleOrParams.user_name);
+      q = sp.toString() ? `?${sp.toString()}` : '';
+    }
     const url = `${API_BASE_URL}/api/v1/admin/notifications/count${q}`;
     const res = await fetchWithTimeout(url, options);
     if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch notification counts`);
@@ -888,8 +935,13 @@ export const apiService = {
     return data;
   },
 
-  async markAllNotificationsRead() {
-    const url = `${API_BASE_URL}/api/v1/admin/notifications/mark-all-read`;
+  async markAllNotificationsRead(params = {}) {
+    const query = new URLSearchParams();
+    if (params.role) query.append('role', params.role);
+    if (params.username) query.append('username', params.username);
+    if (params.user_name) query.append('user_name', params.user_name);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const url = `${API_BASE_URL}/api/v1/admin/notifications/mark-all-read${qs}`;
     const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
@@ -1038,8 +1090,19 @@ export const apiService = {
     return data;
   },
 
-  async getEmarRecords(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar`, {
+  async getEmarRecords(paramsOrOptions = {}, maybeOptions = {}) {
+    let params = {};
+    let options = {};
+    if (paramsOrOptions && (paramsOrOptions.patient_id || paramsOrOptions.forceRefresh === undefined)) {
+      params = paramsOrOptions;
+      options = maybeOptions;
+    } else {
+      options = paramsOrOptions;
+    }
+    const q = new URLSearchParams();
+    if (params.patient_id) q.append('patient_id', params.patient_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/emar${qs}`, {
       forceRefresh: true,
       ...options,
       revalidateMs: 0
@@ -1220,6 +1283,108 @@ export const apiService = {
     return data;
   },
 
+  // -------------------------------------------------------------------------
+  // Doctor Desk & Administration APIs (/api/dashboard/...)
+  // -------------------------------------------------------------------------
+  async getDashboardDoctors(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/doctors`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async getDashboardDepartments(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/departments`, {
+      revalidateMs: 5000,
+      ...options
+    });
+  },
+
+  async getDashboardSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/summary`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async getDoctorSchedules(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.doctor_id) q.append('doctor_id', params.doctor_id);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/schedules${qs}`, {
+      revalidateMs: 2000,
+      ...options
+    });
+  },
+
+  async toggleDoctorStatus(doctorId, isActive) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ is_active: isActive })
+    });
+    if (!res.ok) throw new Error(`Failed to update doctor status: ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async createDoctor(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to create doctor: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async updateDoctor(doctorId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/doctors/${doctorId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to update doctor: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/doctors`, data);
+    return data;
+  },
+
+  async createDoctorSchedule(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to create doctor schedule: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
+  async deleteDoctorSchedule(scheduleId) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`Failed to delete schedule: ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
   // =========================================================================
   // AG-18 · NURSING HANDOVER AGENT (Groq openai/gpt-oss-120b)
   // =========================================================================
@@ -1297,9 +1462,9 @@ export const apiService = {
     if (params.limit) q.append('limit', params.limit);
     if (params.offset) q.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/pharmacy-supply/prescriptions?${q.toString()}`, {
-      ...options,
       forceRefresh: Boolean(params.search),
-      revalidateMs: params.search ? 0 : 2000
+      revalidateMs: params.search ? 0 : 2000,
+      ...options
     });
   },
 
@@ -1536,6 +1701,7 @@ export const apiService = {
     const query = new URLSearchParams();
     if (params.category) query.append('category', params.category);
     if (params.search) query.append('search', params.search);
+    if (params.doctor_id) query.append('doctor_id', params.doctor_id);
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/all-patients?${query.toString()}`, {
@@ -1572,12 +1738,67 @@ export const apiService = {
     });
   },
 
-  async getPatientAppointments(patientId, options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/patients/${patientId}/appointments`, {
+  async getDashboardAppointments(params = {}, options = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.status) query.append('status', params.status);
+    if (params.department) query.append('department', params.department);
+    if (params.doctor_id) query.append('doctor_id', params.doctor_id);
+    if (params.booking_source) query.append('booking_source', params.booking_source);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
+    if (params.page) query.append('page', params.page);
+    if (params.per_page) query.append('per_page', params.per_page);
+    return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/appointments?${query.toString()}`, {
       ...options,
       revalidateMs: 2000
     });
   },
+
+  async getPatientAppointments(patientId, options = {}) {
+    if (!patientId) return [];
+    return await fetchCachedJson(`${API_BASE_URL}/api/patients/${encodeURIComponent(patientId)}/appointments`, {
+      forceRefresh: true,
+      ...options,
+      revalidateMs: 1000
+    });
+  },
+
+  async getPatientCommunications(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/communications?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientFeedback(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/feedback?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientDocuments(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/documents?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientConsent(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/consent?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
+  async getPatientAiActivity(patientId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/ai-activity?patient_id=${patientId}`, {
+      ...options,
+      revalidateMs: 2000
+    });
+  },
+
 
   // ── Patient Portal Endpoints (Authenticated Token-Bound) ───────────────
   async getPatientPortalDashboard(options = {}) {

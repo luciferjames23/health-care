@@ -418,33 +418,75 @@ def get_appointment(booking_id, patient_id=None):
         cur.close()
         conn.close()
 
-def get_patient_appointments(patient_id: int, time_filter: str = "ALL"):
+def get_patient_appointments(patient_id, time_filter: str = "ALL"):
     """
-    Lists appointments for a given patient_id.
+    Lists appointments for a given patient_id (supports numeric ID, UHID patient code, or admission ID fallback).
     time_filter options: 'UPCOMING', 'PAST', 'NEXT', 'ALL'
     Returns structured list of appointments.
     """
     if not patient_id:
         return []
 
+    import re
+    pid_int = None
+    pcode_str = str(patient_id).strip()
+    m = re.search(r'\d+', pcode_str)
+    if m:
+        try:
+            pid_int = int(m.group(0).lstrip('0') or '0')
+        except Exception:
+            pid_int = None
+
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
+        target_pid = None
+
+        # 1. If a patient code like 'MER-PAT-...' or 'PAT-...' was given, resolve by patient_code
+        if pcode_str and ('PAT' in pcode_str.upper() or 'MRN' in pcode_str.upper() or 'UHID' in pcode_str.upper()):
+            cur.execute("SELECT id FROM patients WHERE LOWER(patient_code) = LOWER(%s) LIMIT 1;", (pcode_str,))
+            row = cur.fetchone()
+            if row:
+                target_pid = row[0]
+
+        # 2. If not found yet and pid_int is available, check direct match on patients or appointments
+        if target_pid is None and pid_int is not None:
+            cur.execute("SELECT 1 FROM appointments WHERE patient_id = %s LIMIT 1;", (pid_int,))
+            if cur.fetchone():
+                target_pid = pid_int
+            else:
+                cur.execute("SELECT id FROM patients WHERE id = %s LIMIT 1;", (pid_int,))
+                row = cur.fetchone()
+                if row:
+                    target_pid = row[0]
+                else:
+                    # 3. Fallback: Check if pid_int is an admission_id
+                    cur.execute("SELECT patient_id FROM admissions WHERE admission_id = %s LIMIT 1;", (pid_int,))
+                    adm_row = cur.fetchone()
+                    if adm_row:
+                        target_pid = adm_row[0]
+
+        if target_pid is None:
+            target_pid = pid_int
+
+        if target_pid is None:
+            return []
+
         query = """
             SELECT 
                 a.booking_id, a.appointment_date, a.appointment_time, a.status, a.patient_reason,
-                p.first_name || ' ' || p.last_name AS patient_name,
-                p.patient_code,
-                d.display_name AS doctor_name,
-                dept.department_name,
-                d.consultation_fee
+                COALESCE(NULLIF(p.first_name || ' ' || COALESCE(p.last_name, ''), ' '), 'Patient #' || a.patient_id) AS patient_name,
+                COALESCE(p.patient_code, 'MER-PAT-' || LPAD(a.patient_id::text, 7, '0')) AS patient_code,
+                COALESCE(d.display_name, 'Consulting Physician') AS doctor_name,
+                COALESCE(dept.department_name, d.specialization, 'General Medicine') AS department_name,
+                COALESCE(d.consultation_fee, 500.0) AS consultation_fee
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
             LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             WHERE a.patient_id = %s
         """
-        params = [patient_id]
+        params = [target_pid]
         tf_norm = (time_filter or "ALL").upper()
         if tf_norm == "UPCOMING":
             query += " AND a.appointment_date >= CURRENT_DATE ORDER BY a.appointment_date ASC, a.appointment_time ASC;"
@@ -453,8 +495,7 @@ def get_patient_appointments(patient_id: int, time_filter: str = "ALL"):
         elif tf_norm == "NEXT":
             query += " AND a.appointment_date >= CURRENT_DATE ORDER BY a.appointment_date ASC, a.appointment_time ASC LIMIT 1;"
         else:
-            # Default ALL: show upcoming first (ASC), then past (DESC)
-            query += " ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 10;"
+            query += " ORDER BY a.appointment_date DESC, a.appointment_time DESC LIMIT 50;"
 
         cur.execute(query, tuple(params))
         rows = cur.fetchall()
@@ -464,16 +505,16 @@ def get_patient_appointments(patient_id: int, time_filter: str = "ALL"):
             raw_time = r[2]
             formatted_time = raw_time.strftime("%H:%M") if hasattr(raw_time, "strftime") else str(raw_time)
             appointments.append({
-                "booking_id": r[0],
-                "appointment_date": str(r[1]),
+                "booking_id": r[0] or f"APT-{r[1]}",
+                "appointment_date": str(r[1]) if r[1] else "",
                 "appointment_time": formatted_time,
-                "status": r[3],
+                "status": r[3] or "Confirmed",
                 "patient_reason": r[4] or "General Consultation",
                 "patient_name": (r[5] or "").strip(),
                 "patient_code": r[6],
                 "doctor_name": (r[7] or "").replace("Dr. Dr.", "Dr.").strip(),
                 "department_name": r[8],
-                "consultation_fee": r[9]
+                "consultation_fee": float(r[9]) if r[9] is not None else 500.0
             })
         return appointments
     finally:

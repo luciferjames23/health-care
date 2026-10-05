@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 export default function AdmissionsView({
   onSelectPatient,
@@ -16,9 +18,25 @@ export default function AdmissionsView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [selectedType, setSelectedType] = useState('All');
   const [selectedWard, setSelectedWard] = useState('All');
   const [wardOptions, setWardOptions] = useState([]);
+
+  useEffect(() => {
+    if (search.trim()) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        setDebouncedSearch(search);
+        setIsSearching(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedSearch('');
+      setIsSearching(false);
+    }
+  }, [search]);
 
   useEffect(() => {
     let isMounted = true;
@@ -29,10 +47,10 @@ export default function AdmissionsView({
       setError(null);
       try {
         const [admRes, bedsRes, wardsRes, dcRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getBeds({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getWards({}, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => ({ data: [] }))
+          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
+          apiService.getBeds({}).catch(() => ({ data: [] })),
+          apiService.getWards({}).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({}).catch(() => ({ data: [] }))
         ]);
 
         if (!isMounted) return;
@@ -102,7 +120,7 @@ export default function AdmissionsView({
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedType, selectedWard, pageSize]);
+  }, [debouncedSearch, selectedType, selectedWard, pageSize]);
 
   const scopedAdmissions = useMemo(() => {
     if (!activeDoctorName) return admissions;
@@ -128,8 +146,8 @@ export default function AdmissionsView({
         return false;
       }
       // Search
-      if (!search.trim()) return true;
-      const s = search.toLowerCase();
+      if (!debouncedSearch.trim()) return true;
+      const s = debouncedSearch.toLowerCase();
       return (item.name && item.name.toLowerCase().includes(s)) ||
              (item.mrn && item.mrn.toLowerCase().includes(s)) ||
              (item.admission_number && item.admission_number.toLowerCase().includes(s)) ||
@@ -141,7 +159,7 @@ export default function AdmissionsView({
              (item.bed && item.bed.toLowerCase().includes(s)) ||
              (item.ward && item.ward.toLowerCase().includes(s));
     });
-  }, [scopedAdmissions, selectedType, selectedWard, search]);
+  }, [scopedAdmissions, selectedType, selectedWard, debouncedSearch]);
 
   // KPIs dynamically derived from DB
   const totalAdmissions = scopedAdmissions.length;
@@ -325,20 +343,67 @@ export default function AdmissionsView({
           </select>
         </div>
 
-        <input
-          type="text"
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
           placeholder="Search patient, MRN, admission #, doctor, bed..."
-          style={{
-            height: '30px', width: '280px', border: '1px solid #e3e6e8',
-            borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
-          }}
+          loading={isSearching || loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
       {/* Admissions Table */}
-      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden' }}>
+      <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
+        {/* Shimmer loading progress bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'linear-gradient(90deg, #0f766e, #14b8a6, #2dd4bf, #0f766e)',
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 1.2s infinite linear',
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching overlay */}
+        {(loading || isSearching) && filteredAdmissions.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(255, 255, 255, 0.6)',
+              backdropFilter: 'blur(1px)',
+              zIndex: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#0f766e'
+            }}
+          >
+            <div
+              style={{
+                width: '16px',
+                height: '16px',
+                border: '2px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite'
+              }}
+            />
+            <span>Filtering admissions...</span>
+          </div>
+        )}
         {loading && admissions.length === 0 ? (
           <div style={{ padding: '12px' }}>
             <TableSkeleton rows={7} columns={8} />
@@ -377,11 +442,11 @@ export default function AdmissionsView({
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ fontWeight: 600, color: '#15181b', fontSize: '12.5px' }}>{a.name}</div>
                         <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                          {a.age} Yrs / {a.sex} · Blood: {a.bloodGroup}
+                          {a.age} Yrs / {a.sex} · Blood: {a.bloodGroup} · {a.patient_number || a.uhid || a.mrn}
                         </div>
                       </td>
                       <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
-                        {a.mrn || `ADM-${a.admission_id}`}
+                        {a.admission_number || (a.admission_id ? `MER-ADM-${String(a.admission_id).padStart(7, '0')}` : '—')}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ marginBottom: '3px' }}>
@@ -458,175 +523,14 @@ export default function AdmissionsView({
 
         {/* Pagination Footer */}
         {filteredAdmissions.length > 0 && (
-          <div style={{
-            padding: '10px 14px',
-            background: '#fafbfc',
-            borderTop: '1px solid #eef0f1',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '12px',
-            color: '#64748b'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <span>
-                Showing <strong>{totalRows > 0 ? startIndex + 1 : 0}</strong>–<strong>{Math.min(startIndex + pageSize, totalRows)}</strong> of <strong>{totalRows}</strong> admissions
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <span style={{ fontSize: '11.5px', color: '#8a9096' }}>Per page:</span>
-                {[15, 25, 50, 100].map(sz => (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => { setPageSize(sz); setCurrentPage(1); }}
-                    style={{
-                      height: '24px',
-                      padding: '0 8px',
-                      borderRadius: '4px',
-                      border: '1px solid',
-                      borderColor: pageSize === sz ? '#0284c7' : '#e2e8f0',
-                      background: pageSize === sz ? '#f0f9ff' : '#ffffff',
-                      color: pageSize === sz ? '#0369a1' : '#64748b',
-                      fontWeight: pageSize === sz ? 700 : 500,
-                      fontSize: '11px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {sz}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(1)}
-                disabled={safeCurrentPage <= 1}
-                title="First Page"
-                style={{
-                  height: '28px',
-                  width: '28px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                «
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={safeCurrentPage <= 1}
-                title="Previous Page"
-                style={{
-                  height: '28px',
-                  padding: '0 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage <= 1 ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '11.5px',
-                  fontWeight: 500
-                }}
-              >
-                ‹ Prev
-              </button>
-
-              {/* Page Number Pills */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(p => p === 1 || p === totalPages || Math.abs(p - safeCurrentPage) <= 1)
-                .reduce((acc, p, i, arr) => {
-                  if (i > 0 && p - arr[i - 1] > 1) {
-                    acc.push('ellipsis-' + p);
-                  }
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((item, idx) => {
-                  if (typeof item === 'string') {
-                    return (
-                      <span key={`el-${idx}`} style={{ padding: '0 4px', color: '#94a3b8' }}>
-                        …
-                      </span>
-                    );
-                  }
-                  const isCurrent = item === safeCurrentPage;
-                  return (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setCurrentPage(item)}
-                      style={{
-                        height: '28px',
-                        minWidth: '28px',
-                        padding: '0 6px',
-                        borderRadius: '6px',
-                        border: '1px solid',
-                        borderColor: isCurrent ? '#0284c7' : '#e2e8f0',
-                        background: isCurrent ? '#0284c7' : '#ffffff',
-                        color: isCurrent ? '#ffffff' : '#475569',
-                        fontWeight: isCurrent ? 700 : 500,
-                        fontSize: '12px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {item}
-                    </button>
-                  );
-                })}
-
-              <button
-                type="button"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={safeCurrentPage >= totalPages}
-                title="Next Page"
-                style={{
-                  height: '28px',
-                  padding: '0 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '11.5px',
-                  fontWeight: 500
-                }}
-              >
-                Next ›
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={safeCurrentPage >= totalPages}
-                title="Last Page"
-                style={{
-                  height: '28px',
-                  width: '28px',
-                  borderRadius: '6px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  color: safeCurrentPage >= totalPages ? '#cbd5e1' : '#475569',
-                  cursor: safeCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                »
-              </button>
-            </div>
-          </div>
+          <TablePagination
+            total={totalRows}
+            page={safeCurrentPage}
+            pageSize={pageSize}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(sz) => setPageSize(sz)}
+            label="admissions"
+          />
         )}
       </div>
     </div>

@@ -11,8 +11,7 @@ import {
   Activity,
   CreditCard,
   FileCheck,
-  Download,
-  Printer
+  Download
 } from 'lucide-react';
 
 function generateDischargeSummaryHtml(ds, patient) {
@@ -408,7 +407,7 @@ export default function PatientPortalView({ currentUser, onSignOut }) {
     bills = [],
     insurance_claims = [],
     discharge_summaries = [],
-    notifications = []
+    notifications: _notifications = []
   } = data;
 
   const currentAdmission = admissions.find(a => !a.discharge_date || a.discharge_status?.toLowerCase() === 'admitted');

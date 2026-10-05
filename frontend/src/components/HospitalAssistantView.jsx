@@ -114,7 +114,11 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
         const disRes = await apiService.getDischargedPatients({ limit: 50 }).catch(() => ({ data: [] }));
         const dischargedTracker = extractDischargedPatientIds(disRes?.data || []);
         const rawAdmissions = admRes?.data || [];
-        const activeAdmissions = rawAdmissions.filter(r => !dischargedTracker.has(r));
+        const activeAdmissions = rawAdmissions.filter(r => {
+          const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
+          if (st === 'discharged') return false;
+          return !dischargedTracker.has(r);
+        });
 
         aiResponse = {
           who: 'ai',

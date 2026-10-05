@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Search, Filter, CheckCircle, XCircle, RefreshCw, ChevronLeft, ChevronRight,
+  Search, Filter, CheckCircle, XCircle, RefreshCw,
   Download, ArrowUpDown, Clock, Calendar, User, Stethoscope, Building
 } from 'lucide-react';
 import {
@@ -15,6 +15,9 @@ import {
   toYMD
 } from '../../components/DateRangeFilter';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import TablePagination from '../../components/TablePagination';
+
+import { useAuth } from '../../context/AuthContext';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -104,31 +107,53 @@ function getStatusBadge(status: string) {
 interface AppointmentManagementProps {
   doctorName?: string | null;
   userRole?: string;
+  onSelectPatient?: (patient: any) => void;
+  onNavigate?: (page: string, patient?: any) => void;
 }
 
 const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
-  userRole = 'Hospital Management'
+  userRole = 'Hospital Management',
+  onSelectPatient,
+  onNavigate
 }) => {
-  const isDoctor = userRole === 'Doctor' || Boolean(doctorName) || (typeof doctorName === 'string' && doctorName.toLowerCase().includes('immanuvel'));
-  const activeDoctorName = isDoctor ? (doctorName || 'Dr. Immanuvel S') : null;
+  const { user: authUser } = useAuth();
+  const user = authUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+
+  const isDoctor = Boolean(
+    (userRole && String(userRole).toLowerCase() === 'doctor') ||
+    (user && (String(user.role).toLowerCase() === 'doctor' || String((user as any)?.role).toUpperCase() === 'DOCTOR')) ||
+    Boolean(doctorName)
+  );
+
+  const activeDoctorName = isDoctor ? (doctorName || user?.name || null) : null;
+  const doctorUserId = isDoctor ? (user?.doctorId ? Number(user.doctorId) : (user as any)?.doctor_id ? Number((user as any).doctor_id) : undefined) : undefined;
 
   const [search, setSearch] = useState('');
-  const [dateRange, setDateRange] = useState<DateRangeValue>({
-    dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    dateTo: toYMD(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
-    preset: 'this_month',
-    displayLabel: 'This Month',
+  const [dateRange, setDateRange] = useState<DateRangeValue>(() => {
+    const calc = calculateDateRange('all_time');
+    return {
+      dateFrom: calc.from,
+      dateTo: calc.to,
+      preset: 'all_time',
+      displayLabel: calc.label,
+    };
   });
   const [dateType, setDateType] = useState<'appointment_date' | 'created_at'>('appointment_date');
   const [deptFilter, setDeptFilter] = useState('');
-  const [doctorFilter, setDoctorFilter] = useState<number | undefined>(undefined);
+  const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [sortBy, setSortBy] = useState('appointment_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
-  const perPage = 15;
+  const [perPage, setPerPage] = useState(25);
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [total, setTotal] = useState(0);
@@ -143,33 +168,34 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     fetchDoctors().then(res => {
       const docList = Array.isArray(res?.doctors) ? res.doctors : [];
       setDoctors(docList);
-      if (isDoctor && activeDoctorName) {
-        const baseName = activeDoctorName.split('-')[0].trim();
-        const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-        const firstWord = cleanName.split(' ')[0];
+      if (isDoctor) {
+        if (doctorUserId) {
+          setDoctorFilter(doctorUserId);
+        } else if (activeDoctorName) {
+          const baseName = activeDoctorName.split('-')[0].trim();
+          const cleanName = baseName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+          const firstWord = cleanName.split(' ')[0];
 
-        let matched = docList.find(d => {
-          const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-          return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
-        });
-
-        if (!matched && firstWord.length > 2) {
-          matched = docList.find(d => {
+          let matched = docList.find(d => {
             const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-            return dName.includes(firstWord);
+            return dName === cleanName || dName.includes(cleanName) || cleanName.includes(dName);
           });
-        }
 
-        if (matched) {
-          setDoctorFilter(matched.id);
-        } else {
-          const fallback = docList.find(d => (d.display_name || '').toLowerCase().includes('immanuvel'));
-          if (fallback) setDoctorFilter(fallback.id);
+          if (!matched && firstWord.length > 2) {
+            matched = docList.find(d => {
+              const dName = (d.display_name || (d as any).name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
+              return dName.includes(firstWord);
+            });
+          }
+
+          if (matched) {
+            setDoctorFilter(matched.id);
+          }
         }
       }
     });
     fetchDepartments().then(res => setDepartments(Array.isArray(res?.departments) ? res.departments : []));
-  }, [isDoctor, activeDoctorName]);
+  }, [isDoctor, activeDoctorName, doctorUserId]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -177,17 +203,17 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   const loadAppointments = useCallback(async () => {
-    // If logged in as Doctor, do not fetch un-scoped appointments while doctorFilter ID is resolving!
-    if (isDoctor && doctorFilter === undefined) {
+    if (isDoctor && doctorFilter === undefined && !doctorUserId) {
       return;
     }
+    const targetDocId = isDoctor ? (doctorFilter || doctorUserId) : doctorFilter;
     setLoading(true);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
         department: isDoctor ? undefined : (deptFilter || undefined),
-        doctor_id: isDoctor ? (doctorFilter || 1015) : doctorFilter,
+        doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
@@ -199,16 +225,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       });
 
       let rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
-      // Fail-safe doctor scoping to ensure only Dr. Immanuvel S / active doctor's appointments are displayed
-      if (isDoctor && activeDoctorName) {
-        const activeClean = activeDoctorName.toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-        rawAppts = rawAppts.filter(a => {
-          if (doctorFilter && a.doctor_id) {
-            return a.doctor_id === doctorFilter;
-          }
-          const docClean = (a.doctor_name || '').toLowerCase().replace(/^dr\.?\s*/i, '').trim();
-          return docClean.includes(activeClean) || activeClean.includes(docClean) || docClean.includes('immanuvel');
-        });
+      if (isDoctor && targetDocId) {
+        rawAppts = rawAppts.filter(a => a.doctor_id === targetDocId);
       }
 
       setAppointments(rawAppts);
@@ -217,7 +235,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [isDoctor, activeDoctorName, search, statusFilter, deptFilter, doctorFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page]);
+  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page, perPage]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -570,8 +588,39 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: 'oklch(0.4 0.1 200)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       {a.booking_id}
                     </td>
-                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
-                      <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{a.patient_name}</div>
+                    <td 
+                      style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle', cursor: (onSelectPatient || onNavigate) ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        const patObj = {
+                          id: a.patient_id,
+                          patient_id: a.patient_id,
+                          name: a.patient_name,
+                          patient_name: a.patient_name,
+                          patient_code: a.patient_code,
+                          uhid: a.patient_code,
+                          mrn: a.patient_code,
+                          phone: a.patient_phone,
+                          doctor: a.doctor_name,
+                          department: a.department_name,
+                          status: a.status,
+                          patient_type: 'OP',
+                          _type: 'OP'
+                        };
+                        if (onSelectPatient) onSelectPatient(patObj);
+                        else if (onNavigate) onNavigate('patient360', patObj);
+                      }}
+                    >
+                      <div 
+                        style={{ 
+                          fontWeight: 600, 
+                          color: (onSelectPatient || onNavigate) ? 'oklch(0.4 0.1 200)' : '#15181b', 
+                          whiteSpace: 'nowrap',
+                          textDecoration: (onSelectPatient || onNavigate) ? 'underline' : 'none'
+                        }}
+                        title="Click to view Patient 360"
+                      >
+                        {a.patient_name}
+                      </div>
                       <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap', marginTop: '1px' }}>
                         {a.patient_code} · {a.patient_phone}
                       </div>
@@ -671,57 +720,14 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         )}
 
         {/* Pagination */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid #e3e6e8', background: '#fff', fontSize: '11.5px', color: '#8a9096', flexWrap: 'wrap', gap: 8 }}>
-          <span>
-            {loading ? 'Loading...' : `Showing ${Math.min((page - 1) * perPage + 1, total)}–${Math.min(page * perPage, total)} of ${total} appointments`}
-          </span>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              style={{
-                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
-                background: '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.4 : 1
-              }}
-            >
-              <ChevronLeft size={13} />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const pg = i + Math.max(1, page - 3);
-              if (pg > totalPages) return null;
-              const isActive = page === pg;
-              return (
-                <button
-                  key={pg}
-                  type="button"
-                  onClick={() => setPage(pg)}
-                  style={{
-                    height: '26px', minWidth: '26px', padding: '0 6px', borderRadius: '4px',
-                    border: '1px solid #e3e6e8',
-                    background: isActive ? 'oklch(0.5 0.1 200)' : '#fff',
-                    color: isActive ? '#fff' : '#15181b',
-                    fontWeight: isActive ? 600 : 400,
-                    fontSize: '11.5px', cursor: 'pointer'
-                  }}
-                >
-                  {pg}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-              style={{
-                height: '26px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
-                background: '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.4 : 1
-              }}
-            >
-              <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
+        <TablePagination
+          total={total}
+          page={page}
+          pageSize={perPage}
+          onPageChange={setPage}
+          onPageSizeChange={(sz: number) => { setPerPage(sz); setPage(1); }}
+          label="appointments"
+        />
       </div>
     </div>
   );

@@ -1577,7 +1577,7 @@ def get_preauthorisations(
                 COUNT(CASE WHEN claim_status ILIKE '%high denial%' THEN 1 END) as high_denial_risk,
                 COUNT(CASE WHEN claim_status ILIKE '%approved%' AND claim_status NOT ILIKE '%partially%' THEN 1 END) as approved,
                 COUNT(CASE WHEN claim_status ILIKE '%rejected%' THEN 1 END) as rejected,
-                COUNT(*) as total_preauths
+                COUNT(CASE WHEN claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR claim_id >= 45000 THEN 1 END) as total_preauths
             FROM insurance_claims;
         """)
         stat_row = serialize_row(cur, cur.fetchone())
@@ -1588,7 +1588,7 @@ def get_preauthorisations(
         clean_search = getattr(search, "default", search) if not isinstance(search, (str, type(None))) else search
 
         # 2. Filter clauses
-        where_clauses = ["1=1"]
+        where_clauses = ["(c.claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR c.claim_id >= 45000)"]
         params = []
 
         if clean_status and str(clean_status).lower() != "all":
@@ -1612,8 +1612,8 @@ def get_preauthorisations(
                 where_clauses.append("c.claim_status ILIKE %s")
                 params.append("%high denial%")
             elif "approved" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%approved%")
+                where_clauses.append("(c.claim_status ILIKE %s AND c.claim_status NOT ILIKE %s)")
+                params.extend(["%approved%", "%partially%"])
             elif "rejected" in s_lower:
                 where_clauses.append("c.claim_status ILIKE %s")
                 params.append("%rejected%")
@@ -1721,13 +1721,41 @@ def get_preauthorisations(
             req_amt = float(r.get('claimed_amount') or 0)
             appr_amt = float(r.get('approved_amount') or 0)
             rej_amt = float(r.get('rejected_amount') or 0)
-            status_val = r.get('claim_status') or 'Pending'
+            status_val = (r.get('claim_status') or 'Pending').replace('\ufffd', '·')
 
             proc = r.get('reason_for_admission')
             proc_str = proc_map.get(proc, proc or "Specialized Inpatient Treatment")
 
-            completeness = 100 if 'Approved' in status_val else 65 if 'Missing' in status_val else 78 if 'Query' in status_val else 88
-            risk = "3%" if 'Approved' in status_val else "31%" if 'High Denial' in status_val else "18%" if 'Additional' in status_val else "9%"
+            if 'Approved' in status_val:
+                completeness = 100
+                risk = "3%"
+            elif 'High Denial' in status_val:
+                completeness = 72
+                risk = "38%"
+            elif 'Missing' in status_val:
+                completeness = 65
+                risk = "24%"
+            elif 'Query' in status_val:
+                completeness = 78
+                risk = "18%"
+            elif 'Additional' in status_val:
+                completeness = 85
+                risk = "14%"
+            elif 'Pending' in status_val:
+                completeness = 75
+                risk = "12%"
+            elif 'Rejected' in status_val:
+                completeness = 90
+                risk = "85%"
+                rej_amt = req_amt
+                appr_amt = 0
+            else:
+                completeness = 88
+                risk = "9%"
+
+            if 'Approved' not in status_val:
+                appr_amt = 0
+
             owner = "R. Sundar" if (r['claim_id'] % 2 == 0) else "L. Fathima"
 
             c_date_val = r.get('claim_date')
@@ -1768,7 +1796,8 @@ def get_preauthorisations(
                 "owner": owner,
                 "status": status_val,
                 "claim_date": claim_date_str,
-                "bill_number": r.get('bill_number') or f"MER-BIL-{r.get('bill_id') or 1001}"
+                "bill_number": r.get('bill_number') or f"MER-BIL-{r.get('bill_id') or 1001}",
+                "rejection_reason": r.get('rejection_reason')
             })
 
         total_pages = (total_count + clean_page_size - 1) // clean_page_size if total_count > 0 else 1

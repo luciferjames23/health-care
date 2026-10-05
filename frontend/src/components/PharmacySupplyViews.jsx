@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 // Design tokens
 const cardStyle = {
@@ -138,6 +140,8 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
     }, 280);
     return () => clearTimeout(timer);
   }, [search]);
+
+  const isSearching = loading || (search.trim() !== debouncedSearch.trim());
 
   const fetchPrescriptions = async () => {
     const reqId = ++reqIdRef.current;
@@ -302,17 +306,42 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <span style={{ position: 'absolute', left: '10px', color: '#94a3b8', fontSize: '13px', pointerEvents: 'none' }}>
+            🔍
+          </span>
           <input
             type="text"
             placeholder="Search by Rx #, Patient, Doctor, or Drug..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
-              padding: '6px 30px 6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-              width: '280px', outline: 'none'
+              padding: '7px 56px 7px 32px',
+              fontSize: '12px',
+              borderRadius: '6px',
+              border: isSearching ? '1px solid #0f766e' : '1px solid #cbd5e1',
+              width: '320px',
+              outline: 'none',
+              boxShadow: isSearching ? '0 0 0 2px rgba(15, 118, 110, 0.15)' : 'none',
+              transition: 'border-color 0.2s, box-shadow 0.2s'
             }}
           />
+          {isSearching && (
+            <span
+              style={{
+                position: 'absolute',
+                right: search ? '28px' : '10px',
+                display: 'inline-block',
+                width: '14px',
+                height: '14px',
+                border: '2px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.6s linear infinite'
+              }}
+              title="Searching prescriptions..."
+            />
+          )}
           {search && (
             <button
               type="button"
@@ -330,18 +359,89 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
       </div>
 
       {/* Main Table */}
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        {loading && data.length === 0 ? (
-          <div style={{ padding: '16px' }}>
-            <ModuleLoadingScreen
-              title="Loading Inpatient Prescriptions..."
-              subtitle="Retrieving active patient prescriptions, drug orders, and clinical dosage schedules..."
-              badgeText="Live Pharmacy Sync"
-              showKpis={false}
-              tableRows={8}
-              tableColumns={8}
+      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden', position: 'relative' }}>
+        {/* Top Slim Loading Progress Bar */}
+        {(loading || isSearching) && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '3px',
+              background: 'linear-gradient(90deg, #0f766e, #14b8a6, #2dd4bf, #0f766e)',
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 1.2s infinite linear',
+              zIndex: 10
+            }}
+          />
+        )}
+
+        {/* Searching Overlay when data exists but search is loading */}
+        {(loading || isSearching) && data.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(255, 255, 255, 0.65)',
+              backdropFilter: 'blur(1.5px)',
+              zIndex: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#0f766e'
+            }}
+          >
+            <div
+              style={{
+                width: '18px',
+                height: '18px',
+                border: '2.5px solid #0f766e',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 0.7s linear infinite'
+              }}
             />
+            <span>Filtering prescriptions in database...</span>
           </div>
+        )}
+
+        {(loading || isSearching) && data.length === 0 ? (
+          search ? (
+            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#0f766e' }}>
+              <div
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  border: '3px solid #0f766e',
+                  borderTopColor: 'transparent',
+                  borderRadius: '50%',
+                  animation: 'spin 0.7s linear infinite',
+                  margin: '0 auto 12px'
+                }}
+              />
+              <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
+                Searching Prescriptions...
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                Querying PostgreSQL database records for &ldquo;{search}&rdquo;...
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '16px' }}>
+              <ModuleLoadingScreen
+                title="Loading Inpatient Prescriptions..."
+                subtitle="Retrieving active patient prescriptions, drug orders, and clinical dosage schedules..."
+                badgeText="Live Pharmacy Sync"
+                showKpis={false}
+                tableRows={8}
+                tableColumns={8}
+              />
+            </div>
+          )
         ) : data.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
             No prescription records found matching current query.
@@ -444,94 +544,16 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
       </div>
 
       {/* Pagination Footer */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 16px',
-        background: '#fff',
-        border: '1px solid #e3e6e8',
-        borderRadius: '8px',
-        fontSize: '12px',
-        color: '#64748b',
-        flexWrap: 'wrap',
-        gap: '12px'
-      }}>
-        <div>
-          Showing <strong>{totalCount > 0 ? (page - 1) * pageSize + 1 : 0}</strong>–<strong>{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount.toLocaleString('en-IN')}</strong> prescriptions
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Rows per page */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>Rows:</span>
-            {[10, 15, 25, 50].map(sz => (
-              <button
-                key={sz}
-                type="button"
-                onClick={() => { setPageSize(sz); setPage(1); }}
-                style={{
-                  height: '26px',
-                  padding: '0 8px',
-                  borderRadius: '4px',
-                  border: '1px solid',
-                  borderColor: pageSize === sz ? '#0f766e' : '#e2e8f0',
-                  background: pageSize === sz ? '#f0fdfa' : '#ffffff',
-                  color: pageSize === sz ? '#0f766e' : '#64748b',
-                  fontWeight: pageSize === sz ? 700 : 500,
-                  fontSize: '11px',
-                  cursor: 'pointer'
-                }}
-              >
-                {sz}
-              </button>
-            ))}
-          </div>
-
-          {/* Previous / Next buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page <= 1 ? '#f8fafc' : '#ffffff',
-                color: page <= 1 ? '#94a3b8' : '#334155',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Previous
-            </button>
-            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
-              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
-            </span>
-            <button
-              type="button"
-              disabled={page >= Math.ceil(totalCount / pageSize)}
-              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
-                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
-                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
+      {totalCount > 0 && (
+        <TablePagination
+          total={totalCount}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={(p) => setPage(p)}
+          onPageSizeChange={(sz) => setPageSize(sz)}
+          label="prescriptions"
+        />
+      )}
     </div>
   );
 }
@@ -545,6 +567,8 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchDrugs = async () => {
     try {
@@ -564,8 +588,14 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchDrugs();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (d) => {
     if (!onOpenDrawer) return;
@@ -669,15 +699,14 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search generic, brand, category, or code..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search generic, brand, category, or code..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -714,7 +743,7 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(d => {
+              {paginatedData.map(d => {
                 const code = d.drug_code || d.code || d.id;
                 const generic = d.generic_name || d.generic || 'Generic';
                 const brand = d.brand_name || d.brand || '—';
@@ -768,6 +797,18 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="drugs"
+        />
+      )}
     </div>
   );
 }
@@ -939,30 +980,15 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <div style={{ position: 'relative', width: '280px' }}>
-          <input
-            type="text"
-            placeholder="Search by sale #, patient, Rx #..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{
-              padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-              width: '100%', outline: 'none', boxSizing: 'border-box'
-            }}
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              style={{
-                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-                background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '14px'
-              }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
+          placeholder="Search by sale #, patient, Rx #..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
+        />
       </div>
 
       {/* Main Table */}
@@ -1054,90 +1080,16 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
         )}
 
         {/* Pagination Footer */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '10px 14px',
-          borderTop: '1px solid #e2e8f0',
-          background: '#f8fafc',
-          fontSize: '12px',
-          color: '#64748b',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>
-              Showing {totalCount === 0 ? 0 : (page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} records
-            </span>
-            <span style={{ color: '#cbd5e1' }}>|</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>Per page:</span>
-              <select
-                value={pageSize}
-                onChange={e => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  fontSize: '11.5px',
-                  outline: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {[10, 15, 25, 50].map(sz => (
-                  <option key={sz} value={sz}>{sz}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page <= 1 ? '#f8fafc' : '#ffffff',
-                color: page <= 1 ? '#94a3b8' : '#334155',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Previous
-            </button>
-            <span style={{ fontWeight: 600, color: '#15181b', padding: '0 4px' }}>
-              Page {page} of {Math.max(1, Math.ceil(totalCount / pageSize))}
-            </span>
-            <button
-              type="button"
-              disabled={page >= Math.ceil(totalCount / pageSize)}
-              onClick={() => setPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
-              style={{
-                height: '28px',
-                padding: '0 10px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                background: page >= Math.ceil(totalCount / pageSize) ? '#f8fafc' : '#ffffff',
-                color: page >= Math.ceil(totalCount / pageSize) ? '#94a3b8' : '#334155',
-                cursor: page >= Math.ceil(totalCount / pageSize) ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '11.5px'
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        {totalCount > 0 && (
+          <TablePagination
+            total={totalCount}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={(p) => setPage(p)}
+            onPageSizeChange={(sz) => setPageSize(sz)}
+            label="records"
+          />
+        )}
       </div>
     </div>
   );
@@ -1308,15 +1260,14 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search batch #, drug, location, supplier..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search batch #, drug, location, supplier..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -1423,170 +1374,14 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
 
             {/* Pagination Controls */}
             {totalCount > 0 && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 16px',
-                background: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
-                fontSize: '12px',
-                color: '#64748b',
-                flexWrap: 'wrap',
-                gap: '12px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                  <span>
-                    Showing <strong>{startRecord}</strong> to <strong>{endRecord}</strong> of <strong>{totalCount}</strong> batches
-                  </span>
-
-                  {/* Rows Per Page Selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>Rows:</span>
-                    <select
-                      value={pageSize}
-                      onChange={e => setPageSize(Number(e.target.value))}
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: '11.5px',
-                        borderRadius: '4px',
-                        border: '1px solid #cbd5e1',
-                        background: '#ffffff',
-                        color: '#334155',
-                        outline: 'none',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {[10, 15, 25, 50].map(sz => (
-                        <option key={sz} value={sz}>{sz}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Page Navigation Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setPage(1)}
-                    disabled={page <= 1}
-                    title="First Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    « First
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                    title="Previous Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page <= 1 ? '#cbd5e1' : '#475569',
-                      cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    ‹ Prev
-                  </button>
-
-                  {/* Numbered Page Buttons */}
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => {
-                    if (totalPages > 6 && Math.abs(p - page) > 2 && p !== 1 && p !== totalPages) {
-                      return null;
-                    }
-                    const isActive = p === page;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setPage(p)}
-                        style={{
-                          height: '28px',
-                          minWidth: '28px',
-                          padding: '0 6px',
-                          borderRadius: '5px',
-                          border: isActive ? '1px solid #0f766e' : '1px solid #e2e8f0',
-                          background: isActive ? '#0f766e' : '#ffffff',
-                          color: isActive ? '#ffffff' : '#334155',
-                          fontWeight: isActive ? 700 : 500,
-                          cursor: 'pointer',
-                          fontSize: '11.5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        {p}
-                      </button>
-                    );
-                  })}
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    title="Next Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    Next ›
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPage(totalPages)}
-                    disabled={page >= totalPages}
-                    title="Last Page"
-                    style={{
-                      height: '28px',
-                      padding: '0 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #e2e8f0',
-                      background: '#ffffff',
-                      color: page >= totalPages ? '#cbd5e1' : '#475569',
-                      cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '11px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      fontWeight: 600
-                    }}
-                  >
-                    Last »
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                total={totalCount}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p) => setPage(p)}
+                onPageSizeChange={(sz) => setPageSize(sz)}
+                label="batches"
+              />
             )}
           </>
         )}
@@ -1801,6 +1596,8 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchProcurement = async () => {
     try {
@@ -1820,8 +1617,14 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchProcurement();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (po) => {
     if (!onOpenDrawer) return;
@@ -1937,15 +1740,14 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search PO #, vendor, items..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search PO #, vendor, items..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -1980,7 +1782,7 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(po => {
+              {paginatedData.map(po => {
                 const poNo = po.po_number || po.poNumber || po.id;
                 const vendorName = po.vendor_name || po.vendor || 'Vendor';
                 const vendorCode = po.vendor_code || po.vendorCode || 'VND';
@@ -2037,6 +1839,18 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="purchase orders"
+        />
+      )}
     </div>
   );
 }
@@ -2050,6 +1864,8 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchVendors = async () => {
     try {
@@ -2069,8 +1885,14 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchVendors();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRowClick = (v) => {
     if (!onOpenDrawer) return;
@@ -2170,15 +1992,14 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search vendor name, GSTIN, category, or contact..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search vendor name, GSTIN, category, or contact..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -2214,7 +2035,7 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(v => {
+              {paginatedData.map(v => {
                 const vCode = v.code || v.vendor_code || 'VND';
                 const vName = v.name || v.vendor_name || 'Vendor';
                 const vCat = v.category || 'Pharmaceuticals';
@@ -2271,6 +2092,18 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="vendors"
+        />
+      )}
     </div>
   );
 }
@@ -2284,6 +2117,8 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [actionLoading, setActionLoading] = useState(null);
 
   const fetchCssd = async () => {
@@ -2304,8 +2139,14 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
   };
 
   useEffect(() => {
+    setPage(1);
     fetchCssd();
   }, [filter, search]);
+
+  const paginatedData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page, pageSize]);
 
   const handleRelease = async (record, e) => {
     if (e) e.stopPropagation();
@@ -2432,15 +2273,14 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <input
-          type="text"
-          placeholder="Search cycle #, equipment, surgical pack, operator..."
+        <SearchInput
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '6px 12px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1',
-            width: '280px', outline: 'none'
-          }}
+          onClear={() => setSearch('')}
+          placeholder="Search cycle #, equipment, surgical pack, operator..."
+          loading={loading}
+          width="280px"
+          accentColor="#0f766e"
         />
       </div>
 
@@ -2476,7 +2316,7 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map(rec => {
+              {paginatedData.map(rec => {
                 const cycleNo = rec.cycle_number || rec.cycle || 'CSSD-001';
                 const equipName = rec.equipment_name || rec.sterilizer || 'Steam Autoclave';
                 const packName = rec.pack_name || rec.pack || 'Surgical Instrument Tray';
@@ -2551,6 +2391,18 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
           </table>
         )}
       </div>
+
+      {/* Pagination Footer */}
+      {data.length > 0 && (
+        <TablePagination
+          total={data.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="CSSD cycles"
+        />
+      )}
     </div>
   );
 }

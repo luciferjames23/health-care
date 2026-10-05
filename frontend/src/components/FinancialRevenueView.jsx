@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { financialApi } from "../services/financialApi";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
+import SearchInput from "./SearchInput";
+import TablePagination from "./TablePagination";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
@@ -789,8 +791,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         </div>
 
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <input
-            type="text"
+          <SearchInput
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -799,17 +800,22 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
               else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
             }}
-            placeholder="Search…"
-            style={{
-              height: "30px",
-              width: "220px",
-              border: `1px solid ${PALETTE.border}`,
-              borderRadius: "6px",
-              padding: "0 10px",
-              background: "#fff",
-              outline: "none",
-              fontSize: "12px"
+            onClear={() => {
+              setSearchQuery('');
+              if (activeTab === "billing") { setBillPage(1); setLoadingBills(true); }
+              else if (activeTab === "insurance") { setPreauthPage(1); setLoadingPreauth(true); }
+              else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
+              else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
             }}
+            placeholder="Search…"
+            loading={
+              (activeTab === "billing" && loadingBills) ||
+              (activeTab === "insurance" && loadingPreauth) ||
+              (activeTab === "claims" && loadingClaims) ||
+              (activeTab === "finance" && loadingDashboard)
+            }
+            width="220px"
+            accentColor="oklch(0.5 0.1 200)"
           />
           <button
             type="button"
@@ -1188,78 +1194,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           })}
 
           {/* Table Footer Pagination */}
-          <div
-            style={{
-              padding: "8px 12px",
-              color: PALETTE.muted,
-              fontSize: "11px",
-              borderTop: `1px solid ${PALETTE.borderLight}`,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              flexWrap: "wrap"
-            }}
-          >
-            <span>
-              Showing {bills.length} of {billTotal.toLocaleString()} bills · click a row for detailed breakdown and AI explanation
-            </span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
-              <span>Rows</span>
-              {[15, 30, 50].map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => { setLoadingBills(true); setBillPageSize(sz); setBillPage(1); }}
-                  style={{
-                    height: "22px",
-                    padding: "0 7px",
-                    borderRadius: "4px",
-                    border: `1px solid ${PALETTE.border}`,
-                    background: billPageSize === sz ? "#15181b" : "#fff",
-                    color: billPageSize === sz ? "#fff" : PALETTE.text2,
-                    cursor: "pointer",
-                    fontSize: "11px"
-                  }}
-                >
-                  {sz}
-                </button>
-              ))}
-              <button
-                type="button"
-                disabled={billPage <= 1}
-                onClick={() => { setLoadingBills(true); setBillPage((p) => Math.max(1, p - 1)); }}
-                style={{
-                  height: "22px",
-                  padding: "0 8px",
-                  borderRadius: "4px",
-                  border: `1px solid ${PALETTE.border}`,
-                  background: "#fff",
-                  cursor: billPage <= 1 ? "default" : "pointer",
-                  fontSize: "11px",
-                  opacity: billPage <= 1 ? 0.5 : 1
-                }}
-              >
-                ‹ Prev
-              </button>
-              <button
-                type="button"
-                disabled={billPage * billPageSize >= billTotal}
-                onClick={() => { setLoadingBills(true); setBillPage((p) => p + 1); }}
-                style={{
-                  height: "22px",
-                  padding: "0 8px",
-                  borderRadius: "4px",
-                  border: `1px solid ${PALETTE.border}`,
-                  background: "#fff",
-                  cursor: billPage * billPageSize >= billTotal ? "default" : "pointer",
-                  fontSize: "11px",
-                  opacity: billPage * billPageSize >= billTotal ? 0.5 : 1
-                }}
-              >
-                Next ›
-              </button>
-            </div>
-          </div>
+          <TablePagination
+            total={billTotal}
+            page={billPage}
+            pageSize={billPageSize}
+            onPageChange={(p) => { setLoadingBills(true); setBillPage(p); }}
+            onPageSizeChange={(sz) => { setLoadingBills(true); setBillPageSize(sz); setBillPage(1); }}
+            label="bills"
+          />
         </div>
       )}
 
@@ -1420,78 +1362,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             );
           })}
 
-          <div
-            style={{
-              padding: "8px 12px",
-              color: PALETTE.muted,
-              fontSize: "11px",
-              borderTop: `1px solid ${PALETTE.borderLight}`,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              flexWrap: "wrap"
-            }}
-          >
-            <span>
-              Showing {preauths.length} of {preauthTotal.toLocaleString()} preauthorisation cases · click a row to view audit & documents
-            </span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
-              <span>Rows</span>
-              {[15, 25, 50].map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => { setLoadingPreauth(true); setPreauthPageSize(sz); setPreauthPage(1); }}
-                  style={{
-                    height: "22px",
-                    padding: "0 7px",
-                    borderRadius: "4px",
-                    border: `1px solid ${PALETTE.border}`,
-                    background: preauthPageSize === sz ? "#15181b" : "#fff",
-                    color: preauthPageSize === sz ? "#fff" : PALETTE.text2,
-                    cursor: "pointer",
-                    fontSize: "11px"
-                  }}
-                >
-                  {sz}
-                </button>
-              ))}
-              <button
-                type="button"
-                disabled={preauthPage <= 1}
-                onClick={() => { setLoadingPreauth(true); setPreauthPage((p) => Math.max(1, p - 1)); }}
-                style={{
-                  height: "22px",
-                  padding: "0 8px",
-                  borderRadius: "4px",
-                  border: `1px solid ${PALETTE.border}`,
-                  background: "#fff",
-                  cursor: preauthPage <= 1 ? "default" : "pointer",
-                  fontSize: "11px",
-                  opacity: preauthPage <= 1 ? 0.5 : 1
-                }}
-              >
-                ‹ Prev
-              </button>
-              <button
-                type="button"
-                disabled={preauthPage * preauthPageSize >= preauthTotal}
-                onClick={() => { setLoadingPreauth(true); setPreauthPage((p) => p + 1); }}
-                style={{
-                  height: "22px",
-                  padding: "0 8px",
-                  borderRadius: "4px",
-                  border: `1px solid ${PALETTE.border}`,
-                  background: "#fff",
-                  cursor: preauthPage * preauthPageSize >= preauthTotal ? "default" : "pointer",
-                  fontSize: "11px",
-                  opacity: preauthPage * preauthPageSize >= preauthTotal ? 0.5 : 1
-                }}
-              >
-                Next ›
-              </button>
-            </div>
-          </div>
+          <TablePagination
+            total={preauthTotal}
+            page={preauthPage}
+            pageSize={preauthPageSize}
+            onPageChange={(p) => { setLoadingPreauth(true); setPreauthPage(p); }}
+            onPageSizeChange={(sz) => { setLoadingPreauth(true); setPreauthPageSize(sz); setPreauthPage(1); }}
+            label="preauthorisation cases"
+          />
         </div>
         )
       )}
@@ -2002,78 +1880,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   })}
 
                   {/* Table Footer Pagination */}
-                  <div
-                    style={{
-                      padding: "8px 12px",
-                      color: PALETTE.muted,
-                      fontSize: "11px",
-                      borderTop: `1px solid ${PALETTE.borderLight}`,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      flexWrap: "wrap"
-                    }}
-                  >
-                    <span>
-                      Showing {paymentList.length} of {totalCount.toLocaleString()} transactions · click row to open linked bill
-                    </span>
-                    <div style={{ marginLeft: "auto", display: "flex", gap: "6px", alignItems: "center" }}>
-                      <span>Rows</span>
-                      {[10, 15, 25, 50].map((sz) => (
-                        <button
-                          key={sz}
-                          type="button"
-                          onClick={() => { setLoadingDashboard(true); setPayPageSize(sz); setPayPage(1); }}
-                          style={{
-                            height: "22px",
-                            padding: "0 7px",
-                            borderRadius: "4px",
-                            border: `1px solid ${PALETTE.border}`,
-                            background: payPageSize === sz ? "#15181b" : "#fff",
-                            color: payPageSize === sz ? "#fff" : PALETTE.text2,
-                            cursor: "pointer",
-                            fontSize: "11px"
-                          }}
-                        >
-                          {sz}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        disabled={payPage <= 1}
-                        onClick={() => { setLoadingDashboard(true); setPayPage((p) => Math.max(1, p - 1)); }}
-                        style={{
-                          height: "22px",
-                          padding: "0 8px",
-                          borderRadius: "4px",
-                          border: `1px solid ${PALETTE.border}`,
-                          background: "#fff",
-                          cursor: payPage <= 1 ? "default" : "pointer",
-                          fontSize: "11px",
-                          opacity: payPage <= 1 ? 0.5 : 1
-                        }}
-                      >
-                        ‹ Prev
-                      </button>
-                      <button
-                        type="button"
-                        disabled={payPage * payPageSize >= totalCount}
-                        onClick={() => { setLoadingDashboard(true); setPayPage((p) => p + 1); }}
-                        style={{
-                          height: "22px",
-                          padding: "0 8px",
-                          borderRadius: "4px",
-                          border: `1px solid ${PALETTE.border}`,
-                          background: "#fff",
-                          cursor: payPage * payPageSize >= totalCount ? "default" : "pointer",
-                          fontSize: "11px",
-                          opacity: payPage * payPageSize >= totalCount ? 0.5 : 1
-                        }}
-                      >
-                        Next ›
-                      </button>
-                    </div>
-                  </div>
+                  <TablePagination
+                    total={totalCount}
+                    page={payPage}
+                    pageSize={payPageSize}
+                    onPageChange={(p) => { setLoadingDashboard(true); setPayPage(p); }}
+                    onPageSizeChange={(sz) => { setLoadingDashboard(true); setPayPageSize(sz); setPayPage(1); }}
+                    label="transactions"
+                  />
                 </>
               );
             })()}

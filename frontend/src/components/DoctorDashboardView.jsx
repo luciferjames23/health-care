@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
+import TablePagination from './TablePagination';
 
 export default function DoctorDashboardView({ user, onNavigate, onSelectPatient }) {
   const doctorName = user?.name || 'Doctor';
@@ -12,6 +13,8 @@ export default function DoctorDashboardView({ user, onNavigate, onSelectPatient 
   const [schedules, setSchedules] = useState([]);
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchDoctorData = async () => {
     setLoading(true);
@@ -199,7 +202,7 @@ export default function DoctorDashboardView({ user, onNavigate, onSelectPatient 
               </tr>
             </thead>
             <tbody>
-              {appointments.map(a => (
+              {appointments.slice((page - 1) * pageSize, page * pageSize).map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '8px 12px', fontWeight: 600, color: '#15181b' }}>
                     <div>{a.appointment_time || a.slot_time || '10:00 AM'}</div>
@@ -237,6 +240,15 @@ export default function DoctorDashboardView({ user, onNavigate, onSelectPatient 
             </tbody>
           </table>
         )}
+
+        <TablePagination
+          total={appointments.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+          label="appointments"
+        />
       </div>
     </div>
   );

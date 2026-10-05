@@ -73,6 +73,11 @@ export default function Patient360View({
   const [liveDiagnoses, setLiveDiagnoses] = useState([]);
   const [liveLabOrders, setLiveLabOrders] = useState([]);
   const [patientAppointments, setPatientAppointments] = useState([]);
+  const [patientCommunications, setPatientCommunications] = useState([]);
+  const [patientFeedback, setPatientFeedback] = useState([]);
+  const [patientDocuments, setPatientDocuments] = useState([]);
+  const [patientConsent, setPatientConsent] = useState([]);
+  const [patientAiActivity, setPatientAiActivity] = useState([]);
   const [loadingPatient360, setLoadingPatient360] = useState(true);
 
   // Unified synchronized data fetch for Patient 360 to eliminate screen refreshing/flickering
@@ -90,14 +95,30 @@ export default function Patient360View({
     const isOpPatient = patient?.patient_type === 'OP' || patient?._type === 'OP' || patient?.care_type === 'OP' || Boolean(patient?.appointment_number);
     const isErPatient = patient?.patient_type === 'ER' || patient?._type === 'ER' || patient?.care_type === 'ER' || Boolean(patient?.triage_number);
 
-    let pid = cleanNum(patient?.patient_id || patient?.id || patient?.uhid || patient?.mrn || patient?.raw?.patient_id);
-    let aid = cleanNum(patient?.admission_id || patient?.admission_number || patient?.encounter || patient?.raw?.admission_id);
     const pnum = patient?.patient_number || patient?.patient_code || patient?.uhid || patient?.mrn;
     const anum = patient?.admission_number;
     const pcode = patient?.mrn || patient?.uhid || patient?.patient_code;
     const targetName = (patient?.name || patient?.patient || patient?.patient_name || '').trim().toLowerCase();
 
-    const withTimeout = (p, ms = 10000) =>
+    // Accurately distinguish patient_id from admission_id
+    const pcodeDigits = pcode ? cleanNum(pcode) : null;
+    let pid = cleanNum(patient?.patient_id || patient?.raw?.patient_id) || pcodeDigits;
+    if (!pid && patient?.id && !String(patient?.id).startsWith('ENC') && !String(patient?.id).startsWith('ADM') && !patient?.admission_id) {
+      pid = cleanNum(patient.id);
+    }
+
+    let aid = cleanNum(patient?.admission_id || patient?.raw?.admission_id);
+    if (!aid && anum) {
+      aid = cleanNum(anum);
+    }
+    if (!aid && patient?.encounter) {
+      aid = cleanNum(patient.encounter);
+    }
+    if (!aid && patient?.id && (String(patient?.id).startsWith('ADM') || String(patient?.id).startsWith('ENC') || patient?.id === patient?.admission_id)) {
+      aid = cleanNum(patient.id);
+    }
+
+    const withTimeout = (p, ms = 15000) =>
       Promise.race([
         p,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms))
@@ -118,16 +139,16 @@ export default function Patient360View({
           if (Object.keys(fetchParams).length > 0) {
             fetchParams.limit = 1;
             try {
-              const res = await withTimeout(apiService.getCurrentAdmissions(fetchParams, { forceRefresh: true }), 10000);
+              const res = await withTimeout(apiService.getCurrentAdmissions(fetchParams), 4000);
               if (res?.data && res.data.length > 0) {
                 const fetched = res.data[0];
                 const fetchedAid = cleanNum(fetched.admission_id);
                 const fetchedPid = cleanNum(fetched.patient_id);
-                const matches = (!aid || fetchedAid === aid) && (!pid || fetchedPid === pid);
+                const matches = (!aid || fetchedAid === aid) || (!pid || fetchedPid === pid);
                 if (matches) {
                   resolvedAdmission = fetched;
-                  if (!aid) aid = fetchedAid;
-                  if (!pid) pid = fetchedPid;
+                  if (fetchedAid) aid = fetchedAid;
+                  if (fetchedPid) pid = fetchedPid;
                 }
               }
             } catch (e) {
@@ -136,17 +157,21 @@ export default function Patient360View({
           }
         }
 
-        const effectiveAid = aid || cleanNum(resolvedAdmission?.admission_id);
-        const effectivePid = pid || cleanNum(resolvedAdmission?.patient_id);
+        const effectiveAid = cleanNum(resolvedAdmission?.admission_id) || aid;
+        const effectivePid = cleanNum(resolvedAdmission?.patient_id) || pid || pcodeDigits;
         const effectiveBid = patient?.bill_id || resolvedAdmission?.bill_id;
 
-        // 2. Concurrently fetch all secondary datasets in parallel
-        const [bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes, rxRes, diagRes, labRes, aptRes] = await Promise.allSettled([
+        // 2. Concurrently fetch all secondary datasets in parallel directly from DB
+        const [
+          bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes,
+          rxRes, diagRes, labRes, aptRes,
+          commRes, feedbackRes, docsRes, consentRes, aiRes
+        ] = await Promise.allSettled([
           // Bed Management
-          withTimeout(apiService.getBedManagementData(), 5000),
+          withTimeout(apiService.getBedManagementData(), 8000),
           // Vitals telemetry
           (effectivePid || effectiveAid)
-            ? withTimeout(apiService.getPatientVitals({ patient_id: effectivePid || undefined, admission_id: effectiveAid || undefined, limit: 10 }), 5000)
+            ? withTimeout(apiService.getPatientVitals({ patient_id: effectivePid || undefined, admission_id: effectiveAid || undefined, limit: 20 }), 10000)
             : Promise.resolve(null),
           // Dynamic Bill
           (async () => {
@@ -168,41 +193,75 @@ export default function Patient360View({
             }
             const fetchSummariesFn = apiService.getDischargeSummaries || apiService.getGeneratedDischargeSummaries || apiService.getDischargedPatients;
             if (typeof fetchSummariesFn === 'function' && (effectiveAid || effectivePid)) {
-              return withTimeout(fetchSummariesFn.call(apiService, { limit: 100 }, { forceRefresh: true }), 5000);
+              return withTimeout(fetchSummariesFn.call(apiService, { limit: 100 }), 8000);
             }
             return null;
           })(),
           // Imaging Orders
-          effectivePid ? withTimeout(imagingOrdersApi.list(effectivePid), 5000) : Promise.resolve(null),
+          effectivePid ? withTimeout(imagingOrdersApi.list(effectivePid), 8000) : Promise.resolve(null),
           // Radiology Scans
           (effectivePid || pcode)
-            ? withTimeout(radiologyApi.getPatientScans({ patient_id: effectivePid || undefined, patient_code: pcode || undefined, limit: 5 }), 5000)
+            ? withTimeout(radiologyApi.getPatientScans({ patient_id: effectivePid || undefined, patient_code: pcode || undefined, limit: 10 }), 8000)
             : Promise.resolve(null),
-          // Live Prescriptions from DB (All encounters: Inpatient + Outpatient)
+          // Live Prescriptions strictly from PostgreSQL prescriptions table (matching Prescriptions module)
           (effectivePid || effectiveAid || pcode || targetName)
-            ? withTimeout(apiService.getPrescriptions({
-                patient_id: effectivePid || undefined,
-                search: (!effectivePid && !effectiveAid) ? (pcode || targetName) : undefined,
-                limit: 50
-              }), 5000)
-            : Promise.resolve(null),
+            ? withTimeout((async () => {
+                const results = [];
+                try {
+                  const rxResp = await apiService.getPrescriptions({
+                    patient_id: effectivePid || undefined,
+                    admission_id: (!effectivePid && effectiveAid) ? effectiveAid : undefined,
+                    search: (!effectivePid && !effectiveAid) ? (pcode || targetName) : undefined,
+                    limit: 50
+                  });
+                  if (rxResp?.data && Array.isArray(rxResp.data)) {
+                    results.push(...rxResp.data);
+                  }
+                } catch (e) {
+                  console.debug("Prescription DB fetch error:", e?.message);
+                }
+                return { data: results };
+              })(), 10000)
+            : Promise.resolve({ data: [] }),
           // Live Diagnoses from DB (All encounters: Inpatient + Outpatient)
           (effectivePid || effectiveAid)
             ? withTimeout(apiService.getPatientDiagnoses({
                 patient_id: effectivePid || undefined,
+                admission_id: (!effectivePid && effectiveAid) ? effectiveAid : undefined,
                 limit: 50
-              }), 5000)
+              }), 10000)
             : Promise.resolve(null),
           // Live Lab Orders & Results from DB (All encounters: Inpatient + Outpatient)
           (effectivePid || effectiveAid)
             ? withTimeout(apiService.getPatientLabOrders({
                 patient_id: effectivePid || undefined,
+                admission_id: (!effectivePid && effectiveAid) ? effectiveAid : undefined,
                 limit: 50
-              }), 5000)
+              }), 10000)
             : Promise.resolve(null),
           // Real Appointments History (both OPD and IPD)
+          (effectivePid || pcode || effectiveAid)
+            ? withTimeout(apiService.getPatientAppointments(effectivePid || pcode || effectiveAid), 8000)
+            : Promise.resolve(null),
+          // Communications (Live DB notifications)
           effectivePid
-            ? withTimeout(apiService.getPatientAppointments(effectivePid), 5000)
+            ? withTimeout(apiService.getPatientCommunications(effectivePid), 8000)
+            : Promise.resolve(null),
+          // Feedback (Live DB escalations)
+          effectivePid
+            ? withTimeout(apiService.getPatientFeedback(effectivePid), 8000)
+            : Promise.resolve(null),
+          // Documents (Live DB patient reports)
+          effectivePid
+            ? withTimeout(apiService.getPatientDocuments(effectivePid), 8000)
+            : Promise.resolve(null),
+          // Consent (Live DB consent records)
+          effectivePid
+            ? withTimeout(apiService.getPatientConsent(effectivePid), 8000)
+            : Promise.resolve(null),
+          // AI Activity (Live DB agent action logs)
+          effectivePid
+            ? withTimeout(apiService.getPatientAiActivity(effectivePid), 8000)
             : Promise.resolve(null)
         ]);
 
@@ -310,10 +369,68 @@ export default function Patient360View({
         }
 
         // Live Appointments (both OPD and IPD encounters)
-        if (aptRes.status === 'fulfilled' && Array.isArray(aptRes.value) && aptRes.value.length > 0) {
-          setPatientAppointments(aptRes.value);
+        let resolvedApts = [];
+        if (aptRes.status === 'fulfilled') {
+          if (Array.isArray(aptRes.value)) {
+            resolvedApts = aptRes.value;
+          } else if (Array.isArray(aptRes.value?.appointments)) {
+            resolvedApts = aptRes.value.appointments;
+          } else if (Array.isArray(aptRes.value?.data)) {
+            resolvedApts = aptRes.value.data;
+          }
+        }
+        if (resolvedApts.length === 0 && (patient?.appointments && Array.isArray(patient.appointments))) {
+          resolvedApts = patient.appointments;
+        }
+        // Fallback: If primary query returned 0, try pcode or aid if different from effectivePid
+        if (resolvedApts.length === 0 && (pcode || effectiveAid)) {
+          try {
+            const fallbackKey = pcode || effectiveAid;
+            if (String(fallbackKey) !== String(effectivePid)) {
+              const fbApts = await apiService.getPatientAppointments(fallbackKey);
+              if (Array.isArray(fbApts) && fbApts.length > 0) {
+                resolvedApts = fbApts;
+              }
+            }
+          } catch (e) {
+            console.debug("Appointments fallback error:", e?.message);
+          }
+        }
+        setPatientAppointments(resolvedApts);
+
+        // Live Communications from DB
+        if (commRes.status === 'fulfilled' && commRes.value?.data && Array.isArray(commRes.value.data)) {
+          setPatientCommunications(commRes.value.data);
         } else {
-          setPatientAppointments([]);
+          setPatientCommunications([]);
+        }
+
+        // Live Feedback & Escalations from DB
+        if (feedbackRes.status === 'fulfilled' && feedbackRes.value?.data && Array.isArray(feedbackRes.value.data)) {
+          setPatientFeedback(feedbackRes.value.data);
+        } else {
+          setPatientFeedback([]);
+        }
+
+        // Live Clinical Documents & Reports from DB
+        if (docsRes.status === 'fulfilled' && docsRes.value?.data && Array.isArray(docsRes.value.data)) {
+          setPatientDocuments(docsRes.value.data);
+        } else {
+          setPatientDocuments([]);
+        }
+
+        // Live Statutory Consent Records from DB
+        if (consentRes.status === 'fulfilled' && consentRes.value?.data && Array.isArray(consentRes.value.data)) {
+          setPatientConsent(consentRes.value.data);
+        } else {
+          setPatientConsent([]);
+        }
+
+        // Live AI Agent Action Logs from DB
+        if (aiRes.status === 'fulfilled' && aiRes.value?.data && Array.isArray(aiRes.value.data)) {
+          setPatientAiActivity(aiRes.value.data);
+        } else {
+          setPatientAiActivity([]);
         }
       } catch (err) {
         console.error("Patient 360 data load error:", err);
@@ -1104,6 +1221,18 @@ export default function Patient360View({
 
   // AI Activity on this patient
   const aiAgents = useMemo(() => {
+    if (patientAiActivity && patientAiActivity.length > 0) {
+      return patientAiActivity.map((a, idx) => ({
+        id: a.id || `ACT-${String(a.action_id || idx + 1).padStart(6, '0')}`,
+        agent: a.agent || a.action_type || 'Clinical AI Agent',
+        version: '2.1.0',
+        status: a.status || 'Completed',
+        steps: a.steps || (String(a.status).toUpperCase() === 'COMPLETED' ? 4 : 2),
+        bg: String(a.status).toUpperCase() === 'COMPLETED' ? '#dcfce7' : '#e0f2fe',
+        fg: String(a.status).toUpperCase() === 'COMPLETED' ? '#15803d' : '#0369a1',
+      }));
+    }
+
     if (p.isOP) {
       return [
         {
@@ -1197,7 +1326,7 @@ export default function Patient360View({
         fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#475569'),
       },
     ];
-  }, [p]);
+  }, [p, patientAiActivity]);
 
   const pendingApprovals = useMemo(() => {
     const list = [];
@@ -2433,7 +2562,7 @@ export default function Patient360View({
           rows={
             (patientAppointments && patientAppointments.length > 0)
               ? patientAppointments.map(apt => {
-                  const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '16 Jun 2026');
+                  const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'On file');
                   const timeStr = apt.appointment_time ? `${aptDate}, ${apt.appointment_time}` : aptDate;
                   const typeStr = apt.patient_reason ? `${apt.department_name ? apt.department_name + ' · ' : ''}${apt.patient_reason}` : (apt.department_name ? `${apt.department_name} Consultation` : 'Clinical Consultation');
                   return [
@@ -2445,14 +2574,9 @@ export default function Patient360View({
                     apt.status || 'Confirmed'
                   ];
                 })
-              : (p.isOP ? [
-                  [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, `${p.dept} Outpatient Consultation`, 'OPD Desk', 'Confirmed'],
-                ] : p.isER ? [
-                  [p.encounter, p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Emergency Triage & Assessment', 'Emergency Desk', 'Active'],
-                ] : (p.admission_id ? [
-                  [`APT-${p.patient_id || p.admission_id || '01'}`, p.doctor, p.admittedDate || 'Admission Day', `${p.dept} Inpatient Admission`, 'Clinical Intake', p.isDischarged ? 'Completed' : (p.status || 'Active')],
-                ] : []))
+              : []
           }
+          emptyMessage="No appointment records available on file for this patient."
           onRowClick={(row) => {
             if (onOpenDrawer) {
               onOpenDrawer({
@@ -2478,36 +2602,27 @@ export default function Patient360View({
         <TableContainer
           cols={['ID', 'Type', 'Doctor', 'Time', 'Status']}
           grid="160px 180px minmax(180px, 1fr) 160px 100px"
-          rows={
-            (patientAppointments && patientAppointments.length > 0)
-              ? [
-                  ...(p.admission_id ? [[
-                    p.encounter || `ENC-${p.admission_number || p.admission_id}`,
-                    `${p.admission_type || 'Emergency'} Inpatient Admission`,
-                    p.doctor,
-                    p.admitted,
-                    p.isDischarged ? 'Discharged' : (p.status || 'Active')
-                  ]] : []),
-                  ...patientAppointments.map(apt => {
-                    const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today');
-                    const timeStr = apt.appointment_time ? `${aptDate}, ${apt.appointment_time}` : aptDate;
-                    return [
-                      `ENC-${apt.booking_id}`,
-                      apt.patient_reason ? `Outpatient Consultation (${apt.patient_reason})` : 'Outpatient Consultation',
-                      apt.doctor_name || p.doctor,
-                      timeStr,
-                      apt.status || 'Completed'
-                    ];
-                  }).filter(r => !p.admission_id || !r[0].includes(String(p.admission_id)))
-                ]
-              : (p.isOP ? [
-                  [p.encounter, 'Outpatient Consultation', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Confirmed'],
-                ] : p.isER ? [
-                  [p.encounter, 'Emergency Room Intake & Triage', p.doctor, `${p.admittedDate}, ${p.admittedTime}`, 'Active Triage'],
-                ] : (p.admission_id ? [
-                  [p.encounter || `ENC-${p.admission_number || p.admission_id}`, `${p.admission_type || 'Inpatient'} Admission`, p.doctor, p.admitted, p.isDischarged ? 'Discharged' : (p.status || 'Active')],
-                ] : []))
-          }
+          rows={[
+            ...(p.admission_id ? [[
+              p.encounter || `ENC-${p.admission_number || p.admission_id}`,
+              `${p.admission_type || 'Inpatient'} Admission`,
+              p.doctor,
+              p.admitted,
+              p.isDischarged ? 'Discharged' : (p.status || 'Active')
+            ]] : []),
+            ...(patientAppointments || []).map(apt => {
+              const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today');
+              const timeStr = apt.appointment_time ? `${aptDate}, ${apt.appointment_time}` : aptDate;
+              return [
+                `ENC-${apt.booking_id || apt.id}`,
+                apt.patient_reason ? `Outpatient Consultation (${apt.patient_reason})` : 'Outpatient Consultation',
+                apt.doctor_name || p.doctor,
+                timeStr,
+                apt.status || 'Completed'
+              ];
+            }).filter(r => !p.admission_id || !r[0].includes(String(p.admission_id)))
+          ]}
+          emptyMessage="No clinical encounter records available on file for this patient."
         />
       )}
 
@@ -3254,37 +3369,9 @@ export default function Patient360View({
                     statusStr
                   ];
                 })
-              : (p.medications && p.medications.length > 0)
-                ? p.medications.map((m, idx) => {
-                    const qtyVal = m.quantity || (() => {
-                      const days = parseInt(m.duration) || 5;
-                      const freqLower = (m.frequency || '').toLowerCase().trim();
-                      const freqMultiplier = freqLower.includes('tds') || freqLower.includes('tid') ? 3
-                        : (freqLower.includes('bd') || freqLower.includes('bid')) ? 2
-                        : freqLower.includes('qid') ? 4
-                        : 1;
-                      return days * freqMultiplier;
-                    })();
-                    return [
-                      `RX-${idx + 101}`,
-                      m.medication_name,
-                      `${m.dosage || ''} ${m.route || 'Oral'} ${m.frequency || 'OD'}`.trim() || 'Standard Dose',
-                      `${m.duration || '5 Days'} · Qty: ${qtyVal}`,
-                      'Standard',
-                      'Active'
-                    ];
-                  })
-                : (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
-                  ? liveBill.pharmacy_items.map((pi, idx) => [
-                      `RX-${pi.sale_item_id || idx + 101}`,
-                      pi.item_name,
-                      `${pi.category || 'Therapeutic'} · Dispensed`,
-                      `${pi.quantity || 1} units · Qty: ${pi.quantity || 1}`,
-                      'Standard',
-                      'Dispensed'
-                    ])
-                  : []
+              : []
           }
+          emptyMessage="No medication records available on file for this patient."
           onRowClick={(row) => {
             if (onOpenDrawer) {
               const matchedRx = livePrescriptions?.find(r => (r.prescription_number || r.id) === row[0]);
@@ -3631,185 +3718,154 @@ export default function Patient360View({
 
       {/* Tab 10: Discharge */}
       {activeTab === 'Discharge' && (
-        <TableContainer
-          cols={['Case', 'Intent', 'Predicted', 'Discharge Date & Time', 'Owner', 'Status']}
-          grid="130px 130px 130px minmax(190px, 1.3fr) minmax(160px, 1fr) 180px"
-          rows={
-            p.isOP ? [
-              [
-                `OPD-${p.encounter}`,
-                p.admittedDate,
-                'N/A (OP Visit)',
-                'Same-Day Outpatient Exit',
-                `Doctor: ${p.doctor}`,
-                'Outpatient Visit · No IP Stay Required'
-              ]
-            ] : p.isER ? [
-              [
-                `ER-${p.encounter}`,
-                p.admittedDate,
-                'Pending Triage',
-                'Observation / Pending Admission',
-                `ER Physician: ${p.doctor}`,
-                'Active Emergency Observation'
-              ]
-            ] : [
-              [
-                `DC-2026-${String(p.patient_id || p.admission_id || '01').slice(-4)}`,
-                p.admittedDate || '17 May 2025',
-                p.dischargePredicted,
-                p.dischargeDateTime,
-                p.dischargeOwner,
-                p.dischargeStatusLabel
-              ],
-            ]
-          }
-          onRowClick={(row) => {
-            if (p.isOP || p.isER) {
-              if (onOpenDrawer) {
-                onOpenDrawer({
-                  title: `${row[0]} · ${p.name}`,
-                  sub: `Status: ${row[5]} | Date: ${row[1]}`,
-                  badges: [
-                    { t: p.isOP ? 'Outpatient Consultation' : 'Emergency Observation', bg: p.isOP ? '#e0f2fe' : '#fef3c7', fg: p.isOP ? '#0369a1' : '#92400e' }
-                  ],
-                  facts: [
-                    { k: 'Record ID', v: row[0], b: true },
-                    { k: 'Patient Name', v: p.name, b: true },
-                    { k: 'Visit Date', v: row[1] },
-                    { k: 'Attending Physician', v: row[4] },
-                    { k: 'Status', v: row[5] },
-                    { k: 'Billing Settlement', v: p.billingStatusDisplay }
-                  ]
-                });
-              }
-              return;
-            }
-
-            if (onOpenDrawer) {
-              onOpenDrawer({
-                title: `${row[0]} · ${p.name}`,
-                sub: `Discharge Status: ${row[5]} | Date & Time: ${row[3]}`,
-                badges: [
-                  {
-                    t: p.isDischarged
-                      ? 'Discharged & Signed Off'
-                      : (p.dischargePredicted === 'Approval required'
-                          ? 'Approval Required · Doctor Sign-Off'
-                          : (p.dischargePredicted === 'Ready' ? 'Ready for Discharge' : 'Pending Clearance')),
-                    bg: p.isDischarged
-                      ? '#dcfce7'
-                      : (p.dischargePredicted === 'Approval required'
-                          ? '#fef3c7'
-                          : (p.dischargePredicted === 'Ready' ? '#dcfce7' : '#fee2e2')),
-                    fg: p.isDischarged
-                      ? '#15803d'
-                      : (p.dischargePredicted === 'Approval required'
-                          ? '#92400e'
-                          : (p.dischargePredicted === 'Ready' ? '#15803d' : '#b91c1c'))
-                  }
-                ],
-                facts: [
-                  { k: 'Discharge Case ID', v: row[0], b: true },
-                  { k: 'Patient Name', v: p.name, b: true },
-                  { k: 'Discharge Date & Time', v: row[3], b: true },
-                  { k: 'Intent Date', v: row[1] },
-                  { k: 'Predicted Progression', v: row[2] },
-                  { k: 'Attending Physician', v: row[4] },
-                  { k: 'Clearance Status', v: row[5] },
-                  { k: 'Bill Settlement', v: p.billingStatusDisplay },
-                  { k: 'Vital Signs at Discharge', v: p.latestBp }
-                ],
-                actions: [
-                  {
-                    label: p.isDischarged ? 'View Signed Discharge Summary' : 'Execute Discharge Sign-Off',
-                    primary: true,
-                    on: () => {
-                      if (onOpenDischarge) onOpenDischarge();
-                      else if (onNavigate) onNavigate('discharge');
-                    }
-                  }
-                ]
-              });
-            } else if (onOpenDischarge) {
-              onOpenDischarge();
-            } else if (onNavigate) {
-              onNavigate('discharge');
-            }
-          }}
-        />
+        dischargeSummary ? (
+          <TableContainer
+            cols={['Summary ID', 'Admission ID', 'Consultant', 'Discharge Date', 'Condition', 'Status']}
+            grid="130px 130px minmax(180px, 1fr) 140px 160px 120px"
+            rows={[[
+              `DC-${dischargeSummary.summary_id || cleanNum(dischargeSummary.id) || '2026'}`,
+              dischargeSummary.admission_id ? `ENC-MER-ADM-${String(dischargeSummary.admission_id).padStart(7, '0')}` : p.encounter,
+              dischargeSummary.primary_consultant || p.doctor,
+              dischargeSummary.discharge_date ? new Date(dischargeSummary.discharge_date).toLocaleDateString('en-IN') : 'Discharged',
+              dischargeSummary.patient_condition || 'Stable',
+              'Finalized'
+            ]]}
+            emptyMessage="No discharge records on file for this patient."
+          />
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '36px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: '32px', marginBottom: '8px' }}>📋</div>
+            <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a', marginBottom: '4px' }}>
+              No Discharge Records on File
+            </div>
+            <div style={{ fontSize: '12px', color: '#64748b', maxWidth: '480px', margin: '0 auto 16px', lineHeight: 1.5 }}>
+              {p.isDischarged 
+                ? 'No signed or finalized discharge summary has been recorded in the database for this patient.'
+                : `Patient is currently active and admitted in ${p.ward || 'Inpatient Care'} (${p.bed}). Discharge has not been initiated.`}
+            </div>
+            {!p.isDischarged && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenDischarge) onOpenDischarge();
+                  else if (onNavigate) onNavigate('discharge');
+                }}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: '6px',
+                  background: 'oklch(0.5 0.1 200)',
+                  color: '#fff',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer'
+                }}
+              >
+                Open Discharge Command Centre →
+              </button>
+            )}
+          </div>
+        )
       )}
 
       {/* Tab 11: Communications */}
       {activeTab === 'Communications' && (
         <TableContainer
-          cols={['Time', 'Channel', 'Message', 'Lang', 'Status']}
-          grid="130px 110px minmax(260px, 1fr) 60px 100px"
-          rows={[
-            ['Today 11:10', 'WhatsApp', `Discharge status update · ${p.isCleared ? 'NOC Approved' : 'Outstanding balance ₹' + p.outstandingBalance.toLocaleString('en-IN')}`, p.lang?.slice(0, 2)?.toUpperCase() || 'EN', 'Delivered'],
-            ['Today 09:12', 'Mobile push', `Discharge planning status notification sent to ${p.phone}`, p.lang?.slice(0, 2)?.toUpperCase() || 'EN', 'Delivered'],
-            [`${p.admittedDate} 12:45`, 'Email', `Diagnostic lab & imaging reports ready for review by ${p.doctor}`, p.lang?.slice(0, 2)?.toUpperCase() || 'EN', 'Delivered'],
-            [`${p.admittedDate} 10:20`, 'SMS', `Inpatient admission confirmed at ${p.bed}`, 'EN', 'Delivered'],
-          ]}
+          cols={['Time', 'Channel', 'Notification / Message', 'Type', 'Status']}
+          grid="140px 100px minmax(260px, 1fr) 140px 100px"
+          rows={
+            (patientCommunications && patientCommunications.length > 0)
+              ? patientCommunications.map(c => [
+                  c.time || 'Recent',
+                  c.channel || 'SMS',
+                  c.message || 'Notification sent to patient',
+                  c.type || 'COMMUNICATION',
+                  c.status || 'Delivered'
+                ])
+              : []
+          }
+          emptyMessage="No communication records available on file for this patient."
         />
       )}
 
       {/* Tab 12: Feedback */}
       {activeTab === 'Feedback' && (
         <TableContainer
-          cols={['Case', 'Feedback', 'Priority', 'Owner', 'Status']}
-          grid="120px minmax(240px, 1fr) 90px 160px 100px"
-          rows={[
-            [`FDB-${String(p.patient_id || p.admission_id || '101').slice(-4)}`, `Patient care & billing coordination for ${p.name} (${p.insurer})`, 'Medium', p.doctor, p.isCleared ? 'Completed' : 'In Progress'],
-          ]}
+          cols={['Case ID', 'Feedback / Escalation', 'Status', 'Clinical Resolution', 'Date']}
+          grid="120px minmax(240px, 1.4fr) 100px minmax(180px, 1fr) 110px"
+          rows={
+            (patientFeedback && patientFeedback.length > 0)
+              ? patientFeedback.map(f => [
+                  f.id,
+                  f.feedback || f.reason,
+                  f.status || 'Recorded',
+                  f.resolution || 'Under Clinical Review',
+                  f.date || 'Recent'
+                ])
+              : []
+          }
+          emptyMessage="No feedback or escalation records available on file for this patient."
         />
       )}
 
       {/* Tab 13: Documents */}
       {activeTab === 'Documents' && (
         <TableContainer
-          cols={['Document', 'Version', 'Author', 'Status']}
-          grid="minmax(240px, 1fr) 90px 180px 160px"
-          rows={[
-            ['Discharge Summary', 'v1 draft', `AI draft · ${p.doctor}`, p.isCleared ? 'Approved & Signed' : 'DRAFT — HUMAN REVIEW'],
-            ['Itemized Hospital & Pharmacy Bill', 'v1', 'Finance & Revenue Lead', p.isCleared ? 'Paid in Full' : 'Pending Settlement'],
-            ...((liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length) ? [
-              ['Diagnostic & Lab Investigation Panel', 'Final', 'LIS Pathology Lead', 'Verified & Signed']
-            ] : []),
-            ['Patient Admission & Consent Form', 'v1', 'Front Office Lead', 'Signed'],
-          ]}
+          cols={['Document Reference', 'Document Title', 'Type', 'Author / Clinician', 'Status', 'Date']}
+          grid="120px minmax(200px, 1.2fr) 120px 160px 100px 100px"
+          rows={
+            (patientDocuments && patientDocuments.length > 0)
+              ? patientDocuments.map(d => [
+                  d.id,
+                  d.title,
+                  d.type || 'Clinical Document',
+                  d.author || 'Attending Clinician',
+                  d.status || 'Available',
+                  d.date || 'On File'
+                ])
+              : []
+          }
+          emptyMessage="No uploaded clinical documents or reports available on file for this patient."
         />
       )}
 
       {/* Tab 14: Consent */}
       {activeTab === 'Consent' && (
         <TableContainer
-          cols={['Purpose', 'State', 'Verified']}
-          grid="minmax(240px, 1fr) 100px 200px"
-          rows={[
-            ['WhatsApp Messaging', 'Active On', `${p.admittedDate} · OTP Verified (${p.phone})`],
-            ['Appointment Reminders', 'Active On', `${p.admittedDate} · Mobile OTP`],
-            ['Diagnostic & Lab Notifications', 'Active On', `${p.admittedDate} · Mobile OTP`],
-            ['Billing & Payment Notifications', 'Active On', `${p.admittedDate} · Mobile OTP`],
-            ['Discharge Status Notifications', 'Active On', `${p.admittedDate} · Mobile OTP`],
-            ['AI Clinical Interpretation', 'Active On', 'Clinical Consent Protocol'],
-            ['Third-party Data Sharing', 'Disabled Off', 'Statutory Patient Privacy'],
-          ]}
+          cols={['Consent ID', 'Statutory Purpose', 'Channel', 'Verification', 'Status']}
+          grid="110px minmax(240px, 1.4fr) 140px 160px 120px"
+          rows={
+            (patientConsent && patientConsent.length > 0)
+              ? patientConsent.map(c => [
+                  c.id,
+                  c.purpose || 'Statutory Clinical Consent',
+                  c.channel || 'Digital Signature',
+                  c.verified || 'Verified',
+                  c.status || 'Active'
+                ])
+              : []
+          }
+          emptyMessage="No signed statutory consent forms available on file for this patient."
         />
       )}
 
       {/* Tab 15: AI Activity */}
       {activeTab === 'AI Activity' && (
         <TableContainer
-          cols={['Execution', 'Agent', 'Started', 'Steps', 'Status']}
-          grid="150px minmax(200px, 1fr) 130px 70px 110px"
-          rows={aiAgents.map(a => [
-            a.id,
-            a.agent,
-            p.admittedDate || 'Today',
-            String(a.steps),
-            a.status
-          ])}
+          cols={['Run ID', 'Agent Action', 'Intent / Process', 'Executed Time', 'Status']}
+          grid="120px minmax(200px, 1.2fr) 180px 150px 110px"
+          rows={
+            (patientAiActivity && patientAiActivity.length > 0)
+              ? patientAiActivity.map(a => [
+                  a.id,
+                  a.agent || 'Clinical AI Agent',
+                  a.intent || 'Clinical Optimization',
+                  a.time || 'Recent',
+                  a.status || 'COMPLETED'
+                ])
+              : []
+          }
+          emptyMessage="No AI agent action logs available on file for this patient."
           onRowClick={() => onNavigate && onNavigate('runs')}
         />
       )}
@@ -4341,7 +4397,7 @@ export default function Patient360View({
 }
 
 // Reusable table container matching prototype styling
-function TableContainer({ cols, grid, rows, onRowClick }) {
+function TableContainer({ cols, grid, rows, onRowClick, emptyMessage }) {
   return (
     <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
       <div
@@ -4363,8 +4419,8 @@ function TableContainer({ cols, grid, rows, onRowClick }) {
         ))}
       </div>
       {(!rows || rows.length === 0) ? (
-        <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
-          No records on file for this patient.
+        <div style={{ padding: '32px 16px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+          {emptyMessage || 'No records available on file for this patient.'}
         </div>
       ) : (
         rows.map((row, idx) => (

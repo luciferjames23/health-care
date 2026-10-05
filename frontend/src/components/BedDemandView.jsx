@@ -22,7 +22,7 @@ export default function BedDemandView({ onSelectPatient }) {
     try {
       // Fetch combined Ward -> Room -> Bed -> Patient data directly from DB APIs
       const [bmRes, wardsRes] = await Promise.all([
-        apiService.getBedManagementData({}, { forceRefresh: true }).catch(() => null),
+        apiService.getBedManagementData({}).catch(() => null),
         apiService.getWards({ limit: 100 }).catch(() => ({ data: [] }))
       ]);
 

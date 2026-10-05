@@ -34,10 +34,10 @@ const DoctorAppointments: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeValue>({
-    dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    dateTo: toYMD(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
-    preset: 'this_month',
-    displayLabel: 'This Month',
+    dateFrom: '',
+    dateTo: '',
+    preset: 'all_time',
+    displayLabel: 'All Time',
   });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -119,7 +119,7 @@ const DoctorAppointments: React.FC = () => {
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <DateRangeFilter
-              initialPreset="this_month"
+              initialPreset="all_time"
               initialFrom={dateRange.dateFrom}
               initialTo={dateRange.dateTo}
               onChange={val => setDateRange(val)}

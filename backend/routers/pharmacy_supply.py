@@ -53,19 +53,75 @@ def get_prescriptions(
             params.append(status)
 
         if search and isinstance(search, str) and search.strip():
-            terms = [t.strip().lower() for t in search.strip().split() if t.strip()]
-            for t in terms:
-                s = f"%{t}%"
-                where_clauses.append("""(
-                    LOWER(p.prescription_id::text) LIKE %s OR
-                    LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
-                    LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
-                    LOWER(COALESCE(d.display_name, '')) LIKE %s OR
-                    LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
-                    LOWER(COALESCE(m.generic_name, '')) LIKE %s OR
-                    LOWER(COALESCE(m.brand_name, '')) LIKE %s
-                )""")
-                params.extend([s, s, s, s, s, s, s])
+            raw_s = search.strip()
+            terms = [t.strip().lower() for t in raw_s.split() if t.strip()]
+
+            # 1. Direct Rx Number check (e.g. RX-2026-110103 or 110103)
+            digits = "".join(ch for ch in raw_s if ch.isdigit())
+            matched_rx_ids = set()
+            if digits and len(digits) >= 3:
+                try:
+                    matched_rx_ids.add(int(digits))
+                except ValueError:
+                    pass
+
+            # 2. Fast patient lookup (<0.08s)
+            pat_term = f"%{'%'.join(terms)}%"
+            cur.execute("""
+                SELECT id FROM patients 
+                WHERE (first_name || ' ' || COALESCE(last_name, '')) ILIKE %s
+                   OR patient_code ILIKE %s
+                LIMIT 50;
+            """, (pat_term, pat_term))
+            matched_pids = [pr['id'] for pr in cur.fetchall()]
+
+            # 3. Fast doctor lookup (<0.005s)
+            cur.execute("""
+                SELECT id FROM doctors 
+                WHERE display_name ILIKE %s
+                LIMIT 20;
+            """, (f"%{raw_s}%",))
+            matched_doc_ids = [dr['id'] for dr in cur.fetchall()]
+
+            # 4. Fast medication formulary lookup (<0.005s)
+            cur.execute("""
+                SELECT medication_id FROM medications 
+                WHERE medication_name ILIKE %s 
+                   OR generic_name ILIKE %s 
+                   OR brand_name ILIKE %s
+                LIMIT 30;
+            """, (f"%{raw_s}%", f"%{raw_s}%", f"%{raw_s}%"))
+            matched_med_ids = [mr['medication_id'] for mr in cur.fetchall()]
+
+            conds = []
+            if matched_rx_ids:
+                conds.append("p.prescription_id = ANY(%s)")
+                params.append(list(matched_rx_ids))
+            if matched_pids:
+                conds.append("p.patient_id = ANY(%s)")
+                params.append(matched_pids)
+            if matched_doc_ids:
+                conds.append("p.doctor_id = ANY(%s)")
+                params.append(matched_doc_ids)
+            if matched_med_ids:
+                conds.append("pi.medication_id = ANY(%s)")
+                params.append(matched_med_ids)
+
+            if conds:
+                where_clauses.append("(" + " OR ".join(conds) + ")")
+            else:
+                for t in terms:
+                    s = f"%{t}%"
+                    where_clauses.append("""(
+                        LOWER(p.prescription_id::text) LIKE %s OR
+                        LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
+                        LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
+                        LOWER(COALESCE(d.display_name, '')) LIKE %s OR
+                        LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
+                        LOWER(COALESCE(m.generic_name, '')) LIKE %s OR
+                        LOWER(COALESCE(m.brand_name, '')) LIKE %s
+                    )""")
+                    params.extend([s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 

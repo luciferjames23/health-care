@@ -395,7 +395,7 @@ export default function AnalyticsView() {
                 fontSize: '11px'
               }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: THEME.success, display: 'inline-block' }} />
-                Refreshed {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                Refreshed {lastRefresh.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
               </span>
             )}
           </div>

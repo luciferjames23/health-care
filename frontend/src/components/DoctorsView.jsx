@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
+import SearchInput from './SearchInput';
+import TablePagination from './TablePagination';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
@@ -9,8 +11,28 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
   const [departmentsList, setDepartmentsList] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState('All');
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [schedPage, setSchedPage] = useState(1);
+  const [schedPageSize, setSchedPageSize] = useState(25);
+
+  useEffect(() => {
+    if (search.trim()) {
+      setIsSearching(true);
+      const timer = setTimeout(() => {
+        setDebouncedSearch(search);
+        setIsSearching(false);
+      }, 150);
+      return () => clearTimeout(timer);
+    } else {
+      setDebouncedSearch('');
+      setIsSearching(false);
+    }
+  }, [search]);
   const [actionSuccess, setActionSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('roster'); // 'roster' | 'schedules'
 
@@ -248,13 +270,21 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
   const filteredDoctors = useMemo(() => {
     return doctors.filter(d => {
       const matchDept = departmentFilter === 'All' || (d.department_name || d.department) === departmentFilter;
-      const s = search.toLowerCase();
+      const s = debouncedSearch.toLowerCase();
       const matchSearch = !s || [
         d.display_name, d.first_name, d.last_name, d.specialization, d.department_name, d.email, d.phone, d.room_number
       ].some(v => v && String(v).toLowerCase().includes(s));
       return matchDept && matchSearch;
     });
-  }, [doctors, departmentFilter, search]);
+  }, [doctors, departmentFilter, debouncedSearch]);
+
+  const paginatedDoctors = useMemo(() => {
+    return filteredDoctors.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredDoctors, page, pageSize]);
+
+  const paginatedSchedules = useMemo(() => {
+    return schedules.slice((schedPage - 1) * schedPageSize, schedPage * schedPageSize);
+  }, [schedules, schedPage, schedPageSize]);
 
   const totalActive = doctors.filter(d => d.status === 'ACTIVE').length;
 
@@ -273,11 +303,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
+          <SearchInput
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             placeholder="Search doctor, spec or dept…"
-            style={{ height: '30px', width: '200px', border: '1px solid #e3e6e8', borderRadius: '6px', padding: '0 10px', fontSize: '12px', outline: 'none' }}
+            loading={isSearching || loading}
+            width="220px"
+            accentColor="oklch(0.5 0.1 200)"
           />
           <button
             type="button"
@@ -374,7 +407,55 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
           </div>
 
           {/* Doctor Cards / Table */}
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto' }}>
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', overflowX: 'auto', position: 'relative' }}>
+            {/* Shimmer loading progress bar */}
+            {(loading || isSearching) && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '3px',
+                  background: 'linear-gradient(90deg, #0284c7, #38bdf8, #7dd3fc, #0284c7)',
+                  backgroundSize: '200% 100%',
+                  animation: 'shimmer 1.2s infinite linear',
+                  zIndex: 10
+                }}
+              />
+            )}
+
+            {/* Searching overlay */}
+            {(loading || isSearching) && filteredDoctors.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(255, 255, 255, 0.6)',
+                  backdropFilter: 'blur(1px)',
+                  zIndex: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'oklch(0.5 0.1 200)'
+                }}
+              >
+                <div
+                  style={{
+                    width: '16px',
+                    height: '16px',
+                    border: '2px solid oklch(0.5 0.1 200)',
+                    borderTopColor: 'transparent',
+                    borderRadius: '50%',
+                    animation: 'spin 0.6s linear infinite'
+                  }}
+                />
+                <span>Filtering doctors...</span>
+              </div>
+            )}
             {loading ? (
               <div style={{ padding: '32px', textAlign: 'center', color: '#8a9096' }}>Loading doctor profiles…</div>
             ) : filteredDoctors.length === 0 ? (
@@ -397,7 +478,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDoctors.map(doc => {
+                  {paginatedDoctors.map(doc => {
                     const isActive = doc.status === 'ACTIVE';
                     return (
                       <tr key={doc.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -460,6 +541,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                 </tbody>
               </table>
             )}
+            <TablePagination
+              total={filteredDoctors.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+              label="doctors"
+            />
           </div>
         </>
       )}
@@ -568,7 +657,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                   </tr>
                 </thead>
                 <tbody>
-                  {schedules.map(s => (
+                  {paginatedSchedules.map(s => (
                     <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{s.doctor_name}</td>
                       <td style={{ padding: '10px 14px', color: '#0369a1' }}>{s.department_name}</td>
@@ -594,6 +683,14 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
                 </tbody>
               </table>
             )}
+            <TablePagination
+              total={schedules.length}
+              page={schedPage}
+              pageSize={schedPageSize}
+              onPageChange={setSchedPage}
+              onPageSizeChange={(sz) => { setSchedPageSize(sz); setSchedPage(1); }}
+              label="schedules"
+            />
           </div>
         </div>
       )}

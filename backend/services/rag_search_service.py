@@ -130,12 +130,14 @@ class RagSearchService:
     def _secure_search(self, query, area, context, patient_id, admission_id, order_id,
                        accession_number, status_filter, limit, expanded_phrases=None,
                        conversation_history=None, query_plan=None):
-        effective_patient_id = patient_id if patient_id is not None else ((query_plan or {}).get("patient_id"))
-        if context.role == "doctor" and effective_patient_id is not None and effective_patient_id not in (context.allowed_patient_ids or frozenset()):
-            raise PermissionError(ACCESS_DENIED)
         conn = db_config.get_db_connection()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if query_plan is None:
+                    query_plan = self.understand_query(query, context)
+                effective_patient_id = patient_id if patient_id is not None else ((query_plan or {}).get("patient_id"))
+                if context.role == "doctor" and effective_patient_id is not None and effective_patient_id not in (context.allowed_patient_ids or frozenset()):
+                    raise PermissionError(ACCESS_DENIED)
                 self._check_cross_doctor_access(cur, context, query)
                 kind, dimensions = self._plan(query, area, context.role, patient_id=effective_patient_id,
                                               conversation_history=conversation_history, query_plan=query_plan)
@@ -334,21 +336,27 @@ class RagSearchService:
             is_recent = _has(q, {"this week", "recent", "recently", "last 7 days", "past week",
                                  "last week", "this month"})
 
-            # ── List route: list all requests / list the N requests / who raised ──
-            order_topic = _has(q, {"request", "requests", "order", "orders", "xray", "x ray", "worklist"})
-            is_investigative = _has(q, {"why", "conclude", "conclusion", "indication", "report"})
-            is_who_raised = _has(q, {"who raised", "who are all raised", "who ordered", "who requested",
+            # ── List route: list all requests / list the N requests / who raised / list high priority ──
+            order_topic = _has(q, {"request", "requests", "requested", "order", "orders", "ordered", "xray", "x ray", "x-ray", "worklist", "study", "studies", "scan", "scans", "indication", "category"})
+            is_investigative = _has(q, {"why", "conclude", "conclusion", "report"})
+            is_who_raised = _has(q, {"who raised", "who are all raised", "who all raised", "who ordered", "who requested",
+                                     "who requested the", "who ordered the", "who raised the", "who are all requested", "who all requested",
+                                     "who are all ordered", "who all ordered", "who asked", "who asked the",
                                      "raised by", "ordered by", "requested by", "which doctor",
-                                     "which doctors"})
-            is_list_request = (is_list or is_who_raised) and order_topic and not is_investigative and not count
+                                     "which doctors", "under which category", "with what indication",
+                                     "to which patient", "which patient raised", "priya patel requested",
+                                     "doctor requested", "requests by", "orders by"})
+            is_list_priority = (is_list or _has(q, {"show", "list", "view", "get", "display"})) and _has(q, {"high priority", "urgent", "review flag", "routine"}) and not count
+            is_list_request = (is_list or is_who_raised or is_list_priority) and (order_topic or is_who_raised or is_list_priority) and not is_investigative and not count
+
             if is_list_request:
                 dims = set()
                 if exam_type_filter: dims.add(exam_type_filter)
                 if is_who_raised: dims.add("requested_by")
-                if _has(q, {"urgent"}): dims.add("urgent")
-                if _has(q, {"routine"}): dims.add("routine")
+                if _has(q, {"high priority", "urgent"}): dims.add("urgent")
+                elif _has(q, {"routine"}): dims.add("routine")
                 if _has(q, {"uploaded"}): dims.add("uploaded")
-                if _has(q, {"requested"}): dims.add("requested")
+                elif _has(q, {"status requested", "requested status", "status is requested"}) or (_has(q, {"requested"}) and not is_who_raised and not _has(q, {"patel", "priya", "doctor", "dr"})): dims.add("requested")
                 if is_today: dims.add("today")
                 elif is_recent: dims.add("recent")
                 return "radiology_list", dims
@@ -860,32 +868,33 @@ class RagSearchService:
                 SELECT rc.id, rc.subject, rc.status, rc.priority, rc.created_at,
                        ro.accession_number, ro.examination,
                        p.first_name, p.last_name, p.patient_code,
-                       COUNT(rcm.id) AS total_msgs,
-                       COUNT(rcr.message_id) AS read_msgs
+                       (SELECT COUNT(*) FROM radiology_clarification_messages m
+                        WHERE m.thread_id = rc.id
+                          AND m.sender_id <> %s
+                          AND NOT EXISTS (
+                            SELECT 1 FROM radiology_clarification_reads r
+                            JOIN users u ON u.id = r.user_id
+                            WHERE r.message_id = m.id
+                              AND (r.user_id = %s OR u.staff_name = (SELECT staff_name FROM users WHERE id = %s))
+                          )
+                       ) AS unread_cnt
                 FROM radiology_clarifications rc
                 JOIN radiology_orders ro ON ro.order_id = rc.order_id
                 JOIN patients p ON p.id = ro.patient_id
-                JOIN radiology_clarification_messages rcm ON rcm.thread_id = rc.id
-                LEFT JOIN radiology_clarification_reads rcr
-                    ON rcr.message_id = rcm.id AND rcr.user_id = %s
-                WHERE {where}
-                GROUP BY rc.id, rc.subject, rc.status, rc.priority, rc.created_at,
-                         ro.accession_number, ro.examination,
-                         p.first_name, p.last_name, p.patient_code
+                WHERE {where} AND LOWER(rc.status) <> 'resolved'
                 ORDER BY rc.created_at DESC
-            """, [viewer_id] + params)
+            """, [viewer_id or 0, viewer_id or 0, viewer_id or 0] + params)
             rows = [dict(r) for r in cur.fetchall()]
-            unread_rows = [r for r in rows if int(r.get('total_msgs', 0)) > int(r.get('read_msgs', 0))]
+            unread_rows = [r for r in rows if int(r.get('unread_cnt', 0)) > 0]
             if not unread_rows:
-                content = "No unread clarification messages. All clarifications have been read."
+                content = "No unread clarification messages. All radiology clarifications have been read and resolved."
                 label = "Clarification Unread Status"
             else:
                 lines = []
                 for i, r in enumerate(unread_rows, 1):
                     pname = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
-                    unread_cnt = int(r.get('total_msgs', 0)) - int(r.get('read_msgs', 0))
                     lines.append(f"{i}. Patient: {pname} | Subject: \"{r.get('subject')}\" | "
-                                 f"Acc: #{r.get('accession_number')} | Unread: {unread_cnt} message(s) | "
+                                 f"Acc: #{r.get('accession_number')} | Unread: {r.get('unread_cnt')} message(s) | "
                                  f"Status: {r.get('status')}")
                 content = f"Unread clarifications ({len(unread_rows)}):\n" + "\n".join(lines)
                 label = f"Unread Radiology Clarifications ({len(unread_rows)})"
@@ -954,8 +963,10 @@ class RagSearchService:
                     f"Status: {r.get('status')} | Priority: {r.get('priority')}")
             lines.append(line)
 
+        raised_by_names = list(dict.fromkeys(msgs[0]['sender_name'] for r in rows if (msgs := all_messages.get(str(r['id']), []))))
+        doc_summary = f" raised by {', '.join(raised_by_names)}" if raised_by_names else ""
         label = f"Radiology Clarifications ({len(rows)})"
-        content = (f"Radiology clarifications ({len(rows)} total: {urgent_count} Urgent, {routine_count} Routine; "
+        content = (f"Radiology clarifications ({len(rows)} total{doc_summary}: {urgent_count} Urgent, {routine_count} Routine; "
                    f"{resolved_count} Resolved, {pending_count} Pending):\n" + "\n".join(lines))
         return [self._source(context, label, content, "radiology_clarification", "radiology_clarification",
                              "radiology_clarifications", "authorized_doctor_clarifications",
@@ -1027,51 +1038,49 @@ class RagSearchService:
 
         where = " AND ".join(clauses)
 
-        # Study analyzed: count from radiology_scan (AI worklist)
+        # Study analyzed: count active order scans (AI worklist)
         if "study_analyzed" in dimensions:
-            # Base params for scan table (no join needed, scan has order_id)
             scan_clauses = ["1=1"]
             scan_params = []
             if context.role == "doctor":
                 allowed = sorted(context.allowed_patient_ids or ())
                 if not allowed: return [], "empty_authorized_scope"
-                scan_clauses.append("s.patient_id=ANY(%s)"); scan_params.append(allowed)
+                scan_clauses.append("o.patient_id=ANY(%s)"); scan_params.append(allowed)
             scan_where = " AND ".join(scan_clauses)
 
-            cur.execute(f"SELECT COUNT(*) total FROM radiology_scan s WHERE {scan_where}", scan_params)
-            total_scans = int((cur.fetchone() or {}).get("total") or 0)
+            cur.execute(f"SELECT COUNT(*) total FROM radiology_orders o WHERE {scan_where.replace('s.patient_id', 'o.patient_id')}", scan_params)
+            total_all_orders = int((cur.fetchone() or {}).get("total") or 0)
 
             cur.execute(f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE LOWER(COALESCE(s.review_status,'')) = 'confirmed') AS confirmed,
-                    COUNT(*) FILTER (WHERE LOWER(COALESCE(s.review_status,'')) = 'pending review') AS pending_review,
-                    COUNT(*) FILTER (WHERE s.review_status IS NULL) AS unreviewed
-                FROM radiology_scan s WHERE {scan_where}
+                    COUNT(DISTINCT o.order_id) AS total_orders,
+                    COUNT(DISTINCT s.scan_id) AS total_scans,
+                    COUNT(DISTINCT CASE WHEN LOWER(COALESCE(s.review_status,'')) = 'confirmed' THEN s.scan_id END) AS confirmed,
+                    COUNT(DISTINCT CASE WHEN LOWER(COALESCE(s.review_status,'')) = 'pending review' THEN s.scan_id END) AS pending_review,
+                    COUNT(DISTINCT CASE WHEN s.combined_status = 'HIGH PRIORITY' THEN s.scan_id END) AS high_priority,
+                    COUNT(DISTINCT CASE WHEN s.combined_status = 'REVIEW FLAG' THEN s.scan_id END) AS review_flag,
+                    COUNT(DISTINCT CASE WHEN s.combined_status = 'ROUTINE' THEN s.scan_id END) AS routine
+                FROM radiology_scan s
+                JOIN radiology_order_studies ros ON ros.study_key = s.order_study_id
+                JOIN radiology_orders o ON o.order_id = ros.order_id
+                WHERE {scan_where}
             """, scan_params)
             stat = dict(cur.fetchone() or {})
+            total_orders = int(stat.get('total_orders') or 0)
+            total_scans = int(stat.get('total_scans') or 0)
             confirmed = int(stat.get('confirmed') or 0)
             pending_rev = int(stat.get('pending_review') or 0)
-            unreviewed = int(stat.get('unreviewed') or 0)
-            analyzed = confirmed + pending_rev  # "analyzed" = AI has processed it
+            high_p = int(stat.get('high_priority') or 0)
+            rev_flag = int(stat.get('review_flag') or 0)
+            routine = int(stat.get('routine') or 0)
 
-            if "priority" in dimensions:
-                cur.execute(f"""
-                    SELECT COUNT(*) FILTER (WHERE LOWER(COALESCE(s.priority,'')) = 'high priority') AS high_priority,
-                           COUNT(*) FILTER (WHERE LOWER(COALESCE(s.priority,'')) = 'routine') AS routine_priority
-                    FROM radiology_scan s WHERE {scan_where} AND s.review_status IS NOT NULL
-                """, scan_params)
-                pstat = dict(cur.fetchone() or {})
-                high_p = int(pstat.get('high_priority') or 0)
-                routine_p = int(pstat.get('routine_priority') or 0)
-                content = (f"Studies analyzed by AI worklist: {analyzed} out of {total_scans} total scans. "
-                           f"Confirmed: {confirmed}, Pending Review: {pending_rev}. "
-                           f"Priority breakdown (analyzed): High Priority: {high_p}, Routine: {routine_p}.")
-            else:
-                content = (f"Studies analyzed by AI worklist: {analyzed} out of {total_scans} total scans. "
-                           f"Confirmed: {confirmed}, Pending Review: {pending_rev}, Unreviewed: {unreviewed}.")
+            content = (f"Studies analyzed by AI worklist: {total_orders} out of {total_all_orders} total order requests ({total_scans} scan images). "
+                       f"Confirmed: {confirmed}, Pending Review: {pending_rev}. "
+                       f"Triage assessment breakdown: High Priority: {high_p}, Review Flag: {rev_flag}, Routine: {routine}.")
             meta = {"module": "radiology_order", "record_id": "authorized_radiology_aggregate",
-                    "total": total_scans, "analyzed": analyzed, "confirmed": confirmed,
-                    "pending_review": pending_rev, "department": "radiology"}
+                    "total": total_all_orders, "analyzed_orders": total_orders, "analyzed_scans": total_scans,
+                    "confirmed": confirmed, "pending_review": pending_rev, "high_priority": high_p,
+                    "review_flag": rev_flag, "routine": routine, "department": "radiology"}
             return [self._source(context, "Authorized Radiology Study Analysis Count", content, "xray_order",
                     "radiology_order", "radiology_scan", "authorized_radiology_aggregate", meta, patient_id)], "authorized_sql_aggregate"
 
@@ -1109,6 +1118,28 @@ class RagSearchService:
         if patient_id is not None:
             clauses.append("o.patient_id=%s"); params.append(patient_id)
 
+        # Check if doctor name is mentioned in query (e.g. "priya patel", "priya", "dr priya")
+        matched_doc_name = None
+        if query:
+            cur.execute("""
+                SELECT staff_name, first_name, last_name 
+                FROM users 
+                WHERE staff_name IS NOT NULL OR first_name IS NOT NULL
+            """)
+            for urow in cur.fetchall() or []:
+                s_name = (urow.get("staff_name") or "").strip()
+                f_name = (urow.get("first_name") or "").strip()
+                l_name = (urow.get("last_name") or "").strip()
+                full = f"{f_name} {l_name}".strip()
+                for cand in (full, s_name, f_name, l_name):
+                    if len(cand) >= 3 and cand.lower() in query.lower():
+                        matched_doc_name = s_name or (f"Dr. {full}" if full else cand)
+                        clauses.append("(LOWER(COALESCE(u.staff_name,'')) ILIKE %s OR LOWER(COALESCE(u.first_name,'')) ILIKE %s OR LOWER(COALESCE(u.last_name,'')) ILIKE %s)")
+                        params.extend([f"%{cand}%", f"%{cand}%", f"%{cand}%"])
+                        break
+                if matched_doc_name:
+                    break
+
         # Examination type filter
         if "pa_and_ap" in dimensions:
             clauses.append("LOWER(o.examination) ILIKE %s"); params.append("%pa%ap%")
@@ -1121,7 +1152,7 @@ class RagSearchService:
 
         # Priority/status filter
         if "urgent" in dimensions:
-            clauses.append("LOWER(o.priority) IN ('urgent','stat','high','emergency')")
+            clauses.append("(LOWER(o.priority) IN ('urgent','stat','high','emergency') OR LOWER(COALESCE(s.combined_status,'')) IN ('high priority', 'review flag'))")
         elif "routine" in dimensions:
             clauses.append("LOWER(o.priority) NOT IN ('urgent','stat','high','emergency')")
         if "uploaded" in dimensions:
@@ -1137,36 +1168,31 @@ class RagSearchService:
             clauses.append("o.created_at AT TIME ZONE 'Asia/Kolkata' >= NOW() AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days'")
 
         where = " AND ".join(clauses)
-        show_doctor = "requested_by" in dimensions
+        show_doctor = "requested_by" in dimensions or matched_doc_name is not None
 
-        if show_doctor:
-            cur.execute(f"""
-                SELECT o.order_id, o.accession_number, o.patient_id, o.examination,
-                       o.priority, o.status, o.created_at,
-                       p.first_name AS p_first, p.last_name AS p_last, p.patient_code,
-                       u.first_name AS d_first, u.last_name AS d_last
-                FROM radiology_orders o
-                JOIN patients p ON p.id = o.patient_id
-                LEFT JOIN users u ON u.id = o.requested_by
-                WHERE {where}
-                ORDER BY o.created_at DESC
-            """, params)
-        else:
-            cur.execute(f"""
-                SELECT o.order_id, o.accession_number, o.patient_id, o.examination,
-                       o.priority, o.status, o.created_at,
-                       p.first_name AS p_first, p.last_name AS p_last, p.patient_code
-                FROM radiology_orders o
-                JOIN patients p ON p.id = o.patient_id
-                WHERE {where}
-                ORDER BY o.created_at DESC
-            """, params)
+        cur.execute(f"""
+            SELECT DISTINCT ON (o.order_id)
+                   o.order_id, o.accession_number, o.patient_id, o.examination, o.indication,
+                   o.priority, o.status, o.created_at,
+                   p.first_name AS p_first, p.last_name AS p_last, p.patient_code,
+                   u.first_name AS d_first, u.last_name AS d_last, u.staff_name,
+                   s.combined_status
+            FROM radiology_orders o
+            JOIN patients p ON p.id = o.patient_id
+            LEFT JOIN users u ON u.id = o.requested_by
+            LEFT JOIN radiology_order_studies ros ON ros.order_id = o.order_id
+            LEFT JOIN radiology_scan s ON s.order_study_id = ros.study_key
+            WHERE {where}
+            ORDER BY o.order_id, o.created_at DESC
+        """, params)
 
         rows = [dict(r) for r in cur.fetchall()]
 
         # Date filter: if "today" and no rows, give informative message
         if not rows:
-            if "today" in dimensions:
+            if matched_doc_name:
+                content = f"No X-ray requests found for {matched_doc_name}."
+            elif "today" in dimensions:
                 content = "No X-ray requests received today."
             elif "recent" in dimensions:
                 content = "No X-ray requests received in the last 7 days."
@@ -1179,7 +1205,10 @@ class RagSearchService:
         # If count-only requested
         if "count" in dimensions and not ("list" in dimensions or show_doctor):
             date_label = "today" if "today" in dimensions else ("this week" if "recent" in dimensions else "total")
-            content = f"X-ray requests ({date_label}): {len(rows)}."
+            uploaded_cnt = sum(1 for r in rows if (r.get("status") or "").lower() == "uploaded")
+            requested_cnt = sum(1 for r in rows if (r.get("status") or "").lower() == "requested")
+            doc_str = f" requested by {matched_doc_name}" if matched_doc_name else ""
+            content = f"Total X-ray requests{doc_str}: {len(rows)}. Status: Uploaded: {uploaded_cnt}, Requested: {requested_cnt}."
             return [self._source(context, "Radiology Request Count", content, "xray_order",
                                  "radiology_order", "radiology_orders", "authorized_radiology_list",
                                  {"module": "radiology_order", "count": len(rows)}, patient_id)], "authorized_sql_aggregate"
@@ -1190,17 +1219,28 @@ class RagSearchService:
             acc = r.get("accession_number") or "N/A"
             exam = r.get("examination") or "X-ray"
             priority = r.get("priority") or "Routine"
+            indication = (r.get("indication") or "").strip()
+            comb_status = r.get("combined_status")
+            if comb_status and comb_status.upper() != priority.upper():
+                priority_str = f"{priority} (AI Assessment: {comb_status})"
+            else:
+                priority_str = priority
             status = r.get("status") or "Unknown"
             created = ""
             if r.get("created_at"):
                 try: created = f" | Ordered: {r['created_at'].strftime('%Y-%m-%d %H:%M')}"
                 except Exception: pass
-            line = f"{i}. Patient: {pname} | Examination: {exam} | Priority: {priority} | Status: {status} | Acc: #{acc}{created}"
+            
+            ind_str = f" | Indication: {indication}" if indication and indication.lower() not in ("n/a", "none", "unknown", "null") else ""
+            line = f"{i}. Patient: {pname} | Examination: {exam} | Priority: {priority_str} | Status: {status}{ind_str} | Acc: #{acc}{created}"
             if show_doctor:
+                s_name = r.get("staff_name")
                 d_first = r.get("d_first") or ""
                 d_last = r.get("d_last") or ""
-                dname = f"Dr. {d_first} {d_last}".strip()
-                if dname != "Dr.":
+                dname = s_name or f"Dr. {d_first} {d_last}".strip()
+                if dname and dname != "Dr.":
+                    if not dname.startswith("Dr."):
+                        dname = f"Dr. {dname}"
                     line += f" | Requested By: {dname}"
             lines.append(line)
 
@@ -1210,8 +1250,31 @@ class RagSearchService:
         elif "pa" in dimensions: exam_label = "PA "
         elif "ap" in dimensions: exam_label = "AP "
         date_label = " (Today)" if "today" in dimensions else (" (Last 7 Days)" if "recent" in dimensions else "")
-        label = f"All {exam_label}X-ray Requests{date_label} ({len(rows)} total)"
-        content = f"{label}:\n" + "\n".join(lines)
+        if matched_doc_name:
+            label = f"X-ray Requests requested by {matched_doc_name}{date_label} ({len(rows)} total)"
+        else:
+            label = f"All {exam_label}X-ray Requests{date_label} ({len(rows)} total)"
+
+        # Group summary by doctor to simplify readability
+        doc_counts = {}
+        for r in rows:
+            s_name = r.get("staff_name")
+            d_first = r.get("d_first") or ""
+            d_last = r.get("d_last") or ""
+            dname = s_name or f"Dr. {d_first} {d_last}".strip()
+            if not dname or dname == "Dr.":
+                dname = "Unknown Clinician"
+            elif not dname.startswith("Dr."):
+                dname = f"Dr. {dname}"
+            doc_counts[dname] = doc_counts.get(dname, 0) + 1
+
+        summary_parts = [f"• {doc} requested {cnt} order{'s' if cnt != 1 else ''}" for doc, cnt in doc_counts.items()]
+        summary_header = "\n".join(summary_parts)
+
+        if (show_doctor or matched_doc_name) and summary_header:
+            content = f"{label}:\n{summary_header}\n\n" + "\n".join(lines)
+        else:
+            content = f"{label}:\n" + "\n".join(lines)
         return [self._source(context, label, content, "xray_order",
                              "radiology_order", "radiology_orders", "authorized_radiology_list",
                              {"module": "radiology_order", "count": len(rows),

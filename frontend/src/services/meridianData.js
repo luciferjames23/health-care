@@ -117,7 +117,7 @@ export const ROLE_PAGE_ACCESS = {
     // Supply Chain
     'procurement', 'vendors', 'inventory', 'stores',
     // Data
-    'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'analytics', 'forecasting', 'scenario', 'beforeafter', 'data-quality', 'tables', 'explorer',
+    'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'analytics', 'forecasting', 'beforeafter', 'data-quality', 'tables', 'explorer',
     // Platform & Administration
     'approvals', 'exceptions', 'audit', 'cost', 'assistant', 'hr-dashboard', 'notifications', 'reports', 'config'
   ],

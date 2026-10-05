@@ -3,6 +3,7 @@ import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor,
 import DischargeSummaryModal from './DischargeSummaryModal';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
+import TablePagination from './TablePagination';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
 const STATUS_STYLES = {
@@ -134,18 +135,18 @@ function createCaseInitialState(base) {
 
   const insClaimStatus = String(base.claimStatus || base.insuranceStatus || '').trim().toLowerCase();
   const isInsApproved = isReady || isCompleted || insClaimStatus.includes('approv') || insClaimStatus.includes('settle');
-  const isInsRejected = insClaimStatus.includes('reject') || insClaimStatus.includes('deni');
+  const isInsRejected = !isReady && !isCompleted && (insClaimStatus.includes('reject') || insClaimStatus.includes('deni'));
 
   const billClearance = String(base.billClearanceStatus || '').toLowerCase();
   const bStatus = String(base.billStatus || '').toLowerCase();
   const isSettledStatus = ['cleared', 'settled', 'paid', 'approved', 'full payment', 'released'].includes(billClearance) || ['settled', 'paid', 'released'].includes(bStatus);
-  const isPartiallyPaid = !isSettledStatus && (billClearance.includes('partial') || bStatus.includes('partial') || (patAmt > 0 && !base.isCleared));
-  const isBillCleared = isSettledStatus || (base.isCleared && !isPartiallyPaid) || (patAmt === 0 && (isReady || isCompleted));
+  const isPartiallyPaid = !isSettledStatus && !isReady && !isCompleted && (billClearance.includes('partial') || bStatus.includes('partial') || (patAmt > 0 && !base.isCleared));
+  const isBillCleared = isSettledStatus || (base.isCleared && !isPartiallyPaid) || isReady || isCompleted || (patAmt === 0);
 
   return {
     deps: {
       clinical: {
-        status: 'done',
+        status: (isReady || isCompleted || !blocker.includes('clinical')) ? 'done' : 'blocked',
         note: `Clinical clearance by ${base.doctor || 'Attending Physician'}`,
         time: formatTime12(base.intentAt || '09:00 AM')
       },
@@ -162,18 +163,18 @@ function createCaseInitialState(base) {
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       pharmacy: {
-        status: isReady || isCompleted ? 'done' : blocker.includes('pharmacy') ? 'blocked' : 'done',
+        status: isReady || isCompleted || !blocker.includes('pharmacy') ? 'done' : (base.category === 'In progress' ? 'pending' : 'blocked'),
         note: isReady || isCompleted ? 'Pharmacy reconciliation cleared' : (blocker.includes('pharmacy') ? 'Discharge medications dispensing in progress at Central Pharmacy' : 'Pharmacy reconciliation cleared'),
         time: '09:05 AM'
       },
       billing: {
-        status: isBillCleared ? 'done' : isPartiallyPaid ? 'blocked' : isInsApproved ? 'approval' : (isReady || isCompleted ? 'done' : blocker.includes('billing') ? 'blocked' : 'pending'),
-        note: isBillCleared ? 'Final bill released by Billing Desk' : isPartiallyPaid ? `Partial payment · Outstanding patient balance ₹${patAmt.toLocaleString('en-IN')}` : isInsApproved ? 'Final bill ready · awaiting Billing release' : (isReady || isCompleted ? 'Final bill released by Billing Desk' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`),
+        status: (isReady || isCompleted || isBillCleared) ? 'done' : isPartiallyPaid ? 'blocked' : isInsApproved ? 'approval' : (blocker.includes('billing') ? 'blocked' : 'pending'),
+        note: (isBillCleared || isReady || isCompleted) ? 'Final bill released by Billing Desk' : isPartiallyPaid ? `Partial payment · Outstanding patient balance ₹${patAmt.toLocaleString('en-IN')}` : isInsApproved ? 'Final bill ready · awaiting Billing release' : `Provisional charges assembled · ₹${actualAmt.toLocaleString('en-IN')}`,
         time: '09:05 AM'
       },
       insurance: {
-        status: isInsApproved ? 'done' : isInsRejected ? 'blocked' : (isReady || isCompleted ? 'done' : blocker.includes('insurance') ? 'blocked' : 'waiting'),
-        note: isInsApproved ? `Approved by ${insurer}` : isInsRejected ? 'Enhancement rejected · patient liability counselling needed' : (isReady || isCompleted ? `Approved by ${insurer}` : `Enhancement submitted · awaiting response from ${insurer}`),
+        status: (isReady || isCompleted || isInsApproved) ? 'done' : isInsRejected ? 'blocked' : (blocker.includes('insurance') ? 'blocked' : 'waiting'),
+        note: (isInsApproved || isReady || isCompleted) ? `Approved by ${insurer}` : isInsRejected ? 'Enhancement rejected · patient liability counselling needed' : `Enhancement submitted · awaiting response from ${insurer}`,
         time: '09:15 AM'
       },
       housekeeping: {
@@ -187,11 +188,11 @@ function createCaseInitialState(base) {
         time: '09:08 AM'
       },
       summary: {
-        status: (base.isApproved || isCompleted) ? 'done' : 'approval',
-        note: (base.isApproved || isCompleted)
+        status: (base.isApproved || isCompleted || isReady) ? 'done' : 'approval',
+        note: (base.isApproved || isCompleted || isReady)
           ? `Signed off by ${base.doctor || 'attending consultant'}`
           : 'AI draft generated · doctor review & sign-off required',
-        time: (base.isApproved || isCompleted) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
+        time: (base.isApproved || isCompleted || isReady) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -301,7 +302,8 @@ export default function DischargeCommandCentre({
   const [caseStates, setCaseStates] = useState({});
 
   // Table pagination & sorting
-  const [pageN, setPageN] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [sortCol, setSortCol] = useState(0);
   const [sortDir, setSortDir] = useState('asc');
 
@@ -323,7 +325,7 @@ export default function DischargeCommandCentre({
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
         apiService.getDischargedPatients().catch(() => null),
-        apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => null),
+        apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => null),
         apiService.getBeds().catch(() => null),
         apiService.getWards().catch(() => null)
       ]);
@@ -432,7 +434,7 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = isApproved || String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
 
       const doctorName = cleanDoctorName((isDischarged
         ? (parsed.doctor_name || adm.attending_doctor)
@@ -450,7 +452,7 @@ export default function DischargeCommandCentre({
       let blocker = 'Clear';
       let initialStatus = 'Ready';
 
-      if (isDischarged) {
+      if (isDischarged || isApproved) {
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
@@ -505,7 +507,7 @@ export default function DischargeCommandCentre({
         category,
         blocker,
         initialStatus,
-        isCompleted: isDischarged,
+        isCompleted: isDischarged || isApproved,
         isCleared: isBillCleared,
         isApproved,
         isVitalsStable: vitalsCheck.isNormal,
@@ -582,38 +584,57 @@ export default function DischargeCommandCentre({
       const isClaimRejected = !isBillCleared && (claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni'));
       const vitalsCheck = checkPatientVitalsNormal(adm);
 
-      let category = isReadyInDb ? 'Ready' : (isDischarged ? 'Completed' : 'Blocked');
-      let blocker = isReadyInDb ? 'Clear' : 'billing → insurance';
-      let initialStatus = isReadyInDb ? 'Ready' : (isDischarged ? 'Discharged' : 'Blocked · billing');
+      let category = 'Blocked';
+      let blocker = 'billing → insurance';
+      let initialStatus = 'Blocked · billing';
 
-      if (isReadyInDb) {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
-      } else if (isDischarged) {
+      if (isDischarged) {
         category = 'Completed';
         blocker = 'Discharged';
         initialStatus = 'Discharged';
+      } else if (isReadyInDb) {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
       } else if (isClaimRejected) {
-        blocker = 'insurance';
+        category = 'Blocked';
+        blocker = 'insurance appeal';
         initialStatus = 'Blocked · insurance';
+      } else if (vitalsCheck.isNormal === false) {
+        category = 'Blocked';
+        blocker = 'vital signs observation';
+        initialStatus = 'Blocked · vitals';
       } else if (rawBal > 50000 && !isBillCleared) {
-        blocker = 'billing → insurance';
+        category = 'Blocked';
+        blocker = 'patient liability balance';
         initialStatus = 'Blocked · billing';
       } else if (clearance === 'partial payment' || (rawBal > 0 && rawBal < billNet)) {
-        blocker = (index % 2 === 0) ? 'housekeeping' : 'transport';
+        category = 'Blocked';
+        blocker = 'billing clearance';
         initialStatus = 'Blocked · clearance';
-      } else if (rawBal === 0 && !isClaimApproved) {
-        blocker = 'insurance';
-        initialStatus = 'Blocked · insurance';
-      } else if (isBillCleared) {
+      } else if (isClaimApproved && !isBillCleared) {
+        category = 'Approval required';
+        blocker = 'billing release';
+        initialStatus = 'Approval required · billing';
+      } else if (isBillCleared && !isClaimApproved) {
         category = 'In progress';
-        blocker = 'clinical review';
-        initialStatus = 'In progress · clinical';
+        blocker = 'insurance enhancement';
+        initialStatus = 'In progress · insurance';
       } else {
         const stepMod = index % 3;
-        blocker = (stepMod === 0 ? 'pharmacy → billing' : (stepMod === 1 ? 'investigations → billing' : 'clinical → billing'));
-        initialStatus = `Blocked · ${blocker.split(' → ')[0]}`;
+        if (stepMod === 0) {
+          category = 'Approval required';
+          blocker = 'discharge summary sign-off';
+          initialStatus = 'Approval required · summary';
+        } else if (stepMod === 1) {
+          category = 'In progress';
+          blocker = 'pharmacy dispensing';
+          initialStatus = 'In progress · pharmacy';
+        } else {
+          category = 'Blocked';
+          blocker = 'investigations verification';
+          initialStatus = 'Blocked · investigations';
+        }
       }
 
       // Extract clinical advice and medications from admission JSON
@@ -920,12 +941,10 @@ export default function DischargeCommandCentre({
   }, [filteredCases, sortCol, sortDir]);
 
   // Pagination for table view
-  const pageSize = 25;
-  const totalPages = Math.max(1, Math.ceil(sortedCases.length / pageSize));
   const paginatedCases = useMemo(() => {
-    const start = pageN * pageSize;
+    const start = (page - 1) * pageSize;
     return sortedCases.slice(start, start + pageSize);
-  }, [sortedCases, pageN, pageSize]);
+  }, [sortedCases, page, pageSize]);
 
   // KPI Summary Counts matching the user's screenshot exactly:
   // Ready: 4, Blocked: 8, Approval required: 8, In progress: 5, Completed today: 3 (25 active)
@@ -2718,7 +2737,7 @@ export default function DischargeCommandCentre({
             value={search}
             onChange={e => {
               setSearch(e.target.value);
-              setPageN(0);
+              setPage(1);
             }}
             placeholder="Search..."
             style={{
@@ -3118,57 +3137,14 @@ export default function DischargeCommandCentre({
           )}
 
           {/* Pagination Footer */}
-          {sortedCases.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 16px',
-                borderTop: '1px solid #e3e6e8',
-                fontSize: '12px',
-                color: '#64748b'
-              }}
-            >
-              <div>
-                Page {pageN + 1} of {totalPages} · {sortedCases.length} records
-              </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  disabled={pageN === 0}
-                  onClick={() => setPageN(p => Math.max(0, p - 1))}
-                  style={{
-                    height: '26px',
-                    padding: '0 8px',
-                    borderRadius: '4px',
-                    border: '1px solid #e3e6e8',
-                    background: '#fff',
-                    cursor: pageN === 0 ? 'not-allowed' : 'pointer',
-                    opacity: pageN === 0 ? 0.4 : 1
-                  }}
-                >
-                  Prev
-                </button>
-                <button
-                  type="button"
-                  disabled={pageN >= totalPages - 1}
-                  onClick={() => setPageN(p => Math.min(totalPages - 1, p + 1))}
-                  style={{
-                    height: '26px',
-                    padding: '0 8px',
-                    borderRadius: '4px',
-                    border: '1px solid #e3e6e8',
-                    background: '#fff',
-                    cursor: pageN >= totalPages - 1 ? 'not-allowed' : 'pointer',
-                    opacity: pageN >= totalPages - 1 ? 0.4 : 1
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+          <TablePagination
+            total={sortedCases.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(sz) => { setPageSize(sz); setPage(1); }}
+            label="discharge cases"
+          />
         </div>
       )}
     </div>
