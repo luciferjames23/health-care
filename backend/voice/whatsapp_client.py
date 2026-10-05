@@ -210,6 +210,7 @@ def send_typing_indicator(message_id: str) -> dict:
 def send_text_message(to_number: str, text: str) -> dict:
     """Send text message to a WhatsApp number."""
     to_number = clean_whatsapp_number(to_number)
+    print(f"[TRACE_WH] [SEND_TEXT_API] to={to_number} | snippet='{text[:40]}...'")
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -380,6 +381,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
     If text length > 1000 chars, sends full text first then short menu caption.
     """
     to_number = clean_whatsapp_number(to_number)
+    print(f"[TRACE_WH] [SEND_BUTTON_API] to={to_number} | count={len(buttons)} | snippet='{text[:40]}...'")
     if not buttons:
         return send_text_message(to_number, text)
 
