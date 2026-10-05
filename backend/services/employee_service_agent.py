@@ -446,8 +446,9 @@ class EmployeeServiceAgentService:
             f"Context: Today is {today.strftime('%A, %Y-%m-%d')}. Tomorrow is {tomorrow.strftime('%A, %Y-%m-%d')}. "
             f"Employee: {user.get('staff_name')} ({user.get('role_name')}, {user.get('department_name')}). "
             "Output strictly a JSON object with keys: "
-            "\"is_leave_request\" (boolean: true if user wants to apply, take, or request leave/comp-off), "
-            "\"should_apply_now\" (boolean: true ONLY if user explicitly says 'confirm', 'submit now', 'yes apply', 'confirm and submit', 'yes please proceed'. False for initial requests like 'apply comp-off' or 'i want to apply' which require review/confirmation first), "
+            "\"is_feasibility_check\" (boolean: true if user is asking if taking leave is possible or asking to check duty/balance first without wanting an immediate draft slip, e.g., 'is that possible pls check it and tell me', 'can i take leave on 6 oct?'). When is_feasibility_check is true, is_leave_request MUST be false, "
+            "\"is_leave_request\" (boolean: true ONLY if user explicitly wants to apply, file, or draft leave now, e.g. 'apply leave', 'draft leave', 'apply comp-off'), "
+            "\"should_apply_now\" (boolean: true ONLY if user explicitly says 'confirm', 'submit now', 'yes apply', 'confirm and submit', 'yes please proceed'), "
             "\"leave_type\" (string: 'Comp-Off', 'Casual Leave', 'Sick Leave', 'Earned Leave'), "
             "\"from_date\" (string 'YYYY-MM-DD'), "
             "\"to_date\" (string 'YYYY-MM-DD'), "
@@ -460,7 +461,6 @@ class EmployeeServiceAgentService:
         if self.groq_api_key:
             try:
                 url = "https://api.groq.com/openai/v1/chat/completions"
-                # Use openai/gpt-oss-120b or openai/gpt-oss-20b
                 model_name = self.llm_model if self.llm_model and "llama" not in self.llm_model else "openai/gpt-oss-120b"
                 payload = {
                     "model": model_name,
@@ -511,23 +511,52 @@ class EmployeeServiceAgentService:
         days_m = re.search(r'(\d+)\s*(?:day|days)', msg_l)
         days_count = int(days_m.group(1)) if days_m else 1
 
-        # Dates
-        from_date = today + datetime.timedelta(days=1)  # default tomorrow
-        if 'today' in msg_l:
-            from_date = today
-        elif 'day after tomorrow' in msg_l:
-            from_date = today + datetime.timedelta(days=2)
-        elif 'tomorrow' in msg_l:
-            from_date = today + datetime.timedelta(days=1)
-        else:
-            weekdays = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
-            for wd_name, wd_idx in weekdays.items():
-                if wd_name in msg_l:
-                    days_ahead = (wd_idx - today.weekday()) % 7
-                    if days_ahead <= 0:
-                        days_ahead += 7
-                    from_date = today + datetime.timedelta(days=days_ahead)
-                    break
+        # Dates: check specific date strings first e.g. "6 oct", "06 oct 2026", "oct 6"
+        from_date = None
+        months_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+                      'january': 1, 'february': 2, 'march': 3, 'april': 4, 'june': 6, 'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12}
+        
+        # Match "6 oct", "06 october", "6th oct", "6 oct 2026"
+        m_date1 = re.search(r'(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(\d{4}))?', msg_l)
+        # Match "oct 6", "october 6th"
+        m_date2 = re.search(r'(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?', msg_l)
+        
+        if m_date1:
+            d_val = int(m_date1.group(1))
+            m_val = months_map.get(m_date1.group(2).lower()[:3], today.month)
+            y_val = int(m_date1.group(3)) if m_date1.group(3) else today.year
+            try:
+                from_date = datetime.date(y_val, m_val, d_val)
+            except Exception:
+                from_date = None
+        elif m_date2:
+            m_val = months_map.get(m_date2.group(1).lower()[:3], today.month)
+            d_val = int(m_date2.group(2))
+            y_val = int(m_date2.group(3)) if m_date2.group(3) else today.year
+            try:
+                from_date = datetime.date(y_val, m_val, d_val)
+            except Exception:
+                from_date = None
+
+        if not from_date:
+            if 'today' in msg_l:
+                from_date = today
+            elif 'day after tomorrow' in msg_l:
+                from_date = today + datetime.timedelta(days=2)
+            elif 'tomorrow' in msg_l:
+                from_date = today + datetime.timedelta(days=1)
+            else:
+                weekdays = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
+                for wd_name, wd_idx in weekdays.items():
+                    if wd_name in msg_l:
+                        days_ahead = (wd_idx - today.weekday()) % 7
+                        if days_ahead <= 0:
+                            days_ahead += 7
+                        from_date = today + datetime.timedelta(days=days_ahead)
+                        break
+
+        if not from_date:
+            from_date = today + datetime.timedelta(days=1)  # default tomorrow
 
         to_date = from_date + datetime.timedelta(days=days_count - 1)
 
@@ -538,6 +567,16 @@ class EmployeeServiceAgentService:
             if rm:
                 reason = rm.group(1).strip()
                 break
+
+        # Feasibility check triggers: "is that possible", "can i take", "pls check it and tell me", etc.
+        feasibility_triggers = [
+            'is that possible', 'is it possible', 'can i take', 'can i have', 'possible to take',
+            'check if i can', 'can i get', 'am i eligible', 'check it and tell me', 'check and tell',
+            'check if possible', 'can i apply', 'check feasibility', 'pls check it and tell me',
+            'please check it and tell me', 'check it', 'check and tell me', 'tell me if i can',
+            'is leave possible', 'possible for me', 'can take leave', 'check it and tell'
+        ]
+        is_feasibility_check = any(w in msg_l for w in feasibility_triggers)
 
         # Check explicit confirmation triggers to actually commit in database
         confirm_triggers = [
@@ -551,9 +590,9 @@ class EmployeeServiceAgentService:
         cancel_triggers = ['cancel', 'let me check my other duties first', "don't apply", 'nevermind', 'discard', 'no cancel']
         is_cancel = any(w in msg_l for w in cancel_triggers)
 
-        # Draft / apply request triggers
-        apply_triggers = ['apply', 'need', 'take', 'file', 'put', 'want leave', 'request leave', 'take off', 'comp-off', 'compoff', 'comp off']
-        is_leave_request = any(w in msg_l for w in apply_triggers)
+        # Draft / apply request triggers (ONLY if NOT asking a feasibility question)
+        apply_triggers = ['apply leave', 'apply for leave', 'file leave', 'put leave', 'submit leave', 'apply comp-off', 'apply compoff', 'apply comp off', 'draft leave', 'apply cl', 'apply sl', 'apply el']
+        is_leave_request = any(w in msg_l for w in apply_triggers) and not is_feasibility_check
 
         is_shift_query = any(k in msg_l for k in ["shift", "timing", "roster", "duty", "when do i work", "schedule"])
         is_balance_query = any(k in msg_l for k in ["balance", "available", "how many", "leaves left"])
@@ -567,6 +606,7 @@ class EmployeeServiceAgentService:
             "reason": reason,
             "should_apply_now": should_apply_now,
             "is_cancel": is_cancel,
+            "is_feasibility_check": is_feasibility_check,
             "is_leave_request": is_leave_request,
             "is_shift_query": is_shift_query,
             "is_balance_query": is_balance_query,
@@ -917,23 +957,101 @@ class EmployeeServiceAgentService:
             llm_res = self._call_llm_for_leave_intent(message, user, today)
 
             # 2. Extract or Fallback to Deterministic NLU
+            confirm_triggers = [
+                'confirm & submit', 'confirm and submit', 'confirm', 'yes, please apply',
+                'yes please apply', 'yes, apply', 'yes apply', 'submit now', 'please proceed',
+                'go ahead and submit', 'proceed with application', 'yes, please proceed'
+            ]
+            user_explicitly_confirmed = any(w in msg_lower for w in confirm_triggers)
+
             if llm_res and isinstance(llm_res, dict):
-                should_apply_now = bool(llm_res.get("should_apply_now"))
+                is_feasibility_check = bool(llm_res.get("is_feasibility_check"))
+                should_apply_now = bool(llm_res.get("should_apply_now")) and user_explicitly_confirmed
                 leave_type = llm_res.get("leave_type") or "Casual Leave"
                 from_date_str = llm_res.get("from_date") or (today + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
                 to_date_str = llm_res.get("to_date") or from_date_str
                 reason = llm_res.get("reason") or f"{leave_type} applied via Employee Service Agent"
                 custom_reply = llm_res.get("reply_message")
-                is_leave_flow = bool(llm_res.get("is_leave_request") or should_apply_now)
+                is_leave_flow = (bool(llm_res.get("is_leave_request")) or should_apply_now or "apply" in msg_lower) and not is_feasibility_check
             else:
                 nlu = self._parse_intent_deterministically(message, today)
-                should_apply_now = nlu["should_apply_now"]
+                is_feasibility_check = nlu["is_feasibility_check"]
+                should_apply_now = nlu["should_apply_now"] and user_explicitly_confirmed
                 leave_type = nlu["leave_type"]
                 from_date_str = nlu["from_date"]
                 to_date_str = nlu["to_date"]
                 reason = nlu["reason"]
                 custom_reply = None
-                is_leave_flow = nlu["is_leave_request"] or should_apply_now
+                is_leave_flow = (nlu["is_leave_request"] or should_apply_now or "apply" in msg_lower) and not is_feasibility_check
+
+            # ── Action 0: Staff asked if leave is possible / Feasibility Check ──
+            if is_feasibility_check:
+                try:
+                    f_dt = datetime.datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                    date_display = f_dt.strftime('%A, %d %b %Y')
+                except Exception:
+                    f_dt = today + datetime.timedelta(days=1)
+                    date_display = f_dt.strftime('%A, %d %b %Y')
+
+                # Check Duty & Shift
+                shift_res = self.get_user_shift(user["username"], f_dt.strftime("%Y-%m-%d"))
+                if shift_res.get("found"):
+                    sh = shift_res.get("shift", {})
+                    duty_text = f"You are scheduled for **{sh.get('shift_name', 'Day Shift')} ({sh.get('shift_timing', '08:00 AM - 04:00 PM')})** in **{sh.get('ward_name', user.get('department_name', 'Clinical Unit'))}**"
+                else:
+                    duty_text = f"Scheduled department duty in **{user.get('department_name', 'Clinical Services')}**"
+
+                # Check Leave Balances
+                bal_res = self.get_user_leave_balance(user["username"])
+                b = bal_res.get("balances", {})
+                comp_bal = b.get("comp_off_balance", 0)
+                casual_bal = b.get("casual_leave_balance", 0)
+                sick_bal = b.get("sick_leave_balance", 0)
+                earned_bal = b.get("earned_leave_balance", 0)
+
+                # Check Existing Conflicting Leave
+                cur.execute("""
+                    SELECT id, request_code, leave_type, from_date, to_date, status
+                    FROM employee_leave_requests
+                    WHERE user_id = %s
+                      AND status IN ('Pending', 'Approved')
+                      AND from_date <= %s
+                      AND to_date >= %s
+                    LIMIT 1;
+                """, (user["id"], f_dt, f_dt))
+                existing = cur.fetchone()
+
+                if existing:
+                    reply_text = (
+                        f"ℹ️ **Existing Leave Found:** You already have an active **{existing['leave_type']}** request "
+                        f"(**{existing['request_code']}**) filed for **{date_display}** (Status: **{existing['status']}**).\n\n"
+                        f"You do not need to apply again for this date."
+                    )
+                    return {
+                        "success": True,
+                        "text": reply_text,
+                        "agent": "Employee Service Agent",
+                        "quick_actions": ["[Check Leave Balance]", "[My Shift Tomorrow]"]
+                    }
+
+                reply_text = (
+                    f"Yes, taking leave on **{date_display}** is possible! Here is your schedule and balance verification:\n\n"
+                    f"• **Roster & Duty:** {duty_text}\n"
+                    f"• **Available Leave Balances:**\n"
+                    f"  - **Casual Leave (CL):** {casual_bal} days remaining\n"
+                    f"  - **Sick Leave (SL):** {sick_bal} days remaining\n"
+                    f"  - **Comp-Off:** {comp_bal} days available\n"
+                    f"  - **Earned Leave (EL):** {earned_bal} days accumulated\n"
+                    f"• **Policy Eligibility:** Eligible under **HR Leave Policy v5.0** (no conflicting leave filed).\n\n"
+                    f"Would you like me to prepare a **{leave_type}** application draft for **{date_display}**?"
+                )
+
+                return {
+                    "success": True,
+                    "text": reply_text,
+                    "agent": "Employee Service Agent",
+                    "quick_actions": [f"[Apply {leave_type} for {f_dt.strftime('%d %b')}]", "[Check Leave Balance]", "[My Shift Tomorrow]"]
+                }
 
             # ── Action 1: Staff explicitly CONFIRMED to apply ──────────────────
             if should_apply_now:
