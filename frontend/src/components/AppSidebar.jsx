@@ -7,6 +7,7 @@ export const NAV_GROUPS = [
     items: [
       { id: 'command', label: 'Executive Dashboard' },
       { id: 'patients', label: 'Patients' },
+      { id: 'feedback', label: 'Feedback & Grievances', badge: 'AG-05' },
       { id: 'appointments', label: 'Appointments' },
       { id: 'pre-admission', label: 'Pre-Admission Desk' },
       { id: 'doctor-management', label: 'Doctor Directory' },

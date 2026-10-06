@@ -96,7 +96,7 @@ def run_migrations():
             "roles", "users", "patients", "departments", "doctors", 
             "doctor_schedules", "appointments", "pre_admissions", 
             "conversations", "knowledge_documents", "knowledge_chunks",
-            "payments", "refunds", "patient_reports"
+            "payments", "refunds", "patient_reports", "patient_feedback"
         ]
         
         for table in tables_with_updated_at:

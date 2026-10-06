@@ -26,6 +26,7 @@ import agent.patient_identification_service as patient_id_service
 import agent.response_validator as response_validator
 import agent.grounding_validator as grounding_validator
 import agent.conversation_stages as conversation_stages
+import agent.feedback_agent as feedback_agent
 from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 
 
@@ -2126,7 +2127,199 @@ def calculate_bill_payments(bill_id: int, patient_id: int = None) -> float:
     return 0.0
 
 
-def process_agent_message(conversation_code: str, patient_code: str, message_text: str, language_override: str = None, interactive_id: str = None) -> dict:
+def handle_feedback_workflow(
+    conversation_code: str,
+    state: dict,
+    message_text: str,
+    current_lang: str,
+    btn_id: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> dict:
+    """
+    Dedicated handler for the Feedback Agent workflow (AG-05).
+    Maintains independent workflow state and handles text/voice feedback,
+    sentiment analysis, rating extraction, and DB persistence.
+    """
+    msg_clean = (message_text or "").strip()
+    msg_lwr = msg_clean.lower()
+    wa_msg_id = (metadata or {}).get("whatsapp_message_id") if isinstance(metadata, dict) else None
+    msg_type = (metadata or {}).get("message_type") or "TEXT"
+
+    # Emergency safety check first
+    if msg_clean and feedback_agent.check_emergency_feedback(msg_clean):
+        state["active_workflow"] = None
+        state["feedback_stage"] = None
+        state["feedback_rating"] = None
+        state["intent"] = "EMERGENCY"
+        state_manager.save_conversation_state(conversation_code, state)
+        resp = (
+            "🚨 *Emergency Assistance*\n\n"
+            "If this is an emergency, please seek immediate medical care.\n\n"
+            "🚨 *Emergency Helpline:* 044 6666 9999\n"
+            "📞 *General Enquiries:* 044 6666 9910\n"
+            "📍 *Address:* #46D, Jawaharlal Nehru Road, 200 Feet Ring Road, Chennai – 600 099\n\n"
+            "⚠️ *Important Safety Notice:*\n"
+            "If this is a medical emergency, contact local emergency services (108 / 112) or go to the nearest Emergency Department."
+        )
+        buttons = [
+            language_service.get_translated_button("btn_talk_staff_exec", current_lang),
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "EMERGENCY", state)
+        return {"response": resp, "intent": "EMERGENCY", "language": current_lang, "interactive_buttons": buttons}
+
+    # Handle Skip button / Skip command
+    if btn_id == "btn_skip_feedback" or msg_lwr in ["skip", "dharir", "தவிர்"]:
+        existing_rating = state.get("feedback_rating")
+        patient_id = state.get("selected_patient_id") or state.get("patient_id")
+        
+        if existing_rating is not None:
+            feedback_agent.store_patient_feedback(
+                conversation_code=conversation_code,
+                original_feedback="Patient submitted rating.",
+                explicit_rating=existing_rating,
+                source="WHATSAPP_RATING",
+                whatsapp_message_id=wa_msg_id,
+                patient_id=patient_id
+            )
+            resp = "💬 *Thank you for rating Meridian Hospital!*\n\nYour feedback has been recorded."
+        else:
+            resp = "Thank you! You can share your feedback with us anytime."
+
+        state["active_workflow"] = None
+        state["feedback_stage"] = None
+        state["feedback_rating"] = None
+        state_manager.save_conversation_state(conversation_code, state)
+        buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Handle explicit rating buttons / extracted ratings
+    ext_rating = feedback_agent.extract_rating_from_text(msg_clean)
+    if ext_rating is not None and state.get("feedback_stage") != "AWAITING_TEXT_OR_VOICE":
+        state["feedback_rating"] = ext_rating
+        state["active_workflow"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
+        state_manager.save_conversation_state(conversation_code, state)
+        
+        resp = (
+            f"💬 *Thank you for rating us {ext_rating}/10!*\n\n"
+            "Would you like to tell us more about your experience at Meridian Hospital? You can reply by text or voice message."
+        )
+        buttons = [
+            language_service.get_translated_button("btn_write_feedback", current_lang),
+            language_service.get_translated_button("btn_voice_feedback", current_lang),
+            language_service.get_translated_button("btn_skip_feedback", current_lang)
+        ]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Handle [Write Feedback] button
+    if btn_id == "btn_write_feedback":
+        state["active_workflow"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
+        state_manager.save_conversation_state(conversation_code, state)
+        resp = (
+            "✍️ *Write Feedback*\n\n"
+            "Please type your feedback about your experience at Meridian Hospital:"
+        )
+        buttons = [
+            language_service.get_translated_button("btn_skip_feedback", current_lang),
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Handle [Voice Feedback] button
+    if btn_id == "btn_voice_feedback":
+        state["active_workflow"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
+        state_manager.save_conversation_state(conversation_code, state)
+        resp = (
+            "🎤 *Voice Feedback*\n\n"
+            "Please send a voice message with your feedback. Our system will transcribe and analyze your comments automatically."
+        )
+        buttons = [
+            language_service.get_translated_button("btn_write_feedback", current_lang),
+            language_service.get_translated_button("btn_skip_feedback", current_lang),
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Entrance into Feedback flow (via button tap or intent detection)
+    if btn_id in ("btn_feedback", "btn_cat_feedback") or state.get("feedback_stage") is None:
+        state["active_workflow"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_RATING_OR_TEXT"
+        state["intent"] = "FEEDBACK"
+        state_manager.save_conversation_state(conversation_code, state)
+
+        resp = (
+            "💬 *Patient Feedback*\n\n"
+            "We value your feedback. Please tell us about your experience at Meridian Hospital.\n\n"
+            "You can share your feedback by text or voice message."
+        )
+        if current_lang == "TAMIL":
+            resp = "💬 *நோயாளி கருத்து*\n\nஉங்கள் கருத்து எமக்கு மிக முக்கியம். மெரிடியன் மருத்துவமனை அனுபவத்தைப் பற்றி பகிரவும்.\n\nஎழுத்து அல்லது குரல் செய்தி மூலம் உங்கள் கருத்தைப் பகிரலாம்."
+        elif current_lang == "HINDI":
+            resp = "💬 *रोगी प्रतिक्रिया*\n\nहम आपकी प्रतिक्रिया की सराहना करते हैं। कृपया मेरिडियन अस्पताल में अपने अनुभव के बारे में बताएं।\n\nआप पाठ या वॉयस संदेश द्वारा अपनी प्रतिक्रिया साझा कर सकते हैं।"
+
+        buttons = [
+            language_service.get_translated_button("btn_write_feedback", current_lang),
+            language_service.get_translated_button("btn_voice_feedback", current_lang),
+            language_service.get_translated_button("btn_skip_feedback", current_lang)
+        ]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Text feedback or voice transcript received
+    if msg_clean and not btn_id:
+        patient_id = state.get("selected_patient_id") or state.get("patient_id")
+        existing_rating = state.get("feedback_rating")
+        source = "WHATSAPP_VOICE" if msg_type == "VOICE" else "WHATSAPP_TEXT"
+
+        analysis = feedback_agent.analyze_patient_feedback(msg_clean, explicit_rating=existing_rating, language=current_lang)
+        
+        feedback_agent.store_patient_feedback(
+            conversation_code=conversation_code,
+            original_feedback=msg_clean,
+            explicit_rating=existing_rating,
+            source=source,
+            whatsapp_message_id=wa_msg_id,
+            patient_id=patient_id,
+            analysis_override=analysis
+        )
+
+        state["active_workflow"] = None
+        state["feedback_stage"] = None
+        state["feedback_rating"] = None
+        state_manager.save_conversation_state(conversation_code, state)
+
+        resp = (
+            "💬 *Thank you for your feedback!*\n\n"
+            "We have received your feedback regarding Meridian Hospital. "
+            "Our Quality and Patient Relations team will review your comments to continuously improve our care."
+        )
+        if current_lang == "TAMIL":
+            resp = "💬 *உங்கள் கருத்துக்களுக்கு நன்றி!*\n\nமெரிடியன் மருத்துவமனை பற்றிய உங்கள் கருத்து பதிவு செய்யப்பட்டுள்ளது. எங்கள் பராமரிப்பு குழு உங்கள் கருத்துக்களை மதிப்பாய்வு செய்யும்."
+        elif current_lang == "HINDI":
+            resp = "💬 *आपकी प्रतिक्रिया के लिए धन्यवाद!*\n\nहमने आपकी प्रतिक्रिया दर्ज कर ली है। हमारी टीम आपके सुझावों की समीक्षा करेगी।"
+
+        buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+    # Fallback
+    resp = "Please tell us about your experience or select an option below:"
+    buttons = [
+        language_service.get_translated_button("btn_write_feedback", current_lang),
+        language_service.get_translated_button("btn_voice_feedback", current_lang),
+        language_service.get_translated_button("btn_main_menu", current_lang)
+    ]
+    return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+
+def process_agent_message(conversation_code: str, patient_code: str, message_text: str, language_override: str = None, interactive_id: str = None, metadata: Optional[dict] = None) -> dict:
     """
     Core NLP Orchestration:
     1. Loads or initializes state.
@@ -2415,6 +2608,15 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "interactive_buttons": chg_buttons
         }
 
+    # Active Feedback workflow gate
+    if state.get("active_workflow") == "FEEDBACK" or btn_id in ("btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback", "btn_skip_feedback"):
+        if btn_id in ("btn_main_menu", "btn_back_profile") or (message_text and message_text.lower().strip() in ["cancel", "exit", "main menu"]):
+            state["active_workflow"] = None
+            state["feedback_stage"] = None
+            state["feedback_rating"] = None
+        else:
+            return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
+
     # Restore patient_id for existing registered patients from DB / phone lookup if missing in state
     # Restore patient_id for existing registered patients from DB / phone lookup if missing in state
     wa_phone_lookup = None
@@ -2634,6 +2836,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "language": current_lang,
                 "interactive_buttons": state["interactive_buttons"]
             }
+
+        elif btn_id in ("btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback", "btn_skip_feedback"):
+            return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
 
         elif btn_id == "btn_cat_staff":
             resp = "🧑‍💼 *Talk to Hospital Staff*\n\nI can connect you with Meridian Hospital staff without making you repeat the information already shared."

@@ -147,6 +147,47 @@ async function fetchCachedJson(url, options = {}) {
 export const apiService = {
   financial: financialApi,
 
+  // Feedback & Grievances Agent (AG-05) APIs
+  async getFeedbackSummary(options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/feedback/summary`, { revalidateMs: 2000, ...options });
+  },
+
+  async getFeedbackList(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.sentiment) queryParams.append("sentiment", params.sentiment);
+    if (params.category) queryParams.append("category", params.category);
+    if (params.severity) queryParams.append("severity", params.severity);
+    if (params.status) queryParams.append("status", params.status);
+    if (params.requires_action !== undefined && params.requires_action !== null && params.requires_action !== '') {
+      queryParams.append("requires_action", params.requires_action);
+    }
+    if (params.search) queryParams.append("search", params.search);
+    if (params.limit) queryParams.append("limit", params.limit);
+    if (params.offset) queryParams.append("offset", params.offset);
+
+    const queryString = queryParams.toString();
+    const url = `${API_BASE_URL}/api/feedback${queryString ? `?${queryString}` : ''}`;
+    return await fetchCachedJson(url, { revalidateMs: 2000, ...options });
+  },
+
+  async getFeedbackDetail(id, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/feedback/${encodeURIComponent(id)}`, options);
+  },
+
+  async updateFeedbackStatus(id, statusData, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/feedback/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify(statusData),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    clearAllStorageCache();
+    return await res.json();
+  },
+
   // Cache Management
   clearCache() {
     clearAllStorageCache();

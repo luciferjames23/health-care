@@ -55,6 +55,7 @@ import PreAdmissionPage from './pages/admin/PreAdmissionPage';
 import DoctorManagement from './pages/admin/DoctorManagement';
 import DoctorsView from './components/DoctorsView';
 import EscalationPage from './pages/admin/EscalationPage';
+import FeedbackPage from './pages/admin/FeedbackPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
 import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
@@ -682,6 +683,7 @@ export default function App() {
               />
             )}
             {activePage === 'escalations' && <EscalationPage />}
+            {activePage === 'feedback' && <FeedbackPage />}
             {activePage === 'doctor-portal' && (
               <DoctorDashboard
                 onNavigate={(p, pat) => handleNavigate(p, pat)}

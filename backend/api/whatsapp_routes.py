@@ -294,6 +294,8 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             list_title = "Select Language"
         elif any(k in btn_ids_str for k in ["btn_appt_id_"]):
             list_title = "Select Appointment"
+        elif any(k in btn_ids_str for k in ["btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback"]) or intent == "FEEDBACK":
+            list_title = "Feedback"
         elif any(k in btn_ids_str for k in ["btn_select_pat_", "btn_family_"]):
             list_title = "Select Patient"
         else:

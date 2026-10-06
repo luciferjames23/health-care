@@ -364,7 +364,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "Change Date of Birth",
         "btn_update_gender": "Change Gender",
         "btn_update_phone": "Change Phone Number",
-        "btn_back_profile": "Back to Profile"
+        "btn_back_profile": "Back to Profile",
+        "btn_feedback": "Feedback",
+        "btn_cat_feedback": "Feedback",
+        "btn_write_feedback": "Write Feedback",
+        "btn_voice_feedback": "Voice Feedback",
+        "btn_skip_feedback": "Skip"
     },
     "TAMIL": {
         "btn_cat_appts": "அப்பாயிண்ட்மெண்ட்",
@@ -407,7 +412,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "பிறந்த தேதியை மாற்ற",
         "btn_update_gender": "பாலினத்தை மாற்ற",
         "btn_update_phone": "தொலைபேசி எண்ணை மாற்ற",
-        "btn_back_profile": "சுயவிவரத்திற்கு திரும்ப"
+        "btn_back_profile": "சுயவிவரத்திற்கு திரும்ப",
+        "btn_feedback": "கருத்து",
+        "btn_cat_feedback": "கருத்து",
+        "btn_write_feedback": "எழுத்து கருத்து",
+        "btn_voice_feedback": "குரல் கருத்து",
+        "btn_skip_feedback": "தவிர்"
     },
     "HINDI": {
         "btn_cat_appts": "अपॉइंटमेंट",
@@ -450,7 +460,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "जन्म तिथि बदलें",
         "btn_update_gender": "लिंग बदलें",
         "btn_update_phone": "फोन नंबर बदलें",
-        "btn_back_profile": "प्रोफ़ाइल पर वापस जाएं"
+        "btn_back_profile": "प्रोफ़ाइल पर वापस जाएं",
+        "btn_feedback": "प्रतिक्रिया",
+        "btn_cat_feedback": "प्रतिक्रिया",
+        "btn_write_feedback": "लिखकर प्रतिक्रिया",
+        "btn_voice_feedback": "वॉयस प्रतिक्रिया",
+        "btn_skip_feedback": "छोड़ें"
     },
     "TELUGU": {
         "btn_cat_appts": "అపాయింట్‌మెంట్‌లు",
@@ -493,7 +508,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "పుట్టిన తేదీ మార్చండి",
         "btn_update_gender": "లింగం మార్చండి",
         "btn_update_phone": "ఫోన్ నంబర్ మార్చండి",
-        "btn_back_profile": "ప్రొఫైల్‌కు తిరిగి వెళ్లండి"
+        "btn_back_profile": "ప్రొఫైల్‌కు తిరిగి వెళ్లండి",
+        "btn_feedback": "అభిప్రాయం",
+        "btn_cat_feedback": "అభిప్రాయం",
+        "btn_write_feedback": "వ్రాతపూర్వక అభిప్రాయం",
+        "btn_voice_feedback": "వాయిస్ అభిప్రాయం",
+        "btn_skip_feedback": "స్కిప్ చేయండి"
     },
     "MALAYALAM": {
         "btn_cat_appts": "അപ്പോയിന്റ്മെന്റുകൾ",
@@ -536,7 +556,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "ജനനതീയതി മാറ്റുക",
         "btn_update_gender": "ലിംഗം മാറ്റുക",
         "btn_update_phone": "ഫോൺ നമ്പർ മാറ്റുക",
-        "btn_back_profile": "പ്രൊഫൈലിലേക്ക് മടങ്ങുക"
+        "btn_back_profile": "പ്രൊഫൈലിലേക്ക് മടങ്ങുക",
+        "btn_feedback": "അഭിപ്രായം",
+        "btn_cat_feedback": "അഭിപ്രായം",
+        "btn_write_feedback": "എഴുതി അറിയിക്കുക",
+        "btn_voice_feedback": "ശബ്ദ സന്ദേശം",
+        "btn_skip_feedback": "ഒഴിവാക്കുക"
     },
     "KANNADA": {
         "btn_cat_appts": "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್",
@@ -579,7 +604,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "ಹುಟ್ಟಿದ ದಿನಾಂಕ ಬದಲಾಯಿಸಿ",
         "btn_update_gender": "ಲಿಂಗ ಬದಲಾಯಿಸಿ",
         "btn_update_phone": "ಫೋನ್ ಸಂಖ್ಯೆ ಬದಲಾಯಿಸಿ",
-        "btn_back_profile": "ಪ್ರೊಫೈಲ್‌ಗೆ ಹಿಂತಿರುಗಿ"
+        "btn_back_profile": "ಪ್ರೊಫೈಲ್‌ಗೆ ಹಿಂತಿರುಗಿ",
+        "btn_feedback": "ಅಭಿಪ್ರಾಯ",
+        "btn_cat_feedback": "ಅಭಿಪ್ರಾಯ",
+        "btn_write_feedback": "ಬರೆದು ತಿಳಿಸಿ",
+        "btn_voice_feedback": "ಧ್ವನಿ ಸನ್ದೇಶ",
+        "btn_skip_feedback": "ಸ್ಕಿಪ್ ಮಾಡಿ"
     },
     "URDU": {
         "btn_cat_appts": "اپائنٹمنٹس",
@@ -622,7 +652,12 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_update_dob": "تاریخ پیدائش تبدیل کریں",
         "btn_update_gender": "جنس تبدیل کریں",
         "btn_update_phone": "فون نمبر تبدیل کریں",
-        "btn_back_profile": "پروفائل پر واپس جائیں"
+        "btn_back_profile": "پروفائل پر واپس جائیں",
+        "btn_feedback": "رائے دیں",
+        "btn_cat_feedback": "رائے دیں",
+        "btn_write_feedback": "تحریری رائے",
+        "btn_voice_feedback": "وائس رائے",
+        "btn_skip_feedback": "چھوڑیں"
     }
 }
 
@@ -634,7 +669,9 @@ MENU_BUTTON_DESCRIPTIONS = {
     "btn_cat_billing": "Bills, balance, payments and insurance",
     "btn_cat_voice_lang": "Voice interaction and language switching",
     "btn_cat_staff": "Transfer this conversation to a human",
-    "btn_cat_emergency": "Immediate emergency safety route"
+    "btn_cat_emergency": "Immediate emergency safety route",
+    "btn_feedback": "Share your hospital experience",
+    "btn_cat_feedback": "Share your hospital experience"
 }
 
 
@@ -657,7 +694,7 @@ def get_translated_button(btn_id: str, language: str = "ENGLISH") -> dict:
 
 
 def get_main_menu_buttons(language: str = "ENGLISH") -> list:
-    """Returns all 8 main patient menu category options matching the HTML Patient Desk structure in patient's language."""
+    """Returns all main patient menu category options matching the HTML Patient Desk structure in patient's language."""
     return [
         get_translated_button("btn_cat_appts", language),
         get_translated_button("btn_cat_doctors", language),
@@ -665,6 +702,7 @@ def get_main_menu_buttons(language: str = "ENGLISH") -> list:
         get_translated_button("btn_cat_health", language),
         get_translated_button("btn_cat_billing", language),
         get_translated_button("btn_cat_voice_lang", language),
+        get_translated_button("btn_cat_feedback", language),
         get_translated_button("btn_cat_staff", language),
         get_translated_button("btn_cat_emergency", language)
     ]

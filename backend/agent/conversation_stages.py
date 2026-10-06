@@ -77,6 +77,9 @@ class Stage(str, Enum):
     AWAITING_RESCHEDULE_DATE = "AWAITING_RESCHEDULE_DATE"
     AWAITING_RESCHEDULE_TIME = "AWAITING_RESCHEDULE_TIME"
 
+    # Feedback flow
+    FEEDBACK                 = "FEEDBACK"
+
     # Terminal
     COMPLETE                 = "COMPLETE"
     UNKNOWN                  = "UNKNOWN"

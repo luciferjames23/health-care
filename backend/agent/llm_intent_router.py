@@ -94,6 +94,7 @@ SUPPORTED_INTENTS = {
     "EMERGENCY",
     "HUMAN_ESCALATION",
     "PATIENT_REPORTS",
+    "FEEDBACK",
     "THANK_YOU",
     "HELP",
     "UNKNOWN",
@@ -102,6 +103,8 @@ SUPPORTED_INTENTS = {
 
 # Map LLM-returned intents → canonical router intents (backwards compat)
 INTENT_NORMALISATION_MAP = {
+    "FEEDBACK":                     "FEEDBACK",
+    "PATIENT_FEEDBACK":             "FEEDBACK",
     "CHECK_DOCTOR_AVAILABILITY":    "DOCTOR_AVAILABILITY",
     "REGISTER_PATIENT":             "PATIENT_REGISTRATION",
     "NEW_PATIENT_REGISTRATION":     "PATIENT_REGISTRATION",

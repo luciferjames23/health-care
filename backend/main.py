@@ -183,6 +183,7 @@ import api.agent_routes as proto_agent_routes
 import api.whatsapp_routes as proto_whatsapp_routes
 import api.dashboard_routes as proto_dashboard_routes
 import api.auth_routes as proto_auth_routes
+import api.feedback_routes as feedback_routes
 from routers.appointments_proto import router as proto_appointments_router
 from routers.rcm_beds import router as rcm_beds_router
 from appointment_service import AppointmentError, EntityNotFoundError
@@ -208,6 +209,7 @@ app.include_router(proto_agent_routes.knowledge_router)
 app.include_router(proto_whatsapp_routes.router)
 app.include_router(proto_dashboard_routes.router)
 app.include_router(proto_auth_routes.router)
+app.include_router(feedback_routes.router)
 app.include_router(proto_appointments_router)
 app.include_router(rcm_beds_router)
 app.include_router(patient_portal_router)
@@ -232,6 +234,13 @@ def on_startup():
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Radiology auto-init on startup: %s", e)
+
+    try:
+        from services.post_discharge_feedback_scheduler import start_post_discharge_feedback_scheduler
+        start_post_discharge_feedback_scheduler(app)
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("Post-discharge feedback scheduler on startup: %s", e)
 
     try:
         from db.init_clinical_tables import init_clinical_tables

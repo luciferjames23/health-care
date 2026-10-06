@@ -112,6 +112,7 @@ SUPPORTED_INTENTS = {
     "APPOINTMENT_STATUS",
     "PATIENT_DETAILS_UPDATE",
     "DEPENDENT_BOOKING",
+    "FEEDBACK",
     "UNKNOWN",
     # Legacy / passthrough intents (kept for backward compat)
     "CHECK_DOCTOR_AVAILABILITY",

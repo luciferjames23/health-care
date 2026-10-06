@@ -61,7 +61,7 @@ export const ROLE_PAGE_ACCESS = {
     // 8 Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent',
     // Operational & Clinical
-    'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc',
+    'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc', 'feedback',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People
@@ -75,7 +75,7 @@ export const ROLE_PAGE_ACCESS = {
     // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent',
     // Operational & Clinical
-    'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'surgery',
+    'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'surgery', 'feedback',
     // Pharmacy & Supply Chain
     'prescriptions', 'drugs', 'pharmacy',
     // People
@@ -89,7 +89,7 @@ export const ROLE_PAGE_ACCESS = {
     // Core Data Pages (preserved)
     'command', 'patients', 'admissions', 'bedboard',
     // Operational
-    'appointments', 'emergency', 'schedules', 'patient360', 'deathmlc',
+    'appointments', 'emergency', 'schedules', 'patient360', 'deathmlc', 'feedback',
     // Financial & Revenue (Billing only; Insurance is strictly Insurance / Finance roles)
     'billing',
     // People & Administration

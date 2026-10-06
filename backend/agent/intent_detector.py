@@ -10,7 +10,7 @@ VALID_DB_INTENTS = [
     'DEPARTMENT_INFORMATION', 'SYMPTOM_GUIDANCE', 'PRE_ADMISSION', 'HUMAN_ESCALATION',
     'REGISTER_PATIENT', 'IDENTIFY_PATIENT', 'DEPENDENT_PATIENT', 'EMERGENCY_GUIDANCE',
     'THANK_YOU', 'GOODBYE', 'APPOINTMENT_CONFIRMATION', 'APPOINTMENT_TIME',
-    'APPOINTMENT_DATE', 'LANGUAGE_CHANGE', 'PATIENT_REPORTS', 'UNKNOWN'
+    'APPOINTMENT_DATE', 'LANGUAGE_CHANGE', 'PATIENT_REPORTS', 'FEEDBACK', 'UNKNOWN'
 ]
 
 # Map agent-side intents to valid DB intents
@@ -24,6 +24,7 @@ INTENT_TO_DB_MAP = {
     'EMERGENCY_GUIDANCE': 'HOSPITAL_INFORMATION',
     'IDENTIFY_PATIENT': 'GREETING',
     'REGISTER_PATIENT': 'REGISTER_PATIENT',
+    'FEEDBACK': 'FEEDBACK',
 }
 
 def get_db_intent(intent: str) -> str:
@@ -261,6 +262,19 @@ PATTERNS = {
         r"(ಜ್ವರ|ತಲೆನೋವು|ಹೊಟ್ಟೆ\s*ನೋವು|ಕೆಮ್ಮು|ನೆಗಡಿ)",
         r"(بخار|سر\s*درد|پیٹ\s*درد|کھانسی|زکام)"
     ],
+
+    # ---- FEEDBACK ----
+    "FEEDBACK": [
+        r"\b(feedback|feed\s*back|rating|rate|review|complaint|grievance|hospital\s*experience|"
+        r"experience|share\s*feedback|write\s*feedback|voice\s*feedback|btn_feedback|btn_cat_feedback|"
+        r"give\s*feedback|my\s*feedback|overall\s*experience|food\s*was|billing\s*took|service\s*was)\b",
+        r"(கருத்து|மதிப்பீடு|அனுபவம்|புகார்)",
+        r"(प्रतिक्रिया|रेटिंग|समीक्षा|शिकायत|अनुभव)",
+        r"(అభిప్రాయం|రేటింగ్|సమీక్ష|ఫర్యాదు)",
+        r"(അഭിപ്രായം|റേറ്റിംഗ്|പരാതി|അനുഭവം)",
+        r"(ಅಭಿಪ್ರಾಯ|ರೇಟಿಂಗ್|ದೂರು|ಅನುಭವ)",
+        r"(رائے|ریٹنگ|شکایت|تجربہ)"
+    ],
 }
 
 # Short/ambiguous messages that must NEVER trigger intent reset
@@ -350,7 +364,7 @@ def detect_intent(text: str, current_intent: str = None) -> str:
     ACTIVE_WORKFLOW_INTENTS = [
         "BOOK_APPOINTMENT", "REGISTER_PATIENT", "IDENTIFY_PATIENT",
         "RESCHEDULE_APPOINTMENT", "CANCEL_APPOINTMENT", "DOCTOR_AVAILABILITY",
-        "DEPENDENT_PATIENT"
+        "DEPENDENT_PATIENT", "FEEDBACK"
     ]
 
     if current_intent in ACTIVE_WORKFLOW_INTENTS:
@@ -407,7 +421,7 @@ def detect_intent(text: str, current_intent: str = None) -> str:
     if matched_intents:
         # Priority order for fresh matches
         for prio in [
-            "REGISTER_PATIENT", "CANCEL_APPOINTMENT", "RESCHEDULE_APPOINTMENT",
+            "FEEDBACK", "REGISTER_PATIENT", "CANCEL_APPOINTMENT", "RESCHEDULE_APPOINTMENT",
             "APPOINTMENT_STATUS", "BOOK_APPOINTMENT", "DOCTOR_AVAILABILITY",
             "PRE_ADMISSION", "HOSPITAL_INFORMATION"
         ]:
@@ -426,7 +440,7 @@ def detect_intent(text: str, current_intent: str = None) -> str:
         if current_intent in [
             "REGISTER_PATIENT", "IDENTIFY_PATIENT", "BOOK_APPOINTMENT",
             "CANCEL_APPOINTMENT", "RESCHEDULE_APPOINTMENT", "POST_BOOKING",
-            "DOCTOR_AVAILABILITY", "DEPENDENT_PATIENT"
+            "DOCTOR_AVAILABILITY", "DEPENDENT_PATIENT", "FEEDBACK"
         ]:
             return current_intent
 
