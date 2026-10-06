@@ -135,10 +135,107 @@ export const FeedbackPage: React.FC = () => {
   const [statusInput, setStatusInput] = useState<'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'>('OPEN');
   const [notesInput, setNotesInput] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 4000);
+  };
+
+  const handleExportCsv = async () => {
+    if (totalRecords === 0) {
+      showToast('⚠️ No feedback records available for export based on current filters.');
+      return;
+    }
+    setExporting(true);
+    try {
+      const res = await apiService.getFeedbackList({
+        sentiment: sentimentFilter || undefined,
+        category: categoryFilter || undefined,
+        severity: severityFilter || undefined,
+        status: statusFilter || undefined,
+        requires_action: requiresActionFilter !== '' ? requiresActionFilter : undefined,
+        search: search || undefined,
+        limit: 10000,
+        offset: 0
+      });
+
+      const records: FeedbackRecord[] = res?.data || [];
+      if (!records || records.length === 0) {
+        showToast('⚠️ No matching records found for export.');
+        return;
+      }
+
+      const headers = [
+        "Feedback ID",
+        "Patient Name",
+        "Patient ID",
+        "Source",
+        "WhatsApp Number",
+        "Rating",
+        "Sentiment",
+        "Categories",
+        "Priority / Severity",
+        "Requires Action",
+        "AI Summary",
+        "Original Feedback",
+        "Status",
+        "Submitted Date",
+        "Resolution Notes"
+      ];
+
+      const escapeCsv = (val: any): string => {
+        if (val === null || val === undefined) return '""';
+        let str = String(val).replace(/\r\n|\r|\n/g, ' ');
+        str = str.replace(/"/g, '""');
+        return `"${str}"`;
+      };
+
+      const rows = records.map(r => {
+        const displaySource = formatSourceDisplay(r.source);
+        const catsStr = Array.isArray(r.categories) ? r.categories.join(', ') : (r.categories || '');
+        const waNum = r.whatsapp_phone || r.phone_number || 'N/A';
+        const ratingStr = r.rating !== null && r.rating !== undefined ? `${r.rating}/10` : 'N/A';
+
+        return [
+          escapeCsv(r.id),
+          escapeCsv(r.patient_name || 'Anonymous Patient'),
+          escapeCsv(r.patient_id || 'P-GUEST'),
+          escapeCsv(displaySource),
+          escapeCsv(waNum),
+          escapeCsv(ratingStr),
+          escapeCsv(r.sentiment || 'NEUTRAL'),
+          escapeCsv(catsStr),
+          escapeCsv(r.severity || 'LOW'),
+          escapeCsv(r.requires_action ? 'Yes' : 'No'),
+          escapeCsv(r.ai_summary || ''),
+          escapeCsv(r.original_feedback || ''),
+          escapeCsv(r.status || 'OPEN'),
+          escapeCsv(r.created_at || ''),
+          escapeCsv(r.resolution_notes || '')
+        ].join(',');
+      });
+
+      const BOM = "\uFEFF";
+      const csvContent = BOM + [headers.join(','), ...rows].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.setAttribute('download', `meridian_feedback_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast(`✅ Successfully exported ${records.length} feedback records to CSV.`);
+    } catch (err: any) {
+      showToast(`❌ Export failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const loadData = useCallback(async () => {
@@ -179,10 +276,16 @@ export const FeedbackPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  const handleOpenDetail = (record: FeedbackRecord) => {
+  const handleOpenDetail = async (record: FeedbackRecord) => {
     setSelectedRecord(record);
     setStatusInput(record.status);
     setNotesInput(record.resolution_notes || '');
+    const fresh = await apiService.getFeedbackDetail(record.id).catch(() => null);
+    if (fresh?.data) {
+      setSelectedRecord(fresh.data);
+      setStatusInput(fresh.data.status);
+      setNotesInput(fresh.data.resolution_notes || '');
+    }
   };
 
   const handleStatusSubmit = async (e: React.FormEvent) => {
@@ -197,7 +300,14 @@ export const FeedbackPage: React.FC = () => {
       });
       if (res?.success || res?.status) {
         showToast(`Feedback #${selectedRecord.id} updated to ${statusInput}`);
-        setSelectedRecord(prev => prev ? { ...prev, status: statusInput, resolution_notes: notesInput } : null);
+        const fresh = await apiService.getFeedbackDetail(selectedRecord.id).catch(() => null);
+        if (fresh?.data) {
+          setSelectedRecord(fresh.data);
+          setStatusInput(fresh.data.status);
+          setNotesInput(fresh.data.resolution_notes || '');
+        } else {
+          setSelectedRecord(prev => prev ? { ...prev, status: statusInput, resolution_notes: notesInput } : null);
+        }
         loadData();
       }
     } catch (err: any) {
@@ -406,6 +516,37 @@ export const FeedbackPage: React.FC = () => {
             <option value="false">General Feedback Only</option>
           </select>
         </div>
+      </div>
+
+      {/* Export CSV Action Bar (Placed immediately AFTER Filters and BEFORE Feedback Table) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', background: '#fff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+        <div style={{ fontSize: '13px', color: '#5f6368', fontWeight: 500 }}>
+          Showing <strong style={{ color: '#202124' }}>{totalRecords}</strong> matching feedback records
+        </div>
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          disabled={exporting || totalRecords === 0}
+          className="btn btn-secondary btn-sm"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: '#ffffff',
+            border: '1px solid #dadce0',
+            color: '#3c4043',
+            fontSize: '13px',
+            fontWeight: 500,
+            padding: '8px 14px',
+            borderRadius: '6px',
+            cursor: (exporting || totalRecords === 0) ? 'not-allowed' : 'pointer',
+            opacity: (exporting || totalRecords === 0) ? 0.6 : 1,
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <FileText size={15} color="#1a73e8" />
+          {exporting ? 'Generating CSV...' : 'Export CSV'}
+        </button>
       </div>
 
       {/* Main Feedback List Table */}

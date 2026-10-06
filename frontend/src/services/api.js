@@ -176,7 +176,7 @@ export const apiService = {
 
   async updateFeedbackStatus(id, statusData, options = {}) {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/feedback/${encodeURIComponent(id)}/status`, {
-      method: 'POST',
+      method: 'PATCH',
       body: JSON.stringify(statusData),
       ...options
     });
