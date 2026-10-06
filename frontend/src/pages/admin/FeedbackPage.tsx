@@ -3,7 +3,7 @@ import {
   MessageSquare, RefreshCw, CheckCircle, Clock,
   AlertTriangle, Filter, Search, ThumbsUp, ThumbsDown,
   Meh, Star, Sparkles, Phone, User, ShieldAlert,
-  ArrowRight, X, FileText, Mic, Send
+  ArrowRight, X, FileText, Mic, Send, Eye
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
@@ -128,7 +128,7 @@ export const FeedbackPage: React.FC = () => {
 
   // Pagination
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(20);
+  const [perPage, setPerPage] = useState(15);
   const [totalRecords, setTotalRecords] = useState(0);
 
   // Update Status Modal / Form State
@@ -164,7 +164,8 @@ export const FeedbackPage: React.FC = () => {
 
       if (listData?.data) {
         setFeedbackList(listData.data);
-        setTotalRecords(listData.total || listData.data.length);
+        const count = listData.total_count ?? listData.total ?? listData.data.length;
+        setTotalRecords(count);
       } else {
         setFeedbackList([]);
         setTotalRecords(0);
@@ -410,178 +411,204 @@ export const FeedbackPage: React.FC = () => {
       {/* Main Feedback List Table */}
       {loading ? (
         <ModuleLoadingScreen message="Loading live patient feedback & grievance data..." />
-      ) : feedbackList.length === 0 ? (
-        <div style={{ background: '#fff', padding: '48px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e0e0e0' }}>
-          <MessageSquare size={36} color="#9aa0a6" style={{ marginBottom: '12px' }} />
-          <h3 style={{ margin: '0 0 8px 0', color: '#3c4043' }}>No Feedback Records Found</h3>
-          <p style={{ margin: 0, color: '#70757a', fontSize: '14px' }}>
-            No records matched your selected filters or search terms.
-          </p>
-        </div>
       ) : (
         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e0e0e0', overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #e0e0e0', color: '#5f6368', fontWeight: 600 }}>
-                  <th style={{ padding: '12px 16px' }}>Patient</th>
-                  <th style={{ padding: '12px 16px' }}>Source</th>
-                  <th style={{ padding: '12px 16px' }}>Rating</th>
-                  <th style={{ padding: '12px 16px' }}>Sentiment</th>
-                  <th style={{ padding: '12px 16px' }}>Categories</th>
-                  <th style={{ padding: '12px 16px' }}>Priority</th>
-                  <th style={{ padding: '12px 16px' }}>AI Summary / Feedback</th>
-                  <th style={{ padding: '12px 16px' }}>Submitted</th>
-                  <th style={{ padding: '12px 16px' }}>Status</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feedbackList.map(item => {
-                  const sentStyle = SENTIMENT_STYLES[item.sentiment] || SENTIMENT_STYLES.NEUTRAL;
-                  const SentIcon = sentStyle.icon;
-                  const sevStyle = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.LOW;
-                  const statusStyle = STATUS_STYLES[item.status] || STATUS_STYLES.OPEN;
-                  const displaySource = formatSourceDisplay(item.source);
+          {feedbackList.length === 0 ? (
+            <div style={{ padding: '48px', textAlign: 'center' }}>
+              <MessageSquare size={36} color="#9aa0a6" style={{ marginBottom: '12px' }} />
+              <h3 style={{ margin: '0 0 8px 0', color: '#3c4043' }}>No Feedback Records Found</h3>
+              <p style={{ margin: 0, color: '#70757a', fontSize: '14px' }}>
+                No records matched your selected filters or search terms.
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #e0e0e0', color: '#5f6368', fontWeight: 600 }}>
+                    <th style={{ padding: '12px 16px' }}>Patient</th>
+                    <th style={{ padding: '12px 16px' }}>Source</th>
+                    <th style={{ padding: '12px 16px' }}>Rating</th>
+                    <th style={{ padding: '12px 16px' }}>Sentiment</th>
+                    <th style={{ padding: '12px 16px' }}>Categories</th>
+                    <th style={{ padding: '12px 16px' }}>Priority</th>
+                    <th style={{ padding: '12px 16px' }}>AI Summary / Feedback</th>
+                    <th style={{ padding: '12px 16px' }}>Submitted</th>
+                    <th style={{ padding: '12px 16px' }}>Status</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feedbackList.map(item => {
+                    const sentStyle = SENTIMENT_STYLES[item.sentiment] || SENTIMENT_STYLES.NEUTRAL;
+                    const SentIcon = sentStyle.icon;
+                    const sevStyle = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.LOW;
+                    const statusStyle = STATUS_STYLES[item.status] || STATUS_STYLES.OPEN;
+                    const displaySource = formatSourceDisplay(item.source);
 
-                  return (
-                    <tr
-                      key={item.id}
-                      style={{ borderBottom: '1px solid #f1f3f4', transition: 'background 0.15s' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
-                      onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-                    >
-                      {/* Patient */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 600, color: '#202124' }}>
-                          {item.patient_name || 'Anonymous Patient'}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#70757a' }}>
-                          ID: {item.patient_id || 'P-GUEST'}
-                        </div>
-                      </td>
-
-                      {/* Source */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#5f6368', fontWeight: 500 }}>
-                          <MessageSquare size={14} color="#1a73e8" />
-                          {displaySource}
-                        </span>
-                      </td>
-
-                      {/* Rating */}
-                      <td style={{ padding: '12px 16px' }}>
-                        {item.rating ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', fontWeight: 600, color: '#e37400' }}>
-                            <Star size={14} fill="#e37400" />
-                            {item.rating}/10
+                    return (
+                      <tr
+                        key={item.id}
+                        style={{ borderBottom: '1px solid #f1f3f4', transition: 'background 0.15s' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8f9fa')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+                      >
+                        {/* Patient */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ fontWeight: 600, color: '#202124' }}>
+                            {item.patient_name || 'Anonymous Patient'}
                           </div>
-                        ) : (
-                          <span style={{ color: '#9aa0a6' }}>—</span>
-                        )}
-                      </td>
+                          <div style={{ fontSize: '11px', color: '#70757a' }}>
+                            ID: {item.patient_id || 'P-GUEST'}
+                          </div>
+                        </td>
 
-                      {/* Sentiment */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <span
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
-                            backgroundColor: sentStyle.bg, color: sentStyle.color
-                          }}
-                        >
-                          <SentIcon size={12} />
-                          {sentStyle.label}
-                        </span>
-                      </td>
+                        {/* Source */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#5f6368', fontWeight: 500 }}>
+                            <MessageSquare size={14} color="#1a73e8" />
+                            {displaySource}
+                          </span>
+                        </td>
 
-                      {/* Categories */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '200px' }}>
-                          {item.categories && item.categories.length > 0 ? (
-                            item.categories.slice(0, 2).map((cat, idx) => (
-                              <span key={idx} style={{ padding: '2px 6px', borderRadius: '4px', background: '#e8f0fe', color: '#1a73e8', fontSize: '11px', fontWeight: 500 }}>
-                                {cat}
-                              </span>
-                            ))
+                        {/* Rating */}
+                        <td style={{ padding: '12px 16px' }}>
+                          {item.rating ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', fontWeight: 600, color: '#e37400' }}>
+                              <Star size={14} fill="#e37400" />
+                              {item.rating}/10
+                            </div>
                           ) : (
-                            <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#f1f3f4', color: '#5f6368', fontSize: '11px' }}>
-                              General
-                            </span>
+                            <span style={{ color: '#9aa0a6' }}>—</span>
                           )}
-                          {item.categories && item.categories.length > 2 && (
-                            <span style={{ fontSize: '11px', color: '#70757a' }}>+{item.categories.length - 2}</span>
-                          )}
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Priority */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <span
-                          style={{
-                            padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                            backgroundColor: sevStyle.bg, color: sevStyle.color
-                          }}
-                        >
-                          {item.severity}
-                        </span>
-                      </td>
+                        {/* Sentiment */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                              backgroundColor: sentStyle.bg, color: sentStyle.color
+                            }}
+                          >
+                            <SentIcon size={12} />
+                            {sentStyle.label}
+                          </span>
+                        </td>
 
-                      {/* Summary */}
-                      <td style={{ padding: '12px 16px', maxWidth: '280px' }}>
-                        <div style={{ fontWeight: 500, color: '#3c4043', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {item.ai_summary || item.original_feedback}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#70757a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
-                          "{item.original_feedback}"
-                        </div>
-                      </td>
+                        {/* Categories */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '200px' }}>
+                            {item.categories && item.categories.length > 0 ? (
+                              item.categories.slice(0, 2).map((cat, idx) => (
+                                <span key={idx} style={{ padding: '2px 6px', borderRadius: '4px', background: '#e8f0fe', color: '#1a73e8', fontSize: '11px', fontWeight: 500 }}>
+                                  {cat}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#f1f3f4', color: '#5f6368', fontSize: '11px' }}>
+                                General
+                              </span>
+                            )}
+                            {item.categories && item.categories.length > 2 && (
+                              <span style={{ fontSize: '11px', color: '#70757a' }}>+{item.categories.length - 2}</span>
+                            )}
+                          </div>
+                        </td>
 
-                      {/* Submitted */}
-                      <td style={{ padding: '12px 16px', fontSize: '11px', color: '#5f6368', whiteSpace: 'nowrap' }}>
-                        {item.created_at ? new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                      </td>
+                        {/* Priority */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                              backgroundColor: sevStyle.bg, color: sevStyle.color
+                            }}
+                          >
+                            {item.severity}
+                          </span>
+                        </td>
 
-                      {/* Status */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <span
-                          style={{
-                            padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
-                            backgroundColor: statusStyle.bg, color: statusStyle.color
-                          }}
-                        >
-                          {statusStyle.label}
-                        </span>
-                      </td>
+                        {/* Summary */}
+                        <td style={{ padding: '12px 16px', maxWidth: '280px' }}>
+                          <div style={{ fontWeight: 500, color: '#3c4043', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.ai_summary || item.original_feedback}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#70757a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
+                            "{item.original_feedback}"
+                          </div>
+                        </td>
 
-                      {/* Action */}
-                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => handleOpenDetail(item)}
-                          style={{ fontSize: '12px', padding: '4px 10px', borderRadius: '6px' }}
-                        >
-                          View Detail
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        {/* Submitted */}
+                        <td style={{ padding: '12px 16px', fontSize: '11px', color: '#5f6368', whiteSpace: 'nowrap' }}>
+                          {item.created_at ? new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                        </td>
 
-          {/* Pagination */}
-          <div style={{ padding: '12px 16px', borderTop: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '13px', color: '#5f6368' }}>
-              Showing {feedbackList.length} of {totalRecords} feedback records
-            </span>
-            <TablePagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
-          </div>
+                        {/* Status */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600,
+                              backgroundColor: statusStyle.bg, color: statusStyle.color
+                            }}
+                          >
+                            {statusStyle.label}
+                          </span>
+                        </td>
+
+                        {/* Action */}
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDetail(item)}
+                            title="View Feedback Details"
+                            aria-label="View Feedback Details"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '6px',
+                              border: '1px solid #dadce0',
+                              background: '#ffffff',
+                              color: '#1a73e8',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.background = '#e8f0fe';
+                              e.currentTarget.style.borderColor = '#1a73e8';
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.background = '#ffffff';
+                              e.currentTarget.style.borderColor = '#dadce0';
+                            }}
+                          >
+                            <Eye size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Unified Synchronized Table Pagination */}
+          <TablePagination
+            total={totalRecords}
+            page={page}
+            pageSize={perPage}
+            onPageChange={setPage}
+            onPageSizeChange={(newSize: number) => {
+              setPerPage(newSize);
+              setPage(1);
+            }}
+            label="feedback records"
+            pageSizeOptions={[15, 25, 50, 100]}
+          />
         </div>
       )}
 
