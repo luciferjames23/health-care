@@ -188,6 +188,52 @@ export const apiService = {
     return await res.json();
   },
 
+  // Agent Configuration APIs
+  async getAgentConfig(agentId, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/agent/config/${encodeURIComponent(agentId)}`, { revalidateMs: 1000, ...options });
+  },
+
+  async saveAgentConfig(agentId, configData, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/agent/config/${encodeURIComponent(agentId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(configData),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    clearAllStorageCache();
+    return await res.json();
+  },
+
+  async publishAgentVersion(agentId, publishData = {}, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/agent/config/${encodeURIComponent(agentId)}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(publishData),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    clearAllStorageCache();
+    return await res.json();
+  },
+
+  async runAgentPlayground(agentId, prompt, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/agent/config/${encodeURIComponent(agentId)}/playground`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+      ...options
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.detail || `HTTP error ${res.status}`);
+    }
+    return await res.json();
+  },
+
   // Cache Management
   clearCache() {
     clearAllStorageCache();

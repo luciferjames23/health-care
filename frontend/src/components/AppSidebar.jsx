@@ -225,14 +225,17 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  // Sidepanel modules: Doctor Directory is only visible for Admin / Hospital Management
+  // Sidepanel modules: Doctor Directory & Feedback are only visible for Admin / Hospital Management / Quality
   const visibleGroups = React.useMemo(() => {
     if (userRole === 'Patient') return [];
-    const isAdmin = userRole === 'Hospital Management' || userRole === 'Admin' || userRole === 'System Admin';
+    const isAdmin = userRole === 'Hospital Management' || userRole === 'Admin' || userRole === 'System Admin' || userRole === 'Quality';
     return NAV_GROUPS.map(group => ({
       ...group,
       items: group.items.filter(item => {
         if (item.id === 'doctor-management' && !isAdmin) {
+          return false;
+        }
+        if (item.id === 'feedback' && !isAdmin) {
           return false;
         }
         return true;

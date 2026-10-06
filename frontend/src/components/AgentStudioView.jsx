@@ -1355,8 +1355,50 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
     setPage(1);
   }, [filterStatus, searchQ, pageSize]);
 
-  // Selected agent object
-  const selectedAgent = ALL_21_AGENTS.find(a => a.id === selectedAgentId) || (selectedAgentId ? ALL_21_AGENTS.find(a => a.id === 'AG-19') : null);
+  // Dynamic backend agent configuration state
+  const [backendAgentConfig, setBackendAgentConfig] = useState(null);
+  const [loadingAgentConfig, setLoadingAgentConfig] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedAgentId) return;
+
+    async function fetchAgentConfig() {
+      setLoadingAgentConfig(true);
+      try {
+        const res = await apiService.getAgentConfig(selectedAgentId).catch(() => null);
+        if (isMounted && res?.success && res.data) {
+          setBackendAgentConfig(res.data);
+        }
+      } catch (err) {
+        console.error('Failed to load dynamic agent config:', err);
+      } finally {
+        if (isMounted) setLoadingAgentConfig(false);
+      }
+    }
+
+    fetchAgentConfig();
+    return () => { isMounted = false; };
+  }, [selectedAgentId]);
+
+  const baseAgent = ALL_21_AGENTS.find(a => a.id === selectedAgentId) || (selectedAgentId ? ALL_21_AGENTS.find(a => a.id === 'AG-19') : null);
+
+  const selectedAgent = React.useMemo(() => {
+    if (!baseAgent && !backendAgentConfig) return null;
+    if (!backendAgentConfig) return baseAgent;
+    return {
+      ...baseAgent,
+      ...backendAgentConfig,
+      instructions: backendAgentConfig.instructions || baseAgent?.instructions,
+      tools: backendAgentConfig.tools || baseAgent?.tools,
+      knowledge: backendAgentConfig.knowledge || baseAgent?.knowledge,
+      memory: backendAgentConfig.memory || baseAgent?.memory,
+      access: backendAgentConfig.access || baseAgent?.access,
+      model: backendAgentConfig.model || baseAgent?.model,
+      evals: backendAgentConfig.evals || baseAgent?.evals,
+      versions: backendAgentConfig.versions || baseAgent?.versions,
+    };
+  }, [baseAgent, backendAgentConfig]);
 
   // Playground state
   const [playPrompt, setPlayPrompt] = useState(
@@ -1439,49 +1481,107 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
     governanceGate: 'Capacity Decision Support (Human Supervisor Review for Ward Allocations)'
   };
 
+  // Default model config for Feedback Agent (AG-05) — baseline from DB seed.
+  // This is only the UI fallback; the authoritative values come from the DB via backendAgentConfig.
+  const DEFAULT_FEEDBACK_MODEL_CONFIG = {
+    primaryModel: 'meridian-llm-large',
+    llmProvider: 'Meridian Inference Engine',
+    fallbackModel: 'meridian-llm-small',
+    temperature: 0.20,
+    tokenLimit: '8,000 tokens (Max context: 128k)',
+    latencyTarget: '< 3 s p50',
+    executionProtocol: 'Sequential Feedback Collection Protocol (Collect → Sentiment → Escalate)',
+    governanceGate: 'Quality Lead Review (Selective) — Grievance Escalation Gate'
+  };
+
   const [agentModelConfigs, setAgentModelConfigs] = useState({
     'AG-19': { ...DEFAULT_MODEL_CONFIG },
     'AG-18': { ...DEFAULT_NURSING_MODEL_CONFIG },
     'AG-04': { ...DEFAULT_EMPLOYEE_MODEL_CONFIG },
     'AG-14': { ...DEFAULT_ANALYTICS_MODEL_CONFIG },
-    'AG-15': { ...DEFAULT_FORECASTING_MODEL_CONFIG }
+    'AG-15': { ...DEFAULT_FORECASTING_MODEL_CONFIG },
+    'AG-05': { ...DEFAULT_FEEDBACK_MODEL_CONFIG }
   });
   const [modelSavedNotice, setModelSavedNotice] = useState(null);
   const [modelDeploying, setModelDeploying] = useState(false);
 
-  // Dynamic Prompt & Instructions State with persistence
-  const [agentInstructionsState, setAgentInstructionsState] = useState(() => {
-    try {
-      const saved = localStorage.getItem('hc_agent_instructions');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
+  // Sync backendAgentConfig.model into agentModelConfigs when the backend config loads.
+  // This ensures DB-persisted model values are reflected in the editable UI fields.
+  useEffect(() => {
+    if (!backendAgentConfig || !selectedAgentId) return;
+    const dbModel = backendAgentConfig.model;
+    if (!dbModel || typeof dbModel !== 'object') return;
+    // Map DB model fields to the UI config shape.
+    const mapped = {};
+    if (dbModel.model)       mapped.primaryModel       = dbModel.model;
+    if (dbModel.provider)    mapped.llmProvider        = dbModel.provider;
+    if (dbModel.fallback)    mapped.fallbackModel      = dbModel.fallback;
+    if (dbModel.temperature !== undefined) mapped.temperature = dbModel.temperature;
+    if (dbModel.tokens || dbModel.token_limit) mapped.tokenLimit = dbModel.tokens || dbModel.token_limit;
+    if (dbModel.latency)     mapped.latencyTarget      = dbModel.latency;
+    if (dbModel.execution_protocol) mapped.executionProtocol = dbModel.execution_protocol;
+    if (dbModel.governance_gate)    mapped.governanceGate    = dbModel.governance_gate;
+    // Only sync if we got at least one mapped field from the DB
+    if (Object.keys(mapped).length > 0) {
+      setAgentModelConfigs(prev => ({
+        ...prev,
+        [selectedAgentId]: {
+          ...(prev[selectedAgentId] || {}),
+          ...mapped
+        }
+      }));
     }
-  });
+  }, [backendAgentConfig, selectedAgentId]);
+
+  // Dynamic Prompt & Instructions State with backend persistence
+  const [agentInstructionsState, setAgentInstructionsState] = useState({});
 
   const handleInstructionChange = (agentId, field, value) => {
     setAgentInstructionsState(prev => {
       const curAgentInst = prev[agentId] || selectedAgent?.instructions || {};
-      const updated = {
+      return {
         ...prev,
         [agentId]: {
           ...curAgentInst,
           [field]: value
         }
       };
-      try {
-        localStorage.setItem('hc_agent_instructions', JSON.stringify(updated));
-      } catch (err) {
-        console.error('Failed to save instructions to localStorage:', err);
-      }
-      return updated;
     });
   };
 
-  const handleSaveDirectives = (agentId) => {
-    const targetAgent = ALL_21_AGENTS.find(a => a.id === agentId) || selectedAgent;
-    setInstructionsSavedNotice(`Directives & dynamic prompt specifications saved for ${targetAgent?.name || 'Agent'} · Runtime synced.`);
-    setTimeout(() => setInstructionsSavedNotice(null), 3500);
+  const handleSaveDirectives = async (agentId) => {
+    const targetId = agentId || selectedAgentId;
+    const targetAgent = ALL_21_AGENTS.find(a => a.id === targetId) || selectedAgent;
+    const currentInst = agentInstructionsState[targetId] || selectedAgent?.instructions;
+
+    try {
+      const res = await apiService.saveAgentConfig(targetId, {
+        agent_id: targetId,
+        instructions: currentInst,
+        name: selectedAgent?.name,
+        name_ta: selectedAgent?.nameTa,
+        type: selectedAgent?.type,
+        version: selectedAgent?.v || selectedAgent?.version,
+        owner: selectedAgent?.owner,
+        risk_tier: selectedAgent?.tier || selectedAgent?.risk_tier,
+        status: selectedAgent?.status,
+        purpose: selectedAgent?.purpose,
+        tools: selectedAgent?.tools,
+        knowledge: selectedAgent?.knowledge,
+        memory: selectedAgent?.memory,
+        access: selectedAgent?.access,
+        model: selectedAgent?.model
+      });
+
+      if (res?.success && res.data) {
+        setBackendAgentConfig(res.data);
+      }
+      setInstructionsSavedNotice(`Directives & dynamic prompt specifications saved and persisted to database for ${targetAgent?.name || 'Agent'}.`);
+      setTimeout(() => setInstructionsSavedNotice(null), 4000);
+    } catch (err) {
+      setInstructionsSavedNotice(`❌ Error saving configuration: ${err.message || 'Save failed'}`);
+      setTimeout(() => setInstructionsSavedNotice(null), 5000);
+    }
   };
 
   // Dynamic Tools & Agent State
@@ -1986,7 +2086,9 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
     const isEmployeeAgent = selectedAgent.id === 'AG-04' || selectedAgent.name === 'Employee Service Agent';
     const isAnalyticsAgent = selectedAgent.id === 'AG-14' || selectedAgent.name === 'Analytics Agent';
     const isForecastingAgent = selectedAgent.id === 'AG-15' || selectedAgent.name === 'Forecasting Agent';
-    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent;
+    // Feedback Agent is Admin-configurable — model, instructions, tools are persisted to the database.
+    const isFeedbackAgent = selectedAgent.id === 'AG-05' || selectedAgent.name === 'Feedback Agent';
+    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent || isFeedbackAgent;
     const currentAgentStatus = agentCustomStatuses[selectedAgent.id] || selectedAgent.status;
     const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
 
@@ -2618,6 +2720,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             if (id === 'AG-04') return DEFAULT_EMPLOYEE_MODEL_CONFIG;
             if (id === 'AG-14') return DEFAULT_ANALYTICS_MODEL_CONFIG;
             if (id === 'AG-15') return DEFAULT_FORECASTING_MODEL_CONFIG;
+            if (id === 'AG-05') return DEFAULT_FEEDBACK_MODEL_CONFIG;
             return DEFAULT_MODEL_CONFIG;
           };
           const fallbackConfig = getDefaultConfig(currentAgentId);
@@ -2634,14 +2737,37 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             }));
           };
 
-          const handleSaveModelConfig = () => {
+          const handleSaveModelConfig = async () => {
             if (!isConfigurableAgent) return;
             setModelDeploying(true);
-            setTimeout(() => {
+            try {
+              // Map UI model config shape back to the DB model schema.
+              const dbModelPayload = {
+                model:              currentModelConfig.primaryModel,
+                provider:           currentModelConfig.llmProvider,
+                fallback:           currentModelConfig.fallbackModel,
+                temperature:        Number(currentModelConfig.temperature),
+                tokens:             currentModelConfig.tokenLimit,
+                latency:            currentModelConfig.latencyTarget,
+                execution_protocol: currentModelConfig.executionProtocol,
+                governance_gate:    currentModelConfig.governanceGate,
+                cost:               selectedAgent?.model?.cost || ''
+              };
+              // Persist through the existing Agent Configuration API → PostgreSQL
+              const res = await apiService.saveAgentConfig(currentAgentId, {
+                agent_id: currentAgentId,
+                model: dbModelPayload
+              });
+              if (res?.success && res.data) {
+                setBackendAgentConfig(res.data);
+              }
+              setModelSavedNotice(`Configuration for ${selectedAgent?.name || 'Agent'} (${currentAgentId}) saved and persisted to database.`);
+            } catch (err) {
+              setModelSavedNotice(`❌ Save failed: ${err?.message || 'Unknown error. Check backend connectivity.'}`);
+            } finally {
               setModelDeploying(false);
-              setModelSavedNotice(`Configuration for ${selectedAgent?.name || 'Agent'} (${currentAgentId}) successfully updated & deployed to active inference runtime.`);
-              setTimeout(() => setModelSavedNotice(null), 4000);
-            }, 400);
+              setTimeout(() => setModelSavedNotice(null), 5000);
+            }
           };
 
           const handleResetModelConfig = () => {
