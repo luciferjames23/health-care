@@ -402,6 +402,46 @@ export const apiService = {
     return await this.getDischargedPatientById(summaryId, options);
   },
 
+  async updateDischargeSummary(summaryId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/${summaryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated('/api/v1/gold/generated-discharge-summaries', data);
+    return data;
+  },
+
+  async deleteDischargeSummary(summaryId, params = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.patient_id) queryParams.append('patient_id', params.patient_id);
+    if (params.admission_id) queryParams.append('admission_id', params.admission_id);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/${summaryId}${queryString}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated('/api/v1/gold/generated-discharge-summaries', data);
+    return data;
+  },
+
+  async generateDischargeSummaryWithLLM(patientId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-summary-llm/generate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_id: String(patientId),
+        model_name: payload.model_name || 'llama-3.3-70b-versatile',
+        ...payload
+      })
+    });
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated('/api/v1/gold/generated-discharge-summaries', data);
+    return data;
+  },
+
   // -------------------------------------------------------------------------
   // Manage Patient Vitals (Normal / Abnormal by patient_code)
   // -------------------------------------------------------------------------
@@ -1451,6 +1491,59 @@ export const apiService = {
   },
 
   // =========================================================================
+  // AG-07 · INSURANCE PREAUTH AGENT (Groq openai/gpt-oss-120b & preauth-denial v0.9)
+  // =========================================================================
+  async getPreauthAgentProfile() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/profile`);
+    if (!res.ok) throw new Error(`Error fetching preauth agent profile ${res.status}`);
+    return await res.json();
+  },
+
+  async getPreauthStats() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/stats`);
+    if (!res.ok) throw new Error(`Error fetching preauth stats ${res.status}`);
+    return await res.json();
+  },
+
+  async getPreauthCases(params = {}) {
+    const q = new URLSearchParams();
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/cases${qs}`);
+    if (!res.ok) throw new Error(`Error fetching preauth cases ${res.status}`);
+    return await res.json();
+  },
+
+  async getPreauthDossier(patientIdentifier) {
+    const id = encodeURIComponent(String(patientIdentifier || '87264').trim());
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/dossier/${id}`);
+    if (!res.ok) throw new Error(`Error fetching preauth dossier ${res.status}`);
+    return await res.json();
+  },
+
+  async generatePreauthDossier(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error generating preauth dossier ${res.status}`);
+    return await res.json();
+  },
+
+  async submitPreauthToTPA(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/submit`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error submitting preauth to TPA ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/preauth-agent/submit`, data);
+    return data;
+  },
+
+  // =========================================================================
   // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
   // =========================================================================
   async getPrescriptions(params = {}, options = {}) {
@@ -2343,8 +2436,48 @@ export function formatClinicalDiagnoses(val) {
 /**
  * Parses and formats investigations from nested JSON / Python dict into clinical narrative
  */
+/**
+ * Parses and formats investigations from nested JSON / Python dict or raw text into clean clinical narrative
+ */
 export function formatClinicalInvestigations(val) {
   if (!val) return 'Routine hematology, biochemistry, and diagnostic workup satisfactory.';
+
+  const cleanTextPostProcess = (raw) => {
+    if (!raw) return '';
+    return String(raw)
+      // Fix key-embedded units & underscore formatting
+      .replace(/Neutrophils_%\s*:\s*(\d+(?:\.\d+)?)/gi, 'Neutrophils: $1%')
+      .replace(/Lymphocytes_%\s*:\s*(\d+(?:\.\d+)?)/gi, 'Lymphocytes: $1%')
+      .replace(/Eosinophils_%\s*:\s*(\d+(?:\.\d+)?)/gi, 'Eosinophils: $1%')
+      .replace(/Monocytes_%\s*:\s*(\d+(?:\.\d+)?)/gi, 'Monocytes: $1%')
+      .replace(/Basophils_%\s*:\s*(\d+(?:\.\d+)?)/gi, 'Basophils: $1%')
+      .replace(/Hemoglobin_g[_\/]dL\s*:\s*(\d+(?:\.\d+)?)/gi, 'Hemoglobin: $1 g/dL')
+      .replace(/Platelets_x10\^9[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'Platelets: $1 × 10⁹/L')
+      .replace(/BUN_mg[_\/]dL\s*:\s*(\d+(?:\.\d+)?)/gi, 'BUN: $1 mg/dL')
+      .replace(/Creatinine_mg[_\/]dL\s*:\s*(\d+(?:\.\d+)?)/gi, 'Creatinine: $1 mg/dL')
+      .replace(/Bilirubin_total_mg[_\/]dL\s*:\s*(\d+(?:\.\d+)?)/gi, 'Total Bilirubin: $1 mg/dL')
+      .replace(/Bilirubin_direct_mg[_\/]dL\s*:\s*(\d+(?:\.\d+)?)/gi, 'Direct Bilirubin: $1 mg/dL')
+      .replace(/AST_U[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'AST: $1 U/L')
+      .replace(/ALT_U[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'ALT: $1 U/L')
+      .replace(/ALP_U[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'ALP: $1 U/L')
+      .replace(/Crp\s*Mg[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'CRP: $1 mg/L')
+      .replace(/Esr\s*Mm[_\/]Hr\s*:\s*(\d+(?:\.\d+)?)/gi, 'ESR: $1 mm/hr')
+      .replace(/Na_mEq[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'Na: $1 mEq/L')
+      .replace(/K_mEq[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'K: $1 mEq/L')
+      .replace(/Cl_mEq[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'Cl: $1 mEq/L')
+      .replace(/HCO3_mEq[_\/]L\s*:\s*(\d+(?:\.\d+)?)/gi, 'HCO3: $1 mEq/L')
+      // Acronyms and tests
+      .replace(/Malaria\s*Rdt/gi, 'Malaria RDT')
+      .replace(/Dengue\s*Ns1/gi, 'Dengue NS1')
+      .replace(/Sars\s*Cov\s*2\s*Pcr/gi, 'SARS-CoV-2 PCR')
+      .replace(/Chest\s*Xray/gi, 'Chest X-Ray')
+      .replace(/\bWBC\s*:\s*(\d{4,6})\b/g, (m, d) => `WBC: ${Number(d).toLocaleString()} /µL`)
+      // General unit cleanups
+      .replace(/\\u00b5L/gi, 'µL')
+      .replace(/\\u00b0F/gi, '°F')
+      .replace(/\\u202f/gi, ' ')
+      .trim();
+  };
 
   let data = null;
   if (typeof val === 'object' && val !== null) {
@@ -2360,11 +2493,7 @@ export function formatClinicalInvestigations(val) {
   }
 
   if (!data || typeof data !== 'object') {
-    return String(val)
-      .replace(/\\u00b5L/gi, 'µL')
-      .replace(/\\u00b0F/gi, '°F')
-      .replace(/\\u202f/gi, ' ')
-      .trim();
+    return cleanTextPostProcess(val);
   }
 
   const sections = [];
@@ -2399,6 +2528,18 @@ export function formatClinicalInvestigations(val) {
     }
   }
 
+  // Helper for single lab sub-item
+  const formatLabSubItem = (key, val) => {
+    let cleanK = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    if (key.includes('_g_dL') || key.includes('_g/dL')) return `${key.replace(/_g[_\/]dL/i, '')}: ${val} g/dL`;
+    if (key.includes('_mg_dL') || key.includes('_mg/dL')) return `${key.replace(/_mg[_\/]dL/i, '')}: ${val} mg/dL`;
+    if (key.includes('_mEq_L') || key.includes('_mEq/L')) return `${key.replace(/_mEq[_\/]L/i, '')}: ${val} mEq/L`;
+    if (key.includes('_U_L') || key.includes('_U/L')) return `${key.replace(/_U[_\/]L/i, '')}: ${val} U/L`;
+    if (key.includes('_%') || key.includes('_percent')) return `${key.replace(/_[%percent]+/i, '')}: ${val}%`;
+    if (key.includes('_x10^9_L') || key.includes('_x10^9/L')) return `${key.replace(/_x10\^9[_\/]L/i, '')}: ${val} × 10⁹/L`;
+    return `${cleanK}: ${val}`;
+  };
+
   // 2. Laboratory
   const lab = data.laboratory || data.laboratory_investigations || data.labs || data.blood_tests;
   if (lab && typeof lab === 'object') {
@@ -2406,12 +2547,12 @@ export function formatClinicalInvestigations(val) {
     for (const [k, v] of Object.entries(lab)) {
       const kTitle = k.length <= 4 ? k.toUpperCase() : k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       if (typeof v === 'object' && v !== null) {
-        const subItems = Object.entries(v).map(([subK, subV]) => `${subK}: ${subV}`);
+        const subItems = Object.entries(v).map(([subK, subV]) => formatLabSubItem(subK, subV));
         labParts.push(`${kTitle} (${subItems.join(', ')})`);
       } else if (Array.isArray(v)) {
         labParts.push(`${kTitle}: ${v.join(', ')}`);
       } else {
-        labParts.push(`${kTitle}: ${v}`);
+        labParts.push(formatLabSubItem(k, v));
       }
     }
     if (labParts.length > 0) {
@@ -2426,7 +2567,8 @@ export function formatClinicalInvestigations(val) {
   if (img && typeof img === 'object') {
     const imgParts = [];
     for (const [k, v] of Object.entries(img)) {
-      const kTitle = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      let kTitle = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if (/chest\s*xray/i.test(kTitle)) kTitle = 'Chest X-Ray';
       imgParts.push(`${kTitle}: ${v}`);
     }
     if (imgParts.length > 0) {
@@ -2451,11 +2593,7 @@ export function formatClinicalInvestigations(val) {
     }
   }
 
-  return sections.join('\n')
-    .replace(/\\u00b5L/gi, 'µL')
-    .replace(/\\u00b0F/gi, '°F')
-    .replace(/\\u202f/gi, ' ')
-    .trim();
+  return cleanTextPostProcess(sections.join('\n'));
 }
 
 /**
@@ -2510,85 +2648,114 @@ export function extractMedInfo(str) {
  */
 export function formatClinicalTreatment(val) {
   if (!val) return 'Inpatient care and stabilization administered as per protocol.';
-  let data = null;
-  if (typeof val === 'object' && val !== null) {
-    data = val;
-  } else if (typeof val === 'string' && (val.includes('{') || val.includes('['))) {
-    try {
-      data = JSON.parse(val);
-    } catch (e) {
-      try {
-        data = JSON.parse(val.replace(/'/g, '"'));
-      } catch (e2) {}
-    }
+  if (typeof val === 'string' && val.trim() === 'Inpatient care and stabilization administered as per protocol.') {
+    return val.trim();
   }
 
-  const parseSingleMedDict = (d) => {
-    if (!d || typeof d !== 'object') return String(d || '');
-    const name = d.name || d.medicine || d.drug || 'Medication';
-    const dose = d.dose || d.dosage || '';
-    const route = d.route || '';
-    const freq = d.frequency || d.freq || '';
-    const dur = d.duration || d.dur || '';
-    const ind = d.indication || d.indication_notes || d.notes || '';
-    const parts = [dose ? `Dosage: ${dose}` : '', route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', dur ? `Duration: ${dur}` : '', ind ? `Indication: ${ind}` : ''].filter(Boolean);
-    return `Administered: ${name} - ${parts.join(' - ') || 'As directed'}`;
+  const safeParseObj = (input) => {
+    if (!input) return null;
+    if (typeof input === 'object') return input;
+    const s = String(input).trim();
+    const bStart = s.indexOf('{');
+    const aStart = s.indexOf('[');
+    const firstOpen = (bStart !== -1 && aStart !== -1) ? Math.min(bStart, aStart) : (bStart !== -1 ? bStart : aStart);
+    if (firstOpen === -1) return null;
+    const lastClose = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+    if (lastClose <= firstOpen) return null;
+    const snippet = s.substring(firstOpen, lastClose + 1);
+    try {
+      return JSON.parse(snippet);
+    } catch (e) {}
+    try {
+      const jsonified = snippet
+        .replace(/'/g, '"')
+        .replace(/\bNone\b/g, 'null')
+        .replace(/\bTrue\b/g, 'true')
+        .replace(/\bFalse\b/g, 'false')
+        .replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(jsonified);
+    } catch (e2) {}
+    return null;
   };
 
-  const cleanTreatmentLine = (line) => {
-    const s = String(line || '').trim();
-    let cleanPrefix = s.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
-    const info = extractMedInfo(cleanPrefix);
-    if (info) {
-      const parts = [
-        info.dose ? `Dosage: ${info.dose}` : '',
-        info.route ? `Route: ${info.route}` : '',
-        info.freq ? `Freq: ${info.freq}` : '',
-        info.dur ? `Duration: ${info.dur}` : '',
-        info.ind ? `Indication: ${info.ind}` : ''
-      ].filter(Boolean);
-      return `Administered: ${info.name} - ${parts.join(' - ') || 'As directed'}`;
+  const formatSingleMed = (item, category = '') => {
+    if (!item) return '';
+    if (typeof item === 'string') {
+      const clean = item.trim().replace(/^\d+[\.\)]\s*/, '');
+      return clean;
     }
-    return cleanPrefix ? `Administered: ${cleanPrefix}` : '';
+    if (typeof item !== 'object') return String(item);
+
+    const name = item.medication || item.name || item.medicine || item.drug || item.type || item.ion || item.generic_name || category || 'Medication';
+    const parts = [];
+    if (item.dose || item.dosage) parts.push(`Dosage: ${item.dose || item.dosage}`);
+    if (item.dose_units) parts.push(`Dosage: ${item.dose_units} units`);
+    if (item.dose_units_per_kg_per_hr) parts.push(`Dosage: ${item.dose_units_per_kg_per_hr} units/kg/hr`);
+    if (item.dose_units_per_meal) parts.push(`Dosage: ${item.dose_units_per_meal} units/meal`);
+    if (item.concentration_mEq_per_L) parts.push(`Concentration: ${item.concentration_mEq_per_L} mEq/L`);
+    if (item.rate_ml_per_hr) parts.push(`Rate: ${item.rate_ml_per_hr} ml/hr`);
+    if (item.route) parts.push(item.route.toLowerCase().startsWith('route') ? item.route : `Route: ${item.route}`);
+    if (item.frequency || item.freq) parts.push(`Freq: ${item.frequency || item.freq}`);
+    if (item.timing) parts.push(`Timing: ${item.timing}`);
+    if (item.duration || item.dur) parts.push(`Duration: ${item.duration || item.dur}`);
+    if (item.duration_hours) parts.push(`Duration: ${item.duration_hours} hrs`);
+    if (item.duration_days) parts.push(`Duration: ${item.duration_days} days`);
+    if (item.titration) parts.push(`Titration: ${item.titration}`);
+    if (item.adjustment) parts.push(`Adjustment: ${item.adjustment}`);
+    if (item.purpose || item.indication || item.notes) parts.push(`Indication: ${item.purpose || item.indication || item.notes}`);
+
+    return `${name}${parts.length > 0 ? ' - ' + parts.join(' - ') : ''}`;
   };
 
-  if (data && typeof data === 'object') {
-    const meds = data.medications || data.inpatient_medications || data.treatments || data.prescriptions || (Array.isArray(data) ? data : null);
-    if (Array.isArray(meds) && meds.length > 0) {
-      const lines = ['Inpatient care and stabilization administered:'];
-      meds.forEach((m, idx) => {
-        if (typeof m === 'object' && m !== null) {
-          lines.push(`${idx + 1}. ${parseSingleMedDict(m)}`);
-        } else {
-          const cl = cleanTreatmentLine(m);
-          lines.push(`${idx + 1}. ${cl}`);
-        }
+  const parsedData = safeParseObj(val);
+  if (parsedData && typeof parsedData === 'object') {
+    const lines = [];
+    if (Array.isArray(parsedData)) {
+      parsedData.forEach((m, idx) => {
+        const text = formatSingleMed(m);
+        if (text) lines.push(`${idx + 1}. ${text}`);
       });
+    } else {
+      let count = 1;
+      for (const [key, section] of Object.entries(parsedData)) {
+        const catName = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        if (Array.isArray(section)) {
+          section.forEach(item => {
+            const text = formatSingleMed(item, catName);
+            if (text) {
+              lines.push(`${count}. ${text}`);
+              count++;
+            }
+          });
+        } else if (typeof section === 'object' && section !== null) {
+          const text = formatSingleMed(section, catName);
+          if (text) {
+            lines.push(`${count}. ${text}`);
+            count++;
+          }
+        } else if (typeof section === 'string' && section.trim()) {
+          lines.push(`${count}. ${catName}: ${section.trim()}`);
+          count++;
+        }
+      }
+    }
+    if (lines.length > 0) {
       return lines.join('\n');
     }
   }
 
-  // Handle multiline string with embedded JSON/dict lines
+  // Handle plain text or multiline text
   const rawLines = String(val).split('\n');
+  const seen = new Set();
   const cleanedLines = [];
-  let idx = 1;
-  let hasHeader = false;
   for (const line of rawLines) {
     const s = line.trim();
     if (!s) continue;
-    if (s.toLowerCase().startsWith('inpatient care')) {
-      hasHeader = true;
-      cleanedLines.push('Inpatient care and stabilization administered:');
-      continue;
+    const cleanLine = s.replace(/^\d+[\.\)]\s*/, '').trim();
+    if (!seen.has(cleanLine.toLowerCase())) {
+      seen.add(cleanLine.toLowerCase());
+      cleanedLines.push(s);
     }
-    const cl = cleanTreatmentLine(s);
-    if (cl) {
-      cleanedLines.push(`${idx}. ${cl}`);
-      idx++;
-    }
-  }
-  if (!hasHeader && cleanedLines.length > 0) {
-    cleanedLines.unshift('Inpatient care and stabilization administered:');
   }
   return cleanedLines.length > 0 ? cleanedLines.join('\n') : String(val);
 }

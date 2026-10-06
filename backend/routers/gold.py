@@ -2038,6 +2038,82 @@ def update_dim_generated_discharge_summary(
         raise HTTPException(status_code=500, detail=f"Failed to update discharge summary: {str(e)}")
 
 
+@router.delete("/generated-discharge-summaries/{summary_id}", summary="Delete Discharge Summary from dim_generated_discharge_summaries")
+def delete_dim_generated_discharge_summary(
+    summary_id: str,
+    patient_id: Optional[str] = Query(None, description="Optional patient_id to match"),
+    admission_id: Optional[str] = Query(None, description="Optional admission_id to match")
+):
+    """
+    Deletes a discharge summary record from `health_care.gold.dim_generated_discharge_summaries`.
+    Matches comprehensively by `summary_id`, `patient_id`, or `admission_id`.
+    Also resets `dim_admission_inputs.discharge_status` from 'Ready' to 'Admitted'.
+    """
+    import re
+    all_ids = set()
+
+    for val in [summary_id, patient_id, admission_id]:
+        if val is not None:
+            val_str = str(val).strip()
+            if val_str and val_str.lower() != 'undefined' and val_str.lower() != 'null':
+                digits = re.findall(r'\d+', val_str)
+                if digits:
+                    all_ids.add(int(digits[-1]))
+
+    try:
+        conn = db_connector.get_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        where_clauses = []
+        params = []
+
+        for id_val in all_ids:
+            where_clauses.append("(summary_id = %s OR patient_id = %s OR admission_id = %s)")
+            params.extend([id_val, id_val, id_val])
+
+        if not where_clauses:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Invalid identifier provided for deletion.")
+
+        sql = f"""
+            DELETE FROM dim_generated_discharge_summaries 
+            WHERE {" OR ".join(where_clauses)}
+            RETURNING summary_id, patient_id, admission_id, approval_status;
+        """
+        cur.execute(sql, tuple(params))
+        deleted_rows = cur.fetchall()
+
+        # Also reset discharge_status from 'Ready' to 'Admitted' in dim_admission_inputs and admissions
+        all_adm_ids = list(set(filter(None, [r.get('admission_id') for r in deleted_rows] + list(all_ids))))
+        all_pat_ids = list(set(filter(None, [r.get('patient_id') for r in deleted_rows] + list(all_ids))))
+        if all_adm_ids:
+            cur.execute("UPDATE dim_admission_inputs SET discharge_status = 'Admitted' WHERE admission_id = ANY(%s);", (all_adm_ids,))
+            cur.execute("UPDATE admissions SET discharge_status = 'Admitted' WHERE admission_id = ANY(%s);", (all_adm_ids,))
+        if all_pat_ids:
+            cur.execute("UPDATE dim_admission_inputs SET discharge_status = 'Admitted' WHERE patient_id = ANY(%s);", (all_pat_ids,))
+            cur.execute("UPDATE admissions SET discharge_status = 'Admitted' WHERE patient_id = ANY(%s);", (all_pat_ids,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        db_connector.clear_cache()
+
+        return {
+            "status": "success",
+            "message": f"Successfully deleted {len(deleted_rows)} record(s) from dim_generated_discharge_summaries.",
+            "deleted_count": len(deleted_rows),
+            "deleted_records": [dict(r) for r in deleted_rows]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete discharge summary: {str(e)}")
+
+
+
+
 
 # ---------------------------------------------------------------------------
 # COMBINED BED MANAGEMENT ENDPOINT (Ward -> Room -> Bed -> Patient)

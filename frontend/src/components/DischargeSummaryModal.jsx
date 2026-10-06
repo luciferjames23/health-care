@@ -113,7 +113,7 @@ function getMedicationIntro(medText) {
   const lines = medText.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length > 0) {
     const first = lines[0];
-    if (!/^\d+[\.\)]/.test(first) && !first.includes(' - ') && !first.startsWith('Tab.') && !first.startsWith('Inj.') && !first.startsWith('Cap.')) {
+    if (!/^\d+[\.\)]/.test(first) && !first.includes(' - ') && !first.startsWith('Tab.') && !first.startsWith('Inj.') && !first.startsWith('Cap.') && !first.includes('{') && !first.includes('}')) {
       return first;
     }
   }
@@ -136,48 +136,115 @@ function parseFollowupInstructions(text) {
   return [text.trim()];
 }
 
-function extractMedInfo(str) {
-  const s = String(str || '').trim();
-  if (!s.includes('{') || !s.includes('}')) return null;
-  const match = s.match(/\{[^{}]+\}/);
-  if (match) {
-    const raw = match[0];
-    for (const cand of [raw, raw.replace(/'/g, '"'), raw.replace(/([{,\s])([a-zA-Z_]+)\s*:/g, '$1"$2":')]) {
-      try {
-        const d = JSON.parse(cand);
-        if (d && (d.name || d.medicine || d.drug)) {
-          return {
-            name: d.name || d.medicine || d.drug,
-            dose: d.dose || d.dosage || '',
-            route: d.route || '',
-            freq: d.frequency || d.freq || '',
-            dur: d.duration || d.dur || '',
-            ind: d.indication || d.notes || ''
-          };
-        }
-      } catch (e) {}
-    }
-    const getField = (keys) => {
-      for (const k of keys) {
-        const re = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"]?([^'",}]+)`, 'i');
-        const m = s.match(re);
-        if (m && m[1]) return m[1].trim().replace(/^['"]|['"]$/g, '');
+function safeParseJsonOrPythonDict(str) {
+  if (!str) return null;
+  if (typeof str === 'object') return str;
+  const s = String(str).trim();
+  const braceStart = s.indexOf('{');
+  const bracketStart = s.indexOf('[');
+  const firstOpen = (braceStart !== -1 && bracketStart !== -1)
+    ? Math.min(braceStart, bracketStart)
+    : (braceStart !== -1 ? braceStart : bracketStart);
+
+  if (firstOpen === -1) return null;
+
+  const lastClose = Math.max(s.lastIndexOf('}'), s.lastIndexOf(']'));
+  if (lastClose <= firstOpen) return null;
+
+  const jsonSnippet = s.substring(firstOpen, lastClose + 1);
+
+  try {
+    return JSON.parse(jsonSnippet);
+  } catch (e) {}
+
+  try {
+    const jsonified = jsonSnippet
+      .replace(/'/g, '"')
+      .replace(/\bNone\b/g, 'null')
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/,\s*([}\]])/g, '$1');
+    return JSON.parse(jsonified);
+  } catch (e2) {}
+
+  return null;
+}
+
+function extractMedicationItem(item, defaultCategory = '') {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    const s = item.trim().replace(/^\d+[\.\)]\s*/, '');
+    if (!s) return null;
+    if (s.includes(' - ')) {
+      const parts = s.split(' - ');
+      const name = parts[0].trim();
+      const rest = parts.slice(1).join(' - ').trim();
+      let note = defaultCategory || 'Treatment';
+      let instructions = rest;
+      const noteMatch = rest.match(/\((.*?)\)/);
+      if (noteMatch) {
+        note = noteMatch[1];
+        instructions = rest.replace(noteMatch[0], '').trim();
       }
-      return '';
-    };
-    const name = getField(['name', 'medicine', 'drug']);
-    if (name) {
-      return {
-        name,
-        dose: getField(['dose', 'dosage']),
-        route: getField(['route']),
-        freq: getField(['frequency', 'freq']),
-        dur: getField(['duration', 'dur']),
-        ind: getField(['indication', 'notes'])
-      };
+      return { medicine: name, instructions: instructions || 'As directed', notes: note };
+    }
+    return { medicine: s, instructions: 'As directed', notes: defaultCategory || 'Treatment' };
+  }
+  if (typeof item !== 'object') return null;
+
+  const name = item.medication || item.name || item.medicine || item.drug || item.type || item.ion || item.generic_name || defaultCategory || 'Medication';
+
+  const instParts = [];
+  if (item.dose || item.dosage) instParts.push(item.dose || item.dosage);
+  if (item.dose_units) instParts.push(`${item.dose_units} units`);
+  if (item.dose_units_per_kg_per_hr) instParts.push(`${item.dose_units_per_kg_per_hr} units/kg/hr`);
+  if (item.dose_units_per_meal) instParts.push(`${item.dose_units_per_meal} units/meal`);
+  if (item.concentration_mEq_per_L) instParts.push(`${item.concentration_mEq_per_L} mEq/L`);
+  if (item.rate_ml_per_hr) instParts.push(`Rate: ${item.rate_ml_per_hr} ml/hr`);
+  if (item.route) instParts.push(item.route.toLowerCase().startsWith('route') ? item.route : `Route: ${item.route}`);
+  if (item.frequency || item.freq) instParts.push(item.frequency || item.freq);
+  if (item.timing) instParts.push(item.timing);
+  if (item.duration || item.dur) instParts.push(`Duration: ${item.duration || item.dur}`);
+  if (item.duration_hours) instParts.push(`Duration: ${item.duration_hours} hrs`);
+  if (item.duration_days) instParts.push(`Duration: ${item.duration_days} days`);
+  if (item.titration) instParts.push(`Titration: ${item.titration}`);
+  if (item.adjustment) instParts.push(`Adjustment: ${item.adjustment}`);
+  if (item.instructions) instParts.push(item.instructions);
+
+  const note = item.purpose || item.indication || item.indication_notes || item.notes || item.reason || (defaultCategory ? defaultCategory.replace(/_/g, ' ') : 'Treatment');
+
+  return {
+    medicine: String(name).trim(),
+    instructions: instParts.filter(Boolean).join(', ') || 'As directed',
+    notes: String(note).trim()
+  };
+}
+
+function flattenMedicationsObject(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  if (Array.isArray(obj)) {
+    return obj.map(x => extractMedicationItem(x)).filter(Boolean);
+  }
+  const results = [];
+  for (const [key, val] of Object.entries(obj)) {
+    const categoryTitle = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    if (Array.isArray(val)) {
+      val.forEach(item => {
+        const parsed = extractMedicationItem(item, categoryTitle);
+        if (parsed) results.push(parsed);
+      });
+    } else if (typeof val === 'object' && val !== null) {
+      const parsed = extractMedicationItem(val, categoryTitle);
+      if (parsed) results.push(parsed);
+    } else if (typeof val === 'string' && val.trim()) {
+      results.push({
+        medicine: categoryTitle,
+        instructions: val.trim(),
+        notes: 'Protocol'
+      });
     }
   }
-  return null;
+  return results;
 }
 
 /**
@@ -185,84 +252,36 @@ function extractMedInfo(str) {
  * [{ medicine, instructions, notes }]
  */
 function parseMedications(medsArray, medText) {
-  const cleanMedName = (name) => {
-    return String(name || '').replace(/^Administered:\s*/i, '').trim();
-  };
-  const cleanInst = (inst) => {
-    let str = String(inst || '').trim().replace(/\s*-\s*$/, '');
-    if (str.toLowerCase().includes('dosage:') || str.toLowerCase().includes('route:')) {
-      str = str
-        .replace(/Dosage:\s*/gi, '')
-        .replace(/Route:\s*/gi, '')
-        .replace(/Freq:\s*/gi, '')
-        .replace(/Duration:\s*/gi, '')
-        .split(/\s*-\s*/)
-        .filter(Boolean)
-        .join(', ');
-    }
-    return str || 'As directed';
-  };
-
-  const parseDictObject = (d) => {
-    if (!d || typeof d !== 'object') return null;
-    const name = cleanMedName(d.name || d.medicine || d.drug || 'Medication');
-    const dose = d.dose || d.dosage || '';
-    const route = d.route || '';
-    const freq = d.frequency || d.freq || '';
-    const dur = d.duration || d.dur || '';
-    const ind = d.indication || d.indication_notes || d.notes || 'Treatment';
-    const parts = [dose, route ? `Route: ${route}` : '', freq ? `Freq: ${freq}` : '', dur ? `Duration: ${dur}` : ''].filter(Boolean);
-    return {
-      medicine: name,
-      instructions: cleanInst(parts.join(', ') || 'As directed'),
-      notes: ind
-    };
-  };
-
   if (Array.isArray(medsArray) && medsArray.length > 0) {
     if (Array.isArray(medsArray[0])) {
       return medsArray.map(m => ({
-        medicine: cleanMedName(m[0] || 'Medication'),
-        instructions: cleanInst(m[1] || 'As directed'),
+        medicine: String(m[0] || 'Medication').replace(/^Administered:\s*/i, '').trim(),
+        instructions: String(m[1] || 'As directed').trim(),
         notes: m[2] || 'Treatment'
       }));
     }
-    if (typeof medsArray[0] === 'object') {
-      return medsArray.map(m => parseDictObject(m) || {
-        medicine: cleanMedName(m.name || m.medicine || m.drug || 'Medication'),
-        instructions: cleanInst(m.dose || m.instructions || m.frequency || 'As directed'),
-        notes: m.notes || m.indication || 'Treatment'
-      });
-    }
+    return flattenMedicationsObject(medsArray);
   }
 
   if (!medText) return [];
 
+  // 1. If medText is an object or dictionary
   if (typeof medText === 'object') {
-    const list = medText.medications || medText.inpatient_medications || medText.discharge_medications || medText.prescriptions || [];
-    if (Array.isArray(list) && list.length > 0) {
-      return list.map(m => parseDictObject(m) || {
-        medicine: cleanMedName(String(m)),
-        instructions: 'As directed',
-        notes: 'Treatment'
-      });
-    }
+    return flattenMedicationsObject(medText);
   }
 
-  if (typeof medText === 'string' && (medText.trim().startsWith('{') || medText.trim().startsWith('['))) {
-    try {
-      const parsedJson = JSON.parse(medText);
-      return parseMedications(null, parsedJson);
-    } catch (e) {
-      try {
-        const parsedJson = JSON.parse(medText.replace(/'/g, '"'));
-        return parseMedications(null, parsedJson);
-      } catch (e2) {}
+  // 2. If medText contains JSON or Python dictionary anywhere in the string
+  if (typeof medText === 'string' && (medText.includes('{') || medText.includes('['))) {
+    const parsedObj = safeParseJsonOrPythonDict(medText);
+    if (parsedObj) {
+      const rows = flattenMedicationsObject(parsedObj);
+      if (rows.length > 0) return rows;
     }
   }
 
   if (typeof medText !== 'string') return [];
 
+  // 3. Fallback: Parse line by line
   const lines = medText
     .split('\n')
     .map(l => l.trim())
@@ -273,37 +292,63 @@ function parseMedications(medsArray, medText) {
     const cleaned = line.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
     if (!cleaned) continue;
 
-    // Check if line contains an embedded JSON or Python dictionary or extractable info
-    const medInfo = extractMedInfo(cleaned);
-    if (medInfo) {
-      parsed.push(parseDictObject(medInfo));
-      continue;
+    // Check if individual line is a JSON or Python dict snippet
+    if (cleaned.includes('{') && cleaned.includes('}')) {
+      const parsedItem = safeParseJsonOrPythonDict(cleaned);
+      if (parsedItem) {
+        const itemRows = flattenMedicationsObject(parsedItem);
+        if (itemRows.length > 0) {
+          parsed.push(...itemRows);
+          continue;
+        }
+      }
     }
 
     if (cleaned.includes(' - ')) {
-      const [name, ...restParts] = cleaned.split(' - ');
-      const rest = restParts.join(' - ').trim();
-      let note = 'Treatment';
-      let instructions = rest;
-      const noteMatch = rest.match(/\((.*?)\)/);
-      if (noteMatch) {
-        note = noteMatch[1];
-        instructions = rest.replace(noteMatch[0], '').trim();
-      } else if (rest.toLowerCase().includes('as needed') || rest.toLowerCase().includes('sos')) {
-        note = 'SOS / As needed';
-      } else if (rest.toLowerCase().includes('before food') || rest.toLowerCase().includes('before breakfast')) {
-        note = 'Before food';
-      } else if (rest.toLowerCase().includes('after food') || rest.toLowerCase().includes('after meals')) {
-        note = 'After food';
+      const parts = cleaned.split(/\s*-\s*/);
+      const name = parts[0].trim();
+      let dose = '';
+      let route = '';
+      let freq = '';
+      let duration = '';
+      let indication = '';
+      const remaining = [];
+
+      for (let i = 1; i < parts.length; i++) {
+        const p = parts[i].trim();
+        if (/^dosage:\s*/i.test(p)) dose = p.replace(/^dosage:\s*/i, '').trim();
+        else if (/^route:\s*/i.test(p)) route = p.replace(/^route:\s*/i, '').trim();
+        else if (/^freq(?:uency)?:\s*/i.test(p)) freq = p.replace(/^freq(?:uency)?:\s*/i, '').trim();
+        else if (/^duration:\s*/i.test(p)) duration = p.replace(/^duration:\s*/i, '').trim();
+        else if (/^indication:\s*/i.test(p)) indication = p.replace(/^indication:\s*/i, '').trim();
+        else remaining.push(p);
       }
+
+      let note = indication || 'Treatment';
+      let instructions = [dose, route ? `Route: ${route}` : '', freq, duration ? `Duration: ${duration}` : '', ...remaining].filter(Boolean).join(', ');
+
+      if (!indication || indication === 'Treatment') {
+        const noteMatch = instructions.match(/\((.*?)\)/);
+        if (noteMatch) {
+          note = noteMatch[1];
+          instructions = instructions.replace(noteMatch[0], '').trim();
+        } else if (instructions.toLowerCase().includes('as needed') || instructions.toLowerCase().includes('sos')) {
+          note = 'SOS / As needed';
+        } else if (instructions.toLowerCase().includes('before food') || instructions.toLowerCase().includes('before breakfast')) {
+          note = 'Before food';
+        } else if (instructions.toLowerCase().includes('after food') || instructions.toLowerCase().includes('after meals')) {
+          note = 'After food';
+        }
+      }
+
       parsed.push({
-        medicine: cleanMedName(name.trim()),
-        instructions: cleanInst(instructions),
+        medicine: name.trim(),
+        instructions: instructions || 'As directed',
         notes: note
       });
     } else {
       parsed.push({
-        medicine: cleanMedName(cleaned),
+        medicine: cleaned,
         instructions: 'As directed',
         notes: 'Treatment'
       });
@@ -426,11 +471,25 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             else if (admissionId) fetchParams.admission_id = admissionId;
             const res = await apiService.getDischargedPatients(fetchParams, { forceRefresh: true });
             const list = res?.data || [];
-            const matched = list.find(s => 
-              (patientId && String(s.patient_id) === String(patientId)) ||
-              (admissionId && String(s.admission_id) === String(admissionId)) ||
-              (summaryId && (String(s.summary_id) === String(summaryId) || `DS-${s.patient_id}` === String(summaryId) || `DS-${s.summary_id}` === String(summaryId)))
-            ) || (list.length > 0 ? list[0] : null);
+
+            const cleanDigits = (val) => {
+              if (!val) return null;
+              const m = String(val).match(/\d+/g);
+              return m ? m[m.length - 1] : null;
+            };
+            const pIdNum = cleanDigits(patientId);
+            const aIdNum = cleanDigits(admissionId);
+            const sIdNum = cleanDigits(summaryId);
+
+            const matched = list.find(s => {
+              const sPid = cleanDigits(s.patient_id);
+              const sAid = cleanDigits(s.admission_id);
+              const sSid = cleanDigits(s.summary_id);
+              if (pIdNum && sPid && pIdNum === sPid) return true;
+              if (aIdNum && sAid && aIdNum === sAid) return true;
+              if (sIdNum && sSid && sIdNum === sSid) return true;
+              return false;
+            });
 
             if (matched) {
               const matchedCaseHistory = matched.case_history || matched.hospital_course_summary || matched.admission_reason || admissionReason || hospitalCourse;
@@ -613,7 +672,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-start',
-              gap: '16px'
+              gap: '16px',
+              flexShrink: 0
             }}
           >
             <div>
@@ -799,7 +859,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
           )}
 
           {/* MODAL BODY (Scrollable) */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 36px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* GREEN ALERT BANNER */}
             <div
               style={{
@@ -1138,7 +1198,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
               justifyContent: 'space-between',
               alignItems: 'center',
               fontSize: '11.5px',
-              color: '#64748b'
+              color: '#64748b',
+              flexShrink: 0
             }}
           >
             <div>

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import PreauthDossierDrawer from './PreauthDossierDrawer';
+import { ShieldCheck, Sparkles } from 'lucide-react';
 
 const INITIAL_APPROVALS = [
   {
@@ -103,6 +105,8 @@ export default function ApprovalsView({ onNavigate, userRole = 'Doctor' }) {
   const [approvals, setApprovals] = useState(INITIAL_APPROVALS);
   const [filter, setFilter] = useState('All');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [preauthDrawerOpen, setPreauthDrawerOpen] = useState(false);
+  const [preauthPatientId, setPreauthPatientId] = useState('87264');
 
   const handleAction = (id, newStatus, reason = '') => {
     setApprovals(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
@@ -203,6 +207,24 @@ export default function ApprovalsView({ onNavigate, userRole = 'Doctor' }) {
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {ap.agentId === 'AG-07' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreauthPatientId('87264');
+                      setPreauthDrawerOpen(true);
+                    }}
+                    style={{
+                      height: '30px', padding: '0 12px', borderRadius: '6px', border: '1px solid #bfdbfe',
+                      background: '#eff6ff', color: '#1e40af', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '5px'
+                    }}
+                  >
+                    <ShieldCheck style={{ width: '13px', height: '13px', color: '#2563eb' }} />
+                    Inspect Preauth Dossier
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => onNavigate('runs')}
@@ -253,6 +275,16 @@ export default function ApprovalsView({ onNavigate, userRole = 'Doctor' }) {
           );
         })}
       </div>
+
+      {/* Preauth Submission Dossier Drawer */}
+      <PreauthDossierDrawer
+        isOpen={preauthDrawerOpen}
+        onClose={() => setPreauthDrawerOpen(false)}
+        patientIdentifier={preauthPatientId}
+        onSubmitted={() => {
+          handleAction('AP-0002', 'Approved');
+        }}
+      />
     </div>
   );
 }

@@ -123,7 +123,7 @@ export default function PatientsView({
           const pid = String(r.patient_id || r.id || '').trim();
           const aid = String(r.admission_id || '').trim();
 
-          const isDischarged = st === 'discharged' || (st === 'ready' && r.discharge_date) || (r.discharge_date && st !== 'admitted');
+          const isDischarged = st === 'discharged';
           const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
 
           const parsed = parseAdmissionLlmRecord(r);
@@ -143,6 +143,7 @@ export default function PatientsView({
               age: r.age_at_admission || parsed.age || 45,
               sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
               gender: r.gender || parsed.gender || 'Unknown',
+              department: r.ward_name || r.department || matchedSummary?.department || parsed.department || 'Emerald Semi-Private',
               doctor: docName,
               diagnosis: cleanDiagnosis(matchedSummary?.diagnoses || r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "Discharged",
@@ -195,7 +196,7 @@ export default function PatientsView({
           const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
           if (dcStatus === 'admitted') return; // Active inpatient, not discharged!
 
-          const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true || (dcStatus === 'ready' && r.discharge_date);
+          const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true;
           if (!isExplicitDischarge) return;
 
           const pid = String(r.patient_id || r.id || '').trim();
@@ -227,7 +228,7 @@ export default function PatientsView({
         const parsedOp = [];
         rawOpList.forEach(r => {
           const pid = String(r.patient_id || r.id || '').trim();
-          if (pid && seenOpPids.has(pid)) return;
+          if (pid && (seenDischargedPids.has(pid) || seenAdmittedPids.has(pid) || seenOpPids.has(pid))) return;
           if (pid) seenOpPids.add(pid);
           parsedOp.push({
             patient_id: r.patient_id,
@@ -255,27 +256,34 @@ export default function PatientsView({
 
         // 4. Emergency (ER) Records from Live Directory API
         const rawErList = Array.isArray(erRes) ? erRes : (erRes?.data || []);
-        const parsedEr = rawErList.map(r => ({
-          patient_id: r.patient_id,
-          id: r.patient_id,
-          uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
-          patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
-          patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
-          name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-          patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
-          age: r.age || 40,
-          sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
-          gender: r.gender || 'Male',
-          language: r.preferred_language || 'English',
-          department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
-          doctor: cleanDoctorName(r.doctor || 'Dr. Divya Verma'),
-          insurer: r.insurer || 'Emergency Cover',
-          status: r.status || 'Active Triage',
-          _status: r.status || 'Active Triage',
-          diagnosis: cleanDiagnosis(r.diagnosis || 'Emergency Care'),
-          _type: "ER",
-          triage_level: r.discharge_status
-        }));
+        const seenErPids = new Set();
+        const parsedEr = [];
+        rawErList.forEach(r => {
+          const pid = String(r.patient_id || r.id || '').trim();
+          if (pid && (seenDischargedPids.has(pid) || seenAdmittedPids.has(pid) || seenErPids.has(pid))) return;
+          if (pid) seenErPids.add(pid);
+          parsedEr.push({
+            patient_id: r.patient_id,
+            id: r.patient_id,
+            uhid: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+            patient_code: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+            patient_number: r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'ER-0000'),
+            name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+            patient_name: r.patient_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+            age: r.age || 40,
+            sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
+            gender: r.gender || 'Male',
+            language: r.preferred_language || 'English',
+            department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
+            doctor: cleanDoctorName(r.doctor || 'Dr. Divya Verma'),
+            insurer: r.insurer || 'Emergency Cover',
+            status: r.status || 'Active Triage',
+            _status: r.status || 'Active Triage',
+            diagnosis: cleanDiagnosis(r.diagnosis || 'Emergency Care'),
+            _type: "ER",
+            triage_level: r.discharge_status
+          });
+        });
 
         setAdmitted(actualAdmitted);
         setDischarged(parsedDischargedList);
@@ -354,7 +362,7 @@ export default function PatientsView({
       baseDischarged = baseDischarged.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
     }
 
-    const allCombined = [...baseAdmitted, ...baseOp, ...baseEr, ...baseDischarged];
+    const allCombined = [...baseAdmitted, ...baseDischarged, ...baseEr, ...baseOp];
     const uniqueAllPids = new Set(allCombined.map(p => String(p.patient_id || p.id || '').trim()).filter(Boolean));
 
     return {
@@ -367,12 +375,12 @@ export default function PatientsView({
   }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
 
   const rows = useMemo(() => {
-    let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients, ...discharged]
+    let list = filter === "All" ? [...admitted, ...discharged, ...erPatients, ...opPatients]
       : filter === "IP" ? admitted
         : filter === "OP" ? opPatients
           : filter === "ER" ? erPatients
             : filter === "Discharged" ? discharged
-              : [...admitted, ...opPatients, ...erPatients, ...discharged].filter(p => p._type === filter);
+              : [...admitted, ...discharged, ...erPatients, ...opPatients].filter(p => p._type === filter);
 
     if (filter === "All") {
       const seenPids = new Set();

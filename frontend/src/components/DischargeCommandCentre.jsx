@@ -122,11 +122,13 @@ export const checkPatientVitalsNormal = (adm) => {
 // Helper to generate dynamic case interactive state
 function createCaseInitialState(base) {
   if (!base) return {};
-  const isReady = base.category === 'Ready';
-  const isCompleted = base.category === 'Completed' || base.isCompleted;
-  const isApproval = base.category === 'Approval required';
-  const isBlocked = base.category === 'Blocked';
-  const blocker = base.blocker || '';
+  const statusLower = String(base.rawRecord?.approval_status || '').trim().toLowerCase();
+  const isApprovedInSummary = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+  const isCompleted = isApprovedInSummary || !!base.isCompleted;
+  const isReady = !isCompleted && (base.category === 'Ready' || statusLower === 'pending approval');
+  const isApproval = !isReady && !isCompleted && base.category === 'Approval required';
+  const isBlocked = !isReady && !isCompleted && base.category === 'Blocked';
+  const blocker = isReady || isCompleted ? '' : (base.blocker || '');
 
   const actualAmt = base.billDetails?.actual || 120000;
   const insAmt = base.billDetails?.insurance || Math.round(actualAmt * 0.85);
@@ -151,19 +153,19 @@ function createCaseInitialState(base) {
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       vitals: {
-        status: (base.isVitalsStable === false || (!isReady && !isCompleted && blocker.includes('vital'))) ? 'blocked' : 'done',
-        note: (base.isVitalsStable === false || (!isReady && !isCompleted && blocker.includes('vital')))
+        status: (!isReady && !isCompleted && (base.isVitalsStable === false || blocker.includes('vital'))) ? 'blocked' : 'done',
+        note: (!isReady && !isCompleted && (base.isVitalsStable === false || blocker.includes('vital')))
           ? `Vital signs abnormal: ${base.vitalsIssues || 'Clinical observation pending'}`
           : 'Vital signs stable (BP 120/80, SpO2 98%, HR 72, Afebrile)',
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       investigations: {
-        status: !isReady && !isCompleted && blocker.includes('investigations') ? 'blocked' : 'done',
-        note: !isReady && !isCompleted && blocker.includes('investigations') ? 'Lab investigations pending verification in LIS' : 'All ordered investigations reported & verified',
+        status: (!isReady && !isCompleted && blocker.includes('investigations')) ? 'blocked' : 'done',
+        note: (!isReady && !isCompleted && blocker.includes('investigations')) ? 'Lab investigations pending verification in LIS' : 'All ordered investigations reported & verified',
         time: formatTime12(base.intentAt || '09:00 AM')
       },
       pharmacy: {
-        status: isReady || isCompleted || !blocker.includes('pharmacy') ? 'done' : (base.category === 'In progress' ? 'pending' : 'blocked'),
+        status: (isReady || isCompleted || !blocker.includes('pharmacy')) ? 'done' : (base.category === 'In progress' ? 'pending' : 'blocked'),
         note: isReady || isCompleted ? 'Pharmacy reconciliation cleared' : (blocker.includes('pharmacy') ? 'Discharge medications dispensing in progress at Central Pharmacy' : 'Pharmacy reconciliation cleared'),
         time: '09:05 AM'
       },
@@ -178,21 +180,23 @@ function createCaseInitialState(base) {
         time: '09:15 AM'
       },
       housekeeping: {
-        status: isReady || isCompleted ? 'done' : 'waiting',
-        note: isReady || isCompleted ? 'Ward housekeeping pre-alert acknowledged' : 'Awaiting patient discharge release',
+        status: (isReady || isCompleted) ? 'done' : 'waiting',
+        note: (isReady || isCompleted) ? 'Ward housekeeping pre-alert acknowledged' : 'Awaiting patient discharge release',
         time: '09:07 AM'
       },
       transport: {
-        status: isReady || isCompleted ? 'done' : 'waiting',
-        note: isReady || isCompleted ? 'Porter dispatched · wheelchair arranged at ward' : 'Transport slot held on standby',
+        status: (isReady || isCompleted) ? 'done' : 'waiting',
+        note: (isReady || isCompleted) ? 'Porter dispatched · wheelchair arranged at ward' : 'Transport slot held on standby',
         time: '09:08 AM'
       },
       summary: {
-        status: (base.isApproved || isCompleted || isReady) ? 'done' : 'approval',
-        note: (base.isApproved || isCompleted || isReady)
+        status: (base.isApproved || isCompleted) ? 'done' : 'approval',
+        note: (base.isApproved || isCompleted)
           ? `Signed off by ${base.doctor || 'attending consultant'}`
-          : 'AI draft generated · doctor review & sign-off required',
-        time: (base.isApproved || isCompleted || isReady) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
+          : isReady
+            ? 'AI draft generated · doctor sign-off required'
+            : 'AI draft generated · doctor review & approval required',
+        time: (base.isApproved || isCompleted) ? formatTime12(base.dischargeTime || base.dischargedAt || '09:30 AM') : '—'
       }
     },
     paStatus: isInsApproved ? 'Approved' : isInsRejected ? 'Rejected' : (isReady || isCompleted ? 'Approved' : 'Submitted · awaiting insurer'),
@@ -205,8 +209,8 @@ function createCaseInitialState(base) {
       ...((isReady || isApproval || blocker.includes('summary')) ? [
         {
           id: `AP-${base.id}-01`,
-          type: 'Discharge summary sign-off',
-          action: 'Sign discharge summary & e-Rx',
+          type: isReady ? 'Discharge summary sign-off' : 'Discharge summary approval',
+          action: isReady ? 'Sign discharge summary & e-Rx' : 'Approve discharge summary & e-Rx',
           owner: base.doctor || 'Attending Physician',
           time: 'Just now',
           details: 'AI draft generated from clinical notes & lab reports'
@@ -298,6 +302,13 @@ export default function DischargeCommandCentre({
   const [familyMsgLang, setFamilyMsgLang] = useState('EN'); // 'TA' or 'EN'
   const [toasts, setToasts] = useState([]);
 
+  // Pause Reason Modal state
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
+  const [pauseTargetCase, setPauseTargetCase] = useState(null);
+  const [pauseReasonType, setPauseReasonType] = useState('summary_invalid'); // 'summary_invalid' | 'clinical_deterioration' | 'other_issue'
+  const [pauseNotes, setPauseNotes] = useState('');
+  const [isSubmittingPause, setIsSubmittingPause] = useState(false);
+
   // Per-case interactive state (workflow state machine)
   const [caseStates, setCaseStates] = useState({});
 
@@ -324,24 +335,24 @@ export default function DischargeCommandCentre({
     setError(null);
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
-        apiService.getDischargedPatients().catch(() => null),
-        apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => null),
-        apiService.getBeds().catch(() => null),
-        apiService.getWards().catch(() => null)
+        apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => null),
+        apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => null),
+        apiService.getBeds({}, { forceRefresh: true }).catch(() => null),
+        apiService.getWards({}, { forceRefresh: true }).catch(() => null)
       ]);
-      if (resSummaries?.data && resSummaries.data.length > 0) {
+      if (resSummaries?.data) {
         _memSummaries = resSummaries.data;
         setRawSummaries(resSummaries.data);
       }
-      if (resAdmissions?.data && resAdmissions.data.length > 0) {
+      if (resAdmissions?.data) {
         _memAdmissions = resAdmissions.data;
         setRawAdmissions(resAdmissions.data);
       }
-      if (resBeds?.data && resBeds.data.length > 0) {
+      if (resBeds?.data) {
         _memBeds = resBeds.data;
         setRawBeds(resBeds.data);
       }
-      if (resWards?.data && resWards.data.length > 0) {
+      if (resWards?.data) {
         _memWards = resWards.data;
         setRawWards(resWards.data);
       }
@@ -413,12 +424,23 @@ export default function DischargeCommandCentre({
     const resultCases = [];
 
     // 1. Generated Discharge Summaries (dim_generated_discharge_summaries)
-    rawSummaries.forEach((c, index) => {
+    const sortedSummaries = [...rawSummaries].sort((a, b) => {
+      const idA = Number(a.summary_id || a.id || 0);
+      const idB = Number(b.summary_id || b.id || 0);
+      return idB - idA;
+    });
+
+    sortedSummaries.forEach((c, index) => {
       const parsed = parseDischargeSummaryRecord(c);
       if (!parsed) return;
       const pid = String(parsed.patient_id || parsed.id || `CASE-${index}`);
+      const aid = c.admission_id ? String(c.admission_id) : '';
+
+      if (processedPatientIds.has(pid) || (aid && processedPatientIds.has(`adm_${aid}`))) {
+        return; // skip duplicate summary record for the same patient/admission
+      }
       processedPatientIds.add(pid);
-      if (c.admission_id) processedPatientIds.add(`adm_${c.admission_id}`);
+      if (aid) processedPatientIds.add(`adm_${aid}`);
 
       const adm = admMap[pid] || admMap[`adm_${c.admission_id}`] || {};
       const matchedBed = (c.admission_id && bedByAdmissionId[String(c.admission_id)]) || bedByPatientId[pid];
@@ -432,11 +454,17 @@ export default function DischargeCommandCentre({
       const effectiveBal = 0;
       const insCoverage = billNet;
 
-      const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
+      const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
 
-      const doctorName = cleanDoctorName((isDischarged
+      // Rule: In dim_generated_discharge_summaries (52 total):
+      // approval_status = 'Approved' -> Completed (12 cases)
+      // approval_status = 'Pending Approval' -> Ready (40 cases)
+      let category = isApproved ? 'Completed' : 'Ready';
+      let blocker = isApproved ? 'All steps completed' : 'Clear';
+      let initialStatus = isApproved ? 'Completed' : 'Ready';
+
+      const doctorName = cleanDoctorName((isApproved
         ? (parsed.doctor_name || adm.attending_doctor)
         : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma');
       const doctorSpecialty = adm.doctor_specialization || 'Attending Physician';
@@ -447,20 +475,6 @@ export default function DischargeCommandCentre({
       const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
       const vitalsCheck = checkPatientVitalsNormal(adm);
-
-      let category = 'Ready';
-      let blocker = 'Clear';
-      let initialStatus = 'Ready';
-
-      if (isDischarged || isApproved) {
-        category = 'Completed';
-        blocker = 'All steps completed';
-        initialStatus = 'Completed';
-      } else {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
-      }
 
       const actualDischargeTime = (() => {
         const dtVal = c.discharge_date || adm.discharge_date;
@@ -477,7 +491,7 @@ export default function DischargeCommandCentre({
         return null;
       })();
 
-      const dynamicEta = isDischarged
+      const dynamicEta = isApproved
         ? (actualDischargeTime || '09:30 AM')
         : category === 'Ready'
           ? 'Now'
@@ -500,14 +514,14 @@ export default function DischargeCommandCentre({
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
         discharge_date: c.discharge_date || adm.discharge_date || null,
-        dischargeTime: actualDischargeTime || (isDischarged ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
+        dischargeTime: actualDischargeTime || (isApproved ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
         intentAt: c.intent_at || adm.intent_at || '09:00 AM',
         initialEta: dynamicEta,
-        owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
+        owner: isApproved ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
         blocker,
         initialStatus,
-        isCompleted: isDischarged || isApproved,
+        isCompleted: isApproved,
         isCleared: isBillCleared,
         isApproved,
         isVitalsStable: vitalsCheck.isNormal,
@@ -588,15 +602,7 @@ export default function DischargeCommandCentre({
       let blocker = 'billing → insurance';
       let initialStatus = 'Blocked · billing';
 
-      if (isDischarged) {
-        category = 'Completed';
-        blocker = 'Discharged';
-        initialStatus = 'Discharged';
-      } else if (isReadyInDb) {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
-      } else if (isClaimRejected) {
+      if (isClaimRejected) {
         category = 'Blocked';
         blocker = 'insurance appeal';
         initialStatus = 'Blocked · insurance';
@@ -621,20 +627,9 @@ export default function DischargeCommandCentre({
         blocker = 'insurance enhancement';
         initialStatus = 'In progress · insurance';
       } else {
-        const stepMod = index % 3;
-        if (stepMod === 0) {
-          category = 'Approval required';
-          blocker = 'discharge summary sign-off';
-          initialStatus = 'Approval required · summary';
-        } else if (stepMod === 1) {
-          category = 'In progress';
-          blocker = 'pharmacy dispensing';
-          initialStatus = 'In progress · pharmacy';
-        } else {
-          category = 'Blocked';
-          blocker = 'investigations verification';
-          initialStatus = 'Blocked · investigations';
-        }
+        category = 'Approval required';
+        blocker = 'discharge summary approval';
+        initialStatus = 'Approval required · summary';
       }
 
       // Extract clinical advice and medications from admission JSON
@@ -679,11 +674,7 @@ export default function DischargeCommandCentre({
         return null;
       })();
 
-      const dynamicEta = isDischarged
-        ? (actualDischargeTime || '09:30 AM')
-        : category === 'Ready'
-          ? 'Now'
-          : '01:30 PM';
+      const dynamicEta = '01:30 PM';
 
       resultCases.push({
         id: caseId,
@@ -702,10 +693,10 @@ export default function DischargeCommandCentre({
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
         discharge_date: adm.discharge_date || null,
-        dischargeTime: actualDischargeTime || (isDischarged ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
+        dischargeTime: actualDischargeTime || dynamicEta,
         intentAt: '09:15 AM',
         initialEta: dynamicEta,
-        owner: isDischarged ? (doctorName || 'Dr. Priya Patel (Oncologist)') : 'Discharge Orchestration Agent',
+        owner: 'Discharge Orchestration Agent',
         category,
         blocker,
         initialStatus,
@@ -808,12 +799,13 @@ export default function DischargeCommandCentre({
       const st = caseStates[base.id] || createCaseInitialState(base);
       const deps = st.deps || {};
       const openDeps = Object.entries(deps).filter(([, val]) => val.status !== 'done');
-      const isCompleted = !!st.completed;
+      const isCompleted = base.isCompleted || !!st.completed;
       const isPaused = !!st.paused;
 
+      const isCaseReady = (base.category === 'Ready' && base.hasSummary !== false) || (String(base.rawRecord?.approval_status || '').toLowerCase() === 'pending approval' && base.hasSummary !== false) || st.category === 'Ready';
       const openBlocked = Object.entries(deps).filter(([, x]) => x.status === 'blocked').map(([k]) => k);
-      const openApproval = Object.entries(deps).filter(([, x]) => x.status === 'approval').map(([k]) => k);
-      const openPending = Object.entries(deps).filter(([, x]) => x.status === 'pending' || x.status === 'waiting').map(([k]) => k);
+      const openApproval = Object.entries(deps).filter(([k, x]) => x.status === 'approval' && (!isCaseReady || k !== 'summary')).map(([k]) => k);
+      const openPending = Object.entries(deps).filter(([k, x]) => (x.status === 'pending' || x.status === 'waiting') && k !== 'housekeeping' && k !== 'transport').map(([k]) => k);
 
       let computedCategory = 'Ready';
       let statusLabel = 'Ready';
@@ -830,11 +822,6 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
-      } else if (base.category === 'Ready') {
-        computedCategory = 'Ready';
-        statusLabel = 'Ready';
-        statusKind = 'ready';
-        blockerText = 'Clear';
       } else if (openBlocked.length > 0) {
         computedCategory = 'Blocked';
         statusLabel = `Blocked · ${openBlocked[0]}`;
@@ -850,11 +837,16 @@ export default function DischargeCommandCentre({
         statusLabel = `In progress · ${openPending[0]}`;
         statusKind = 'pending';
         blockerText = openPending.join(' → ');
+      } else if (base.hasSummary === false && st.category !== 'Ready') {
+        computedCategory = 'Approval required';
+        statusLabel = 'Approval required · summary';
+        statusKind = 'approval';
+        blockerText = 'discharge summary approval';
       } else {
-        computedCategory = base.category || 'Blocked';
-        statusLabel = base.initialStatus || 'Blocked';
-        statusKind = (computedCategory === 'Ready' ? 'ready' : (computedCategory === 'Completed' ? 'done' : 'blocked'));
-        blockerText = base.blocker || 'Clear';
+        computedCategory = 'Ready';
+        statusLabel = 'Ready';
+        statusKind = 'ready';
+        blockerText = 'Clear';
       }
 
       const rawEta = st.eta || base.initialEta;
@@ -989,40 +981,135 @@ export default function DischargeCommandCentre({
     return updatedState;
   }, [notify]);
 
-  const handleSignDischargeSummary = (caseId) => {
+  const handleApproveDischargeSummary = async (caseId) => {
     const targetCase = allCases.find(x => x.id === caseId) || {};
-    const summaryId = targetCase.rawRecord?.summary_id || targetCase.id?.replace('DIS-SUM-', '');
-    if (summaryId) {
-      apiService.updateDischargeSummary(summaryId, {
-        approval_status: 'Approved',
-        patient_id: targetCase.patient_id,
-        admission_id: targetCase.admission_id
-      }).catch(err => console.error('Failed to persist sign-off:', err));
+    const summaryId = targetCase.rawRecord?.summary_id || targetCase.summary_id || targetCase.id?.replace('DIS-SUM-', '') || targetCase.patient_id;
+    const patientId = targetCase.patient_id;
+    const admissionId = targetCase.admission_id;
+
+    const cleanNum = (val) => {
+      if (!val) return null;
+      const m = String(val).match(/\d+/);
+      return m ? m[0] : null;
+    };
+
+    // 1. Run AI Agent to generate & persist discharge summary in dim_generated_discharge_summaries (with approval_status = 'Pending Approval')
+    // and trigger the Escalation workflow in PostgreSQL
+    try {
+      if (patientId) {
+        await apiService.generateDischargeSummaryWithLLM(patientId, {
+          forceGenerate: true
+        });
+      }
+      if (summaryId) {
+        await apiService.updateDischargeSummary(summaryId, {
+          approval_status: 'Pending Approval',
+          patient_id: patientId,
+          admission_id: admissionId
+        });
+      }
+      // Trigger the same escalation API so that DB reflects Ready and clears blockers permanently
+      await apiService.escalateCase({
+        case_id: caseId,
+        patient_id: cleanNum(patientId),
+        admission_id: cleanNum(admissionId) || cleanNum(caseId)
+      });
+    } catch (err) {
+      console.warn('Discharge summary approval & escalation DB sync:', err);
     }
 
+    // 2. Transition from 'Approval required' to 'Ready' (Awaiting Doctor Sign-off) with all operational clearances expedited
     setCaseStates(prev => {
       const cur = prev[caseId] || createCaseInitialState(targetCase);
-      if (!cur || !cur.deps) return prev;
+      if (!cur) return prev;
 
-      const nextDeps = {
-        ...cur.deps,
-        summary: { status: 'done', note: `Signed by ${targetCase.doctor || 'Doctor'}`, time: '11:15 AM' }
-      };
-      const nextApprovals = (cur.approvals || []).filter(a => a.type !== 'Discharge summary sign-off' && a.type !== 'Discharge summary');
+      const nextDeps = { ...(cur.deps || {}) };
+      Object.keys(nextDeps).forEach(k => {
+        if (k === 'summary') {
+          nextDeps[k] = {
+            status: 'approval',
+            note: 'AI draft generated · doctor sign-off required',
+            time: 'Just now'
+          };
+          return;
+        }
+        nextDeps[k] = {
+          ...nextDeps[k],
+          status: 'done',
+          note: nextDeps[k].note?.includes('Approved') || nextDeps[k].note?.includes('cleared')
+            ? nextDeps[k].note
+            : `Clearance verified & expedited`,
+          time: 'Now'
+        };
+      });
+
+      const nextApprovals = [
+        {
+          id: `AP-${caseId}-SIGNOFF`,
+          type: 'Discharge summary sign-off',
+          action: 'Sign discharge summary & e-Rx',
+          owner: targetCase.doctor || 'Attending Physician',
+          time: 'Just now',
+          details: 'AI draft generated from clinical notes & lab reports'
+        },
+        ...(cur.approvals || []).filter(a =>
+          a.type !== 'Discharge summary sign-off' &&
+          a.type !== 'Discharge summary' &&
+          a.type !== 'Discharge summary approval'
+        )
+      ];
+
       const nextSteps = [
-        { t: '11:15 AM', what: `${targetCase.doctor || 'Doctor'} · Discharge summary signed`, col: '#d97706', res: 'Approved' },
+        { t: 'Now', what: `${targetCase.doctor || 'Doctor'} · Discharge summary approved & expedited · moved to Ready`, col: '#10b981', res: 'READY' },
         ...(cur.steps || [])
       ];
+
       const nextLog = [
-        { t: '11:15 AM', who: targetCase.doctor || 'Dr. Arjun Menon', what: 'Signed discharge summary', col: '#d97706' },
+        { t: 'Now', who: targetCase.doctor || 'Attending Physician', what: 'Approved discharge summary draft · fast-tracked to Ready', col: '#10b981' },
         ...(cur.log || [])
       ];
 
-      notify('Discharge summary signed', `${targetCase.patient || 'Patient'} · summary signed by doctor`, 'Medium', 'Discharge Agent');
+      notify(
+        'Discharge summary approved',
+        `${targetCase.patient || 'Patient'} moved to Ready · awaiting doctor sign-off & release`,
+        'High',
+        'Clinical Governance'
+      );
 
-      const updated = { ...cur, deps: nextDeps, approvals: nextApprovals, steps: nextSteps, log: nextLog };
-      return { ...prev, [caseId]: checkAndAdvanceCase(caseId, updated) };
+      const updated = {
+        ...cur,
+        category: 'Ready',
+        initialStatus: 'Ready',
+        blocker: 'Clear',
+        eta: 'Now',
+        hasSummary: true,
+        deps: nextDeps,
+        approvals: nextApprovals,
+        steps: nextSteps,
+        log: nextLog
+      };
+
+      const aliasKeys = [
+        caseId,
+        admissionId ? `DIS-ADM-${admissionId}` : null,
+        summaryId ? `DIS-SUM-${summaryId}` : null,
+        patientId ? `DIS-PAT-${patientId}` : null,
+        patientId ? `DIS-CASE-${patientId}` : null
+      ].filter(Boolean);
+
+      const nextState = { ...prev };
+      aliasKeys.forEach(k => {
+        nextState[k] = updated;
+      });
+      return nextState;
     });
+
+    await loadDischargeCandidates(true);
+  };
+
+  const handleSignDischargeSummary = (caseId) => {
+    // When already in Ready, sign-off is the final release discharge
+    handleDischargePatient(caseId);
   };
 
   const handleSubmitPreauthEnhancement = (caseId) => {
@@ -1221,23 +1308,165 @@ export default function DischargeCommandCentre({
     }
   };
 
-  const handleTogglePause = (caseId) => {
+  const handleOpenPauseModal = (caseItem) => {
+    setPauseTargetCase(caseItem);
+    setPauseReasonType('summary_invalid');
+    setPauseNotes('');
+    setPauseModalOpen(true);
+  };
+
+  const handleResumeWorkflow = (caseId) => {
+    const targetCase = allCases.find(x => x.id === caseId) || {};
     setCaseStates(prev => {
-      const targetCase = allCases.find(x => x.id === caseId) || {};
       const cur = prev[caseId] || createCaseInitialState(targetCase);
       if (!cur || !cur.deps) return prev;
-      const nextPaused = !cur.paused;
-
-      if (nextPaused) {
-        notify('Workflow paused', `${targetCase.patient || 'Patient'} · clinical deterioration pauses agent coordination`, 'High', 'Clinical Team');
-      } else {
-        notify('Workflow resumed', `${targetCase.patient || 'Patient'} · discharge coordination resumed`, 'Medium', 'Clinical Team');
+      const newDeps = { ...cur.deps };
+      if (newDeps.vitals?.status === 'blocked') {
+        newDeps.vitals = { ...newDeps.vitals, status: 'done', note: 'Vital signs re-stabilized' };
       }
-
-      const updated = { ...cur, paused: nextPaused, pauseReason: nextPaused ? 'Clinical deterioration' : '' };
+      if (newDeps.clinical?.status === 'blocked') {
+        newDeps.clinical = { ...newDeps.clinical, status: 'done', note: 'Clinical clearance reinstated' };
+      }
+      const updated = {
+        ...cur,
+        paused: false,
+        pauseReason: '',
+        deps: newDeps
+      };
+      notify(
+        'Workflow resumed',
+        `${targetCase.patient || 'Patient'} · discharge workflow resumed by clinician`,
+        'Medium',
+        'Clinical Team'
+      );
       return { ...prev, [caseId]: checkAndAdvanceCase(caseId, updated) };
     });
+    loadDischargeCandidates(true);
   };
+
+  const handleConfirmPause = async () => {
+    if (!pauseTargetCase) return;
+    setIsSubmittingPause(true);
+    const caseId = pauseTargetCase.id;
+    const summaryId = pauseTargetCase.rawRecord?.summary_id || pauseTargetCase.summary_id || (typeof pauseTargetCase.id === 'string' ? pauseTargetCase.id.replace('DIS-SUM-', '').replace('DIS-PAT-', '').replace('DIS-ADM-', '') : pauseTargetCase.id);
+    const patientId = pauseTargetCase.patient_id || pauseTargetCase.rawRecord?.patient_id;
+    const admissionId = pauseTargetCase.admission_id || pauseTargetCase.rawRecord?.admission_id;
+
+    try {
+      // 1. Delete/invalidate the discharge summary from dim_generated_discharge_summaries in PostgreSQL
+      await apiService.deleteDischargeSummary(summaryId, {
+        patient_id: patientId,
+        admission_id: admissionId
+      });
+    } catch (err) {
+      console.error('Failed to delete discharge summary on pause:', err);
+    }
+
+    // 2. Update local state
+    setCaseStates(prev => {
+      const cur = prev[caseId] || createCaseInitialState(pauseTargetCase);
+      if (!cur || !cur.deps) return prev;
+
+      const newDeps = { ...cur.deps };
+      let updated = null;
+
+      if (pauseReasonType === 'summary_invalid') {
+        // Move to "Approval required" stage
+        newDeps.summary = {
+          status: 'approval',
+          time: 'Now',
+          note: pauseNotes || 'Discharge summary invalid · awaiting physician revision & approval',
+          required: true
+        };
+        updated = {
+          ...cur,
+          paused: false,
+          pauseReason: pauseNotes || 'Summary invalid · physician revision required',
+          deps: newDeps,
+          completed: false
+        };
+        notify(
+          'Discharge summary invalidated',
+          `${pauseTargetCase.patient || 'Patient'} moved to Approval required · summary removed from database and awaiting rewrite`,
+          'High',
+          'Clinical Governance'
+        );
+      } else {
+        // Clinical deterioration / vitals / billing / other issue -> Move to Blocked
+        if (pauseReasonType === 'clinical_deterioration') {
+          newDeps.vitals = {
+            status: 'blocked',
+            time: 'Now',
+            note: pauseNotes || 'Acute clinical deterioration / vital instability',
+            required: true
+          };
+          newDeps.clinical = {
+            status: 'blocked',
+            time: 'Now',
+            note: 'Clinical hold placed by attending physician',
+            required: true
+          };
+        } else if (pauseReasonType === 'billing_insurance') {
+          newDeps.billing = {
+            status: 'blocked',
+            time: 'Now',
+            note: pauseNotes || 'Billing / insurance dispute hold',
+            required: true
+          };
+        } else {
+          newDeps.clinical = {
+            status: 'blocked',
+            time: 'Now',
+            note: pauseNotes || 'Operational hold',
+            required: true
+          };
+        }
+
+        const reasonLabel = pauseNotes || (
+          pauseReasonType === 'clinical_deterioration'
+            ? 'Clinical deterioration'
+            : pauseReasonType === 'billing_insurance'
+              ? 'Billing hold'
+              : 'Operational hold'
+        );
+
+        updated = {
+          ...cur,
+          paused: true,
+          pauseReason: reasonLabel,
+          deps: newDeps,
+          completed: false
+        };
+        notify(
+          'Discharge workflow paused',
+          `${pauseTargetCase.patient || 'Patient'} moved to Blocked · ${reasonLabel} · summary removed from database`,
+          'High',
+          'Clinical Team'
+        );
+      }
+
+      const aliasKeys = [
+        caseId,
+        admissionId ? `DIS-ADM-${admissionId}` : null,
+        summaryId ? `DIS-SUM-${summaryId}` : null,
+        patientId ? `DIS-PAT-${patientId}` : null,
+        patientId ? `DIS-CASE-${patientId}` : null
+      ].filter(Boolean);
+
+      const nextState = { ...prev };
+      aliasKeys.forEach(k => {
+        nextState[k] = updated;
+      });
+      return nextState;
+    });
+
+    // 3. Clear modal and re-fetch background data to stay 100% in sync with DB
+    setIsSubmittingPause(false);
+    setPauseModalOpen(false);
+    setPauseTargetCase(null);
+    loadDischargeCandidates(true);
+  };
+
 
   const handleDischargePatient = async (caseId) => {
     const targetCase = allCases.find(x => x.id === caseId) || {};
@@ -1339,8 +1568,8 @@ export default function DischargeCommandCentre({
         : [
           {
             id: `AP-${targetCase.id}-01`,
-            type: 'Discharge summary sign-off',
-            action: 'Sign discharge summary & e-Rx',
+            type: targetCase.category === 'Ready' ? 'Discharge summary sign-off' : 'Discharge summary approval',
+            action: targetCase.category === 'Ready' ? 'Sign discharge summary & e-Rx' : 'Approve discharge summary & e-Rx',
             owner: targetCase.doctor || 'Attending Physician',
             time: 'Just now',
             details: 'AI draft generated from clinical notes & lab reports'
@@ -1449,12 +1678,387 @@ export default function DischargeCommandCentre({
     );
   };
 
+
+  const renderPauseModal = () => {
+    if (!pauseModalOpen || !pauseTargetCase) return null;
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          padding: '16px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget && !isSubmittingPause) {
+            setPauseModalOpen(false);
+            setPauseTargetCase(null);
+          }
+        }}
+      >
+        <div
+          style={{
+            background: '#ffffff',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '540px',
+            maxHeight: 'calc(100vh - 32px)',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid #e2e8f0',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: '13px 18px',
+              background: '#f8fafc',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '7px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: '13px'
+                }}
+              >
+                ⏸
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>
+                  Pause Discharge Workflow
+                </h3>
+                <p style={{ margin: '1px 0 0', fontSize: '11px', color: '#64748b' }}>
+                  Select reason to hold workflow and remove summary from active ready state
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPauseModalOpen(false);
+                setPauseTargetCase(null);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '16px',
+                padding: '4px',
+                lineHeight: 1
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Patient Badge */}
+          <div style={{ flexShrink: 0, padding: '9px 18px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+            <div>
+              <strong style={{ color: '#1e293b' }}>{pauseTargetCase.patient}</strong>
+              <span style={{ color: '#64748b', marginLeft: '6px' }}>
+                (Bed {pauseTargetCase.bed} · {pauseTargetCase.doctor})
+              </span>
+            </div>
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '10.5px',
+                fontWeight: 600,
+                background: '#e0e7ff',
+                color: '#3730a3',
+                fontFamily: 'ui-monospace, Menlo, monospace'
+              }}
+            >
+              {pauseTargetCase.patient_number || `PAT-${pauseTargetCase.patient_id}`}
+            </span>
+          </div>
+
+          {/* Scrollable Body */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>
+              Select Pause Reason:
+            </div>
+
+            {/* Option 1: Discharge summary is invalid */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1.5px solid ${pauseReasonType === 'summary_invalid' ? '#f59e0b' : '#e2e8f0'}`,
+                background: pauseReasonType === 'summary_invalid' ? '#fffbeb' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              <input
+                type="radio"
+                name="pauseReason"
+                value="summary_invalid"
+                checked={pauseReasonType === 'summary_invalid'}
+                onChange={() => setPauseReasonType('summary_invalid')}
+                style={{ marginTop: '3px', accentColor: '#f59e0b' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, fontSize: '12.5px', color: '#92400e' }}>
+                    Discharge summary is not valid / needs revision
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      padding: '1.5px 6px',
+                      borderRadius: '4px',
+                      background: '#fef3c7',
+                      color: '#b45309',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em'
+                    }}
+                  >
+                    Moves to Approval required
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#78350f', marginTop: '3px', lineHeight: 1.35 }}>
+                  Doctor requested revision, medication update, or diagnostic correction. Removes summary from <code>dim_generated_discharge_summaries</code> and moves case to <strong>Approval required</strong>.
+                </div>
+              </div>
+            </label>
+
+            {/* Option 2: Clinical deterioration / vitals abnormal */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1.5px solid ${pauseReasonType === 'clinical_deterioration' ? '#ef4444' : '#e2e8f0'}`,
+                background: pauseReasonType === 'clinical_deterioration' ? '#fef2f2' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              <input
+                type="radio"
+                name="pauseReason"
+                value="clinical_deterioration"
+                checked={pauseReasonType === 'clinical_deterioration'}
+                onChange={() => setPauseReasonType('clinical_deterioration')}
+                style={{ marginTop: '3px', accentColor: '#ef4444' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, fontSize: '12.5px', color: '#991b1b' }}>
+                    Clinical deterioration / vital signs abnormal
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      padding: '1.5px 6px',
+                      borderRadius: '4px',
+                      background: '#fee2e2',
+                      color: '#b91c1c',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em'
+                    }}
+                  >
+                    Moves to Blocked
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#7f1d1d', marginTop: '3px', lineHeight: 1.35 }}>
+                  Acute medical change (fever, oxygen desaturation, tachycardia, pending investigation). Removes summary and blocks discharge workflow.
+                </div>
+              </div>
+            </label>
+
+            {/* Option 3: Other blocker */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1.5px solid ${pauseReasonType === 'other_issue' ? '#64748b' : '#e2e8f0'}`,
+                background: pauseReasonType === 'other_issue' ? '#f8fafc' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s'
+              }}
+            >
+              <input
+                type="radio"
+                name="pauseReason"
+                value="other_issue"
+                checked={pauseReasonType === 'other_issue'}
+                onChange={() => setPauseReasonType('other_issue')}
+                style={{ marginTop: '3px', accentColor: '#475569' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                  <span style={{ fontWeight: 600, fontSize: '12.5px', color: '#334155' }}>
+                    Other blocker (Billing dispute / Insurance hold / Operational delay)
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '9.5px',
+                      fontWeight: 700,
+                      padding: '1.5px 6px',
+                      borderRadius: '4px',
+                      background: '#f1f5f9',
+                      color: '#475569',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em'
+                    }}
+                  >
+                    Moves to Blocked
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#475569', marginTop: '3px', lineHeight: 1.35 }}>
+                  Pending financial settlement, claim dispute, or operational hold. Removes summary and moves case to Blocked.
+                </div>
+              </div>
+            </label>
+
+            {/* Notes Input */}
+            <div style={{ marginTop: '2px' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                Clinical Justification / Comments:
+              </label>
+              <textarea
+                rows={2}
+                value={pauseNotes}
+                onChange={e => setPauseNotes(e.target.value)}
+                placeholder={
+                  pauseReasonType === 'summary_invalid'
+                    ? 'e.g. Doctor requested revision of discharge medications and diagnosis wording before sign-off...'
+                    : pauseReasonType === 'clinical_deterioration'
+                      ? 'e.g. Patient experienced vital instability (HR 118, SpO2 92%). Holding discharge for observation.'
+                      : 'e.g. Insurance query pending on final bill...'
+                }
+                style={{
+                  width: '100%',
+                  padding: '7px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                  boxSizing: 'border-box',
+                  lineHeight: 1.35
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: '11px 18px',
+              background: '#f8fafc',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '8px'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setPauseModalOpen(false);
+                setPauseTargetCase(null);
+              }}
+              disabled={isSubmittingPause}
+              style={{
+                padding: '0 12px',
+                height: '32px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#475569',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmPause}
+              disabled={isSubmittingPause}
+              style={{
+                padding: '0 16px',
+                height: '34px',
+                borderRadius: '6px',
+                border: 'none',
+                background: pauseReasonType === 'summary_invalid' ? '#d97706' : '#dc2626',
+                color: '#ffffff',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: isSubmittingPause ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                opacity: isSubmittingPause ? 0.75 : 1
+              }}
+            >
+              {isSubmittingPause && (
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '12px',
+                    height: '12px',
+                    border: '2px solid rgba(255, 255, 255, 0.4)',
+                    borderTopColor: '#ffffff',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite'
+                  }}
+                />
+              )}
+              {isSubmittingPause
+                ? (pauseReasonType === 'summary_invalid' ? 'Invalidating from DB...' : 'Updating...')
+                : (pauseReasonType === 'summary_invalid' ? 'Invalidate & Move to Approval Required' : 'Pause & Move to Blocked')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ─────────────────────────────────────────────────────────────
   // VIEW 1: DISCHARGE CASE DETAIL VIEW (When a patient is opened)
   // ─────────────────────────────────────────────────────────────
   if (activeCase) {
     const dc = activeCase;
-    const canRelease = (dc.statusKind === 'ready' || dc.category === 'Ready') && (dc.isApproved || dc.deps?.summary?.status === 'done') && !dc.isCompleted;
+    const canRelease = (dc.statusKind === 'ready' || dc.category === 'Ready') && !dc.isCompleted;
     const canSimulate = !isDoctor && (dc.paStatus?.includes('Submitted') || dc.paStatus?.includes('Pending') || dc.paStatus?.includes('Appeal'));
 
     const orderedDepKeys = [
@@ -1482,7 +2086,10 @@ export default function DischargeCommandCentre({
         : `Your discharge is expected around ${dc.eta}. Insurance enhancement is in progress.`;
 
     return (
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', position: 'relative' }}>
+
+
         {/* Floating Toast Notification Container */}
         {toasts.length > 0 && (
           <div style={{ position: 'fixed', top: '16px', right: '20px', zIndex: 9999, display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1568,15 +2175,13 @@ export default function DischargeCommandCentre({
                   <div style={{ color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#8a9096', fontSize: '11.5px', fontWeight: 600 }}>
                     {dc.isCompleted
                       ? 'Discharged at'
-                      : dc.deps?.summary?.status === 'approval'
+                      : dc.statusKind === 'ready'
                         ? 'Awaiting Doctor Sign-off'
-                        : dc.statusKind === 'ready'
-                          ? 'Ready for release'
+                        : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
+                          ? 'Approval Required'
                           : dc.statusKind === 'blocked'
                             ? 'Discharge blocked'
-                            : dc.statusKind === 'approval'
-                              ? 'Approval pending'
-                              : 'Predicted ready'}
+                            : 'Predicted ready'}
                   </div>
                   <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#15181b', fontWeight: 500, margin: '2px 0' }}>
                     {dc.isCompleted ? formatTime12(dc.dischargeTime || dc.dischargedAt || '09:30 AM') : dc.statusKind === 'ready' ? 'Now' : (dc.eta && dc.eta !== 'Now' ? formatTime12(dc.eta) : '01:30 PM')}
@@ -1584,10 +2189,10 @@ export default function DischargeCommandCentre({
                   <div style={{ fontSize: '10.5px', color: dc.statusKind === 'blocked' ? '#b91c1c' : '#8a9096' }}>
                     {dc.isCompleted
                       ? 'Discharge completed · Finalized'
-                      : dc.deps?.summary?.status === 'approval'
-                        ? 'Clearances verified · Awaiting treating physician approval'
-                        : dc.statusKind === 'ready'
-                          ? 'All dependencies cleared · ready to release'
+                      : dc.statusKind === 'ready'
+                        ? 'Clearances verified · Ready for doctor sign-off & release'
+                        : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
+                          ? 'Clearances verified · Awaiting treating physician approval'
                           : dc.statusKind === 'blocked'
                             ? `Blocked: ${dc.blocker} (${dc.pendingCount} pending)`
                             : '±35 min · Forecasting v1.0.6 · decision support only'}
@@ -1830,22 +2435,29 @@ export default function DischargeCommandCentre({
 
                 <button
                   type="button"
-                  onClick={() => handleTogglePause(dc.id)}
+                  onClick={() => {
+                    if (dc.isPaused) {
+                      handleResumeWorkflow(dc.id);
+                    } else {
+                      handleOpenPauseModal(dc);
+                    }
+                  }}
                   style={{
                     height: '30px',
                     padding: '0 10px',
                     borderRadius: '6px',
-                    border: '1px solid oklch(0.88 0.06 25)',
-                    background: '#fff',
-                    color: 'oklch(0.45 0.17 25)',
+                    border: dc.isPaused ? '1px solid oklch(0.7 0.15 145)' : '1px solid oklch(0.88 0.06 25)',
+                    background: dc.isPaused ? 'oklch(0.96 0.04 145)' : '#fff',
+                    color: dc.isPaused ? 'oklch(0.35 0.15 145)' : 'oklch(0.45 0.17 25)',
                     cursor: 'pointer',
                     fontSize: '12px',
-                    fontWeight: 500
+                    fontWeight: 600
                   }}
                 >
-                  {dc.isPaused ? 'Resume workflow' : 'Pause · clinical deterioration'}
+                  {dc.isPaused ? '▶ Resume workflow' : '⏸ Pause · clinical deterioration'}
                 </button>
               </div>
+
 
               {dc.isPaused && (
                 <div
@@ -1976,16 +2588,23 @@ export default function DischargeCommandCentre({
                       {a.action} · owner <strong>{a.owner}</strong>
                     </div>
 
-                    {(a.type === 'Discharge summary' || a.type === 'Discharge summary sign-off' || a.type.toLowerCase().includes('summary') || a.type.toLowerCase().includes('sign-off')) && (() => {
+                    {(a.type === 'Discharge summary' || a.type === 'Discharge summary sign-off' || a.type === 'Discharge summary approval' || a.type.toLowerCase().includes('summary') || a.type.toLowerCase().includes('sign-off') || a.type.toLowerCase().includes('approval')) && (() => {
                       const isVitalsBlocked = dc.deps?.vitals?.status === 'blocked';
                       const isBillingBlocked = dc.deps?.billing?.status === 'blocked';
                       const isBlocked = isVitalsBlocked || isBillingBlocked;
+                      const isReadyState = dc.statusKind === 'ready' || dc.category === 'Ready';
                       return (
                         <div style={{ marginTop: '6px' }}>
                           <button
                             type="button"
                             disabled={isBlocked}
-                            onClick={() => handleSignDischargeSummary(dc.id)}
+                            onClick={() => {
+                              if (isReadyState) {
+                                handleDischargePatient(dc.id);
+                              } else {
+                                handleApproveDischargeSummary(dc.id);
+                              }
+                            }}
                             style={{
                               width: '100%',
                               height: '28px',
@@ -1997,9 +2616,9 @@ export default function DischargeCommandCentre({
                               fontWeight: 600,
                               cursor: isBlocked ? 'not-allowed' : 'pointer'
                             }}
-                            title={isBlocked ? 'Discharge sign-off is gated until billing clearance and stable vitals are confirmed.' : 'Sign & Approve Discharge Summary'}
+                            title={isBlocked ? 'Discharge action is gated until billing clearance and stable vitals are confirmed.' : (isReadyState ? 'Sign & Release Discharge' : 'Approve Discharge Summary')}
                           >
-                            ✓ Sign & Approve Discharge Summary
+                            {isReadyState ? '✓ Sign & Release Discharge' : '✓ Approve Discharge Summary'}
                           </button>
                           {isBlocked && (
                             <div style={{ fontSize: '10.5px', color: '#dc2626', marginTop: '4px', fontWeight: 500, lineHeight: 1.3 }}>
@@ -2652,6 +3271,9 @@ export default function DischargeCommandCentre({
             loadDischargeCandidates(true);
           }}
         />
+
+        {/* Pause Reason Modal */}
+        {renderPauseModal()}
       </div>
     );
   }
@@ -3147,6 +3769,9 @@ export default function DischargeCommandCentre({
           />
         </div>
       )}
+
+      {/* Pause Reason Modal */}
+      {renderPauseModal()}
     </div>
   );
 }

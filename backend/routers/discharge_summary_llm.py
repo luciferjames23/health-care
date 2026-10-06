@@ -456,11 +456,11 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             try:
                 if target_aid:
                     db_connector.execute_custom_query(
-                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL)"
+                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL) OR bed_number IN (SELECT bed_number FROM dim_admission_inputs WHERE admission_id = {target_aid} AND bed_number IS NOT NULL)"
                     )
                 elif target_pid:
                     db_connector.execute_custom_query(
-                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE patient_id = {target_pid} AND bed_id IS NOT NULL)"
+                        f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE patient_id = {target_pid} AND bed_id IS NOT NULL) OR bed_number IN (SELECT bed_number FROM dim_admission_inputs WHERE patient_id = {target_pid} AND bed_number IS NOT NULL)"
                     )
             except Exception as e_bed:
                 print(f"[WARN] Failed to release bed on discharge approval: {e_bed}")
@@ -476,7 +476,7 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
                         f"UPDATE dim_admission_inputs SET discharge_status = 'Admitted' WHERE admission_id = {target_aid}"
                     )
                     db_connector.execute_custom_query(
-                        f"UPDATE beds SET status = 'Occupied' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL)"
+                        f"UPDATE beds SET status = 'Occupied' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL) OR bed_number IN (SELECT bed_number FROM dim_admission_inputs WHERE admission_id = {target_aid} AND bed_number IS NOT NULL)"
                     )
             except Exception as e_rev:
                 print(f"[WARN] Failed to revert admission/bed status: {e_rev}")

@@ -1069,12 +1069,12 @@ def get_hr_dashboard(search: Optional[str] = Query(None), limit: int = 10, offse
 # that are relevant to that role. Clinical roles see escalations + clinical
 # alerts; admin/finance roles see operational/billing notifications.
 ROLE_NOTIFICATION_TYPES = {
-    'Doctor': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED'}, 'include_escalations': True, 'escalation_priority': 'all', 'include_leaves': True},
+    'Doctor': {'types': {'PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED'}, 'include_escalations': True, 'escalation_priority': 'all', 'include_leaves': True},
     'Nurse': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CONFIRMED', 'APPOINTMENT_CANCELLED'}, 'include_escalations': True, 'escalation_priority': 'all', 'include_leaves': True},
     'Front Office': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED', 'APPOINTMENT_REMINDER', 'ADMISSION_REMINDER'}, 'include_escalations': False, 'include_leaves': False},
     'Billing': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_CANCELLED', 'ADMISSION_REMINDER'}, 'include_escalations': False, 'include_leaves': False},
     'Finance Manager': {'types': {'ADMISSION_REMINDER'}, 'include_escalations': False, 'include_leaves': False},
-    'Insurance': {'types': {'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED'}, 'include_escalations': False, 'include_leaves': False},
+    'Insurance': {'types': {'PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED'}, 'include_escalations': False, 'include_leaves': False},
     'Radiologist': {'types': {'APPOINTMENT_CONFIRMED', 'APPOINTMENT_RESCHEDULED'}, 'include_escalations': True, 'escalation_priority': 'high', 'include_leaves': False},
     'Laboratory': {'types': {'APPOINTMENT_CONFIRMED'}, 'include_escalations': True, 'escalation_priority': 'high', 'include_leaves': False},
     'Pathologist': {'types': {'APPOINTMENT_CONFIRMED'}, 'include_escalations': True, 'escalation_priority': 'high', 'include_leaves': False},
@@ -1237,6 +1237,18 @@ def get_notification_counts(
                     LEFT JOIN doctors d ON a.doctor_id = d.id
                     WHERE d.display_name ILIKE %s;
                 """, (f"%{clean_name}%",))
+                total_notifs = cur.fetchone()['count'] or 0
+            elif role == 'Insurance':
+                cur.execute("""
+                    SELECT COUNT(*) FROM notifications
+                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER')
+                      AND status NOT IN ('READ', 'DELIVERED');
+                """)
+                unread_notifs = cur.fetchone()['count'] or 0
+                cur.execute("""
+                    SELECT COUNT(*) FROM notifications
+                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER');
+                """)
                 total_notifs = cur.fetchone()['count'] or 0
 
             # Escalations scoped to this user/doctor
@@ -1491,6 +1503,33 @@ def get_notifications(
                 ORDER BY n.id DESC
                 LIMIT 200;
             """, (f"%{clean_name}%", f"%{clean_name}%"))
+        elif role == 'Insurance':
+            cur.execute("""
+                SELECT 
+                    n.id,
+                    n.patient_id,
+                    n.appointment_id,
+                    n.notification_type,
+                    n.channel,
+                    n.message,
+                    n.reason,
+                    n.status,
+                    COALESCE(n.sent_at, n.created_at, '2026-09-30 08:00:00'::timestamp) as notif_time,
+                    p.first_name,
+                    p.last_name,
+                    p.patient_code,
+                    p.phone,
+                    dept.department_name,
+                    d.display_name as doctor_name
+                FROM notifications n
+                LEFT JOIN patients p ON n.patient_id = p.id
+                LEFT JOIN appointments a ON n.appointment_id = a.id
+                LEFT JOIN departments dept ON a.department_id = dept.id
+                LEFT JOIN doctors d ON a.doctor_id = d.id
+                WHERE n.notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED')
+                ORDER BY n.id DESC
+                LIMIT 100;
+            """)
         else:
             if role == 'Nurse':
                 cur.execute("""
@@ -1662,6 +1701,9 @@ def get_notifications(
             if "CRITICAL" in ntype or status_str == 'FAILED':
                 nt_priority = "CRITICAL"
                 src = "LIS Connector"
+            elif "PREAUTH" in ntype or "INSURANCE" in ntype:
+                nt_priority = "HIGH"
+                src = "Insurance Preauth Agent (AG-07)"
             elif "ADMISSION" in ntype or "DISCHARGE" in ntype:
                 nt_priority = "HIGH"
                 src = "Discharge Orchestration Agent"
@@ -1676,7 +1718,9 @@ def get_notifications(
                 src = "Facilities & Housekeeping"
 
             # Derive title
-            if "ADMISSION_REMINDER" in ntype:
+            if "PREAUTH" in ntype or "INSURANCE" in ntype:
+                title = f"Preauth dossier submitted: {pname}"
+            elif "ADMISSION_REMINDER" in ntype:
                 title = f"Pre-admission clearance reminder: {pname}"
             elif "APPOINTMENT_CONFIRMED" in ntype:
                 title = f"Appointment confirmed with {n['doctor_name'] or 'Consultant'}"

@@ -449,6 +449,31 @@ class DatabricksConnector:
             "data": updated_data[0] if updated_data else None
         }
 
+    def delete_record(self, table_name: str, key_field: str, key_value: Any) -> dict:
+        """Deletes a row from PostgreSQL by key and clears cache."""
+        real_table = self.resolve_table_name(table_name)
+        sql_stmt = f"DELETE FROM {real_table} WHERE {key_field} = %s RETURNING *;"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(sql_stmt, (key_value,))
+            deleted_row = cursor.fetchone()
+            col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+            conn.commit()
+            cursor.close()
+
+        self.clear_cache()
+        row_dict = dict(zip(col_names, [self._serialize_val(v) for v in deleted_row])) if deleted_row else None
+        return {
+            "status": "success",
+            "table_name": real_table,
+            "key_field": key_field,
+            "key_value": key_value,
+            "deleted": bool(deleted_row),
+            "data": row_dict
+        }
+
+
     def insert_record(self, table_name: str, record: dict) -> dict:
         """Inserts a single record into PostgreSQL using parameterized query with RETURNING *.
         BIGSERIAL/SERIAL columns must NOT be included in the record dict — the DB generates them.
