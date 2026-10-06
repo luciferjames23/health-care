@@ -67,3 +67,25 @@ export const ragApi = {
     method: 'POST'
   })
 };
+
+async function trainerRequest(path, options = {}) {
+  const token = sessionStorage.getItem('hc_auth_token') || '';
+  const headers = { ...options.headers };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const response = await fetch(`${BASE}/api/ai-trainer${path}`, { ...options, headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || 'AI Trainer request failed.');
+  return body;
+}
+
+export const aiTrainerApi = {
+  query: (params) => trainerRequest('/query', { method: 'POST', body: JSON.stringify(params) }),
+  search: (params) => trainerRequest(`/search?${new URLSearchParams(params)}`),
+  documents: () => trainerRequest('/documents'),
+  document: (id) => trainerRequest(`/documents/${encodeURIComponent(id)}`),
+  upload: (form) => trainerRequest('/documents', { method: 'POST', body: form }),
+  reindex: (id) => trainerRequest(`/documents/${encodeURIComponent(id)}/reindex`, { method: 'POST' }),
+  update: (id, params) => trainerRequest(`/documents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(params) }),
+  audit: () => trainerRequest('/audit')
+};

@@ -376,3 +376,5 @@ from routers.imaging_history import router as imaging_history_router
 app.include_router(imaging_history_router)
 from routers.rag import router as rag_router
 app.include_router(rag_router)
+from routers.ai_trainer import router as ai_trainer_router
+app.include_router(ai_trainer_router)

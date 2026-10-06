@@ -47,6 +47,7 @@ import AiGovernanceView from './components/AiGovernanceView';
 import DischargeAgentView from './components/DischargeAgentView';
 import { DischargeAgentPipeline } from './agent';
 import EmployeeServiceChatbot from './components/EmployeeServiceChatbot';
+import ProtocolCopilot from './components/ProtocolCopilot';
 
 // Integrated Prototype Views (AI Patient Desk, Appointments, Pre-Admission, Doctor Desk, Patient Chat)
 import AIPatientDesk from './pages/admin/AIPatientDesk';
@@ -627,8 +628,9 @@ export default function App() {
             {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
             {activePage === 'knowledge' && <GovernedKnowledgeView onOpenModal={setModal} />}
             {activePage === 'ai-analytics' && <AnalyticsView />}
+            {activePage === 'trainer' && <ProtocolCopilot currentUser={auth} userRole={role} />}
             {[
-              'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer'
+              'governance', 'risk', 'evals', 'observability', 'cost', 'incidents'
             ].includes(activePage) && (
                 <AiGovernanceView initialTab={activePage} />
               )}
