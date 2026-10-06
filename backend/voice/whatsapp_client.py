@@ -385,6 +385,15 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
     if not buttons:
         return send_text_message(to_number, text)
 
+    # Normalize string buttons to dictionary objects if needed
+    normalized_buttons = []
+    for b in buttons:
+        if isinstance(b, str):
+            normalized_buttons.append({"id": f"btn_{b.lower().replace(' ', '_')}", "title": b})
+        elif isinstance(b, dict):
+            normalized_buttons.append(b)
+    buttons = normalized_buttons
+
     # Meta interactive body text limit: max 1024 chars
     if len(text) > 1000:
         send_text_message(to_number, text)

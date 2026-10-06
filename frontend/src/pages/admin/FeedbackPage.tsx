@@ -37,15 +37,16 @@ interface FeedbackRecord {
 }
 
 interface SummaryKpis {
-  total: number;
-  positive: number;
-  negative: number;
-  neutral: number;
-  mixed: number;
-  avg_rating: number | null;
+  total_feedback: number;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  mixed_count: number;
+  average_rating: number | null;
   open_grievances: number;
-  high_priority: number;
-  requires_action_count: number;
+  positive_percentage?: number;
+  negative_percentage?: number;
+  neutral_percentage?: number;
 }
 
 const SENTIMENT_STYLES: Record<string, { bg: string; color: string; label: string; icon: any }> = {
@@ -91,11 +92,26 @@ const CATEGORY_OPTIONS = [
   'Other'
 ];
 
+/** Business mapping helper: Feedback from WhatsApp Patient Desk displays as "WhatsApp" */
+const formatSourceDisplay = (sourceStr: string | null): string => {
+  if (!sourceStr) return 'WhatsApp';
+  const s = String(sourceStr).toUpperCase().trim();
+  if (s.startsWith('WHATSAPP') || s === 'TEXT' || s === 'VOICE') {
+    return 'WhatsApp';
+  }
+  return s;
+};
+
 export const FeedbackPage: React.FC = () => {
   const [feedbackList, setFeedbackList] = useState<FeedbackRecord[]>([]);
   const [summary, setSummary] = useState<SummaryKpis>({
-    total: 0, positive: 0, negative: 0, neutral: 0, mixed: 0,
-    avg_rating: null, open_grievances: 0, high_priority: 0, requires_action_count: 0
+    total_feedback: 0,
+    positive_count: 0,
+    negative_count: 0,
+    neutral_count: 0,
+    mixed_count: 0,
+    average_rating: null,
+    open_grievances: 0
   });
 
   const [loading, setLoading] = useState(true);
@@ -192,6 +208,17 @@ export const FeedbackPage: React.FC = () => {
 
   const totalPages = Math.ceil(totalRecords / perPage) || 1;
 
+  // Compute calculated metrics safely without NaN
+  const totalFb = summary.total_feedback || 0;
+  const posCount = summary.positive_count || 0;
+  const negCount = summary.negative_count || 0;
+  const neuCount = summary.neutral_count || 0;
+  const mixCount = summary.mixed_count || 0;
+  const neuMixCombined = neuCount + mixCount;
+
+  const posPct = totalFb > 0 ? Math.round((posCount / totalFb) * 100) : 0;
+  const negPct = totalFb > 0 ? Math.round((negCount / totalFb) * 100) : 0;
+
   return (
     <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
       {/* Page Header */}
@@ -200,9 +227,6 @@ export const FeedbackPage: React.FC = () => {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 600 }}>Patient Feedback & Grievance Centre</h2>
-              <span className="badge" style={{ backgroundColor: '#107c41', color: '#fff', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px' }}>
-                AG-05 Feedback Agent
-              </span>
             </div>
             <p style={{ margin: '4px 0 0 0', color: '#5f6368', fontSize: '14px' }}>
               Real-time AI semantic sentiment classification, grievance resolution, and post-discharge feedback analytics from WhatsApp Patient Desk
@@ -234,9 +258,9 @@ export const FeedbackPage: React.FC = () => {
             <MessageSquare size={18} color="#1a73e8" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#202124' }}>
-            {summary.total}
+            {totalFb}
           </div>
-          <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>WhatsApp & Voice</div>
+          <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>WhatsApp Patient Desk</div>
         </div>
 
         <div className="kpi-card" style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e0e0e0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -245,9 +269,9 @@ export const FeedbackPage: React.FC = () => {
             <ThumbsUp size={18} color="#137333" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#137333' }}>
-            {summary.positive}
+            {posCount}
             <span style={{ fontSize: '13px', fontWeight: 500, color: '#5f6368', marginLeft: '6px' }}>
-              ({summary.total > 0 ? Math.round((summary.positive / summary.total) * 100) : 0}%)
+              ({posPct}%)
             </span>
           </div>
           <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>High satisfaction</div>
@@ -259,9 +283,9 @@ export const FeedbackPage: React.FC = () => {
             <ThumbsDown size={18} color="#c5221f" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#c5221f' }}>
-            {summary.negative}
+            {negCount}
             <span style={{ fontSize: '13px', fontWeight: 500, color: '#5f6368', marginLeft: '6px' }}>
-              ({summary.total > 0 ? Math.round((summary.negative / summary.total) * 100) : 0}%)
+              ({negPct}%)
             </span>
           </div>
           <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>Service complaints</div>
@@ -273,7 +297,7 @@ export const FeedbackPage: React.FC = () => {
             <Meh size={18} color="#b06000" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#b06000' }}>
-            {summary.neutral + summary.mixed}
+            {neuMixCombined}
           </div>
           <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>Constructive comments</div>
         </div>
@@ -284,7 +308,7 @@ export const FeedbackPage: React.FC = () => {
             <Star size={18} color="#e37400" fill="#e37400" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#e37400' }}>
-            {summary.avg_rating ? `${summary.avg_rating} / 10` : 'N/A'}
+            {summary.average_rating !== null && summary.average_rating !== undefined ? `${summary.average_rating} / 10` : 'N/A'}
           </div>
           <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>Overall patient score</div>
         </div>
@@ -295,7 +319,7 @@ export const FeedbackPage: React.FC = () => {
             <ShieldAlert size={18} color="#d93025" />
           </div>
           <div style={{ fontSize: '26px', fontWeight: 700, marginTop: '8px', color: '#d93025' }}>
-            {summary.open_grievances}
+            {summary.open_grievances || 0}
           </div>
           <div style={{ fontSize: '11px', color: '#70757a', marginTop: '4px' }}>Require resolution</div>
         </div>
@@ -418,6 +442,7 @@ export const FeedbackPage: React.FC = () => {
                   const SentIcon = sentStyle.icon;
                   const sevStyle = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.LOW;
                   const statusStyle = STATUS_STYLES[item.status] || STATUS_STYLES.OPEN;
+                  const displaySource = formatSourceDisplay(item.source);
 
                   return (
                     <tr
@@ -438,9 +463,9 @@ export const FeedbackPage: React.FC = () => {
 
                       {/* Source */}
                       <td style={{ padding: '12px 16px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#5f6368' }}>
-                          {item.source === 'WHATSAPP_VOICE' ? <Mic size={14} color="#d93025" /> : <MessageSquare size={14} color="#1a73e8" />}
-                          {item.source.replace('WHATSAPP_', '')}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#5f6368', fontWeight: 500 }}>
+                          <MessageSquare size={14} color="#1a73e8" />
+                          {displaySource}
                         </span>
                       </td>
 
@@ -618,7 +643,7 @@ export const FeedbackPage: React.FC = () => {
               {/* Original Patient Feedback (Preserved Unmodified) */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#5f6368', marginBottom: '6px' }}>
-                  Original Patient Feedback ({selectedRecord.source})
+                  Original Patient Feedback (Source: {formatSourceDisplay(selectedRecord.source)})
                 </label>
                 <div style={{ padding: '14px', borderRadius: '8px', background: '#fff', border: '1px solid #dadce0', fontSize: '14px', color: '#202124', lineHeight: '1.5', fontStyle: 'italic' }}>
                   "{selectedRecord.original_feedback}"
@@ -629,7 +654,7 @@ export const FeedbackPage: React.FC = () => {
               <div style={{ background: '#f0f4f9', padding: '16px', borderRadius: '10px', marginBottom: '24px', border: '1px solid #d3e3fd' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
                   <Sparkles size={16} color="#1a73e8" />
-                  <strong style={{ fontSize: '14px', color: '#1a73e8' }}>AI Semantic Analysis (AG-05)</strong>
+                  <strong style={{ fontSize: '14px', color: '#1a73e8' }}>AI Semantic Analysis</strong>
                   <span style={{ fontSize: '11px', color: '#5f6368', marginLeft: 'auto' }}>Confidence: {Math.round(selectedRecord.confidence * 100)}%</span>
                 </div>
 

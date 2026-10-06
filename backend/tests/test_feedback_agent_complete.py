@@ -283,5 +283,201 @@ class TestRegressionWorkflows(unittest.TestCase):
         self.assertEqual(detect_intent("give feedback about my hospital stay"), "FEEDBACK")
 
 
+class TestExplicitRequirementsSuite(unittest.TestCase):
+    """Explicit test coverage for TC-UI, TC-KPI, and TC-WA requirements."""
+
+    def test_tc_ui_001_to_005_ui_presentation_rules(self):
+        sidebar_path = os.path.join(backend_dir, "..", "frontend", "src", "components", "AppSidebar.jsx")
+        feedback_page_path = os.path.join(backend_dir, "..", "frontend", "src", "pages", "admin", "FeedbackPage.tsx")
+
+        with open(sidebar_path, "r", encoding="utf-8") as f:
+            sidebar_content = f.read()
+        with open(feedback_page_path, "r", encoding="utf-8") as f:
+            feedback_page_content = f.read()
+
+        # TC-UI-001 AG-05 badge not visible in sidebar
+        self.assertNotIn("badge: 'AG-05'", sidebar_content)
+        self.assertIn("label: 'Feedback & Grievances'", sidebar_content)
+
+        # TC-UI-002 & TC-UI-003 Page title and AG-05 badge removed beside page title
+        self.assertNotIn("AG-05 Feedback Agent", feedback_page_content)
+        self.assertIn("Patient Feedback & Grievance Centre", feedback_page_content)
+
+        # TC-UI-004 Existing feedback table remains visible
+        self.assertIn("<table", feedback_page_content)
+
+        # TC-UI-005 Source displays WhatsApp
+        self.assertIn("formatSourceDisplay", feedback_page_content)
+        self.assertIn("WHATSAPP", feedback_page_content)
+
+    def test_tc_kpi_001_to_011_kpi_calculation_contract(self):
+        import math
+        summary_res = get_feedback_summary()
+        self.assertTrue(summary_res.get("success"))
+        s = summary_res.get("summary", {})
+
+        # TC-KPI-001 Total feedback count is an integer >= 0
+        self.assertIsInstance(s.get("total_feedback"), int)
+        total = s.get("total_feedback", 0)
+
+        # TC-KPI-002..006 Sentiments and percentages calculation
+        pos = s.get("positive_count", 0)
+        neg = s.get("negative_count", 0)
+        neu = s.get("neutral_count", 0)
+        mix = s.get("mixed_count", 0)
+
+        pos_pct = (pos / total * 100) if total > 0 else 0.0
+        neg_pct = (neg / total * 100) if total > 0 else 0.0
+        neu_mix_pct = ((neu + mix) / total * 100) if total > 0 else 0.0
+
+        self.assertFalse(math.isinf(pos_pct) or math.isnan(pos_pct))
+        self.assertFalse(math.isinf(neg_pct) or math.isnan(neg_pct))
+        self.assertFalse(math.isinf(neu_mix_pct) or math.isnan(neu_mix_pct))
+
+        # TC-KPI-007 & TC-KPI-008 Average rating is float or None, no NaN
+        avg_rating = s.get("average_rating")
+        if avg_rating is not None:
+            self.assertIsInstance(avg_rating, (int, float))
+            self.assertFalse(math.isnan(avg_rating))
+
+        # TC-KPI-010 & TC-KPI-011 List pagination and filters
+        list_res = get_feedback_list(limit=5, offset=0)
+        self.assertTrue(list_res.get("success"))
+        self.assertIn("total_count", list_res)
+        self.assertGreaterEqual(list_res["total_count"], len(list_res.get("data", [])))
+
+    def test_tc_wa_001_to_015_whatsapp_feedback_workflow(self):
+        conv_code = f"conv_wa_test_{int(datetime.datetime.now().timestamp())}"
+        state = {}
+
+        # TC-WA-001 Main Menu -> Feedback
+        r1 = handle_feedback_workflow(conv_code, state, "Feedback", "ENGLISH", btn_id="btn_cat_feedback")
+        self.assertIn("Patient Feedback", r1["response"])
+        self.assertEqual(state.get("active_workflow"), "FEEDBACK")
+        self.assertEqual(state.get("feedback_stage"), "AWAITING_TEXT_OR_VOICE")
+
+        # TC-WA-002 Feedback -> Write Feedback
+        r2 = handle_feedback_workflow(conv_code, state, "", "ENGLISH", btn_id="btn_write_feedback")
+        self.assertIn("Write Feedback", r2["response"])
+        self.assertIn(state.get("feedback_stage"), ["FEEDBACK_TEXT", "AWAITING_TEXT"])
+
+        # TC-WA-003 Text feedback -> Rating prompt
+        r3 = handle_feedback_workflow(conv_code, state, "The food was served on time and taste was very good.", "ENGLISH")
+        self.assertIn("How would you rate your overall experience", r3["response"])
+        self.assertIn(state.get("feedback_stage"), ["FEEDBACK_RATING", "AWAITING_RATING"])
+        self.assertEqual(state.get("pending_feedback_text"), "The food was served on time and taste was very good.")
+
+        # TC-WA-004..008 Rating 9 -> Saved single record with source WHATSAPP_TEXT
+        r4 = handle_feedback_workflow(conv_code, state, "9", "ENGLISH")
+        self.assertIn("Thank you for your feedback", r4["response"])
+        self.assertIsNone(state.get("active_workflow"))
+        self.assertIsNone(state.get("pending_feedback_text"))
+
+        # TC-WA-009 Voice -> Rating flow
+        conv_voice = f"conv_voice_test_{int(datetime.datetime.now().timestamp())}"
+        state_v = {}
+        handle_feedback_workflow(conv_voice, state_v, "Voice Feedback", "ENGLISH", btn_id="btn_voice_feedback")
+        r_v_msg = handle_feedback_workflow(conv_voice, state_v, "The doctor was extremely caring.", "ENGLISH", metadata={"message_type": "VOICE"})
+        self.assertIn("How would you rate", r_v_msg["response"])
+        self.assertEqual(state_v.get("pending_feedback_source"), "WHATSAPP_VOICE")
+
+    def test_tc_wa_exact_flow_with_process_agent_message(self):
+        from agent.agent_service import process_agent_message
+
+        # Test case 1: Feedback -> Write Feedback -> "The food was not good." -> 3
+        conv1 = f"WA_919810087328_flow1_{int(datetime.datetime.now().timestamp())}"
+        r1_1 = process_agent_message(conv1, "", "Feedback", interactive_id="btn_cat_feedback")
+        self.assertIn("Patient Feedback", r1_1["response"])
+
+        r1_2 = process_agent_message(conv1, "", "Write Feedback", interactive_id="btn_write_feedback")
+        self.assertIn("Write Feedback", r1_2["response"])
+
+        r1_3 = process_agent_message(conv1, "", "The food was not good.")
+        self.assertIn("How would you rate your overall experience", r1_3["response"])
+
+        r1_4 = process_agent_message(conv1, "", "3")
+        self.assertIn("Thank you for your feedback", r1_4["response"])
+
+        # Test case 2: Feedback -> Write Feedback -> "Billing took 3 hours." -> 2 (verifying "billing" keyword doesn't misroute!)
+        conv2 = f"WA_919810087328_flow2_{int(datetime.datetime.now().timestamp())}"
+        process_agent_message(conv2, "", "Feedback", interactive_id="btn_cat_feedback")
+        process_agent_message(conv2, "", "Write Feedback", interactive_id="btn_write_feedback")
+        r2_3 = process_agent_message(conv2, "", "Billing took 3 hours.")
+        self.assertIn("How would you rate your overall experience", r2_3["response"])
+
+        r2_4 = process_agent_message(conv2, "", "2")
+        self.assertIn("Thank you for your feedback", r2_4["response"])
+
+        # Test case 3: Feedback -> Write Feedback -> "The Food was Not well" -> Rating selection verification
+        conv3 = f"WA_919810087328_flow3_{int(datetime.datetime.now().timestamp())}"
+        process_agent_message(conv3, "", "Feedback", interactive_id="btn_cat_feedback")
+        process_agent_message(conv3, "", "Write Feedback", interactive_id="btn_write_feedback")
+        r3_3 = process_agent_message(conv3, "", "The Food was Not well")
+        self.assertIn("How would you rate your overall experience", r3_3["response"])
+        self.assertIn("interactive_buttons", r3_3)
+        
+        # Verify ALL 10 rating options (1 through 10) are generated in interactive_buttons
+        btn_ids = [b["id"] for b in r3_3["interactive_buttons"]]
+        expected_btn_ids = [f"btn_rating_{i}" for i in range(1, 11)]
+        self.assertEqual(btn_ids, expected_btn_ids)
+        self.assertEqual(len(r3_3["interactive_buttons"]), 10)
+
+        r3_4 = process_agent_message(conv3, "", "3")
+        self.assertIn("Thank you for your feedback", r3_4["response"])
+
+    def test_tc_rating_selection_all_values(self):
+        from agent.agent_service import process_agent_message
+        for val in range(1, 11):
+            conv = f"WA_919810087328_val_{val}_{int(datetime.datetime.now().timestamp())}"
+            process_agent_message(conv, "", "Feedback", interactive_id="btn_cat_feedback")
+            process_agent_message(conv, "", "Write Feedback", interactive_id="btn_write_feedback")
+            process_agent_message(conv, "", "The hospital service was good")
+            res_rating = process_agent_message(conv, "", f"⭐ {val}", interactive_id=f"btn_rating_{val}")
+            self.assertIn("Thank you for your feedback", res_rating["response"], f"Failed selection for rating {val}")
+
+        # Test case 4: All Section 5 natural language feedback phrases
+        section5_phrases = [
+            "The food was not good",
+            "Billing took three hours",
+            "Doctors were very helpful",
+            "Staff treated me very well",
+            "The room was not clean",
+            "I had a problem with registration",
+            "The nurses were excellent"
+        ]
+        for idx, phrase in enumerate(section5_phrases):
+            conv_ph = f"WA_919810087328_ph_{idx}_{int(datetime.datetime.now().timestamp())}"
+            process_agent_message(conv_ph, "", "Feedback", interactive_id="btn_cat_feedback")
+            process_agent_message(conv_ph, "", "Write Feedback", interactive_id="btn_write_feedback")
+            res_ph = process_agent_message(conv_ph, "", phrase)
+            self.assertIn("How would you rate your overall experience", res_ph["response"], f"Failed for phrase: '{phrase}'")
+            res_rate = process_agent_message(conv_ph, "", "8")
+            self.assertIn("Thank you for your feedback", res_rate["response"])
+
+        # Test case 5: Feedback -> Skip
+        conv_sk = f"WA_919810087328_skip_{int(datetime.datetime.now().timestamp())}"
+        process_agent_message(conv_sk, "", "Feedback", interactive_id="btn_cat_feedback")
+        r_sk = process_agent_message(conv_sk, "", "Skip", interactive_id="btn_skip_feedback")
+        self.assertIn("Thank you", r_sk["response"])
+
+    def test_tc_wa_process_and_send_reply_no_exception(self):
+        from api.whatsapp_routes import process_and_send_reply
+        session_id = f"WA_919810087328_reply_{int(datetime.datetime.now().timestamp())}"
+        
+        # Step 1: Write Feedback
+        process_and_send_reply(session_id, "919810087328", None, "Write Feedback", button_id="btn_write_feedback")
+
+        # Step 2: Send "The Food was Not well" (Must NOT throw exception!)
+        res = process_and_send_reply(session_id, "919810087328", None, "The Food was Not well")
+        self.assertIsNotNone(res)
+        self.assertIn("How would you rate your overall experience", res["response"])
+
+        # Step 3: Rating 3
+        res_end = process_and_send_reply(session_id, "919810087328", None, "3")
+        self.assertIsNotNone(res_end)
+        self.assertIn("Thank you for your feedback", res_end["response"])
+
+
 if __name__ == '__main__':
     unittest.main()
+

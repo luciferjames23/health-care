@@ -2144,12 +2144,16 @@ def handle_feedback_workflow(
     msg_lwr = msg_clean.lower()
     wa_msg_id = (metadata or {}).get("whatsapp_message_id") if isinstance(metadata, dict) else None
     msg_type = (metadata or {}).get("message_type") or "TEXT"
+    patient_id = state.get("selected_patient_id") or state.get("patient_id")
 
     # Emergency safety check first
     if msg_clean and feedback_agent.check_emergency_feedback(msg_clean):
         state["active_workflow"] = None
+        state["pending_intent"] = None
         state["feedback_stage"] = None
         state["feedback_rating"] = None
+        state["pending_feedback_text"] = None
+        state["pending_feedback_source"] = None
         state["intent"] = "EMERGENCY"
         state_manager.save_conversation_state(conversation_code, state)
         resp = (
@@ -2168,56 +2172,44 @@ def handle_feedback_workflow(
         log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "EMERGENCY", state)
         return {"response": resp, "intent": "EMERGENCY", "language": current_lang, "interactive_buttons": buttons}
 
+    current_stage = state.get("feedback_stage")
+
     # Handle Skip button / Skip command
     if btn_id == "btn_skip_feedback" or msg_lwr in ["skip", "dharir", "தவிர்"]:
+        pending_text = state.get("pending_feedback_text")
         existing_rating = state.get("feedback_rating")
-        patient_id = state.get("selected_patient_id") or state.get("patient_id")
+        pending_source = state.get("pending_feedback_source") or ("WHATSAPP_VOICE" if msg_type == "VOICE" else "WHATSAPP_TEXT")
         
-        if existing_rating is not None:
+        if pending_text or existing_rating is not None:
+            text_to_save = pending_text or "Patient submitted rating."
             feedback_agent.store_patient_feedback(
                 conversation_code=conversation_code,
-                original_feedback="Patient submitted rating.",
+                original_feedback=text_to_save,
                 explicit_rating=existing_rating,
-                source="WHATSAPP_RATING",
+                source=pending_source,
                 whatsapp_message_id=wa_msg_id,
                 patient_id=patient_id
             )
-            resp = "💬 *Thank you for rating Meridian Hospital!*\n\nYour feedback has been recorded."
+            resp = "💬 *Thank you for your feedback!*\n\nYour feedback has been recorded."
         else:
             resp = "Thank you! You can share your feedback with us anytime."
 
         state["active_workflow"] = None
+        state["pending_intent"] = None
         state["feedback_stage"] = None
         state["feedback_rating"] = None
+        state["pending_feedback_text"] = None
+        state["pending_feedback_source"] = None
         state_manager.save_conversation_state(conversation_code, state)
         buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
-        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
-        return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
-
-    # Handle explicit rating buttons / extracted ratings
-    ext_rating = feedback_agent.extract_rating_from_text(msg_clean)
-    if ext_rating is not None and state.get("feedback_stage") != "AWAITING_TEXT_OR_VOICE":
-        state["feedback_rating"] = ext_rating
-        state["active_workflow"] = "FEEDBACK"
-        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
-        state_manager.save_conversation_state(conversation_code, state)
-        
-        resp = (
-            f"💬 *Thank you for rating us {ext_rating}/10!*\n\n"
-            "Would you like to tell us more about your experience at Meridian Hospital? You can reply by text or voice message."
-        )
-        buttons = [
-            language_service.get_translated_button("btn_write_feedback", current_lang),
-            language_service.get_translated_button("btn_voice_feedback", current_lang),
-            language_service.get_translated_button("btn_skip_feedback", current_lang)
-        ]
         log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
         return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
 
     # Handle [Write Feedback] button
     if btn_id == "btn_write_feedback":
         state["active_workflow"] = "FEEDBACK"
-        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
+        state["pending_intent"] = "FEEDBACK"
+        state["feedback_stage"] = "FEEDBACK_TEXT"
         state_manager.save_conversation_state(conversation_code, state)
         resp = (
             "✍️ *Write Feedback*\n\n"
@@ -2233,7 +2225,8 @@ def handle_feedback_workflow(
     # Handle [Voice Feedback] button
     if btn_id == "btn_voice_feedback":
         state["active_workflow"] = "FEEDBACK"
-        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
+        state["pending_intent"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_VOICE"
         state_manager.save_conversation_state(conversation_code, state)
         resp = (
             "🎤 *Voice Feedback*\n\n"
@@ -2248,21 +2241,25 @@ def handle_feedback_workflow(
         return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
 
     # Entrance into Feedback flow (via button tap or intent detection)
-    if btn_id in ("btn_feedback", "btn_cat_feedback") or state.get("feedback_stage") is None:
+    if btn_id in ("btn_feedback", "btn_cat_feedback") or current_stage is None:
         state["active_workflow"] = "FEEDBACK"
-        state["feedback_stage"] = "AWAITING_RATING_OR_TEXT"
+        state["pending_intent"] = "FEEDBACK"
+        state["feedback_stage"] = "AWAITING_TEXT_OR_VOICE"
         state["intent"] = "FEEDBACK"
+        state["feedback_rating"] = None
+        state["pending_feedback_text"] = None
+        state["pending_feedback_source"] = None
         state_manager.save_conversation_state(conversation_code, state)
 
         resp = (
-            "💬 *Patient Feedback*\n\n"
+            "🗣️ *Patient Feedback*\n\n"
             "We value your feedback. Please tell us about your experience at Meridian Hospital.\n\n"
             "You can share your feedback by text or voice message."
         )
         if current_lang == "TAMIL":
-            resp = "💬 *நோயாளி கருத்து*\n\nஉங்கள் கருத்து எமக்கு மிக முக்கியம். மெரிடியன் மருத்துவமனை அனுபவத்தைப் பற்றி பகிரவும்.\n\nஎழுத்து அல்லது குரல் செய்தி மூலம் உங்கள் கருத்தைப் பகிரலாம்."
+            resp = "🗣️ *நோயாளி கருத்து*\n\nஉங்கள் கருத்து எமக்கு மிக முக்கியம். மெரிடியன் மருத்துவமனை அனுபவத்தைப் பற்றி பகிரவும்.\n\nஎழுத்து அல்லது குரல் செய்தி மூலம் உங்கள் கருத்தைப் பகிரலாம்."
         elif current_lang == "HINDI":
-            resp = "💬 *रोगी प्रतिक्रिया*\n\nहम आपकी प्रतिक्रिया की सराहना करते हैं। कृपया मेरिडियन अस्पताल में अपने अनुभव के बारे में बताएं।\n\nआप पाठ या वॉयस संदेश द्वारा अपनी प्रतिक्रिया साझा कर सकते हैं।"
+            resp = "🗣️ *रोगी प्रतिक्रिया*\n\nहम आपकी प्रतिक्रिया की सराहना करते हैं। कृपया मेरिडियन अस्पताल में अपने अनुभव के बारे में बताएं।\n\nआप पाठ या वॉयस संदेश द्वारा अपनी प्रतिक्रिया साझा कर सकते हैं।"
 
         buttons = [
             language_service.get_translated_button("btn_write_feedback", current_lang),
@@ -2272,40 +2269,107 @@ def handle_feedback_workflow(
         log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
         return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
 
+    # Extract rating if provided
+    ext_rating = feedback_agent.extract_rating_from_text(msg_clean)
+    if btn_id and btn_id.startswith("btn_rating_"):
+        try:
+            ext_rating = int(btn_id.replace("btn_rating_", ""))
+        except ValueError:
+            pass
+
+    # If stage is FEEDBACK_RATING or AWAITING_RATING and user provides rating
+    if current_stage in ("FEEDBACK_RATING", "AWAITING_RATING"):
+        if ext_rating is not None:
+            pending_text = state.get("pending_feedback_text") or "Patient provided rating."
+            source = state.get("pending_feedback_source") or ("WHATSAPP_VOICE" if msg_type == "VOICE" else "WHATSAPP_TEXT")
+
+            analysis = feedback_agent.analyze_patient_feedback(pending_text, explicit_rating=ext_rating, language=current_lang)
+
+            feedback_agent.store_patient_feedback(
+                conversation_code=conversation_code,
+                original_feedback=pending_text,
+                explicit_rating=ext_rating,
+                source=source,
+                whatsapp_message_id=wa_msg_id,
+                patient_id=patient_id,
+                analysis_override=analysis
+            )
+
+            state["active_workflow"] = None
+            state["pending_intent"] = None
+            state["feedback_stage"] = None
+            state["feedback_rating"] = None
+            state["pending_feedback_text"] = None
+            state["pending_feedback_source"] = None
+            state_manager.save_conversation_state(conversation_code, state)
+
+            resp = (
+                "💬 *Thank you for your feedback!*\n\n"
+                "We have received your feedback regarding Meridian Hospital. "
+                "Our Quality and Patient Relations team will review your comments to continuously improve our care."
+            )
+            if current_lang == "TAMIL":
+                resp = "💬 *உங்கள் கருத்துக்களுக்கு நன்றி!*\n\nமெரிடியன் மருத்துவமனை பற்றிய உங்கள் கருத்து பதிவு செய்யப்பட்டுள்ளது. எங்கள் பராமரிப்பு குழு உங்கள் கருத்துக்களை மதிப்பாய்வு செய்யும்."
+            elif current_lang == "HINDI":
+                resp = "💬 *आपकी प्रतिक्रिया के लिए धन्यवाद!*\n\nहमने आपकी प्रतिक्रिया दर्ज कर ली है। हमारी टीम आपके सुझावों की समीक्षा करेगी।"
+
+            buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+            return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
     # Text feedback or voice transcript received
     if msg_clean and not btn_id:
-        patient_id = state.get("selected_patient_id") or state.get("patient_id")
-        existing_rating = state.get("feedback_rating")
+        existing_rating = ext_rating or state.get("feedback_rating")
         source = "WHATSAPP_VOICE" if msg_type == "VOICE" else "WHATSAPP_TEXT"
 
-        analysis = feedback_agent.analyze_patient_feedback(msg_clean, explicit_rating=existing_rating, language=current_lang)
-        
-        feedback_agent.store_patient_feedback(
-            conversation_code=conversation_code,
-            original_feedback=msg_clean,
-            explicit_rating=existing_rating,
-            source=source,
-            whatsapp_message_id=wa_msg_id,
-            patient_id=patient_id,
-            analysis_override=analysis
-        )
+        # If explicit rating is already included in text or state, process single DB submission immediately
+        if existing_rating is not None:
+            analysis = feedback_agent.analyze_patient_feedback(msg_clean, explicit_rating=existing_rating, language=current_lang)
+            feedback_agent.store_patient_feedback(
+                conversation_code=conversation_code,
+                original_feedback=msg_clean,
+                explicit_rating=existing_rating,
+                source=source,
+                whatsapp_message_id=wa_msg_id,
+                patient_id=patient_id,
+                analysis_override=analysis
+            )
 
-        state["active_workflow"] = None
-        state["feedback_stage"] = None
-        state["feedback_rating"] = None
+            state["active_workflow"] = None
+            state["pending_intent"] = None
+            state["feedback_stage"] = None
+            state["feedback_rating"] = None
+            state["pending_feedback_text"] = None
+            state["pending_feedback_source"] = None
+            state_manager.save_conversation_state(conversation_code, state)
+
+            resp = (
+                "💬 *Thank you for your feedback!*\n\n"
+                "We have received your feedback regarding Meridian Hospital. "
+                "Our Quality and Patient Relations team will review your comments to continuously improve our care."
+            )
+            buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
+            return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
+
+        # Otherwise, save pending text/source and move state to FEEDBACK_RATING (Step 4)
+        state["pending_feedback_text"] = msg_clean
+        state["pending_feedback_source"] = source
+        state["active_workflow"] = "FEEDBACK"
+        state["pending_intent"] = "FEEDBACK"
+        state["feedback_stage"] = "FEEDBACK_RATING"
         state_manager.save_conversation_state(conversation_code, state)
 
         resp = (
-            "💬 *Thank you for your feedback!*\n\n"
-            "We have received your feedback regarding Meridian Hospital. "
-            "Our Quality and Patient Relations team will review your comments to continuously improve our care."
+            "⭐ *How would you rate your overall experience at Meridian Hospital?*\n\n"
+            "Please select a rating from 1 to 10."
         )
         if current_lang == "TAMIL":
-            resp = "💬 *உங்கள் கருத்துக்களுக்கு நன்றி!*\n\nமெரிடியன் மருத்துவமனை பற்றிய உங்கள் கருத்து பதிவு செய்யப்பட்டுள்ளது. எங்கள் பராமரிப்பு குழு உங்கள் கருத்துக்களை மதிப்பாய்வு செய்யும்."
+            resp = "⭐ *மெரிடியன் மருத்துவமனையில் உங்கள் ஒட்டுமொத்த அனுபவத்தை எவ்வாறு மதிப்பிடுவீர்கள்?*\n\nதயவுசெய்து 1 முதல் 10 வரை மதிப்பீட்டைத் தேர்ந்தெடுக்கவும்."
         elif current_lang == "HINDI":
-            resp = "💬 *आपकी प्रतिक्रिया के लिए धन्यवाद!*\n\nहमने आपकी प्रतिक्रिया दर्ज कर ली है। हमारी टीम आपके सुझावों की समीक्षा करेगी।"
+            resp = "⭐ *आप मेरिडियन अस्पताल में अपने समग्र अनुभव को कैसे आंकेंगे?*\n\nकृपया 1 से 10 तक रेटिंग चुनें।"
 
-        buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
+        buttons = [{"id": f"btn_rating_{i}", "title": f"⭐ {i}"} for i in range(1, 11)]
         log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "FEEDBACK", state)
         return {"response": resp, "intent": "FEEDBACK", "language": current_lang, "interactive_buttons": buttons}
 
@@ -2334,6 +2398,31 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
     # Structured interactive button tap handler (Fix 3)
     btn_id = interactive_id or (message_text.strip() if message_text and message_text.strip().startswith("btn_") else None)
+
+    # Priority Active Feedback Workflow Gate:
+    # If the user is in an active feedback workflow or tapped a feedback button, consume message immediately
+    # without running generic keyword matching (e.g. matching "billing" or "appointment" in feedback text).
+    is_active_feedback = (
+        state.get("active_workflow") == "FEEDBACK" or
+        state.get("pending_intent") == "FEEDBACK" or
+        state.get("feedback_stage") in ["FEEDBACK_TEXT", "AWAITING_TEXT", "AWAITING_VOICE", "AWAITING_TEXT_OR_VOICE", "FEEDBACK_RATING", "AWAITING_RATING"] or
+        btn_id in ("btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback", "btn_skip_feedback") or
+        (btn_id and btn_id.startswith("btn_rating_"))
+    )
+
+    if is_active_feedback:
+        m_lwr = (message_text or "").lower().strip()
+        if btn_id in ("btn_main_menu", "btn_back_profile") or m_lwr in ["cancel", "exit", "main menu"]:
+            state["active_workflow"] = None
+            state["pending_intent"] = None
+            state["feedback_stage"] = None
+            state["feedback_rating"] = None
+            state["pending_feedback_text"] = None
+            state["pending_feedback_source"] = None
+            state_manager.save_conversation_state(conversation_code, state)
+        else:
+            current_lang = language_override.upper() if language_override else state.get("language", "ENGLISH")
+            return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
     if not btn_id and message_text:
         m_strip = message_text.strip().lower()
         if m_strip in ["new patient", "register new patient", "btn_new_patient"]:
@@ -2608,14 +2697,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "interactive_buttons": chg_buttons
         }
 
-    # Active Feedback workflow gate
-    if state.get("active_workflow") == "FEEDBACK" or btn_id in ("btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback", "btn_skip_feedback"):
-        if btn_id in ("btn_main_menu", "btn_back_profile") or (message_text and message_text.lower().strip() in ["cancel", "exit", "main menu"]):
-            state["active_workflow"] = None
-            state["feedback_stage"] = None
-            state["feedback_rating"] = None
-        else:
-            return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
+
 
     # Restore patient_id for existing registered patients from DB / phone lookup if missing in state
     # Restore patient_id for existing registered patients from DB / phone lookup if missing in state
