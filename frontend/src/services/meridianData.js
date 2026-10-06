@@ -233,6 +233,7 @@ export const ROLE_HOMES = {
 };
 
 export function isPageAllowed(role, page) {
+  if (page === 'create-full-details' || page === 'create-full' || page === '/create-full/details') return true;
   if (!role) return false;
   const roleStr = String(role).toLowerCase();
 
@@ -269,6 +270,8 @@ export function isPageAllowed(role, page) {
     'chat': 'assistant',
     'patient-chat': 'assistant',
     'discharge-agent': 'discharge',
+    'create-full-details': 'patients',
+    'create-full': 'patients',
     'hr': 'hr-dashboard'
   };
   const mapped = aliasMap[page];

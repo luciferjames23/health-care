@@ -440,53 +440,88 @@ def get_patient_appointments(patient_id, time_filter: str = "ALL"):
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
-        target_pid = None
+        candidate_ids = set()
+        root_pid = None
 
-        # 1. If a patient code like 'MER-PAT-...' or 'PAT-...' was given, resolve by patient_code
-        if pcode_str and ('PAT' in pcode_str.upper() or 'MRN' in pcode_str.upper() or 'UHID' in pcode_str.upper()):
+        if pid_int is not None:
+            candidate_ids.add(pid_int)
+
+        # 1. Resolve root patient ID from patient code if string like 'MER-PAT-...' was given
+        if pcode_str:
             cur.execute("SELECT id FROM patients WHERE LOWER(patient_code) = LOWER(%s) LIMIT 1;", (pcode_str,))
             row = cur.fetchone()
             if row:
-                target_pid = row[0]
+                root_pid = row[0]
+                candidate_ids.add(row[0])
 
-        # 2. If not found yet and pid_int is available, check direct match on patients or appointments
-        if target_pid is None and pid_int is not None:
-            cur.execute("SELECT 1 FROM appointments WHERE patient_id = %s LIMIT 1;", (pid_int,))
-            if cur.fetchone():
-                target_pid = pid_int
+        # 2. Check if pid_int is directly a patient ID or an admission ID
+        if root_pid is None and pid_int is not None:
+            cur.execute("SELECT id FROM patients WHERE id = %s LIMIT 1;", (pid_int,))
+            row = cur.fetchone()
+            if row:
+                root_pid = row[0]
             else:
-                cur.execute("SELECT id FROM patients WHERE id = %s LIMIT 1;", (pid_int,))
-                row = cur.fetchone()
-                if row:
-                    target_pid = row[0]
-                else:
-                    # 3. Fallback: Check if pid_int is an admission_id
-                    cur.execute("SELECT patient_id FROM admissions WHERE admission_id = %s LIMIT 1;", (pid_int,))
-                    adm_row = cur.fetchone()
-                    if adm_row:
-                        target_pid = adm_row[0]
+                cur.execute("SELECT patient_id FROM admissions WHERE admission_id = %s LIMIT 1;", (pid_int,))
+                adm_row = cur.fetchone()
+                if adm_row and adm_row[0]:
+                    root_pid = adm_row[0]
+                    candidate_ids.add(adm_row[0])
 
-        if target_pid is None:
-            target_pid = pid_int
+        # 3. Expand candidate IDs across relational links (admissions, dim_admission_inputs, patient_visits)
+        if root_pid:
+            cur.execute("""
+                SELECT admission_id FROM admissions WHERE patient_id = %s
+                UNION
+                SELECT admission_id FROM dim_admission_inputs WHERE patient_id = %s OR LOWER(patient_number) = LOWER(%s)
+                UNION
+                SELECT visit_id FROM patient_visits WHERE patient_id = %s;
+            """, (root_pid, root_pid, pcode_str, root_pid))
+            for r in cur.fetchall():
+                if r[0]:
+                    candidate_ids.add(r[0])
+        elif candidate_ids:
+            cur.execute("""
+                SELECT admission_id FROM admissions WHERE patient_id = ANY(%s)
+                UNION
+                SELECT admission_id FROM dim_admission_inputs WHERE patient_id = ANY(%s)
+                UNION
+                SELECT visit_id FROM patient_visits WHERE patient_id = ANY(%s)
+                UNION
+                SELECT patient_id FROM admissions WHERE admission_id = ANY(%s)
+                UNION
+                SELECT patient_id FROM dim_admission_inputs WHERE admission_id = ANY(%s);
+            """, (list(candidate_ids), list(candidate_ids), list(candidate_ids), list(candidate_ids), list(candidate_ids)))
+            for r in cur.fetchall():
+                if r[0]:
+                    candidate_ids.add(r[0])
 
-        if target_pid is None:
+        if not candidate_ids:
             return []
 
         query = """
             SELECT 
                 a.booking_id, a.appointment_date, a.appointment_time, a.status, a.patient_reason,
-                COALESCE(NULLIF(p.first_name || ' ' || COALESCE(p.last_name, ''), ' '), 'Patient #' || a.patient_id) AS patient_name,
-                COALESCE(p.patient_code, 'MER-PAT-' || LPAD(a.patient_id::text, 7, '0')) AS patient_code,
+                COALESCE(
+                    NULLIF(TRIM(root_p.first_name || ' ' || COALESCE(root_p.last_name, '')), ''),
+                    NULLIF(TRIM(p.first_name || ' ' || COALESCE(p.last_name, '')), ''),
+                    'Patient #' || a.patient_id
+                ) AS patient_name,
+                COALESCE(
+                    root_p.patient_code,
+                    p.patient_code,
+                    'MER-PAT-' || LPAD(a.patient_id::text, 7, '0')
+                ) AS patient_code,
                 COALESCE(d.display_name, 'Consulting Physician') AS doctor_name,
                 COALESCE(dept.department_name, d.specialization, 'General Medicine') AS department_name,
                 COALESCE(d.consultation_fee, 500.0) AS consultation_fee
             FROM appointments a
             LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN patients root_p ON root_p.id = %s
             LEFT JOIN doctors d ON a.doctor_id = d.id
             LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
-            WHERE a.patient_id = %s
+            WHERE a.patient_id = ANY(%s)
         """
-        params = [target_pid]
+        params = [root_pid, list(candidate_ids)]
         tf_norm = (time_filter or "ALL").upper()
         if tf_norm == "UPCOMING":
             query += " AND a.appointment_date >= CURRENT_DATE ORDER BY a.appointment_date ASC, a.appointment_time ASC;"

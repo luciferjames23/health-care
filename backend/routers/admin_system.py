@@ -1315,6 +1315,7 @@ def mark_all_notifications_read(
         doc_id = ctx["doctor_id"]
         u_id = ctx["user_id"]
         clean_name = ctx["clean_name"]
+        role_config = ROLE_NOTIFICATION_TYPES.get(role) if role else None
 
         if is_admin:
             cur.execute("UPDATE notifications SET status = 'READ' WHERE status NOT IN ('READ');")
@@ -1324,29 +1325,83 @@ def mark_all_notifications_read(
             except Exception:
                 pass
         else:
-            if doc_id:
+            # Role-specific notification resolution
+            if role_config and role_config.get('types'):
+                allowed_types = list(role_config['types'])
+                cur.execute("UPDATE notifications SET status = 'READ' WHERE notification_type = ANY(%s) AND status NOT IN ('READ');", (allowed_types,))
+            elif doc_id:
                 cur.execute("""
                     UPDATE notifications SET status = 'READ'
-                    WHERE appointment_id IN (SELECT id FROM appointments WHERE doctor_id = %s)
+                    WHERE (appointment_id IN (SELECT id FROM appointments WHERE doctor_id = %s)
+                       OR notification_type IN ('PREAUTH_SUBMITTED', 'ADMISSION_REMINDER'))
                       AND status NOT IN ('READ');
                 """, (doc_id,))
-                cur.execute("""
-                    UPDATE escalations SET status = 'RESOLVED'
-                    WHERE (assigned_to_user_id = %s OR patient_id IN (SELECT DISTINCT patient_id FROM appointments WHERE doctor_id = %s))
-                      AND status NOT IN ('RESOLVED');
-                """, (u_id or -1, doc_id))
-            try:
-                name_query = f"%{clean_name}%" if clean_name else "%UNKNOWN_USER_PLACEHOLDER%"
-                cur.execute("""
-                    UPDATE employee_leave_requests SET is_read = TRUE 
-                    WHERE is_read IS NOT TRUE 
-                      AND (%s IS NOT NULL AND user_id = %s OR staff_name ILIKE %s OR supervisor_name ILIKE %s);
-                """, (u_id, u_id, name_query, name_query))
-            except Exception:
-                pass
+            else:
+                cur.execute("UPDATE notifications SET status = 'READ' WHERE status NOT IN ('READ');")
+
+            # Escalations resolution for role
+            if role_config is None or role_config.get('include_escalations'):
+                if doc_id:
+                    cur.execute("""
+                        UPDATE escalations SET status = 'RESOLVED'
+                        WHERE (assigned_to_user_id = %s OR patient_id IN (SELECT DISTINCT patient_id FROM appointments WHERE doctor_id = %s))
+                          AND status NOT IN ('RESOLVED');
+                    """, (u_id or -1, doc_id))
+                elif u_id:
+                    cur.execute("""
+                        UPDATE escalations SET status = 'RESOLVED'
+                        WHERE assigned_to_user_id = %s AND status NOT IN ('RESOLVED');
+                    """, (u_id,))
+                else:
+                    cur.execute("UPDATE escalations SET status = 'RESOLVED' WHERE status NOT IN ('RESOLVED');")
+
+            # Leave requests resolution
+            if role_config is None or role_config.get('include_leaves'):
+                try:
+                    name_query = f"%{clean_name}%" if clean_name else "%UNKNOWN_USER_PLACEHOLDER%"
+                    cur.execute("""
+                        UPDATE employee_leave_requests SET is_read = TRUE 
+                        WHERE is_read IS NOT TRUE 
+                          AND (%s IS NOT NULL AND user_id = %s OR staff_name ILIKE %s OR supervisor_name ILIKE %s);
+                    """, (u_id, u_id, name_query, name_query))
+                except Exception:
+                    pass
 
         conn.commit()
         return {"success": True, "message": "All notifications marked as read."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/notifications/{notif_id}/read", summary="Mark Single Notification as Read / Acknowledged")
+def mark_single_notification_read(notif_id: str):
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        raw_id_str = str(notif_id).strip()
+
+        if raw_id_str.startswith("ESC-"):
+            esc_num = int(raw_id_str.replace("ESC-", ""))
+            cur.execute("UPDATE escalations SET status = 'RESOLVED' WHERE id = %s;", (esc_num,))
+        elif raw_id_str.startswith("LEAVE-"):
+            leave_num = int(raw_id_str.replace("LEAVE-", ""))
+            cur.execute("UPDATE employee_leave_requests SET is_read = TRUE WHERE id = %s;", (leave_num,))
+        elif raw_id_str.startswith("NOTIF-"):
+            notif_num = int(raw_id_str.replace("NOTIF-", ""))
+            cur.execute("UPDATE notifications SET status = 'READ' WHERE id = %s;", (notif_num,))
+        else:
+            try:
+                num = int(raw_id_str)
+                cur.execute("UPDATE notifications SET status = 'READ' WHERE id = %s;", (num,))
+            except ValueError:
+                cur.execute("UPDATE notifications SET status = 'READ' WHERE id::text = %s;", (raw_id_str,))
+
+        conn.commit()
+        return {"success": True, "message": f"Notification {notif_id} marked as read."}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1642,7 +1697,7 @@ def get_notifications(
                     message_text=esc.get('escalation_reason') or esc.get('patient_question'),
                     phone=esc.get('phone')
                 )
-                t_str = esc['created_at'].strftime("%H:%M") if esc.get('created_at') else "--:--"
+                t_str = esc['created_at'].strftime("%I:%M %p") if esc.get('created_at') else "--:--"
                 reason_text = str(esc.get('escalation_reason') or esc.get('patient_question') or '')
 
                 esc_priority = "CRITICAL" if "critical" in reason_text.lower() or "abnormal" in reason_text.lower() or "potassium" in reason_text.lower() else "HIGH"
@@ -1667,6 +1722,7 @@ def get_notifications(
                     "patient_name": pname,
                     "patient_code": esc.get('patient_code'),
                     "bed_number": None,
+                    "time": t_str,
                     "created_at": esc.get('created_at').isoformat() if esc.get('created_at') else None,
                     # Legacy aliases for backward-compat
                     "pri": esc_priority,
@@ -1693,7 +1749,7 @@ def get_notifications(
                 message_text=n.get('message'),
                 phone=n.get('phone')
             )
-            t_str = n['notif_time'].strftime("%H:%M") if n.get('notif_time') else "--:--"
+            t_str = n['notif_time'].strftime("%I:%M %p") if n.get('notif_time') else "--:--"
             status_str = str(n.get('status') or 'PENDING').upper()
             msg = str(n.get('message') or '')
 
@@ -1747,6 +1803,7 @@ def get_notifications(
                 "patient_name": pname,
                 "patient_code": n.get('patient_code'),
                 "bed_number": None,
+                "time": t_str,
                 "created_at": n.get('notif_time').isoformat() if n.get('notif_time') else None,
                 # Legacy aliases for backward-compat
                 "pri": nt_priority,
@@ -1828,6 +1885,7 @@ def get_notifications(
 
                     title = f"Staff Leave Application: {lr['staff_name']} ({l_type})"
                     msg_body = f"{lr['staff_name']} applied for {l_type} ({days_label} · {d_str}). Routed to {sup} for sign-off. Reason: {rsn}"
+                    lr_time_str = lr['created_at'].strftime("%I:%M %p") if lr.get('created_at') else "--:--"
 
                     formatted.append({
                         "id": f"LEAVE-{lr['id']}",
@@ -1843,6 +1901,7 @@ def get_notifications(
                         "patient_name": lr['staff_name'],
                         "patient_code": lr['request_code'],
                         "bed_number": None,
+                        "time": lr_time_str,
                         "created_at": lr['created_at'].isoformat() if lr.get('created_at') else None,
                         "pri": lr_priority,
                         "unread": is_unread,

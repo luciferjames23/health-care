@@ -6171,12 +6171,19 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
                     style={{
                       borderBottom: '1px solid #f1f5f9',
                       cursor: 'pointer',
-                      background: n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'
+                      background: n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.4)' : 'rgba(239, 246, 255, 0.65)') : 'transparent'
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={e => e.currentTarget.style.background = n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.35)' : 'rgba(254, 242, 242, 0.25)') : 'transparent'}
+                    onMouseLeave={e => e.currentTarget.style.background = n.unread ? (n.pri === 'Critical' ? 'rgba(254, 226, 226, 0.4)' : 'rgba(239, 246, 255, 0.65)') : 'transparent'}
                   >
-                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: n.unread ? 700 : 400 }}>{n.time}</td>
+                    <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: n.unread ? 700 : 400, color: n.unread ? '#0f172a' : '#64748b' }}>
+                      <div style={{ fontWeight: n.unread ? 700 : 500 }}>{n.time || '--:--'}</div>
+                      {n.created_at && (
+                        <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>
+                          {new Date(n.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={pillStyle(
                         n.pri === 'Critical' ? '#fee2e2' : n.pri === 'High' ? '#fef3c7' : n.pri === 'Medium' ? '#e0e7ff' : '#f1f5f9',
@@ -6186,17 +6193,32 @@ export function NotificationsView({ onOpenDrawer, onOpenModal }) {
                       </span>
                     </td>
                     <td style={{ padding: '10px 14px', fontWeight: n.unread ? 700 : 600, color: n.unread ? '#0f172a' : '#334155' }}>
-                      {n.title}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {n.unread && (
+                          <span style={{
+                            padding: '1px 5px',
+                            fontSize: '9.5px',
+                            fontWeight: 800,
+                            borderRadius: '8px',
+                            background: '#2563eb',
+                            color: '#ffffff',
+                            letterSpacing: '0.3px'
+                          }}>
+                            NEW
+                          </span>
+                        )}
+                        <span>{n.title}</span>
+                      </div>
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#334155', maxWidth: '380px' }}>
+                    <td style={{ padding: '10px 14px', color: n.unread ? '#1e293b' : '#64748b', maxWidth: '380px', fontWeight: n.unread ? 500 : 400 }}>
                       {n.detail}
                     </td>
                     <td style={{ padding: '10px 14px', color: '#0f766e', fontWeight: 500 }}>
                       {n.src}
                     </td>
                     <td style={{ padding: '10px 14px' }}>
-                      <span style={pillStyle(n.unread ? '#fee2e2' : '#dcfce7', n.unread ? '#b91c1c' : '#15803d')}>
-                        {n.unread ? 'Unread' : 'Read'}
+                      <span style={pillStyle(n.unread ? '#dbeafe' : '#f1f5f9', n.unread ? '#1d4ed8' : '#64748b')}>
+                        {n.unread ? '● Unread' : '✓ Read'}
                       </span>
                     </td>
                   </tr>

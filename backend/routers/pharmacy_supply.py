@@ -457,12 +457,12 @@ def get_pharmacy_sales(
         params = []
 
         if patient_id is not None:
-            where_clauses.append("ps.patient_id = %s")
-            params.append(patient_id)
+            where_clauses.append("(ps.patient_id = %s OR ps.admission_id IN (SELECT admission_id FROM admissions WHERE patient_id = %s) OR ps.patient_id IN (SELECT admission_id FROM admissions WHERE patient_id = %s))")
+            params.extend([patient_id, patient_id, patient_id])
 
         if admission_id is not None:
-            where_clauses.append("ps.admission_id = %s")
-            params.append(admission_id)
+            where_clauses.append("(ps.admission_id = %s OR ps.patient_id = %s OR ps.patient_id IN (SELECT patient_id FROM admissions WHERE admission_id = %s))")
+            params.extend([admission_id, admission_id, admission_id])
 
         if status and isinstance(status, str) and status != 'All':
             if status.lower() == 'dispensed':
@@ -473,22 +473,73 @@ def get_pharmacy_sales(
                 where_clauses.append("LOWER(ps.payment_status) LIKE LOWER(%s)")
                 params.append(f"%{status}%")
 
-        if search and search.strip():
-            terms = [t.strip().lower() for t in search.strip().split() if t.strip()]
-            for t in terms:
-                s = f"%{t}%"
-                where_clauses.append("""(
-                    LOWER(ps.sale_id::text) LIKE %s OR
-                    LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
-                    LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
-                    LOWER(COALESCE(m.medication_name, '')) LIKE %s OR
-                    LOWER(COALESCE(w.ward_name, '')) LIKE %s OR
-                    LOWER(COALESCE(b.bed_number, '')) LIKE %s OR
-                    LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
-                    ('ph-' || ps.sale_id::text) LIKE %s OR
-                    ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
-                )""")
-                params.extend([s, s, s, s, s, s, s, s, s])
+        if search and isinstance(search, str) and search.strip():
+            raw_s = search.strip()
+            terms = [t.strip().lower() for t in raw_s.split() if t.strip()]
+            pat_term = f"%{'%'.join(terms)}%"
+
+            # 1. Fast patient & admission ID lookup (<0.005s)
+            cur.execute("""
+                SELECT id as pid FROM patients WHERE (first_name || ' ' || COALESCE(last_name, '')) ILIKE %s OR patient_code ILIKE %s
+                UNION
+                SELECT patient_id as pid FROM dim_admission_inputs WHERE (first_name || ' ' || COALESCE(last_name, '')) ILIKE %s OR patient_number ILIKE %s;
+            """, (pat_term, pat_term, pat_term, pat_term))
+            matched_pids = [r['pid'] for r in cur.fetchall() if r.get('pid')]
+
+            cur.execute("""
+                SELECT admission_id as adm_id FROM dim_admission_inputs WHERE (first_name || ' ' || COALESCE(last_name, '')) ILIKE %s OR patient_number ILIKE %s;
+            """, (pat_term, pat_term))
+            matched_adm_ids = [r['adm_id'] for r in cur.fetchall() if r.get('adm_id')]
+
+            # 2. Fast Rx / Sale number check
+            digits = "".join(ch for ch in raw_s if ch.isdigit())
+            matched_sale_ids = set()
+            if digits and len(digits) >= 2:
+                try:
+                    matched_sale_ids.add(int(digits))
+                except ValueError:
+                    pass
+
+            # 3. Fast medication formulary lookup
+            cur.execute("""
+                SELECT medication_id FROM medications 
+                WHERE medication_name ILIKE %s OR generic_name ILIKE %s OR brand_name ILIKE %s
+                LIMIT 30;
+            """, (f"%{raw_s}%", f"%{raw_s}%", f"%{raw_s}%"))
+            matched_med_ids = [mr['medication_id'] for mr in cur.fetchall() if mr.get('medication_id')]
+
+            conds = []
+            if matched_pids:
+                conds.append("ps.patient_id = ANY(%s)")
+                params.append(matched_pids)
+            if matched_adm_ids:
+                conds.append("ps.admission_id = ANY(%s)")
+                params.append(matched_adm_ids)
+            if matched_sale_ids:
+                conds.append("ps.sale_id = ANY(%s) OR ps.prescription_id = ANY(%s)")
+                params.extend([list(matched_sale_ids), list(matched_sale_ids)])
+            if matched_med_ids:
+                conds.append("EXISTS (SELECT 1 FROM pharmacy_sale_items psi_sub WHERE psi_sub.sale_id = ps.sale_id AND psi_sub.medication_id = ANY(%s))")
+                params.append(matched_med_ids)
+
+            if conds:
+                where_clauses.append("(" + " OR ".join(conds) + ")")
+            else:
+                for t in terms:
+                    s = f"%{t}%"
+                    where_clauses.append("""(
+                        LOWER(ps.sale_id::text) LIKE %s OR
+                        LOWER(pat.first_name || ' ' || COALESCE(pat.last_name, '')) LIKE %s OR
+                        LOWER(COALESCE(pat.patient_code, '')) LIKE %s OR
+                        LOWER(COALESCE(dim_adm.first_name || ' ' || COALESCE(dim_adm.last_name, ''), '')) LIKE %s OR
+                        LOWER(COALESCE(dim_adm.patient_number, '')) LIKE %s OR
+                        LOWER(COALESCE(w.ward_name, '')) LIKE %s OR
+                        LOWER(COALESCE(b.bed_number, '')) LIKE %s OR
+                        LOWER(COALESCE(ps.prescription_id::text, '')) LIKE %s OR
+                        ('ph-' || ps.sale_id::text) LIKE %s OR
+                        ('rx-2026-' || COALESCE(ps.prescription_id::text, '')) LIKE %s
+                    )""")
+                    params.extend([s, s, s, s, s, s, s, s, s, s])
 
         where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -499,9 +550,8 @@ def get_pharmacy_sales(
                 COUNT(DISTINCT CASE WHEN ps.payment_status = 'Paid' THEN ps.sale_id END) as dispensed,
                 COUNT(DISTINCT CASE WHEN ps.payment_status != 'Paid' THEN ps.sale_id END) as pending
             FROM pharmacy_sales ps
-            LEFT JOIN patients pat ON ps.patient_id = pat.id
-            LEFT JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
-            LEFT JOIN medications m ON psi.medication_id = m.medication_id
+            LEFT JOIN dim_admission_inputs dim_adm ON (dim_adm.admission_id = ps.admission_id OR (ps.admission_id IS NULL AND dim_adm.patient_id = ps.patient_id))
+            LEFT JOIN patients pat ON pat.id = COALESCE(ps.patient_id, dim_adm.patient_id)
             LEFT JOIN admissions a ON ps.admission_id = a.admission_id
             LEFT JOIN beds b ON a.bed_id = b.bed_id
             LEFT JOIN wards w ON a.ward_id = w.ward_id
@@ -516,23 +566,44 @@ def get_pharmacy_sales(
                 'PH-' || ps.sale_id::text as txn_number,
                 ps.patient_id,
                 ps.prescription_id,
-                COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || ps.patient_id) as patient,
-                COALESCE(pat.patient_code, 'PAT-' || ps.patient_id) as patient_code,
-                COALESCE(b.bed_number, 'OPD-Desk') as bed,
-                COALESCE(w.ward_name, 'Outpatient Pharmacy') as ward,
+                COALESCE(NULLIF(TRIM(pat.first_name || ' ' || COALESCE(pat.last_name, '')), ''), NULLIF(TRIM(dim_adm.first_name || ' ' || COALESCE(dim_adm.last_name, '')), ''), 'Patient #' || ps.patient_id) as patient,
+                COALESCE(pat.patient_code, dim_adm.patient_number, 'PAT-' || ps.patient_id) as patient_code,
+                COALESCE(b.bed_number, dim_adm.bed_number, 'OPD-Desk') as bed,
+                COALESCE(w.ward_name, dim_adm.ward_name, 'Outpatient Pharmacy') as ward,
                 ps.sale_date as time,
                 ps.total_amount,
                 ps.net_amount,
                 ps.payment_status,
-                COALESCE(m.medication_name, 'Paracetamol 650mg') as drug,
-                COALESCE(psi.quantity, 10) as qty,
-                COALESCE(psi.unit_price, 10.00) as unit_price,
-                COALESCE(inv.batch_number, 'BAT-2026-01') as batch_number
+                COALESCE(
+                    (
+                        SELECT string_agg(COALESCE(m2.medication_name, 'Medication'), ', ')
+                        FROM pharmacy_sale_items psi2
+                        LEFT JOIN medications m2 ON psi2.medication_id = m2.medication_id
+                        WHERE psi2.sale_id = ps.sale_id
+                    ),
+                    'Prescribed Medications'
+                ) as drug,
+                COALESCE(
+                    (SELECT SUM(psi2.quantity) FROM pharmacy_sale_items psi2 WHERE psi2.sale_id = ps.sale_id),
+                    10
+                ) as qty,
+                COALESCE(
+                    (SELECT AVG(psi2.unit_price) FROM pharmacy_sale_items psi2 WHERE psi2.sale_id = ps.sale_id),
+                    10.00
+                ) as unit_price,
+                COALESCE(
+                    (
+                        SELECT inv2.batch_number
+                        FROM pharmacy_sale_items psi2
+                        LEFT JOIN pharmacy_inventory inv2 ON psi2.inventory_id = inv2.inventory_id
+                        WHERE psi2.sale_id = ps.sale_id AND inv2.batch_number IS NOT NULL
+                        LIMIT 1
+                    ),
+                    'BAT-2026-01'
+                ) as batch_number
             FROM pharmacy_sales ps
-            LEFT JOIN patients pat ON ps.patient_id = pat.id
-            LEFT JOIN pharmacy_sale_items psi ON ps.sale_id = psi.sale_id
-            LEFT JOIN medications m ON psi.medication_id = m.medication_id
-            LEFT JOIN pharmacy_inventory inv ON psi.inventory_id = inv.inventory_id
+            LEFT JOIN dim_admission_inputs dim_adm ON (dim_adm.admission_id = ps.admission_id OR (ps.admission_id IS NULL AND dim_adm.patient_id = ps.patient_id))
+            LEFT JOIN patients pat ON pat.id = COALESCE(ps.patient_id, dim_adm.patient_id)
             LEFT JOIN admissions a ON ps.admission_id = a.admission_id
             LEFT JOIN beds b ON a.bed_id = b.bed_id
             LEFT JOIN wards w ON a.ward_id = w.ward_id
@@ -565,8 +636,8 @@ def get_pharmacy_sales(
                 "ward": r['ward'],
                 "drug": r['drug'],
                 "drug_name": r['drug'],
-                "qty": r['qty'],
-                "quantity": r['qty'],
+                "qty": int(r['qty'] or 1),
+                "quantity": int(r['qty'] or 1),
                 "unitPrice": float(r['unit_price'] or 0),
                 "unit_price": float(r['unit_price'] or 0),
                 "totalAmount": amt,

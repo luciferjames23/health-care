@@ -253,6 +253,43 @@ export const apiService = {
     }
   },
 
+  // Patient Management APIs (Full Relational Creation & Deletion)
+  async createFullPatient(payload, options = {}) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/patients/create-full`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      ...options
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}: Failed to create patient`);
+    }
+    this.clearCache();
+    return await res.json();
+  },
+
+  async deleteFullPatient(patientIdentifier, options = {}) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/patients/${encodeURIComponent(patientIdentifier)}/delete-full`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      ...options
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}: Failed to delete patient`);
+    }
+    this.clearCache();
+    return await res.json();
+  },
+
+  async getPatientFullDetails(patientIdentifier, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/patients/${encodeURIComponent(patientIdentifier)}/full-details`, {
+      revalidateMs: 1000,
+      ...options
+    });
+  },
+
   // Clinical Workspace & Operations Data APIs
   async getCommandCentreData(options = {}) {
     return await this.getBedManagementData(options);
@@ -2037,8 +2074,53 @@ export const apiService = {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     return await res.json();
+  },
+
+  // -------------------------------------------------------------------------
+  // Patient Lifecycle & Management APIs (IP/OP, Insurance, Bed, Billing, Deletion)
+  // -------------------------------------------------------------------------
+  async getAvailableBeds(params = {}, options = {}) {
+    const queryParams = new URLSearchParams();
+    if (params.ward_id) queryParams.append("ward_id", params.ward_id);
+    if (params.bed_type) queryParams.append("bed_type", params.bed_type);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/patients/available-beds?${queryParams.toString()}`, { revalidateMs: 2000, ...options });
+  },
+
+  async createFullPatient(payload) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patients/create-full`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Failed to create patient");
+    }
+    // Invalidate local caches
+    clearAllStorageCache();
+    return data;
+  },
+
+  async deleteFullPatient(patientIdentifier) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patients/${encodeURIComponent(patientIdentifier)}/delete-full`, {
+      method: "DELETE"
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || "Failed to delete patient");
+    }
+    // Invalidate local caches
+    clearAllStorageCache();
+    return data;
+  },
+
+  async getPatientFullDetails(patientIdentifier, options = {}) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/patients/${encodeURIComponent(patientIdentifier)}/full-details`, { revalidateMs: 0, forceRefresh: true, ...options });
   }
 };
+
+export const api = apiService;
+export default apiService;
 
 /**
  * Helper to extract unique identifier sets of discharged patients from discharge summaries API response.

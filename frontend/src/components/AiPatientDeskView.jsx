@@ -34,7 +34,7 @@ export default function AiPatientDeskView({ onNavigate }) {
       id: `m_${Date.now()}`,
       sender: "HUMAN_STAFF",
       text: replyText.trim(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     };
     setMessages(prev => [...prev, newMsg]);
     setReplyText("");

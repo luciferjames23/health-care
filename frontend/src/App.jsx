@@ -48,6 +48,7 @@ import DischargeAgentView from './components/DischargeAgentView';
 import { DischargeAgentPipeline } from './agent';
 import EmployeeServiceChatbot from './components/EmployeeServiceChatbot';
 import ProtocolCopilot from './components/ProtocolCopilot';
+import InsurancePreauthKanbanView from './components/InsurancePreauthKanbanView';
 
 // Integrated Prototype Views (AI Patient Desk, Appointments, Pre-Admission, Doctor Desk, Patient Chat)
 import AIPatientDesk from './pages/admin/AIPatientDesk';
@@ -60,6 +61,7 @@ import FeedbackPage from './pages/admin/FeedbackPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
 import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
+import PatientCreateAndManageView from './components/PatientCreateAndManageView';
 
 import {
   AppointmentsView,
@@ -108,7 +110,15 @@ export default function App() {
     try { return sessionStorage.getItem('hx_role') || null; } catch { return null; }
   });
   const [activePage, setActivePage] = useState(() => {
-    try { return sessionStorage.getItem('hx_page') || 'command'; } catch { return 'command'; }
+    try {
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        if (path.includes('/create-full/details') || path.includes('/create-full-details') || path.includes('/create-full')) {
+          return 'create-full-details';
+        }
+      }
+      return sessionStorage.getItem('hx_page') || 'command';
+    } catch { return 'command'; }
   });
 
   const [selectedPatient, setSelectedPatient] = useState(() => {
@@ -125,6 +135,24 @@ export default function App() {
   useEffect(() => {
     try { sessionStorage.setItem('hx_page', activePage); } catch { }
   }, [activePage]);
+
+  // Sync URL changes for direct testing route http://localhost:5173/create-full/details
+  useEffect(() => {
+    const handleUrlSync = () => {
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        if (path.includes('/create-full/details') || path.includes('/create-full-details') || path.includes('/create-full')) {
+          setActivePage('create-full-details');
+        }
+      }
+    };
+    window.addEventListener('popstate', handleUrlSync);
+    window.addEventListener('hashchange', handleUrlSync);
+    return () => {
+      window.removeEventListener('popstate', handleUrlSync);
+      window.removeEventListener('hashchange', handleUrlSync);
+    };
+  }, []);
   useEffect(() => {
     try {
       if (selectedPatient) {
@@ -350,17 +378,19 @@ export default function App() {
 
       {/* Main App Layout: Sidebar + Workspace View */}
       <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
-        <AppSidebar
-          activePage={activePage}
-          setActivePage={(page) => handleNavigate(page)}
-          userRole={role}
-          doctorName={role === 'Doctor' ? auth?.name : null}
-          dischargeCount={dischargeCount}
-        />
+        {role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && activePage !== 'create-full-details' && activePage !== 'create-full' && activePage !== '/create-full/details' && (
+          <AppSidebar
+            activePage={activePage}
+            setActivePage={(page) => handleNavigate(page)}
+            userRole={role}
+            doctorName={role === 'Doctor' ? auth?.name : null}
+            dischargeCount={dischargeCount}
+          />
+        )}
 
-        <main style={{ flex: 1, minWidth: 0, padding: '16px 24px 48px', overflowY: 'auto' }}>
-          {/* Unified Module Step-Back Navigation Header for all non-root modules (hidden in patient portal) */}
-          {activePage !== 'command' && role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && (
+        <main style={{ flex: 1, minWidth: 0, padding: (activePage === 'create-full-details' || activePage === 'create-full' || activePage === '/create-full/details') ? '0' : '16px 24px 48px', overflowY: 'auto' }}>
+          {/* Unified Module Step-Back Navigation Header for all non-root modules (hidden in patient portal & create full page) */}
+          {activePage !== 'command' && role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && activePage !== 'create-full-details' && activePage !== 'create-full' && activePage !== '/create-full/details' && (
             <div
               id="module-stepback-header"
               style={{
@@ -571,6 +601,13 @@ export default function App() {
               />
             )}
 
+            {(activePage === 'create-full-details' || activePage === 'create-full' || activePage === '/create-full/details') && (
+              <PatientCreateAndManageView
+                currentUser={auth}
+                onNavigate={(p) => handleNavigate(p)}
+              />
+            )}
+
             {activePage === 'patients' && (
               <PatientsView
                 onSelectPatient={handleSelectPatient}
@@ -624,6 +661,12 @@ export default function App() {
               />
             )}
             {activePage === 'approvals' && <ApprovalsView onNavigate={setActivePage} userRole={role} onOpenModal={setModal} />}
+            {activePage === 'preauth-desk' && (
+              <InsurancePreauthKanbanView
+                onOpenPatient={handleSelectPatient}
+                onNavigate={handleNavigate}
+              />
+            )}
             {activePage === 'orchestrator' && <OrchestratorView onNavigate={setActivePage} />}
             {activePage === 'runs' && <AgentRunsView onNavigate={setActivePage} />}
             {activePage === 'knowledge' && <GovernedKnowledgeView onOpenModal={setModal} />}
@@ -770,7 +813,7 @@ export default function App() {
             {![
               'command', 'patients', 'admissions', 'bedboard', 'clinical', 'discharge', 'soap', 'patient360',
               'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
-              'ai-command', 'agents', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
+              'ai-command', 'agents', 'preauth-desk', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
               'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
               'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
               'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
@@ -782,7 +825,7 @@ export default function App() {
               'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
               'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
               'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
-              'forecasting', 'beforeafter', 'feedback'
+              'forecasting', 'beforeafter', 'feedback', 'create-full-details', 'create-full', '/create-full/details'
             ].includes(activePage) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

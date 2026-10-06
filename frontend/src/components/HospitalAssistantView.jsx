@@ -38,7 +38,7 @@ export default function HospitalAssistantView({ onNavigate, defaultQuery = '' })
     const q = (text || input).trim();
     if (!q) return;
 
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const userMsg = { who: 'user', text: q, ts: timeStr };
     const updatedMsgs = [...currentChat.msgs, userMsg];
 

@@ -109,6 +109,12 @@ try:
 except Exception as e:
     print(f"Failed to load preauth agent router: {e}")
 
+try:
+    from routers.patient_management import router as patient_management_router
+    routers_to_mount.append(patient_management_router)
+except Exception as e:
+    print(f"Failed to load patient management router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

@@ -102,6 +102,7 @@ export const NAV_GROUPS = [
       { id: 'ai-desk', label: 'AI Patient Desk' },
       { id: 'patient-chat', label: 'Patient Portal Chat', badge: 'Interactive' },
       { id: 'ai-command', label: 'AI Command Centre' },
+      { id: 'preauth-desk', label: 'Insurance Preauth Desk', badge: 'AG-07', badgeColor: 'oklch(0.5 0.1 200)' },
       { id: 'agents', label: 'Agents' },
       { id: 'orchestrator', label: 'Orchestrator' },
       { id: 'runs', label: 'Agent Runs' },
