@@ -213,40 +213,39 @@ def get_or_create_whatsapp_session(whatsapp_number: str) -> str:
     cur = conn.cursor()
     try:
         norm_wnum = normalize_phone(whatsapp_number)
+        # Only find sessions that have last_message_at set (real sessions, not test/orphaned ones)
         cur.execute("""
             SELECT id, conversation_code, last_message_at FROM conversations 
             WHERE (
                 whatsapp_number = %s OR 
                 (whatsapp_number IS NOT NULL AND RIGHT(REGEXP_REPLACE(whatsapp_number, '[^0-9]', '', 'g'), 10) = %s AND %s <> '')
             ) AND conversation_status = 'ACTIVE'
-            ORDER BY id DESC LIMIT 1;
+              AND last_message_at IS NOT NULL
+            ORDER BY last_message_at DESC, id DESC LIMIT 1;
         """, (whatsapp_number, norm_wnum, norm_wnum))
         row = cur.fetchone()
         if row:
             conv_id, conv_code, last_msg_at = row[0], row[1], row[2]
             # Check 24-hour inactivity timeout
-            if last_msg_at:
-                now_utc = datetime.now(timezone.utc)
-                if last_msg_at.tzinfo is None:
-                    last_msg_at = last_msg_at.replace(tzinfo=timezone.utc)
-                if (now_utc - last_msg_at) > timedelta(hours=24):
-                    cur.execute("UPDATE conversations SET conversation_status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP WHERE id = %s;", (conv_id,))
-                    conn.commit()
-                else:
-                    return conv_code
+            now_utc = datetime.now(timezone.utc)
+            if last_msg_at.tzinfo is None:
+                last_msg_at = last_msg_at.replace(tzinfo=timezone.utc)
+            if (now_utc - last_msg_at) > timedelta(hours=24):
+                cur.execute("UPDATE conversations SET conversation_status = 'COMPLETED', ended_at = CURRENT_TIMESTAMP WHERE id = %s;", (conv_id,))
+                conn.commit()
             else:
+                # Update last_message_at to now so session stays alive
+                cur.execute("UPDATE conversations SET last_message_at = CURRENT_TIMESTAMP WHERE id = %s;", (conv_id,))
+                conn.commit()
                 return conv_code
 
         # Generate a unique session ID if none active
-        base_code = f"WA_{whatsapp_number}"
-        cur.execute("SELECT id FROM conversations WHERE conversation_code = %s;", (base_code,))
-        if cur.fetchone() is None:
-            return base_code
-        else:
-            return f"WA_{whatsapp_number}_{int(time.time())}"
+        new_code = f"WA_{whatsapp_number}_{int(time.time())}"
+        return new_code
     finally:
         cur.close()
         conn.close()
+
 
 
 
@@ -594,14 +593,10 @@ def verify_webhook(
 
 @router.post("/webhook")
 async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
-    print("========== WEBHOOK ROUTE HIT ==========")
-
     """
     Receive incoming WhatsApp messages (text, voice, delivery logs).
     POST /api/whatsapp/webhook
     """
-    print("[DEBUG] Entered receive_webhook endpoint")
-
     # Security Verification: Validate X-Hub-Signature-256 header using the Meta App Secret
     is_mock = whatsapp_client.is_mock_mode()
     
@@ -626,18 +621,15 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
                     hashlib.sha256
                 ).hexdigest()
                 if not hmac.compare_digest(calculated_signature, expected_signature):
-                    print(f"[SECURITY WARNING] WhatsApp webhook signature mismatch. Expected: {expected_signature}, Calculated: {calculated_signature}")
-                else:
-                    print("[SECURITY] WhatsApp webhook signature validation passed")
+                    print(f"[SECURITY WARNING] WhatsApp webhook signature mismatch.")
             except Exception as e:
                 print(f"[SECURITY WARNING] Signature verification exception: {e}")
 
     try:
         payload = await request.json()
-        print(f"[DEBUG] Incoming payload received: {json.dumps(payload)}")
     except Exception as e:
-        print(f"[DEBUG] Failed to parse JSON payload: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
 
     # Log payload for auditing
     scratch_dir = os.path.join(backend_dir, "scratch")

@@ -534,13 +534,14 @@ def is_valid_person_name(name_str: Optional[str]) -> bool:
     
     # Meta phrases & command words that indicate non-name intent
     invalid_keywords = [
-        "change", "edit", "detail", "details", "register", "registration", "appointment", "book", "booking",
-        "first-time", "first time", "existing", "visitor", "male", "female", "gender", "dob", "date of birth",
-        "phone", "number", "reason", "symptom", "fever", "cough", "cold", "doctor", "hospital", "patient",
-        "help", "cancel", "reset", "start", "stop", "no", "yes", "none", "nothing", "wait", "what", "where",
-        "how", "when", "why", "who", "need", "want", "please", "thanks", "thank", "show", "list", "delete",
-        "remove", "confirm", "correct", "update", "modify", "profile", "account", "info", "information",
-        "good morning", "good afternoon", "good evening", "hello", "hey", "hi"
+        "change", "edit", "detail", "details", "register", "registered", "registration", "already", "already registered",
+        "appointment", "book", "booking", "first-time", "first time", "existing", "visitor", "male", "female", "gender",
+        "dob", "date of birth", "phone", "number", "reason", "symptom", "fever", "cough", "cold", "doctor", "hospital",
+        "patient", "help", "cancel", "reset", "start", "stop", "no", "yes", "none", "null", "undefined", "nothing",
+        "wait", "what", "where", "how", "when", "why", "who", "need", "want", "please", "thanks", "thank", "show", "list",
+        "delete", "remove", "confirm", "correct", "update", "modify", "profile", "account", "info", "information",
+        "good morning", "good afternoon", "good evening", "hello", "hey", "hi", "switch", "switch patient", "my profile",
+        "blood group", "email", "btn_confirm_reg", "btn_edit_reg", "btn_first_time", "btn_existing_patient"
     ]
     
     for kw in invalid_keywords:

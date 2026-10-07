@@ -69,6 +69,53 @@ class CancelEntryRequest(BaseModel):
     reason: Optional[str] = None
 
 
+# ─── Authorization Helpers ───────────────────────────────────────────────────
+
+def verify_session_doctor_access(user: dict, session_id: int):
+    """Enforce doctor isolation: Doctor role can only manage their own queue session."""
+    user_role = (user.get("role") or "").upper()
+    if user_role == "DOCTOR":
+        user_doctor_id = user.get("doctor_id")
+        if not user_doctor_id:
+            raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "Doctor ID missing from credentials."})
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT doctor_id FROM queue_sessions WHERE id = %s;", (session_id,))
+            row = cur.fetchone()
+            if row and int(row[0]) != int(user_doctor_id):
+                raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "You are not authorized to access another doctor's queue session."})
+        finally:
+            cur.close()
+            conn.close()
+
+def verify_entry_doctor_access(user: dict, entry_id: int):
+    """Enforce doctor isolation: Doctor role can only manage their own queue entries."""
+    user_role = (user.get("role") or "").upper()
+    if user_role == "DOCTOR":
+        user_doctor_id = user.get("doctor_id")
+        if not user_doctor_id:
+            raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "Doctor ID missing from credentials."})
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT doctor_id FROM queue_entries WHERE id = %s;", (entry_id,))
+            row = cur.fetchone()
+            if row and int(row[0]) != int(user_doctor_id):
+                raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "You are not authorized to access another doctor's queue entry."})
+        finally:
+            cur.close()
+            conn.close()
+
+def verify_patient_access(user: dict, patient_id: int):
+    """Enforce patient isolation: Patient role can only access their own queue details."""
+    user_role = (user.get("role") or "").upper()
+    if user_role == "PATIENT":
+        user_patient_id = user.get("patient_id")
+        if user_patient_id and int(user_patient_id) != int(patient_id):
+            raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_PATIENT_ACCESS", "message": "You are not authorized to access another patient's queue data."})
+
+
 # ─── Patient Check-In ─────────────────────────────────────────────────────────
 
 @router.post(
@@ -810,3 +857,26 @@ def get_queue_stats_today(user: dict = Depends(get_current_user)):
     finally:
         cur.close()
         conn.close()
+
+
+# ─── Patient Queue Status ─────────────────────────────────────────────────────
+
+@router.get(
+    "/patient/{patient_id}",
+    summary="Patient: Get active queue status for today"
+)
+def get_patient_queue_status_api(
+    patient_id: int,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Returns active queue status for patient today.
+    Enforces patient authorization (patient can only view their own queue).
+    """
+    verify_patient_access(user, patient_id)
+    try:
+        result = queue_service.get_patient_queue_status(patient_id)
+        return {"success": True, "data": result}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -510,6 +510,66 @@ def ensure_agent_config_table():
             ],
             "managed_state": "Configurable • Dynamic"
         })
+
+        # ── AG-06  Queue / Flow Agent ─────────────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-06",
+            "name": "Queue / Flow Agent",
+            "name_ta": "வரிசை நிர்வாக முகவர்",
+            "type": "Monitor & Dispatcher",
+            "version": "1.0.0",
+            "owner": "Outpatient Operations",
+            "risk_tier": "Low",
+            "status": "Published",
+            "human_approval": "Automated • deterministic rules",
+            "purpose": "Monitor OPD queues, calculate tokens/ETA, and dispatch WhatsApp notifications.",
+            "last_run": "Just now",
+            "success_rate": "99.8%",
+            "runs": 1500,
+            "instructions": {
+                "objective": "Provide real-time OPD queue status updates and minimize patient waiting room congestion.",
+                "system": "You are the AG-06 Queue / Flow Agent for Meridian Hospital. All queue facts (tokens, positions, ETAs) are computed deterministically by PostgreSQL.",
+                "rules": "Never guess or compute tokens/positions using LLM. Respect patient's preferred language. Idempotency is strictly enforced.",
+                "safety": "Do not alter clinical triage or priority without doctor/admin action.",
+                "escalation": "Escalate doctor delays exceeding 15 minutes to Outpatient Nursing Lead.",
+                "refusal": "\"Queue information unavailable.\" then route to front desk."
+            },
+            "tools": [
+                { "tool": "QueueEngine", "perm": "Calculate token, position, ETA", "read": True, "write": True, "appr": "None", "enabled": True },
+                { "tool": "WhatsAppNotification", "perm": "Send queue updates via WhatsApp", "read": False, "write": True, "appr": "None", "enabled": True }
+            ],
+            "knowledge": [
+                { "t": "Meridian OPD Queue SOP", "v": "2.0", "eff": "01 Jan 2026", "status": "Published" }
+            ],
+            "memory": {
+                "session": "On • Queue Session scoped",
+                "patient": "Token-scoped",
+                "workflow": "On",
+                "retention": "30 days (audit logs)",
+                "sensitive": "No clinical data stored"
+            },
+            "access": {
+                "roles": "Front Desk, Outpatient Wards, Admin, Doctors",
+                "departments": "All Outpatient Departments",
+                "patients": "Checked-in OPD Patients",
+                "scopes": "Queue session management & notifications",
+                "env": "Production"
+            },
+            "model": {
+                "model": "meridian-llm-small",
+                "temperature": 0.1,
+                "tokens": 4000,
+                "fallback": "rule-based-engine",
+                "mode": "Deterministic + Multilingual Templates"
+            },
+            "evals": [
+                { "id": "EV-801", "ver": "v1.0.0", "when": "07 Oct 2026", "cases": 150, "acc": "99.8%", "ground": "100%", "hall": "0.0%", "ref": "100%", "lat": "45ms", "res": "Pass" }
+            ],
+            "versions": [
+                { "v": "1.0.0", "ts": "Today", "author": "Outpatient Engineering", "changes": "Initial production release of AG-06 Queue Agent", "score": "99.8", "state": "Published", "bg": "#dcfce7", "fg": "#15803d" }
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
         conn.commit()
 
         # ── AG-08  Billing Transparency Agent ─────────────────────────────────

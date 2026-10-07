@@ -88,8 +88,8 @@ def parse_and_normalize_date(text: str, reference_date: Optional[datetime.date] 
         except ValueError:
             return None, False, "Invalid calendar date"
 
-    # 4. Textual months: "15 August 1995", "August 15 1995", "15th Aug 95", "Aug 15, 1995"
-    pattern_text_month = r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\s*,?\s*(\d{2,4})\b|\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{2,4})\b"
+    # 4. Textual months: "15 August 1995", "20-Jan-2001", "August 15 1995", "15th Aug 95", "Aug 15, 1995"
+    pattern_text_month = r"\b(\d{1,2})(?:st|nd|rd|th)?[\s\-\./]+([a-z]+)[\s\-\./,]+(\d{2,4})\b|\b([a-z]+)[\s\-\./]+(\d{1,2})(?:st|nd|rd|th)?[\s\-\./,]+(\d{2,4})\b"
     match_text_month = re.search(pattern_text_month, text_clean)
     if match_text_month:
         g = match_text_month.groups()

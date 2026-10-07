@@ -544,10 +544,10 @@ def call_next_patient(queue_session_id: int, called_by_user_id: Optional[int] = 
 
 
 def start_consultation(queue_entry_id: int, started_by_user_id: Optional[int] = None) -> Dict[str, Any]:
-    """Mark a CALLED entry as IN_CONSULTATION."""
+    """Mark a WAITING, CALLED, or NEXT entry as IN_CONSULTATION."""
     return _update_entry_status(
         queue_entry_id=queue_entry_id,
-        from_statuses=['CALLED', 'NEXT'],
+        from_statuses=['WAITING', 'CALLED', 'NEXT'],
         to_status='IN_CONSULTATION',
         timestamp_col='consultation_started_at',
         audit_action='CONSULTATION_STARTED',
@@ -1185,7 +1185,10 @@ def detect_doctor_delay(queue_session_id: int, delay_threshold_minutes: int = 15
             return None
 
         slot_duration = get_slot_duration_minutes(conn, doctor_id, datetime.date.today())
-        elapsed_minutes = (datetime.datetime.now(datetime.timezone.utc) - consult_started).total_seconds() / 60
+        now_dt = datetime.datetime.now(datetime.timezone.utc)
+        if consult_started and consult_started.tzinfo is None:
+            now_dt = datetime.datetime.now()
+        elapsed_minutes = (now_dt - consult_started).total_seconds() / 60
         overrun_minutes = elapsed_minutes - slot_duration
 
         if overrun_minutes >= delay_threshold_minutes:

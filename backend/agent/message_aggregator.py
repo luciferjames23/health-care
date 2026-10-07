@@ -61,6 +61,7 @@ class MessageAggregator:
         self._lock = threading.Lock()
         # phone_number -> {"text": str, "expires_at": float, "timer": Timer|None}
         self._buffer: dict = {}
+        self._flush_callback = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -251,12 +252,7 @@ class MessageAggregator:
         """
         self._flush_callback = callback
 
-    def __init__(self, window_seconds: float = 3.0, max_buffer_size: int = 2000):
-        self._window = window_seconds
-        self._max_len = max_buffer_size
-        self._lock = threading.Lock()
-        self._buffer: dict = {}
-        self._flush_callback = None
+
 
 
 # ---------------------------------------------------------------------------
