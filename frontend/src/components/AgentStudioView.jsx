@@ -1481,6 +1481,39 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
     governanceGate: 'Capacity Decision Support (Human Supervisor Review for Ward Allocations)'
   };
 
+  const DEFAULT_APPOINTMENT_MODEL_CONFIG = {
+    primaryModel: 'meridian-llm-large',
+    llmProvider: 'Meridian Inference Engine',
+    fallbackModel: 'meridian-llm-small',
+    temperature: 0.20,
+    tokenLimit: '8,000 tokens (Max context: 128k)',
+    latencyTarget: '< 3 s p50',
+    executionProtocol: 'Sequential Appointment Protocol (Patient Lookup → Slot Verification → WhatsApp/SMS)',
+    governanceGate: 'Front Office Operational Gate (No clinical write)'
+  };
+
+  const DEFAULT_PATIENT_ACCESS_MODEL_CONFIG = {
+    primaryModel: 'meridian-llm-large',
+    llmProvider: 'Meridian Inference Engine',
+    fallbackModel: 'meridian-llm-small',
+    temperature: 0.20,
+    tokenLimit: '8,000 tokens (Max context: 128k)',
+    latencyTarget: '< 3 s p50',
+    executionProtocol: 'Bilingual Patient Guidance Protocol (Tamil / English Inquiry → Information Synthesis)',
+    governanceGate: 'Patient Experience Oversight Gate (Zero clinical interpretation)'
+  };
+
+  const DEFAULT_PREREGISTRATION_MODEL_CONFIG = {
+    primaryModel: 'meridian-llm-large',
+    llmProvider: 'Meridian Inference Engine',
+    fallbackModel: 'meridian-llm-small',
+    temperature: 0.20,
+    tokenLimit: '8,000 tokens (Max context: 128k)',
+    latencyTarget: '< 3 s p50',
+    executionProtocol: 'Front Office Pre-registration Protocol (UHID Validation → OPD Slot Check → Pass Gen)',
+    governanceGate: 'Front Office Clearance Gate (Provisional Pass Only)'
+  };
+
   // Default model config for Feedback Agent (AG-05) — baseline from DB seed.
   // This is only the UI fallback; the authoritative values come from the DB via backendAgentConfig.
   const DEFAULT_FEEDBACK_MODEL_CONFIG = {
@@ -1495,12 +1528,15 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   };
 
   const [agentModelConfigs, setAgentModelConfigs] = useState({
-    'AG-19': { ...DEFAULT_MODEL_CONFIG },
-    'AG-18': { ...DEFAULT_NURSING_MODEL_CONFIG },
+    'AG-01': { ...DEFAULT_APPOINTMENT_MODEL_CONFIG },
+    'AG-02': { ...DEFAULT_PATIENT_ACCESS_MODEL_CONFIG },
+    'AG-03': { ...DEFAULT_PREREGISTRATION_MODEL_CONFIG },
+    'AG-05': { ...DEFAULT_FEEDBACK_MODEL_CONFIG },
     'AG-04': { ...DEFAULT_EMPLOYEE_MODEL_CONFIG },
     'AG-14': { ...DEFAULT_ANALYTICS_MODEL_CONFIG },
     'AG-15': { ...DEFAULT_FORECASTING_MODEL_CONFIG },
-    'AG-05': { ...DEFAULT_FEEDBACK_MODEL_CONFIG }
+    'AG-18': { ...DEFAULT_NURSING_MODEL_CONFIG },
+    'AG-19': { ...DEFAULT_MODEL_CONFIG }
   });
   const [modelSavedNotice, setModelSavedNotice] = useState(null);
   const [modelDeploying, setModelDeploying] = useState(false);
@@ -2080,15 +2116,18 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
 
   // IF AN AGENT IS SELECTED, RENDER AGENT BUILDER STUDIO WORKSPACE
   if (selectedAgent) {
+    const isAppointmentAgent = selectedAgent.id === 'AG-01' || selectedAgent.name === 'Appointment Agent';
+    const isPatientAccessAgent = selectedAgent.id === 'AG-02' || selectedAgent.name === 'Patient Access Agent';
+    const isPreregistrationAgent = selectedAgent.id === 'AG-03' || selectedAgent.name === 'Pre-registration Agent';
     const isPreauthAgent = selectedAgent.id === 'AG-07' || selectedAgent.name === 'Insurance Preauth Agent';
     const isDischargeAgent = selectedAgent.id === 'AG-19' || selectedAgent.name === 'Discharge Summary Agent';
     const isNursingAgent = selectedAgent.id === 'AG-18' || selectedAgent.name === 'Nursing Handover Agent';
     const isEmployeeAgent = selectedAgent.id === 'AG-04' || selectedAgent.name === 'Employee Service Agent';
     const isAnalyticsAgent = selectedAgent.id === 'AG-14' || selectedAgent.name === 'Analytics Agent';
     const isForecastingAgent = selectedAgent.id === 'AG-15' || selectedAgent.name === 'Forecasting Agent';
-    // Feedback Agent is Admin-configurable — model, instructions, tools are persisted to the database.
+    // Feedback Agent & Registration / Appointment / Patient Access agents are Admin-configurable.
     const isFeedbackAgent = selectedAgent.id === 'AG-05' || selectedAgent.name === 'Feedback Agent';
-    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent || isFeedbackAgent;
+    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent || isFeedbackAgent || isAppointmentAgent || isPatientAccessAgent || isPreregistrationAgent;
     const currentAgentStatus = agentCustomStatuses[selectedAgent.id] || selectedAgent.status;
     const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
 
@@ -2721,6 +2760,9 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             if (id === 'AG-14') return DEFAULT_ANALYTICS_MODEL_CONFIG;
             if (id === 'AG-15') return DEFAULT_FORECASTING_MODEL_CONFIG;
             if (id === 'AG-05') return DEFAULT_FEEDBACK_MODEL_CONFIG;
+            if (id === 'AG-01') return DEFAULT_APPOINTMENT_MODEL_CONFIG;
+            if (id === 'AG-02') return DEFAULT_PATIENT_ACCESS_MODEL_CONFIG;
+            if (id === 'AG-03') return DEFAULT_PREREGISTRATION_MODEL_CONFIG;
             return DEFAULT_MODEL_CONFIG;
           };
           const fallbackConfig = getDefaultConfig(currentAgentId);

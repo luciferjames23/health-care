@@ -239,6 +239,32 @@ class AgentConfigPayload(BaseModel):
     evals: Optional[list] = None
     versions: Optional[list] = None
     managed_state: Optional[str] = None
+    last_run: Optional[str] = None
+    success_rate: Optional[str] = None
+    runs: Optional[int] = None
+
+
+# Shared INSERT helper so seed blocks stay DRY
+def _insert_agent_seed(cur, ag):
+    cur.execute("""
+        INSERT INTO agent_configurations (
+            agent_id, name, name_ta, type, version, owner, risk_tier, status,
+            human_approval, purpose, instructions, tools, knowledge, memory, access,
+            model, evals, versions, managed_state, last_run, success_rate, runs
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (agent_id) DO NOTHING;
+    """, (
+        ag["agent_id"], ag["name"], ag.get("name_ta", ""),
+        ag["type"], ag["version"], ag["owner"],
+        ag["risk_tier"], ag["status"], ag["human_approval"],
+        ag["purpose"],
+        json.dumps(ag["instructions"]), json.dumps(ag["tools"]),
+        json.dumps(ag["knowledge"]), json.dumps(ag["memory"]),
+        json.dumps(ag["access"]), json.dumps(ag["model"]),
+        json.dumps(ag["evals"]), json.dumps(ag["versions"]),
+        ag["managed_state"],
+        ag.get("last_run"), ag.get("success_rate"), ag.get("runs")
+    ))
 
 
 def ensure_agent_config_table():
@@ -272,88 +298,288 @@ def ensure_agent_config_table():
         """)
         conn.commit()
 
-        cur.execute("SELECT COUNT(*) FROM agent_configurations WHERE agent_id = 'AG-05';")
-        if cur.fetchone()[0] == 0:
-            ag05_default = {
-                "agent_id": "AG-05",
-                "name": "Feedback Agent",
-                "name_ta": "கருத்து & குறைதீர்ப்பு முகவர்",
-                "type": "Monitor",
-                "version": "1.2.0",
-                "owner": "Quality",
-                "risk_tier": "Medium",
-                "status": "Published",
-                "human_approval": "Selective • owner Quality",
-                "purpose": "Assist Quality with feedback tasks under human oversight.",
-                "instructions": {
-                    "objective": "Reduce turnaround and manual coordination for Quality.",
-                    "system": "You are the Hospital Feedback Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.",
-                    "rules": "Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.",
-                    "safety": "Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.",
-                    "escalation": "Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.",
-                    "refusal": "\"I don't have enough verified information to answer this safely.\" then route to a human."
-                },
-                "tools": [
-                    { "tool": "Messaging", "perm": "Collect patient sentiment & feedback", "read": True, "write": True, "appr": "None", "enabled": True },
-                    { "tool": "Notification", "perm": "Trigger grievance escalation timer", "read": False, "write": True, "appr": "Quality Lead", "enabled": True }
-                ],
-                "knowledge": [
-                    { "t": "NABH Patient Rights Charter", "v": "1.0", "eff": "01 Feb 2026", "status": "Published" }
-                ],
-                "memory": {
-                    "session": "On · 30 min",
-                    "patient": "Encounter-scoped",
-                    "workflow": "On",
-                    "retention": "90 days (audit) · 0 days (conversation)",
-                    "sensitive": "No free-text PHI stored"
-                },
-                "access": {
-                    "roles": "Quality, Hospital Management, Admin",
-                    "departments": "All wards",
-                    "patients": "Care-team relationship required",
-                    "scopes": "Operational + financial (no clinical write)",
-                    "env": "Production"
-                },
-                "model": {
-                    "model": "meridian-llm-large",
-                    "temperature": 0.2,
-                    "tokens": 8000,
-                    "fallback": "meridian-llm-small",
-                    "latency": "< 3 s p50",
-                    "cost": "₹18 / run"
-                },
-                "evals": [
-                    { "id": "EV-705", "ver": "v1.2.0", "when": "08 Sep 2026", "cases": 110, "acc": "91.7%", "ground": "95.2%", "hall": "0.6%", "ref": "97%", "lat": "2.1s", "res": "Pass" }
-                ],
-                "versions": [
-                    { "v": "1.2.0", "ts": "21 days ago", "author": "Clinical Informatics", "changes": "Prompt safety hardening", "score": "91.7", "state": "Published", "bg": "#dcfce7", "fg": "#15803d" },
-                    { "v": "1.0.0", "ts": "55 days ago", "author": "AI Engineering", "changes": "Initial release", "score": "88.4", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569" }
-                ],
-                "managed_state": "Configurable • Dynamic"
-            }
+        # Add optional observability columns idempotently
+        for col_sql in [
+            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS last_run VARCHAR(50);",
+            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS success_rate VARCHAR(20);",
+            "ALTER TABLE agent_configurations ADD COLUMN IF NOT EXISTS runs INTEGER DEFAULT 0;",
+        ]:
+            try:
+                cur.execute(col_sql)
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
-            cur.execute("""
-                INSERT INTO agent_configurations (
-                    agent_id, name, name_ta, type, version, owner, risk_tier, status,
-                    human_approval, purpose, instructions, tools, knowledge, memory, access,
-                    model, evals, versions, managed_state
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-            """, (
-                ag05_default["agent_id"], ag05_default["name"], ag05_default["name_ta"],
-                ag05_default["type"], ag05_default["version"], ag05_default["owner"],
-                ag05_default["risk_tier"], ag05_default["status"], ag05_default["human_approval"],
-                ag05_default["purpose"], json.dumps(ag05_default["instructions"]),
-                json.dumps(ag05_default["tools"]), json.dumps(ag05_default["knowledge"]),
-                json.dumps(ag05_default["memory"]), json.dumps(ag05_default["access"]),
-                json.dumps(ag05_default["model"]), json.dumps(ag05_default["evals"]),
-                json.dumps(ag05_default["versions"]), ag05_default["managed_state"]
-            ))
-            conn.commit()
+        # ── AG-01  Appointment Agent ──────────────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-01",
+            "name": "Appointment Agent",
+            "name_ta": "சந்திப்பு முன்பதிவு முகவர்",
+            "type": "Workflow Agent",
+            "version": "2.3.1",
+            "owner": "Front Office",
+            "risk_tier": "Low",
+            "status": "Published",
+            "human_approval": "None",
+            "purpose": "Assist Front Office with appointment tasks under human oversight.",
+            "last_run": "11:19",
+            "success_rate": "96.8%",
+            "runs": 412,
+            "instructions": {
+                "objective": "Reduce turnaround and manual coordination for Front Office.",
+                "system": "You are the Hospital Appointment Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.",
+                "rules": "Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.",
+                "safety": "Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.",
+                "escalation": "Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.",
+                "refusal": "\"I don't have enough verified information to answer this safely.\" then route to a human."
+            },
+            "tools": [
+                {"tool": "Patient Search", "perm": "Lookup patient UHID & demographics", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "Appointment API", "perm": "Query OPD schedules & book slots", "read": True, "write": True, "appr": "None", "enabled": True},
+                {"tool": "Messaging", "perm": "Send WhatsApp / SMS confirmation", "read": True, "write": True, "appr": "None", "enabled": True}
+            ],
+            "knowledge": [
+                {"t": "Visiting Hours & Attendant Policy", "v": "2.0", "eff": "01 Jun 2026", "status": "Published"},
+                {"t": "NABH Patient Rights Charter", "v": "1.0", "eff": "01 Feb 2026", "status": "Published"}
+            ],
+            "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
+            "access": {"roles": "Front Office, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
+            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹14 / run"},
+            "evals": [
+                {"id": "EV-701", "ver": "v2.3.1", "when": "Today 11:15", "cases": 120, "acc": "96.8%", "ground": "98.0%", "hall": "0.4%", "ref": "99%", "lat": "1.6s", "res": "Pass"},
+                {"id": "EV-640", "ver": "v2.0.0", "when": "18 Aug 2026", "cases": 100, "acc": "94.5%", "ground": "96.2%", "hall": "0.8%", "ref": "98%", "lat": "1.8s", "res": "Pass"}
+            ],
+            "versions": [
+                {"v": "2.3.1", "ts": "21 days ago", "author": "AI Engineering", "changes": "Escalation tuning", "score": "96.8", "state": "Published", "bg": "#dcfce7", "fg": "#15803d"},
+                {"v": "2.0.0", "ts": "41 days ago", "author": "Ops Product", "changes": "Added escalation rules", "score": "94.5", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569"},
+                {"v": "1.0.0", "ts": "61 days ago", "author": "Clinical Informatics", "changes": "Initial release", "score": "91.2", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569"}
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
+        conn.commit()
+
+        # ── AG-02  Patient Access Agent ───────────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-02",
+            "name": "Patient Access Agent",
+            "name_ta": "நோயாளி தொடர்பு முகவர்",
+            "type": "Answerer",
+            "version": "1.8.0",
+            "owner": "Patient Experience",
+            "risk_tier": "Low",
+            "status": "Published",
+            "human_approval": "None",
+            "purpose": "Assist Patient Experience with patient access tasks under human oversight.",
+            "last_run": "11:18",
+            "success_rate": "95.1%",
+            "runs": 380,
+            "instructions": {
+                "objective": "Reduce turnaround and manual coordination for Patient Experience.",
+                "system": "You are the Hospital Patient Access Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.",
+                "rules": "Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.",
+                "safety": "Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.",
+                "escalation": "Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.",
+                "refusal": "\"I don't have enough verified information to answer this safely.\" then route to a human."
+            },
+            "tools": [
+                {"tool": "Patient Search", "perm": "Lookup patient registration context", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "Messaging", "perm": "Provide bilingual WhatsApp guidance", "read": True, "write": True, "appr": "None", "enabled": True}
+            ],
+            "knowledge": [
+                {"t": "Visiting Hours & Attendant Policy", "v": "2.0", "eff": "01 Jun 2026", "status": "Published"},
+                {"t": "NABH Patient Rights Charter", "v": "1.0", "eff": "01 Feb 2026", "status": "Published"}
+            ],
+            "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
+            "access": {"roles": "Patient Experience, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
+            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹12 / run"},
+            "evals": [
+                {"id": "EV-702", "ver": "v1.8.0", "when": "Today 11:10", "cases": 140, "acc": "95.1%", "ground": "97.5%", "hall": "0.3%", "ref": "100%", "lat": "1.9s", "res": "Pass"}
+            ],
+            "versions": [
+                {"v": "1.8.0", "ts": "21 days ago", "author": "AI Engineering", "changes": "Prompt safety hardening", "score": "95.1", "state": "Published", "bg": "#dcfce7", "fg": "#15803d"},
+                {"v": "1.0.0", "ts": "61 days ago", "author": "Ops Product", "changes": "Initial release", "score": "92.0", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569"}
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
+        conn.commit()
+
+        # ── AG-03  Pre-registration Agent ─────────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-03",
+            "name": "Pre-registration Agent",
+            "name_ta": "முன்-பதிவு முகவர்",
+            "type": "Workflow Agent",
+            "version": "1.4.2",
+            "owner": "Front Office",
+            "risk_tier": "Low",
+            "status": "Published",
+            "human_approval": "None",
+            "purpose": "Assist Front Office with pre-registration tasks under human oversight.",
+            "last_run": "11:12",
+            "success_rate": "97.4%",
+            "runs": 96,
+            "instructions": {
+                "objective": "Reduce turnaround and manual coordination for Front Office.",
+                "system": "You are the Hospital Pre-registration Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.",
+                "rules": "Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.",
+                "safety": "Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.",
+                "escalation": "Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.",
+                "refusal": "\"I don't have enough verified information to answer this safely.\" then route to a human."
+            },
+            "tools": [
+                {"tool": "Patient Search", "perm": "Validate UHID / KYC credentials", "read": True, "write": True, "appr": "None", "enabled": True},
+                {"tool": "Appointment API", "perm": "Verify upcoming OPD slot", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "Document Generator", "perm": "Generate provisional digital pass", "read": True, "write": True, "appr": "None", "enabled": True}
+            ],
+            "knowledge": [
+                {"t": "NABH Patient Rights Charter", "v": "1.0", "eff": "01 Feb 2026", "status": "Published"},
+                {"t": "Visiting Hours & Attendant Policy", "v": "2.0", "eff": "01 Jun 2026", "status": "Published"}
+            ],
+            "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
+            "access": {"roles": "Front Office, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
+            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹15 / run"},
+            "evals": [
+                {"id": "EV-703", "ver": "v1.4.2", "when": "Yesterday 17:00", "cases": 80, "acc": "97.4%", "ground": "98.5%", "hall": "0.1%", "ref": "100%", "lat": "1.5s", "res": "Pass"}
+            ],
+            "versions": [
+                {"v": "1.4.2", "ts": "21 days ago", "author": "AI Engineering", "changes": "Tamil output", "score": "97.4", "state": "Published", "bg": "#dcfce7", "fg": "#15803d"},
+                {"v": "1.0.0", "ts": "50 days ago", "author": "Ops Product", "changes": "Initial release", "score": "93.8", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569"}
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
+        conn.commit()
+
+        # ── AG-05  Feedback Agent ─────────────────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-05",
+            "name": "Feedback Agent",
+            "name_ta": "கருத்து & குறைதீர்ப்பு முகவர்",
+            "type": "Monitor",
+            "version": "1.2.0",
+            "owner": "Quality",
+            "risk_tier": "Medium",
+            "status": "Published",
+            "human_approval": "Selective • owner Quality",
+            "purpose": "Assist Quality with feedback tasks under human oversight.",
+            "last_run": "11:15",
+            "success_rate": "91.7%",
+            "runs": 240,
+            "instructions": {
+                "objective": "Reduce turnaround and manual coordination for Quality.",
+                "system": "You are the Hospital Feedback Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.",
+                "rules": "Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.",
+                "safety": "Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.",
+                "escalation": "Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.",
+                "refusal": "\"I don't have enough verified information to answer this safely.\" then route to a human."
+            },
+            "tools": [
+                { "tool": "Messaging", "perm": "Collect patient sentiment & feedback", "read": True, "write": True, "appr": "None", "enabled": True },
+                { "tool": "Notification", "perm": "Trigger grievance escalation timer", "read": False, "write": True, "appr": "Quality Lead", "enabled": True }
+            ],
+            "knowledge": [
+                { "t": "NABH Patient Rights Charter", "v": "1.0", "eff": "01 Feb 2026", "status": "Published" }
+            ],
+            "memory": {
+                "session": "On · 30 min",
+                "patient": "Encounter-scoped",
+                "workflow": "On",
+                "retention": "90 days (audit) · 0 days (conversation)",
+                "sensitive": "No free-text PHI stored"
+            },
+            "access": {
+                "roles": "Quality, Hospital Management, Admin",
+                "departments": "All wards",
+                "patients": "Care-team relationship required",
+                "scopes": "Operational + financial (no clinical write)",
+                "env": "Production"
+            },
+            "model": {
+                "model": "meridian-llm-large",
+                "temperature": 0.2,
+                "tokens": 8000,
+                "fallback": "meridian-llm-small",
+                "latency": "< 3 s p50",
+                "cost": "₹18 / run"
+            },
+            "evals": [
+                { "id": "EV-705", "ver": "v1.2.0", "when": "08 Sep 2026", "cases": 110, "acc": "91.7%", "ground": "95.2%", "hall": "0.6%", "ref": "97%", "lat": "2.1s", "res": "Pass" }
+            ],
+            "versions": [
+                { "v": "1.2.0", "ts": "21 days ago", "author": "Clinical Informatics", "changes": "Prompt safety hardening", "score": "91.7", "state": "Published", "bg": "#dcfce7", "fg": "#15803d" },
+                { "v": "1.0.0", "ts": "55 days ago", "author": "AI Engineering", "changes": "Initial release", "score": "88.4", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569" }
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
+        conn.commit()
 
         cur.close()
         conn.close()
     except Exception as e:
         print(f"[AGENT_CONFIG_INIT_ERR] {e}")
+
+
+def _format_config_row(row):
+    def parse_json(field):
+        if isinstance(field, (dict, list)):
+            return field
+        try:
+            return json.loads(field) if field else {}
+        except Exception:
+            return {}
+
+    return {
+        "id": row[0],
+        "agent_id": row[0],
+        "name": row[1],
+        "nameTa": row[2],
+        "type": row[3],
+        "v": row[4],
+        "version": row[4],
+        "owner": row[5],
+        "tier": row[6],
+        "risk_tier": row[6],
+        "status": row[7],
+        "humanApproval": row[8],
+        "purpose": row[9],
+        "instructions": parse_json(row[10]),
+        "tools": parse_json(row[11]),
+        "knowledge": parse_json(row[12]),
+        "memory": parse_json(row[13]),
+        "access": parse_json(row[14]),
+        "model": parse_json(row[15]),
+        "evals": parse_json(row[16]),
+        "versions": parse_json(row[17]),
+        "managedState": row[18],
+        "last_run": row[19],
+        "lastRun": row[19],
+        "success_rate": row[20],
+        "success": row[20],
+        "runs": row[21],
+        "updated_at": row[22].isoformat() if len(row) > 22 and row[22] else None
+    }
+
+
+@router.get("/config", summary="List all dynamic Agent Configurations")
+def list_agent_configs():
+    ensure_agent_config_table()
+    conn = db_config.get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT agent_id, name, name_ta, type, version, owner, risk_tier, status,
+                   human_approval, purpose, instructions, tools, knowledge, memory, access,
+                   model, evals, versions, managed_state, last_run, success_rate, runs, updated_at
+            FROM agent_configurations
+            ORDER BY agent_id ASC;
+        """)
+        rows = cur.fetchall()
+        return {
+            "success": True,
+            "data": [_format_config_row(r) for r in rows]
+        }
+    finally:
+        cur.close()
+        conn.close()
 
 
 @router.get("/config/{agent_id}", summary="Get dynamic Agent Configuration")
@@ -365,54 +591,21 @@ def get_agent_config(agent_id: str):
         cur.execute("""
             SELECT agent_id, name, name_ta, type, version, owner, risk_tier, status,
                    human_approval, purpose, instructions, tools, knowledge, memory, access,
-                   model, evals, versions, managed_state, updated_at
+                   model, evals, versions, managed_state, last_run, success_rate, runs, updated_at
             FROM agent_configurations
             WHERE UPPER(agent_id) = UPPER(%s);
         """, (agent_id,))
         row = cur.fetchone()
 
         if not row:
-            # If not found in DB, return empty or fallback
             return {
                 "success": False,
                 "message": f"Agent {agent_id} configuration not found in database."
             }
 
-        def parse_json(field):
-            if isinstance(field, (dict, list)):
-                return field
-            try:
-                return json.loads(field) if field else {}
-            except Exception:
-                return {}
-
         return {
             "success": True,
-            "data": {
-                "id": row[0],
-                "agent_id": row[0],
-                "name": row[1],
-                "nameTa": row[2],
-                "type": row[3],
-                "v": row[4],
-                "version": row[4],
-                "owner": row[5],
-                "tier": row[6],
-                "risk_tier": row[6],
-                "status": row[7],
-                "humanApproval": row[8],
-                "purpose": row[9],
-                "instructions": parse_json(row[10]),
-                "tools": parse_json(row[11]),
-                "knowledge": parse_json(row[12]),
-                "memory": parse_json(row[13]),
-                "access": parse_json(row[14]),
-                "model": parse_json(row[15]),
-                "evals": parse_json(row[16]),
-                "versions": parse_json(row[17]),
-                "managedState": row[18],
-                "updated_at": row[19].isoformat() if row[19] else None
-            }
+            "data": _format_config_row(row)
         }
     finally:
         cur.close()
@@ -432,7 +625,7 @@ def save_agent_config(
         raise HTTPException(status_code=400, detail=f"Invalid agent type: {payload.type}")
     if payload.risk_tier and payload.risk_tier not in ("Low", "Medium", "High", "Critical"):
         raise HTTPException(status_code=400, detail=f"Invalid risk tier: {payload.risk_tier}")
-    if payload.status and payload.status not in ("Draft", "Published", "Archived"):
+    if payload.status and payload.status not in ("Draft", "Published", "Archived", "Testing", "Silent Validation", "Production-Pilot", "Disabled"):
         raise HTTPException(status_code=400, detail=f"Invalid status: {payload.status}")
 
     conn = db_config.get_db_connection()
@@ -464,6 +657,9 @@ def save_agent_config(
                     evals = COALESCE(%s::jsonb, evals),
                     versions = COALESCE(%s::jsonb, versions),
                     managed_state = COALESCE(%s, managed_state),
+                    last_run = COALESCE(%s, last_run),
+                    success_rate = COALESCE(%s, success_rate),
+                    runs = COALESCE(%s, runs),
                     updated_at = NOW()
                 WHERE UPPER(agent_id) = UPPER(%s);
             """, (
@@ -479,6 +675,7 @@ def save_agent_config(
                 json.dumps(payload.evals) if payload.evals is not None else None,
                 json.dumps(payload.versions) if payload.versions is not None else None,
                 payload.managed_state,
+                payload.last_run, payload.success_rate, payload.runs,
                 agent_id
             ))
         else:
@@ -486,8 +683,8 @@ def save_agent_config(
                 INSERT INTO agent_configurations (
                     agent_id, name, name_ta, type, version, owner, risk_tier, status,
                     human_approval, purpose, instructions, tools, knowledge, memory, access,
-                    model, evals, versions, managed_state
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    model, evals, versions, managed_state, last_run, success_rate, runs
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """, (
                 agent_id, payload.name or "Agent", payload.name_ta or "",
                 payload.type or "Monitor", payload.version or "1.0.0", payload.owner or "Quality",
@@ -497,7 +694,8 @@ def save_agent_config(
                 json.dumps(payload.knowledge or []), json.dumps(payload.memory or {}),
                 json.dumps(payload.access or {}), json.dumps(payload.model or {}),
                 json.dumps(payload.evals or []), json.dumps(payload.versions or []),
-                payload.managed_state or "Configurable • Dynamic"
+                payload.managed_state or "Configurable • Dynamic",
+                payload.last_run or "11:15", payload.success_rate or "95.0%", payload.runs or 0
             ))
 
         conn.commit()
