@@ -1524,6 +1524,63 @@ def ensure_patient_selected(conversation_code: str, state: dict, current_lang: s
     return False, prompt_res
 
 
+def handle_switch_patient_flow(conversation_code: str, state: dict, current_lang: str) -> dict:
+    """
+    Handles Switch Patient workflow:
+    1. Fetches all linked patients for current WhatsApp number.
+    2. Deduplicates by patient_id.
+    3. Validates ownership against current WhatsApp number.
+    4. If multiple: renders patient profile selection list with structured IDs.
+    5. If 1: selects patient and displays profile card.
+    6. If 0: prompts new patient registration flow.
+    7. Clears stale transient context.
+    """
+    state["profile_update_field"] = None
+    state["profile_update_stage"] = None
+    state["payment_context"] = None
+    state["bill_id"] = None
+    state["bill_patient_id"] = None
+    state["bill_patient_name"] = None
+    state["bill_patient_code"] = None
+    state["bill_reference"] = None
+    state["bill_total_amount"] = None
+    state["bill_paid_amount"] = None
+    state["bill_outstanding_amount"] = None
+    state["dependent_patient_id"] = None
+    state["dependent_name"] = None
+    state["booking_patient_id"] = None
+    state["modifying_booking_id"] = None
+    if isinstance(state.get("entities"), dict):
+        state["entities"]["patient_id"] = None
+        state["entities"]["patient_name_override"] = None
+
+    w_num = extract_whatsapp_number(conversation_code, state)
+    all_pats = patient_id_service.get_all_patients_by_phone(w_num)
+
+    if len(all_pats) > 1:
+        state["selected_patient_id"] = None
+        state["patient_id"] = None
+        return prompt_patient_selection(conversation_code, state, current_lang, action_intent="PATIENT_PROFILE")
+    elif len(all_pats) == 1:
+        p_id = all_pats[0]["id"]
+        state["selected_patient_id"] = p_id
+        state["patient_id"] = p_id
+        state.setdefault("entities", {})["patient_id"] = p_id
+        state["patient_identification_stage"] = "COMPLETED"
+        return build_patient_profile_response(conversation_code, state, current_lang)
+    else:
+        state["conversation_state"] = "REGISTER_NEW_PATIENT"
+        state["active_workflow"] = "REGISTRATION"
+        state["registration_stage"] = "AWAITING_NAME"
+        state["patient_identification_stage"] = "REGISTRATION"
+        state["intent"] = "PATIENT_REGISTRATION"
+        resp = language_service.translate_response("NEW_PATIENT_PROMPT", language=current_lang)
+        state["interactive_buttons"] = []
+        state_manager.save_conversation_state(conversation_code, state)
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_REGISTRATION", state)
+        return {"response": resp, "intent": "PATIENT_REGISTRATION", "language": current_lang, "interactive_buttons": []}
+
+
 def prompt_patient_selection(conversation_code: str, state: dict, current_lang: str, action_intent: str = "PATIENT_PROFILE", custom_prompt: str = None) -> dict:
     """
     Renders an interactive patient selection screen when multiple patient records
@@ -1614,7 +1671,7 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
             cur.close()
             conn.close()
 
-    if not p_data and all_pats and len(all_pats) == 1:
+    if not p_data and all_pats and len(all_pats) >= 1:
         p_data = all_pats[0]
         state["patient_id"] = p_data["id"]
         state["selected_patient_id"] = p_data["id"]
@@ -1636,8 +1693,24 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
         }
         resp = language_service.format_patient_profile_card(p_info, current_lang)
     else:
-        resp = language_service.translate_response("PATIENT_NOT_FOUND", current_lang)
-
+        state["conversation_state"] = "REGISTER_NEW_PATIENT"
+        state["active_workflow"] = "REGISTRATION"
+        state["registration_stage"] = "AWAITING_NAME"
+        state["patient_identification_stage"] = "REGISTRATION"
+        resp = language_service.translate_response("NEW_PATIENT_PROMPT", language=current_lang)
+        buttons = []
+        state["interactive_buttons"] = buttons
+        state["intent"] = "PATIENT_REGISTRATION"
+        state_manager.save_conversation_state(conversation_code, state)
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_REGISTRATION", state)
+        return {
+            "success": True,
+            "conversation_id": conversation_code,
+            "language": current_lang,
+            "intent": "PATIENT_REGISTRATION",
+            "response": resp,
+            "interactive_buttons": buttons
+        }
 
     buttons = [
         language_service.get_translated_button("btn_change_profile", current_lang),
@@ -2080,7 +2153,7 @@ def get_or_create_patient_bill(patient_id: int, bill_number: str = "INV-2026-884
             p_id_val = patient_id if patient_id else None
             cur.execute("""
                 INSERT INTO bills (bill_number, patient_id, visit_id, bill_date, gross_amount, discount_amount, tax_amount, net_amount, insurance_amount, patient_amount, bill_status)
-                VALUES (%s, %s, COALESCE((SELECT visit_id FROM patient_visits WHERE patient_id = %s LIMIT 1), (SELECT visit_id FROM bills LIMIT 1), 1), CURRENT_DATE, %s, 0.0, 0.0, %s, 0.0, %s, 'Unpaid')
+                VALUES (%s, %s, (SELECT visit_id FROM patient_visits WHERE patient_id = %s LIMIT 1), CURRENT_DATE, %s, 0.0, 0.0, %s, 0.0, %s, 'Unpaid')
                 RETURNING bill_id, bill_number, patient_amount, bill_status;
             """, (bill_number, p_id_val, p_id_val, default_amount, default_amount, default_amount))
             inserted = cur.fetchone()
@@ -2397,7 +2470,19 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     state = state_manager.get_conversation_state(conversation_code)
 
     # Structured interactive button tap handler (Fix 3)
-    btn_id = interactive_id or (message_text.strip() if message_text and message_text.strip().startswith("btn_") else None)
+    if interactive_id:
+        if interactive_id.startswith("PATIENT_PROFILE_SELECT:"):
+            pid_val = interactive_id.split("PATIENT_PROFILE_SELECT:")[1].strip()
+            btn_id = f"btn_select_pat_{pid_val}"
+        else:
+            btn_id = interactive_id
+    elif message_text and message_text.strip().startswith("PATIENT_PROFILE_SELECT:"):
+        pid_val = message_text.strip().split("PATIENT_PROFILE_SELECT:")[1].strip()
+        btn_id = f"btn_select_pat_{pid_val}"
+    elif message_text and message_text.strip().startswith("btn_"):
+        btn_id = message_text.strip()
+    else:
+        btn_id = None
 
     # Priority Active Feedback Workflow Gate:
     # If the user is in an active feedback workflow or tapped a feedback button, consume message immediately
@@ -2647,55 +2732,65 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         return handle_profile_update_flow(conversation_code, state, message_text, current_lang, btn_id)
     elif state.get("profile_update_stage") == "SELECT_FIELD" or btn_id in ["btn_update_name", "btn_update_dob", "btn_update_gender", "btn_update_phone", "btn_change_name", "btn_change_dob", "btn_change_gender", "btn_change_phone"]:
         m_check = (message_text or "").lower().strip()
-        if btn_id in ["btn_update_name", "btn_change_name"] or "name" in m_check:
-            state["profile_update_field"] = "NAME"
-            state["profile_update_stage"] = "AWAITING_NEW_VALUE"
-            resp = "Please enter your updated full name."
-            chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
-        elif btn_id in ["btn_update_dob", "btn_change_dob"] or any(w in m_check for w in ["dob", "birth", "date"]):
-            state["profile_update_field"] = "DOB"
-            state["profile_update_stage"] = "AWAITING_NEW_VALUE"
-            resp = "Please enter your updated date of birth (e.g. DD/MM/YYYY or YYYY-MM-DD):"
-            chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
-        elif btn_id in ["btn_update_gender", "btn_change_gender"] or "gender" in m_check:
-            state["profile_update_field"] = "GENDER"
-            state["profile_update_stage"] = "AWAITING_NEW_VALUE"
-            resp = "Please select your gender:"
-            chg_buttons = [
-                language_service.get_translated_button("btn_g_male", current_lang),
-                language_service.get_translated_button("btn_g_female", current_lang),
-                language_service.get_translated_button("btn_g_other", current_lang),
-                language_service.get_translated_button("btn_back_profile", current_lang)
-            ]
-        elif btn_id in ["btn_update_phone", "btn_change_phone"] or any(w in m_check for w in ["phone", "mobile", "number"]):
-            state["profile_update_field"] = "PHONE"
-            state["profile_update_stage"] = "AWAITING_NEW_VALUE"
-            resp = "Please enter your updated 10-digit phone number:"
-            chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
-        elif btn_id in ["btn_back_profile"] or any(w in m_check for w in ["back", "cancel", "profile"]):
+        is_explicit_edit_cmd = (
+            btn_id in ["btn_update_name", "btn_update_dob", "btn_update_gender", "btn_update_phone", "btn_change_name", "btn_change_dob", "btn_change_gender", "btn_change_phone", "btn_change_profile", "btn_back_profile"] or
+            (btn_id is None and any(kw in m_check for kw in ["name", "dob", "birth", "gender", "phone", "mobile", "back", "cancel"]))
+        )
+
+        if not is_explicit_edit_cmd and state.get("profile_update_stage") == "SELECT_FIELD":
+            # Break out of stale SELECT_FIELD stage for new intents or actions
             state["profile_update_field"] = None
             state["profile_update_stage"] = None
-            return build_patient_profile_response(conversation_code, state, current_lang)
         else:
-            resp = "What would you like to update?"
-            chg_buttons = [
-                language_service.get_translated_button("btn_update_name", current_lang),
-                language_service.get_translated_button("btn_update_dob", current_lang),
-                language_service.get_translated_button("btn_update_gender", current_lang),
-                language_service.get_translated_button("btn_update_phone", current_lang),
-                language_service.get_translated_button("btn_back_profile", current_lang)
-            ]
+            if btn_id in ["btn_update_name", "btn_change_name"] or ("name" in m_check and btn_id is None):
+                state["profile_update_field"] = "NAME"
+                state["profile_update_stage"] = "AWAITING_NEW_VALUE"
+                resp = "Please enter your updated full name."
+                chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
+            elif btn_id in ["btn_update_dob", "btn_change_dob"] or (any(w in m_check for w in ["dob", "birth", "date"]) and btn_id is None):
+                state["profile_update_field"] = "DOB"
+                state["profile_update_stage"] = "AWAITING_NEW_VALUE"
+                resp = "Please enter your updated date of birth (e.g. DD/MM/YYYY or YYYY-MM-DD):"
+                chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
+            elif btn_id in ["btn_update_gender", "btn_change_gender"] or ("gender" in m_check and btn_id is None):
+                state["profile_update_field"] = "GENDER"
+                state["profile_update_stage"] = "AWAITING_NEW_VALUE"
+                resp = "Please select your gender:"
+                chg_buttons = [
+                    language_service.get_translated_button("btn_g_male", current_lang),
+                    language_service.get_translated_button("btn_g_female", current_lang),
+                    language_service.get_translated_button("btn_g_other", current_lang),
+                    language_service.get_translated_button("btn_back_profile", current_lang)
+                ]
+            elif btn_id in ["btn_update_phone", "btn_change_phone"] or (any(w in m_check for w in ["phone", "mobile", "number"]) and btn_id is None):
+                state["profile_update_field"] = "PHONE"
+                state["profile_update_stage"] = "AWAITING_NEW_VALUE"
+                resp = "Please enter your updated 10-digit phone number:"
+                chg_buttons = [language_service.get_translated_button("btn_back_profile", current_lang)]
+            elif btn_id in ["btn_back_profile"] or (m_check in ["back", "cancel"] and btn_id is None):
+                state["profile_update_field"] = None
+                state["profile_update_stage"] = None
+                return build_patient_profile_response(conversation_code, state, current_lang)
+            else:
+                resp = "What would you like to update?"
+                chg_buttons = [
+                    language_service.get_translated_button("btn_update_name", current_lang),
+                    language_service.get_translated_button("btn_update_dob", current_lang),
+                    language_service.get_translated_button("btn_update_gender", current_lang),
+                    language_service.get_translated_button("btn_update_phone", current_lang),
+                    language_service.get_translated_button("btn_back_profile", current_lang)
+                ]
 
-        state["interactive_buttons"] = chg_buttons
-        state["intent"] = "PATIENT_PROFILE"
-        state_manager.save_conversation_state(conversation_code, state)
-        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_PROFILE", state)
-        return {
-            "response": resp,
-            "intent": "PATIENT_PROFILE",
-            "language": current_lang,
-            "interactive_buttons": chg_buttons
-        }
+            state["interactive_buttons"] = chg_buttons
+            state["intent"] = "PATIENT_PROFILE"
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_PROFILE", state)
+            return {
+                "response": resp,
+                "intent": "PATIENT_PROFILE",
+                "language": current_lang,
+                "interactive_buttons": chg_buttons
+            }
 
 
 
@@ -3510,27 +3605,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             
             return build_patient_profile_response(conversation_code, state, current_lang)
 
-        elif btn_id == "btn_switch_patient" or (message_text and message_text.lower().strip() in ["switch patient", "switch profile", "change active patient"]):
-            state["selected_patient_id"] = None
-            state["patient_id"] = None
-            state["payment_context"] = None
-            state["bill_id"] = None
-            state["bill_patient_id"] = None
-            state["bill_patient_name"] = None
-            state["bill_patient_code"] = None
-            state["bill_reference"] = None
-            state["bill_total_amount"] = None
-            state["bill_paid_amount"] = None
-            state["bill_outstanding_amount"] = None
-            state["dependent_patient_id"] = None
-            state["dependent_name"] = None
-            state["booking_patient_id"] = None
-            state["modifying_booking_id"] = None
-            if isinstance(state.get("entities"), dict):
-                state["entities"]["patient_id"] = None
-                state["entities"]["patient_name_override"] = None
-            state_manager.save_conversation_state(conversation_code, state)
-            return prompt_patient_selection(conversation_code, state, current_lang, action_intent="PATIENT_PROFILE")
+        elif btn_id == "btn_switch_patient":
+            return handle_switch_patient_flow(conversation_code, state, current_lang)
 
         elif btn_id in ("btn_my_profile", "btn_view_profile"):
             state["profile_update_field"] = None
@@ -7945,7 +8021,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "interactive_buttons": state.get("interactive_buttons", [])
             }
 
-    elif intent in ["PATIENT_DETAILS", "PATIENT_PROFILE", "PATIENT_ID"]:
+    elif intent in ["SWITCH_PATIENT", "CHANGE_PATIENT", "SWITCH_PROFILE"]:
+        return handle_switch_patient_flow(conversation_code, state, current_lang)
+
+    elif intent in ["PATIENT_DETAILS", "PATIENT_PROFILE", "MY_PROFILE", "PATIENT_ID"]:
         # Reset stale appointment state when entering PATIENT_DETAILS
         state["entities"]["doctor_id"] = None
         state["entities"]["department_id"] = None

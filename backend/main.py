@@ -115,6 +115,12 @@ try:
 except Exception as e:
     print(f"Failed to load patient management router: {e}")
 
+try:
+    from routers.queue import router as queue_router
+    routers_to_mount.append(queue_router)
+except Exception as e:
+    print(f"Failed to load queue router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",
@@ -247,6 +253,13 @@ def on_startup():
     except Exception as e:
         import logging
         logging.getLogger("uvicorn").warning("Post-discharge feedback scheduler on startup: %s", e)
+
+    try:
+        from services.queue_scheduler import start_queue_scheduler
+        start_queue_scheduler(app)
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("Queue scheduler on startup: %s", e)
 
     try:
         from db.init_clinical_tables import init_clinical_tables

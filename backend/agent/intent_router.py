@@ -114,6 +114,10 @@ SUPPORTED_INTENTS = {
     "DEPENDENT_BOOKING",
     "FEEDBACK",
     "UNKNOWN",
+    "SWITCH_PATIENT",
+    "MY_PROFILE",
+    "PATIENT_PROFILE",
+    "CHANGE_PROFILE",
     # Legacy / passthrough intents (kept for backward compat)
     "CHECK_DOCTOR_AVAILABILITY",
     "PRE_ADMISSION",

@@ -74,6 +74,8 @@ SUPPORTED_INTENTS = {
     "EXISTING_PATIENT",
     "PATIENT_DETAILS",
     "PATIENT_PROFILE",
+    "SWITCH_PATIENT",
+    "MY_PROFILE",
     "PATIENT_ID",
     "BOOK_APPOINTMENT",
     "DOCTOR_AVAILABILITY",
@@ -84,6 +86,7 @@ SUPPORTED_INTENTS = {
     "APPOINTMENT_STATUS",
     "APPOINTMENT_DETAILS",
     "PATIENT_DETAILS_UPDATE",
+    "CHANGE_PROFILE",
     "DEPENDENT_BOOKING",
     "CHILD_APPOINTMENT",
     "SYMPTOM_DOCTOR_RECOMMENDATION",
@@ -150,10 +153,19 @@ INTENT_NORMALISATION_MAP = {
     "LANGUAGE_CHANGE":              "GREETING",
     "POST_BOOKING":                 "APPOINTMENT_STATUS",
     "PATIENT_PROFILE":              "PATIENT_DETAILS",
+    "MY_PROFILE":                   "PATIENT_DETAILS",
     "PATIENT_ID":                   "PATIENT_DETAILS",
     "MY_PATIENT_ID":                "PATIENT_DETAILS",
     "SHOW_PROFILE":                 "PATIENT_DETAILS",
     "PATIENT_INFORMATION":          "PATIENT_DETAILS",
+    "SWITCH_PATIENT":               "SWITCH_PATIENT",
+    "CHANGE_PATIENT":               "SWITCH_PATIENT",
+    "SWITCH_PROFILE":               "SWITCH_PATIENT",
+    "SHOW_PROFILES":                "SWITCH_PATIENT",
+    "CHANGE_PROFILE":               "PATIENT_DETAILS_UPDATE",
+    "UPDATE_PROFILE":               "PATIENT_DETAILS_UPDATE",
+    "EDIT_PROFILE":                 "PATIENT_DETAILS_UPDATE",
+    "PATIENT_DETAILS_UPDATE":       "PATIENT_DETAILS_UPDATE",
 }
 
 # ---------------------------------------------------------------------------
@@ -486,7 +498,9 @@ SUPPORTED INTENTS (return exactly one):
 - GREETING: Hello, hi, good morning, any opening message
 - GOODBYE: Saying goodbye or farewell ("bye", "goodbye", "see you", "take care", "good night", "thanks bye", "nandri vanakkam", "போயிட்டு வரேன்", "சரி பாய்")
 - PATIENT_REGISTRATION: New patient wanting to register, first-time visitor
-- PATIENT_DETAILS: Asking for personal or dependent details, patient ID, profile info, DOB, son's details, daughter's details, child's details, "What is my patient ID?", "Tell me my details", "Show my patient information", "What is my son's patient ID?", "Show my daughter's details", "Tell me my child's DOB", "What is my son's patient number?". Do NOT classify as BOOK_APPOINTMENT unless the user explicitly asks to book an appointment.
+- PATIENT_DETAILS: Asking for personal or dependent details, patient profile, patient ID, DOB ("My profile", "Show my profile", "View my details", "My personal details", "Show my information", "What is my patient ID?", "Tell me my details", "Show my daughter's details"). Do NOT classify as CHANGE_PROFILE/PATIENT_DETAILS_UPDATE or SWITCH_PATIENT.
+- SWITCH_PATIENT: Switching or changing the active patient profile among linked accounts ("Switch patient", "Change patient", "I want another patient", "Show another patient", "Switch to my daughter", "Show my profiles", "Switch profile", "Select another profile"). Do NOT classify as PATIENT_DETAILS_UPDATE.
+- PATIENT_DETAILS_UPDATE: Editing or changing personal profile fields ("Change profile", "Update profile", "Edit profile", "Change my name", "Change my DOB", "Update phone number").
 - BOOK_APPOINTMENT: Booking a NEW doctor appointment for symptoms, consultation, checkup ("book an appointment", "I want to see a doctor", "book appointment for my son", "my son needs an appointment")
 - DOCTOR_AVAILABILITY: Asking which doctors or slots are available. Also triggered by contextual pronoun references when a doctor is already known in state (e.g. "show doctor availability", "when he will be available?", "when is he available?", "what days is he available?", "when can I see him?", "show his availability", "when is the doctor available?", "what are his available dates?"). Use active_doctor_name from state for pronoun resolution.
 - CANCEL_APPOINTMENT: Wants to cancel an existing appointment ("cancel my appointment", "cancel my son's appointment")
@@ -922,7 +936,14 @@ def _rule_based_fallback(
         ]
         _dep_detail_hit = any(p in msg_lower for p in _dep_detail_kws)
 
-        if any(p in msg_lower for p in ["my personal details", "personal details", "tell my details", "show my details", "my patient profile", "show my profile", "my profile", "show profile", "profile", "all profile", "all profiles", "my patient id", "patient id", "what is my id", "tell me my patient id", "my patient code", "my details", "patient information", "show details", "tell details", "what are my details", "show my DOB", "registered information"]) or _dep_detail_hit:
+        _switch_patient_kws = ["switch patient", "change patient", "switch profile", "show another patient", "select another profile", "change active patient", "show my profiles", "show profiles", "another patient"]
+        _change_profile_kws = ["change profile", "update profile", "edit profile", "change my profile", "update my profile"]
+
+        if any(p in msg_lower for p in _switch_patient_kws):
+            canonical_intent = "SWITCH_PATIENT"
+        elif any(p in msg_lower for p in _change_profile_kws):
+            canonical_intent = "PATIENT_DETAILS_UPDATE"
+        elif any(p in msg_lower for p in ["my personal details", "personal details", "tell my details", "show my details", "my patient profile", "show my profile", "my profile", "show profile", "profile", "all profile", "all profiles", "my patient id", "patient id", "what is my id", "tell me my patient id", "my patient code", "my details", "patient information", "show details", "tell details", "what are my details", "show my DOB", "registered information"]) or _dep_detail_hit:
             canonical_intent = "PATIENT_DETAILS"
             dept = None
             doc_pref = None

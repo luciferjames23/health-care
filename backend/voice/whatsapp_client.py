@@ -57,7 +57,10 @@ def get_api_url() -> str:
 
 
 def is_mock_mode() -> bool:
-    """Returns True if the credentials are not set or are mock placeholders."""
+    """Returns True if credentials are mock/missing or simulation mode is enabled."""
+    sim_mode = os.getenv("WHATSAPP_SIMULATION_MODE", "false").lower() in ("true", "1")
+    if sim_mode:
+        return True
     token = get_access_token()
     phone_id = get_phone_number_id()
     return (
@@ -103,7 +106,7 @@ def parse_and_log_meta_error(res: requests.Response):
         
         if res.status_code in [401, 403] or code in [190, 131005] or "token" in str(msg).lower() or "token" in str(details).lower() or "permission" in str(details).lower():
             print("\n" + "="*80)
-            print("⚠️ META API ERROR: ACCESS TOKEN EXPIRED OR PERMISSION DENIED")
+            print("[WARNING] META API ERROR: ACCESS TOKEN EXPIRED OR PERMISSION DENIED")
             print("Why this happens: Temporary Meta WhatsApp Cloud API access tokens expire after 24 hours.")
             print("HOW TO FIX IN 1 MINUTE:")
             print("1. Go to https://developers.facebook.com/apps/ -> Select Your App -> WhatsApp -> API Setup")
@@ -112,7 +115,7 @@ def parse_and_log_meta_error(res: requests.Response):
             print("="*80 + "\n")
         elif code in [131005, 131030] or "recipient" in str(msg).lower() or "allowed list" in str(details).lower():
             print("\n" + "="*80)
-            print("⚠️ META API ERROR #131005: UNREGISTERED TEST RECIPIENT")
+            print("[WARNING] META API ERROR #131005: UNREGISTERED TEST RECIPIENT")
             print("Why this happens: In Meta Cloud API Sandbox mode (+1 555-669-8871), Meta")
             print("BLOCKS outbound messages to recipient phone numbers unless they are added")
             print("to your allowed test recipient list in the Meta Developer Console.")
@@ -209,8 +212,8 @@ def send_typing_indicator(message_id: str) -> dict:
 
 def send_text_message(to_number: str, text: str) -> dict:
     """Send text message to a WhatsApp number."""
-    to_number = clean_whatsapp_number(to_number)
-    print(f"[TRACE_WH] [SEND_TEXT_API] to={to_number} | snippet='{text[:40]}...'")
+    safe_snippet = text[:40].encode('ascii', errors='backslashreplace').decode('ascii')
+    print(f"[TRACE_WH] [SEND_TEXT_API] to={to_number} | snippet='{safe_snippet}...'")
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
