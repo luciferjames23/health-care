@@ -1680,6 +1680,68 @@ export const apiService = {
   },
 
   // =========================================================================
+  // AG-08 · BILLING TRANSPARENCY AGENT (Groq openai/gpt-oss-120b & Desk Explainer)
+  // =========================================================================
+  async getBillingTransparencyProfile() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/status`);
+    if (!res.ok) throw new Error(`Error fetching billing transparency profile ${res.status}`);
+    return await res.json();
+  },
+
+  async getBillingTransparencyStats() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/stats`);
+    if (!res.ok) throw new Error(`Error fetching billing transparency stats ${res.status}`);
+    return await res.json();
+  },
+
+  async getBillingTransparencyCases(params = {}) {
+    const q = new URLSearchParams();
+    if (params.search) q.append('search', params.search);
+    if (params.limit) q.append('limit', params.limit);
+    if (params.status_filter) q.append('status_filter', params.status_filter);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/cases${qs}`);
+    if (!res.ok) throw new Error(`Error fetching billing transparency cases ${res.status}`);
+    return await res.json();
+  },
+
+  async getBillingBreakdown(patientIdentifier) {
+    const id = encodeURIComponent(String(patientIdentifier || '87221').trim());
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/breakdown/${id}`);
+    if (!res.ok) throw new Error(`Error fetching billing breakdown ${res.status}`);
+    return await res.json();
+  },
+
+  async generateBillingBreakdown(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/generate-breakdown`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error generating billing breakdown ${res.status}`);
+    return await res.json();
+  },
+
+  async getClinicalNecessityProof(patientIdentifier, itemCode = null) {
+    const id = encodeURIComponent(String(patientIdentifier || '87221').trim());
+    const qs = itemCode ? `?item_code=${encodeURIComponent(itemCode)}` : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/necessity/${id}${qs}`);
+    if (!res.ok) throw new Error(`Error fetching clinical necessity proof ${res.status}`);
+    return await res.json();
+  },
+
+  async approveBillingExplanationForPrint(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/approve-print`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error approving billing explanation for print ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/billing-transparency/approve-print`, data);
+    return data;
+  },
+
+  // =========================================================================
   // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
   // =========================================================================
   async getPrescriptions(params = {}, options = {}) {

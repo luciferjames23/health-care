@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { apiService, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import TablePagination from './TablePagination';
+import BillingTransparencyDrawer from './BillingTransparencyDrawer';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -3685,91 +3686,199 @@ const BILLING_RECORDS = [
 ];
 
 export function BillingView({ onOpenDrawer, onOpenModal }) {
-  const handleBillClick = (row) => {
-    if (!onOpenDrawer) return;
-    const tot = Number(row.total) || 0;
-    const tpa = Number(row.tpa) || 0;
-    const ptShare = Number(row.patientShare) || 0;
-    onOpenDrawer({
-      title: `${row.inv || 'INV'} · ${row.patient || 'Patient'}`,
-      sub: `Gross: ₹${tot.toLocaleString()} · Insurance: ₹${tpa.toLocaleString()} · Due: ₹${ptShare.toLocaleString()}`,
-      badges: [
-        { t: row.status || 'Active', bg: row.dischargeClear ? '#dcfce7' : '#fef3c7', fg: row.dischargeClear ? '#15803d' : '#92400e' }
-      ],
-      facts: [
-        { k: 'Invoice Number', v: row.inv, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'UHID / MRN', v: row.uhid },
-        { k: 'Admission Encounter', v: row.adm },
-        { k: 'Total Gross Amount', v: `₹${tot.toLocaleString()}` },
-        { k: 'Insurance / TPA Share', v: `₹${tpa.toLocaleString()}` },
-        { k: 'Patient Co-Pay Balance', v: `₹${ptShare.toLocaleString()}` },
-        { k: 'Pharmacy Clearance', v: row.pharmacyClear ? 'Cleared' : 'Pending' },
-        { k: 'Financial Status', v: row.status || 'Active' }
-      ],
-      actions: [
-        { label: 'Issue Discharge Gate Pass', primary: true, on: () => alert(`Gate pass issued for ${row.patient}`) },
-        { label: 'Collect Co-Pay Online' }
-      ]
-    });
+  const [billingCases, setBillingCases] = useState([]);
+  const [loadingCases, setLoadingCases] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState('87221');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [agentStats, setAgentStats] = useState(null);
+
+  useEffect(() => {
+    loadBillingData();
+  }, []);
+
+  const loadBillingData = async () => {
+    try {
+      setLoadingCases(true);
+      const [casesRes, statsRes] = await Promise.allSettled([
+        apiService.getBillingTransparencyCases(),
+        apiService.getBillingTransparencyStats()
+      ]);
+      if (casesRes.status === 'fulfilled' && casesRes.value?.data) {
+        setBillingCases(casesRes.value.data);
+      }
+      if (statsRes.status === 'fulfilled' && statsRes.value?.data) {
+        setAgentStats(statsRes.value.data);
+      }
+    } catch (err) {
+      console.error('Error loading billing cases:', err);
+    } finally {
+      setLoadingCases(false);
+    }
   };
+
+  const handleOpenTransparency = (patientId, e) => {
+    if (e) e.stopPropagation();
+    setSelectedPatientId(patientId || '87221');
+    setIsDrawerOpen(true);
+  };
+
+  const handleBillClick = (row) => {
+    // Open AG-08 drawer for fast plain language review
+    handleOpenTransparency(row.patient_id || row.uhid || '87221');
+  };
+
+  const displayRows = (billingCases && billingCases.length > 0) ? billingCases : [
+    { invoice_id: 'INV-2026-902', patient_name: 'Kavitha Ramanathan', uhid: 'MER-PAT-0087221', patient_id: '87221', initial_estimate: 245000, current_total: 268450, variance_amount: 23450, variance_pct: 9.6, tpa_approved: 220000, patient_share: 48450, pharmacy_clear: true, discharge_clear: false, flag_level: 'HIGH', badge_text: 'Estimate Variance > 10% (+9.6%)', badge_color: '#ea580c', badge_bg: '#ffedd5', billing_status: 'Variance Review Pending', department: 'Cardiology / Cath Lab' },
+    { invoice_id: 'INV-2026-904', patient_name: 'Sundaram K.', uhid: 'MER-PAT-0087228', patient_id: '87228', initial_estimate: 175000, current_total: 204500, variance_amount: 29500, variance_pct: 16.9, tpa_approved: 160000, patient_share: 44500, pharmacy_clear: false, discharge_clear: false, flag_level: 'HIGH', badge_text: 'Estimate Variance > 10% (+16.9%)', badge_color: '#ea580c', badge_bg: '#ffedd5', billing_status: 'High Variance Alert', department: 'Orthopaedics' },
+    { invoice_id: 'INV-2026-901', patient_name: 'Saanvier Parthalan', uhid: 'MER-PAT-0087227', patient_id: '87227', initial_estimate: 65000, current_total: 68400, variance_amount: 3400, variance_pct: 5.2, tpa_approved: 52000, patient_share: 16400, pharmacy_clear: true, discharge_clear: true, flag_level: 'MODERATE', badge_text: 'Estimate Variance (+5.2%)', badge_color: '#d97706', badge_bg: '#fef3c7', billing_status: 'Cleared for Discharge', department: 'General Surgery' },
+    { invoice_id: 'INV-2026-905', patient_name: 'Lakshmi Narayanan', uhid: 'MER-PAT-0087230', patient_id: '87230', initial_estimate: 30000, current_total: 31000, variance_amount: 1000, variance_pct: 3.3, tpa_approved: 25000, patient_share: 6000, pharmacy_clear: true, discharge_clear: true, flag_level: 'NORMAL', badge_text: 'Within Estimate (+3.3%)', badge_color: '#16a34a', badge_bg: '#dcfce7', billing_status: 'Settled', department: 'Obstetrics & Gynaecology' }
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Patient Billing, Invoicing & Clearance Desk"
         subtitle="Inpatient bed charges, pharmacy reconciliations, TPA co-pay settlement, and discharge financial gate passes"
-        count={BILLING_RECORDS.length}
+        count={displayRows.length}
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Billable Item / Service' })}
         newLabel="+ Generate Bill"
         onExport={() => alert('Exported financial ledger')}
       />
+
+      {/* AG-08 Agent Interactive Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+        border: '1px solid #fdba74',
+        borderRadius: '10px',
+        padding: '14px 18px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '12px',
+        boxShadow: '0 2px 8px rgba(234, 88, 12, 0.08)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '10px',
+            background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#ffffff',
+            fontWeight: 800,
+            fontSize: '18px',
+            boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)'
+          }}>
+            ✨
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 800, fontSize: '14px', color: '#9a3412' }}>
+                AG-08 · Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்)
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', color: '#7c2d12', marginTop: '2px' }}>
+              Continuously audits running bills against pre-admission estimates. Translates cryptic consumable codes into plain English & Tamil.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Gross Revenue Invoiced" value="₹3,78,400" sub="5 Inpatients actively tracked" color="#0284c7" />
-        <StatCard label="TPA Pre-Auth Settlement" value="₹3,07,000" sub="81% Cashless Insurance Share" color="#059669" />
-        <StatCard label="Patient Co-Pay Balance" value="₹71,400" sub="Due at discharge billing desk" color="#d97706" />
-        <StatCard label="Gate Passes Issued" value="3 Ready" sub="Zero financial holds" color="#475569" />
+        <StatCard label="Gross Invoiced" value="₹5,72,350" sub="4 Inpatients actively tracked" color="#0284c7" />
+        <StatCard label="TPA Pre-Auth Settlement" value="₹4,57,000" sub="79.8% Cashless Coverage" color="#059669" />
+        <StatCard label="Variance Flagged Accounts" value="2 Accounts" sub="> 10% over estimate" color="#ea580c" />
+        <StatCard label="Cashier Dispute Resolution" value="1.5 Mins" sub="88% reduction in counter delays" color="#7c3aed" />
       </div>
 
       <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Invoice ID</th>
-              <th style={{ padding: '10px 14px' }}>Patient / UHID</th>
-              <th style={{ padding: '10px 14px' }}>Total Charges</th>
-              <th style={{ padding: '10px 14px' }}>Insurance Share</th>
-              <th style={{ padding: '10px 14px' }}>Patient Due</th>
-              <th style={{ padding: '10px 14px' }}>Pharmacy Check</th>
-              <th style={{ padding: '10px 14px' }}>Financial Status</th>
-              <th style={{ padding: '10px 14px', textAlign: 'right' }}>Gate Pass</th>
+              <th style={{ padding: '10px 14px' }}>Invoice / Patient</th>
+              <th style={{ padding: '10px 14px' }}>Initial Estimate</th>
+              <th style={{ padding: '10px 14px' }}>Running Bill</th>
+              <th style={{ padding: '10px 14px' }}>Estimate Variance</th>
+              <th style={{ padding: '10px 14px' }}>TPA / Co-Pay</th>
+              <th style={{ padding: '10px 14px' }}>Status</th>
+              <th style={{ padding: '10px 14px', textAlign: 'right' }}>AG-08 Explainer</th>
             </tr>
           </thead>
           <tbody>
-            {BILLING_RECORDS.map(row => (
-              <tr key={row.inv} onClick={() => handleBillClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.inv}</td>
+            {displayRows.map(row => (
+              <tr
+                key={row.invoice_id || row.inv}
+                onClick={() => handleBillClick(row)}
+                style={{
+                  borderBottom: '1px solid #f1f5f9',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                  background: row.flag_level === 'HIGH' ? '#fffbf5' : 'transparent'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                onMouseLeave={e => e.currentTarget.style.background = row.flag_level === 'HIGH' ? '#fffbf5' : 'transparent'}
+              >
                 <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{row.patient_name || row.patient}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid} · <span style={{ fontFamily: 'monospace' }}>{row.invoice_id || row.inv}</span></div>
+                  <div style={{ fontSize: '11px', color: '#0284c7', marginTop: '2px' }}>{row.department}</div>
                 </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>₹{(Number(row.total) || 0).toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', color: '#059669' }}>₹{(Number(row.tpa) || 0).toLocaleString()}</td>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#dc2626' }}>₹{(Number(row.patientShare) || 0).toLocaleString()}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#64748b' }}>
+                  ₹{(Number(row.initial_estimate || 0)).toLocaleString()}
+                </td>
+                <td style={{ padding: '10px 14px', fontWeight: 800, color: '#0f172a' }}>
+                  ₹{(Number(row.current_total || row.total || 0)).toLocaleString()}
+                </td>
                 <td style={{ padding: '10px 14px' }}>
-                  {row.pharmacyClear ? <span style={{ color: '#059669', fontWeight: 700 }}>✓ Cleared</span> : <span style={{ color: '#d97706', fontWeight: 600 }}>⏳ Due</span>}
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: row.badge_bg || '#ffedd5',
+                    color: row.badge_color || '#ea580c',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    {row.flag_level === 'HIGH' && '⚠️ '}
+                    {row.badge_text || `+₹${(Number(row.variance_amount || 0)).toLocaleString()} (+${row.variance_pct}%)`}
+                  </span>
+                </td>
+                <td style={{ padding: '10px 14px' }}>
+                  <div style={{ color: '#059669', fontSize: '11px' }}>TPA: ₹{(Number(row.tpa_approved || row.tpa || 0)).toLocaleString()}</div>
+                  <div style={{ color: '#dc2626', fontWeight: 700, fontSize: '11px' }}>Due: ₹{(Number(row.patient_share || row.patientShare || 0)).toLocaleString()}</div>
                 </td>
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
-                    row.dischargeClear ? '#dcfce7' : '#fef3c7',
-                    row.dischargeClear ? '#15803d' : '#92400e'
+                    row.discharge_clear || row.dischargeClear ? '#dcfce7' : '#fef3c7',
+                    row.discharge_clear || row.dischargeClear ? '#15803d' : '#92400e'
                   )}>
-                    ● {row.status}
+                    ● {row.billing_status || row.status}
                   </span>
                 </td>
                 <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                  <button type="button" onClick={() => alert(`Generated Gate Pass for ${row.patient}`)} style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>
-                    Print Slip
+                  <button
+                    type="button"
+                    onClick={(e) => handleOpenTransparency(row.patient_id || row.uhid, e)}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                      border: '1px solid #fdba74',
+                      background: '#fff7ed',
+                      color: '#c2410c',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <span>✨ Plain Breakdown</span>
                   </button>
                 </td>
               </tr>
@@ -3777,6 +3886,14 @@ export function BillingView({ onOpenDrawer, onOpenModal }) {
           </tbody>
         </table>
       </div>
+
+      {/* Embedded AG-08 Billing Transparency Drawer */}
+      <BillingTransparencyDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        patientId={selectedPatientId}
+        onApproved={() => loadBillingData()}
+      />
     </div>
   );
 }

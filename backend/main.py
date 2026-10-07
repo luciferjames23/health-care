@@ -110,6 +110,12 @@ except Exception as e:
     print(f"Failed to load preauth agent router: {e}")
 
 try:
+    from routers.billing_transparency_agent import router as billing_transparency_agent_router
+    routers_to_mount.append(billing_transparency_agent_router)
+except Exception as e:
+    print(f"Failed to load billing transparency agent router: {e}")
+
+try:
     from routers.patient_management import router as patient_management_router
     routers_to_mount.append(patient_management_router)
 except Exception as e:

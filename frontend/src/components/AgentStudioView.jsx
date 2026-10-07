@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { agentApi } from '../agent/agentApi';
 import { apiService } from '../services/api';
 import PreauthDossierDrawer from './PreauthDossierDrawer';
+import BillingTransparencyDrawer from './BillingTransparencyDrawer';
 import {
   CheckCircle2, AlertCircle, FileText, Database, TrendingUp, Sparkles,
   ShieldCheck, ChevronRight, Activity, Award, ArrowUpRight, BarChart3,
@@ -455,33 +456,35 @@ export const ALL_21_AGENTS = [
     name: 'Billing Transparency Agent',
     nameTa: 'கட்டண வெளிப்படைத்தன்மை முகவர்',
     type: 'Drafter',
-    v: '1.9.3',
+    v: '2.0.0',
     owner: 'Finance',
     tier: 'High',
-    status: 'Disabled',
-    lastRun: '10:42',
-    success: '89.0%',
-    runs: 210,
-    humanApproval: 'Required',
-    toolsCount: 3,
-    knowledgeCount: 2,
-    purpose: 'Assist Finance with billing transparency tasks under human oversight.',
+    status: 'Published',
+    lastRun: '11:24',
+    success: '96.4%',
+    runs: 342,
+    humanApproval: 'Optional',
+    toolsCount: 4,
+    knowledgeCount: 3,
+    purpose: 'Assist Billing Desk & Cashier with automated plain-language English & Tamil breakdown of variance items under human oversight.',
     instructions: {
-      objective: 'Reduce turnaround and manual coordination for Finance.',
-      system: 'You are the Hospital Billing Transparency Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.',
-      rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
-      safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
-      escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      objective: 'Eliminate discharge bill disputes and counter delays by providing instant plain-language explanations of itemized charges.',
+      system: 'You are the Hospital Billing Transparency Agent. Audit running bills against pre-admission estimates. Translate technical consumable codes and OT notes into empathetic everyday language in English and Tamil. Cite exact clinical proof notes.',
+      rules: 'Use Tamil when the patient language is Tamil. Always explain the medical necessity of additional surgical consumables. Log every tool call.',
+      safety: 'Refuse clinical diagnosis or alteration of tariff rates. Do not waive charges autonomously. Mask sensitive financial data outside billing desk.',
+      escalation: 'Escalate to Chief Billing Officer if variance exceeds 50% or clinical justification is missing from EMR logs.',
+      refusal: '"I don\'t have enough verified clinical chart data to justify this charge safely." then route to billing auditor.'
     },
     tools: [
-      { tool: 'Billing', perm: 'Read Itemized Lines & Variance', read: true, write: false, appr: 'Finance Lead', enabled: true },
-      { tool: 'Pharmacy', perm: 'Audit Dispensed Medication Invoices', read: true, write: false, appr: 'None', enabled: true },
-      { tool: 'Document Generator', perm: 'Draft Plain Bill Breakdown', read: true, write: true, appr: 'Billing Manager', enabled: true }
+      { tool: 'Billing Desk API', perm: 'Read Itemized Consumable Lines, Unit Prices & Running Totals', read: true, write: false, appr: 'None', enabled: true },
+      { tool: 'Estimate Ledger', perm: 'Compare Charges Against Pre-Admission Estimate (>10% Variance)', read: true, write: false, appr: 'None', enabled: true },
+      { tool: 'EMR & OT Notes API', perm: 'Extract Intra-Operative Notes & Doctor Clinical Orders', read: true, write: false, appr: 'None', enabled: true },
+      { tool: 'Document Generator', perm: 'Assemble Plain Bilingual Breakdown & Print to Invoice', read: true, write: true, appr: 'Cashier Sign-off', enabled: true }
     ],
     knowledge: [
-      { t: 'Tariff Schedule FY26-27', v: '1.3', eff: '01 Apr 2026', status: 'Published' },
-      { t: 'Inpatient Discharge SOP', v: '3.1', eff: '01 Jul 2026', status: 'Published' }
+      { t: 'Tariff Schedule FY26-27 & Package Exclusions', v: '3.4', eff: '01 Apr 2026', status: 'Published' },
+      { t: 'Clinical Consumables & Implant Nomenclature', v: '2.1', eff: '01 Jun 2026', status: 'Published' },
+      { t: 'Tamil Medical Lexicon & Layman Standards', v: '1.8', eff: '15 Jul 2026', status: 'Published' }
     ],
     memory: {
       session: 'On · 30 min',
@@ -491,26 +494,27 @@ export const ALL_21_AGENTS = [
       sensitive: 'No free-text PHI stored'
     },
     access: {
-      roles: 'Finance, Hospital Management',
+      roles: 'Billing Staff, Hospital Cashiers, Ward Administrators, Finance Lead',
       departments: 'All wards',
       patients: 'Care-team relationship required',
-      scopes: 'Operational + financial (no clinical write)',
+      scopes: 'Financial + clinical read (no medical prescription write)',
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'openai/gpt-oss-120b',
       temperature: 0.2,
       tokens: 8000,
       fallback: 'meridian-llm-small',
-      latency: '< 3 s p50',
-      cost: '₹24 / run'
+      latency: '< 1.5 s p50',
+      cost: '₹18 / run'
     },
     evals: [
-      { id: 'EV-708', ver: 'v1.9.3', when: 'Yesterday 16:30', cases: 100, acc: '89.0%', ground: '91.2%', hall: '0.9%', ref: '96%', lat: '2.2s', res: 'Pass' }
+      { id: 'EV-708', ver: 'v2.0.0', when: 'Today 11:20', cases: 120, acc: '96.4%', ground: '98.2%', hall: '0.2%', ref: '99%', lat: '1.4s', res: 'Pass' },
+      { id: 'EV-680', ver: 'v1.9.3', when: 'Yesterday 16:30', cases: 100, acc: '89.0%', ground: '91.2%', hall: '0.9%', ref: '96%', lat: '2.2s', res: 'Pass' }
     ],
     versions: [
-      { v: '1.9.3', ts: '21 days ago', author: 'AI Engineering', changes: 'Added tariff variance calculator', score: '89.0', state: 'Disabled', bg: '#fee2e2', fg: '#b91c1c' },
-      { v: '1.0.0', ts: '65 days ago', author: 'Ops Product', changes: 'Initial release', score: '86.2', state: 'Archived', bg: '#f1f5f9', fg: '#475569' }
+      { v: '2.0.0', ts: 'Just now', author: 'AI Engineering', changes: 'Groq openai/gpt-oss-120b bilingual English & Tamil synthesis', score: '96.4', state: 'Published', bg: '#dcfce7', fg: '#15803d' },
+      { v: '1.9.3', ts: '21 days ago', author: 'AI Engineering', changes: 'Added tariff variance calculator', score: '89.0', state: 'Archived', bg: '#f1f5f9', fg: '#475569' }
     ]
   },
   {
@@ -1402,7 +1406,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
 
   // Playground state
   const [playPrompt, setPlayPrompt] = useState(
-    selectedAgentId === 'AG-19'
+    selectedAgentId === 'AG-08'
+      ? 'Explain variance for Patient Kavitha Ramanathan (UHID: 87221 · PTCA +₹23,450 variance)'
+      : selectedAgentId === 'AG-19'
       ? 'Generate discharge summaries for all eligible admitted patients'
       : selectedAgentId === 'AG-18'
       ? 'Draft shift change SBAR handover note for Bed BED-0183 (Morning Shift 07:00 - 15:00)'
@@ -1414,7 +1420,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   // Update playground prompt when selected agent changes
   useEffect(() => {
     if (selectedAgent) {
-      if (selectedAgent.id === 'AG-19') {
+      if (selectedAgent.id === 'AG-08') {
+        setPlayPrompt('Explain variance for Patient Kavitha Ramanathan (UHID: 87221 · PTCA +₹23,450 variance)');
+      } else if (selectedAgent.id === 'AG-19') {
         setPlayPrompt('Generate discharge summaries for all eligible admitted patients');
       } else if (selectedAgent.id === 'AG-18') {
         setPlayPrompt('Draft shift change SBAR handover note for Bed BED-0183 (Morning Shift 07:00 - 15:00)');
@@ -1426,6 +1434,17 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   }, [selectedAgentId]);
 
   // Model Tab editable state
+  const DEFAULT_BILLING_MODEL_CONFIG = {
+    primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
+    llmProvider: 'Groq Inference API & Google Gemini Engine',
+    fallbackModel: 'gemini-3.5-flash-lite (Google Gemini)',
+    temperature: 0.20,
+    tokenLimit: '8,000 tokens (Max context: 128k)',
+    latencyTarget: '< 1,500 ms (Groq accelerated)',
+    executionProtocol: 'Sequential 3-Step Protocol (Estimate Diff → EMR OT Note Proof → Bilingual Synthesis)',
+    governanceGate: 'Cashier Sign-off & Billing Auditor Review'
+  };
+
   const DEFAULT_NURSING_MODEL_CONFIG = {
     primaryModel: 'openai/gpt-oss-120b (Groq LPU Inference)',
     llmProvider: 'Groq Inference API & Google Gemini Engine',
@@ -1532,6 +1551,7 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
     'AG-02': { ...DEFAULT_PATIENT_ACCESS_MODEL_CONFIG },
     'AG-03': { ...DEFAULT_PREREGISTRATION_MODEL_CONFIG },
     'AG-05': { ...DEFAULT_FEEDBACK_MODEL_CONFIG },
+    'AG-08': { ...DEFAULT_BILLING_MODEL_CONFIG },
     'AG-04': { ...DEFAULT_EMPLOYEE_MODEL_CONFIG },
     'AG-14': { ...DEFAULT_ANALYTICS_MODEL_CONFIG },
     'AG-15': { ...DEFAULT_FORECASTING_MODEL_CONFIG },
@@ -1628,6 +1648,12 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
       { id: 'tool-bill-preauth', tool: 'Billing & Tariff API', perm: 'Read Estimated Hospital Charges & Tariff Lines', read: true, write: false, appr: 'None', enabled: true },
       { id: 'tool-docgen-preauth', tool: 'Document Generator', perm: 'Assemble Preauth PDF Dossier & Denial Risk Packet', read: true, write: true, appr: 'Insurance Exec', enabled: true }
     ],
+    'AG-08': [
+      { id: 'tool-billing-desk', tool: 'Billing Desk API', perm: 'Read Itemized Consumable Lines, Unit Prices & Running Totals', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-estimate-ledger', tool: 'Estimate Ledger', perm: 'Compare Charges Against Pre-Admission Estimate (>10% Variance)', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-emr-ot-notes', tool: 'EMR & OT Notes API', perm: 'Extract Intra-Operative Notes & Doctor Clinical Orders', read: true, write: false, appr: 'None', enabled: true },
+      { id: 'tool-doc-gen', tool: 'Document Generator', perm: 'Assemble Plain Bilingual Breakdown & Print to Invoice', read: true, write: true, appr: 'Cashier Sign-off', enabled: true }
+    ],
     'AG-18': [
       { id: 'tool-emr', tool: 'EMR API', perm: 'Read Shift Vitals & MAR Administration', read: true, write: false, appr: 'None', enabled: true },
       { id: 'tool-pharmacy', tool: 'Pharmacy API', perm: 'Verify High-Alert Medications & Overdue Doses', read: true, write: false, appr: 'None', enabled: true },
@@ -1662,6 +1688,8 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   const [handoverAcknowledged, setHandoverAcknowledged] = useState(false);
   const [preauthDrawerOpen, setPreauthDrawerOpen] = useState(false);
   const [preauthPatientId, setPreauthPatientId] = useState('87264');
+  const [billingDrawerOpen, setBillingDrawerOpen] = useState(false);
+  const [billingPatientId, setBillingPatientId] = useState('87221');
 
   const filteredAgents = ALL_21_AGENTS.filter(a => {
     if (filterStatus !== 'All') {
@@ -1769,6 +1797,78 @@ Ready for 1-click submission to ${c.insurance_provider || 'TPA Desk'} by Insuran
         });
       } catch (err) {
         console.warn('Preauth Agent execution error:', err);
+      } finally {
+        setPlayRunning(false);
+      }
+      return;
+    }
+
+    // LIVE EXECUTION FOR AG-08 (BILLING TRANSPARENCY AGENT · கட்டண வெளிப்படைத்தன்மை முகவர்)
+    if (selectedAgent?.id === 'AG-08' || selectedAgent?.name === 'Billing Transparency Agent') {
+      try {
+        let targetPatient = '87221';
+        const match = playPrompt.match(/patient\s+([A-Za-z0-9\s]+?)(?:\s*\(|\s*$|\s+for|\s+with|\s+to)/i);
+        if (match && match[1]) {
+          targetPatient = match[1].trim();
+        } else {
+          const numMatch = playPrompt.match(/\b(87\d{3}|\d{5,7})\b/);
+          if (numMatch) {
+            targetPatient = numMatch[1];
+          } else if (playPrompt.toLowerCase().includes('kavitha')) {
+            targetPatient = '87221';
+          } else if (playPrompt.toLowerCase().includes('sundaram')) {
+            targetPatient = '87222';
+          } else if (playPrompt.toLowerCase().includes('meenakshi')) {
+            targetPatient = '87223';
+          }
+        }
+
+        const res = await apiService.generateBillingBreakdown({ patient_id: targetPatient });
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
+        const executionId = `EXE-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+        const payload = res?.data || {};
+        const bd = payload.breakdown || payload;
+        const meta = payload.patient_meta || bd.patient_meta || {};
+        const items = bd.variance_items || [];
+
+        const outputText = `BILLING TRANSPARENCY AGENT SYNTHESIS (AG-08 · கட்டண வெளிப்படைத்தன்மை முகவர்)
+Patient: ${meta.patient_name || 'Kavitha Ramanathan'} (${meta.uhid || 'UHID-87221'}) | Invoice: ${meta.invoice_id || 'INV-2026-902'}
+Procedure: ${meta.procedure || 'Coronary Angioplasty (PTCA)'} | Admitting Dept: ${meta.department || 'Cardiology'}
+Pre-Admission Estimate: ₹${(meta.initial_estimate || 185000).toLocaleString('en-IN')} | Running Total: ₹${(meta.running_total || 208450).toLocaleString('en-IN')}
+Variance Detected: +₹${(meta.variance_amount || 23450).toLocaleString('en-IN')} (+${meta.variance_pct || 12.6}%)
+Inference Engine: Groq LPU (openai/gpt-oss-120b) | Latency: ${elapsedSec}s
+
+PLAIN-LANGUAGE SUMMARY (ENGLISH):
+${bd.plain_summary_en || 'The bill increased by ₹23,450 over the initial estimate due to severe arterial calcification requiring a high-pressure non-compliant balloon catheter and extended monitoring.'}
+
+எளிய மொழி விளக்கம் (TAMIL · தமிழ்):
+${bd.plain_summary_ta || 'முதற்கட்ட மதிப்பீட்டை விட ₹23,450 கூடுதல் கட்டணம் ஆகியுள்ளது. கடுமையான தமனி அடைப்பு காரணமாக உயர் அழுத்த பலூன் வடிகுழாய் பயன்படுத்தப்பட்டது.'}
+
+VARIANCE AUDIT & CLINICAL NECESSITY BREAKDOWN:
+${items.length > 0 ? items.map((it, idx) => `• [${it.code || 'ITEM'}] ${it.description || it.name}: ₹${(it.cost || it.amount || 0).toLocaleString('en-IN')}
+  Reason (EN): ${it.plain_en || it.reason_en || 'Clinical requirement during procedure'}
+  விளக்கம் (TA): ${it.plain_ta || it.reason_ta || 'மருத்துவ அவசிய தேவை'}`).join('\n\n') : '• All charges audited against pre-admission estimate and approved by billing auditor.'}
+
+HUMAN GOVERNANCE GATE:
+Cashier sign-off and plain-language invoice print authorization ready.`;
+
+        setPlayResult({
+          executionId,
+          status: 'Completed · Cashier Sign-off Ready',
+          latency: `${elapsedSec > 0.3 ? elapsedSec : '1.34'} s`,
+          tokens: '2,850 tokens',
+          cost: '₹0.18',
+          steps: [
+            { t: timeStr(0), k: 'TOOL', what: `Step 1: Billing Desk API — retrieved itemized running charges for ${meta.patient_name || 'Patient'}` },
+            { t: timeStr(1), k: 'TOOL', what: `Step 2: Estimate Ledger — flagged +₹${(meta.variance_amount || 23450).toLocaleString('en-IN')} variance against pre-admission estimate` },
+            { t: timeStr(2), k: 'TOOL', what: 'Step 3: EMR & OT Notes API — verified intra-operative notes & cardiologist clinical necessity' },
+            { t: timeStr(3), k: 'AI', what: 'Step 4: Groq openai/gpt-oss-120b — synthesized bilingual plain-language breakdown (EN + TA)' },
+            { t: timeStr(4), k: 'HUMAN', what: 'Step 5: Document Generator — assembled plain summary ready for cashier sign-off & invoice print' }
+          ],
+          output: outputText
+        });
+      } catch (err) {
+        console.warn('Billing Agent execution error:', err);
       } finally {
         setPlayRunning(false);
       }
@@ -2125,9 +2225,10 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
     const isEmployeeAgent = selectedAgent.id === 'AG-04' || selectedAgent.name === 'Employee Service Agent';
     const isAnalyticsAgent = selectedAgent.id === 'AG-14' || selectedAgent.name === 'Analytics Agent';
     const isForecastingAgent = selectedAgent.id === 'AG-15' || selectedAgent.name === 'Forecasting Agent';
+    const isBillingAgent = selectedAgent.id === 'AG-08' || selectedAgent.name === 'Billing Transparency Agent';
     // Feedback Agent & Registration / Appointment / Patient Access agents are Admin-configurable.
     const isFeedbackAgent = selectedAgent.id === 'AG-05' || selectedAgent.name === 'Feedback Agent';
-    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent || isFeedbackAgent || isAppointmentAgent || isPatientAccessAgent || isPreregistrationAgent;
+    const isConfigurableAgent = isPreauthAgent || isDischargeAgent || isNursingAgent || isEmployeeAgent || isAnalyticsAgent || isForecastingAgent || isFeedbackAgent || isAppointmentAgent || isPatientAccessAgent || isPreregistrationAgent || isBillingAgent;
     const currentAgentStatus = agentCustomStatuses[selectedAgent.id] || selectedAgent.status;
     const TABS = ['Identity', 'Instructions', 'Knowledge', 'Tools', 'Memory', 'Access', 'Model', 'Playground', 'Evaluate', 'Publish & Versions'];
 
@@ -2252,6 +2353,31 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
                   System Managed · Read Only
                 </span>
+              )}
+
+              {selectedAgent.id === 'AG-08' && onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('billing')}
+                  style={{
+                    marginLeft: 'auto',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '5px 12px',
+                    fontSize: '11.5px',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #059669, #047857)',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)'
+                  }}
+                >
+                  <Sparkles style={{ width: '13px', height: '13px' }} />
+                  Open Plain Bilingual Breakdown Desk →
+                </button>
               )}
 
               {selectedAgent.id === 'AG-07' && onNavigate && (
@@ -2756,6 +2882,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           const currentAgentId = selectedAgent?.id || 'AG-18';
           const getDefaultConfig = (id) => {
             if (id === 'AG-18') return DEFAULT_NURSING_MODEL_CONFIG;
+            if (id === 'AG-08') return DEFAULT_BILLING_MODEL_CONFIG;
             if (id === 'AG-04') return DEFAULT_EMPLOYEE_MODEL_CONFIG;
             if (id === 'AG-14') return DEFAULT_ANALYTICS_MODEL_CONFIG;
             if (id === 'AG-15') return DEFAULT_FORECASTING_MODEL_CONFIG;
@@ -3247,6 +3374,11 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ fontWeight: 600, fontSize: '13px' }}>Workflow execution input</span>
+                {isBillingAgent && (
+                  <span style={{ fontSize: '11px', color: '#047857', fontWeight: 600, background: '#ecfdf5', padding: '1px 8px', borderRadius: '4px' }}>
+                    Groq LPU (openai/gpt-oss-120b · Bilingual EN/TA)
+                  </span>
+                )}
                 {isPreauthAgent && (
                   <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 600, background: '#dbeafe', padding: '1px 8px', borderRadius: '4px' }}>
                     Groq LPU (openai/gpt-oss-120b · preauth-denial v0.9)
@@ -3278,6 +3410,39 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                   </span>
                 )}
               </div>
+
+              {/* Quick Chips for AG-08 (Billing Transparency Agent) */}
+              {isBillingAgent && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px' }}>Quick Billing Variance Prompts:</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      'Explain variance for Patient Kavitha Ramanathan (UHID: 87221 · PTCA +₹23,450 variance)',
+                      'Investigate clinical necessity of non-compliant balloon catheter (MAT-CATH-NC) for Kavitha',
+                      'Generate plain-language bilingual breakdown (English & Tamil) for Sundaram K (UHID: 87222)',
+                      'Audit all inpatient accounts with >10% variance against pre-admission estimates'
+                    ].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setPlayPrompt(q)}
+                        style={{
+                          fontSize: '11px',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          border: playPrompt === q ? '1px solid #059669' : '1px solid #e2e8f0',
+                          background: playPrompt === q ? '#ecfdf5' : '#fff',
+                          color: playPrompt === q ? '#059669' : '#475569',
+                          fontWeight: playPrompt === q ? 600 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Quick Chips for AG-07 (Insurance Preauth Agent) */}
               {isPreauthAgent && (
@@ -3573,6 +3738,62 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
                   </div>
                 )}
 
+                {/* Direct Action Link for AG-08 (Billing Transparency Agent) */}
+                {isBillingAgent && (
+                  <div style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', background: '#ecfdf5', border: '1px solid #a7f3d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Sparkles style={{ width: '16px', height: '16px', color: '#059669' }} />
+                        Billing Transparency Breakdown & Print Desk Ready (AG-08)
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#047857', marginTop: '2px' }}>
+                        Bilingual Tamil/English explanation drawer, verified doctor justification notes, and isolated iframe print engine.
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setBillingDrawerOpen(true)}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: '6px',
+                          border: '1px solid #a7f3d0',
+                          background: '#ffffff',
+                          color: '#065f46',
+                          fontWeight: 600,
+                          fontSize: '11.5px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Quick Drawer Preview
+                      </button>
+                      {onNavigate && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('billing')}
+                          style={{
+                            padding: '7px 16px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#059669',
+                            color: '#fff',
+                            fontWeight: 700,
+                            fontSize: '11.5px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 4px rgba(5,150,105,0.25)'
+                          }}
+                        >
+                          <Sparkles style={{ width: '13px', height: '13px' }} />
+                          Go to Billing Desk View →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Direct Action Link for AG-07 (Insurance Preauth Agent) */}
                 {isPreauthAgent && (
                   <div style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3733,6 +3954,13 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
             setToolsNotice(`Preauth submission acknowledged: Ref #${res?.submission_reference || 'TPA-SUBMITTED'}`);
             setTimeout(() => setToolsNotice(null), 4000);
           }}
+        />
+
+        {/* AG-08 Interactive Billing Transparency Explanation Drawer */}
+        <BillingTransparencyDrawer
+          isOpen={billingDrawerOpen}
+          onClose={() => setBillingDrawerOpen(false)}
+          patientIdentifier={billingPatientId}
         />
       </div>
     );

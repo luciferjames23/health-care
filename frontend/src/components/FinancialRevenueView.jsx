@@ -3,6 +3,7 @@ import { financialApi } from "../services/financialApi";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
+import BillingTransparencyDrawer from "./BillingTransparencyDrawer";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
@@ -206,6 +207,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
   // Gate Pass Modal State
   const [gatePassModal, setGatePassModal] = useState(null);
+
+  // AG-08 Billing Transparency Agent State
+  const [ag08DrawerOpen, setAg08DrawerOpen] = useState(false);
+  const [ag08PatientId, setAg08PatientId] = useState('87221');
 
   // ───────────────────────────────────────────────────────────────────────────
   // Data Loaders from Live Backend APIs (Supports silent refresh to avoid UI flashing)
@@ -1072,154 +1077,228 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       )}
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
-      {/* TAB 1: BILLING VIEW (Exact Prototype Table) */}
+      {/* TAB 1: BILLING VIEW (Exact Prototype Table with AG-08 AI Auditor) */}
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "billing" && (
-        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
-          {/* Table Header */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {/* AG-08 Embedded Billing Transparency Agent Banner */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(90px, 0.9fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(85px, 0.85fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(100px, 1fr)",
-              gap: "8px",
-              padding: "8px 12px",
-              color: PALETTE.muted,
-              fontSize: "10.5px",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-              borderBottom: `1px solid ${PALETTE.borderLight}`,
-              minWidth: "760px",
-              fontWeight: 600
+              background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
+              border: "1px solid #fdba74",
+              borderRadius: "10px",
+              padding: "12px 18px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "12px",
+              boxShadow: "0 2px 8px rgba(234, 88, 12, 0.08)"
             }}
           >
-            <span>Bill</span>
-            <span>Patient</span>
-            <span>Admission</span>
-            <span>Estimate</span>
-            <span>Actual</span>
-            <span>Variance</span>
-            <span>Insurance</span>
-            <span>Patient</span>
-            <span>Status</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  borderRadius: "8px",
+                  background: "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#ffffff",
+                  fontWeight: 800,
+                  fontSize: "18px",
+                  boxShadow: "0 4px 12px rgba(234, 88, 12, 0.25)"
+                }}
+              >
+                ✨
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontWeight: 800, fontSize: "14px", color: "#9a3412" }}>
+                    AG-08 · Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்)
+                  </span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#7c2d12", marginTop: "2px" }}>
+                  Audits accumulating charges vs initial estimates and generates instant bilingual (English & தமிழ்) explanations.
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Loading Indicator */}
-          {loadingBills && (
-            <div style={{ padding: "16px" }}>
-              <ModuleLoadingScreen
-                title={`Loading ${activeFilter === "All" ? "Patient Bills" : `${activeFilter} Bills`} & Estimates...`}
-                subtitle="Retrieving live billing items, invoices, co-pays, tariff calculations & settlements..."
-                badgeText="Live Billing Sync"
-                showKpis={false}
-                tableRows={8}
-                tableColumns={9}
-              />
+          <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+            {/* Table Header */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(90px, 0.9fr) minmax(150px, 1.5fr) minmax(100px, 1fr) minmax(85px, 0.85fr) minmax(85px, 0.85fr) minmax(80px, 0.8fr) minmax(85px, 0.85fr) minmax(85px, 0.85fr) minmax(90px, 0.9fr) minmax(110px, 1.1fr)",
+                gap: "8px",
+                padding: "8px 12px",
+                color: PALETTE.muted,
+                fontSize: "10.5px",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                borderBottom: `1px solid ${PALETTE.borderLight}`,
+                minWidth: "860px",
+                fontWeight: 600
+              }}
+            >
+              <span>Bill</span>
+              <span>Patient</span>
+              <span>Admission</span>
+              <span>Estimate</span>
+              <span>Actual</span>
+              <span>Variance</span>
+              <span>Insurance</span>
+              <span>Patient</span>
+              <span>Status</span>
+              <span style={{ textAlign: "right" }}>AG-08 Explainer</span>
             </div>
-          )}
 
-          {/* Empty State */}
-          {!loadingBills && bills.length === 0 && (
-            <div style={{ padding: "40px", textAlign: "center", color: PALETTE.muted }}>
-              <div style={{ fontWeight: 600, color: PALETTE.text2, marginBottom: "4px" }}>Nothing matches</div>
-              No records for this filter or search. Clear the search or choose “All”.
-            </div>
-          )}
-
-          {/* Table Rows */}
-          {!loadingBills && bills.map((b) => {
-            const est = Number(b.gross_amount) || Number(b.total) || 1;
-            const act = Number(b.total) || 0;
-            const v = act - est;
-            const vPct = est > 0 ? Math.round((100 * v) / est) : 0;
-            const isDisputed = /disputed/i.test(b.status);
-
-            return (
-              <div
-                key={b.bill_id}
-                onClick={() => openBillDrawer(b.bill_id)}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "minmax(90px, 0.9fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(85px, 0.85fr) minmax(95px, 0.95fr) minmax(95px, 0.95fr) minmax(100px, 1fr)",
-                  gap: "8px",
-                  padding: "7px 12px",
-                  borderBottom: `1px solid #f2f3f4`,
-                  alignItems: "center",
-                  cursor: "pointer",
-                  minWidth: "760px",
-                  fontSize: "12px"
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
-              >
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{b.inv}</span>
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
-                    cursor: onSelectPatient ? "pointer" : "default",
-                    textDecoration: onSelectPatient ? "underline" : "none"
-                  }}
-                  title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
-                  onClick={(e) => {
-                    if (onSelectPatient) {
-                      e.stopPropagation();
-                      onSelectPatient({
-                        patient_id: b.patient_id,
-                        id: b.patient_id,
-                        patient_code: b.uhid || b.patient_code || b.patient_number,
-                        patient_number: b.uhid || b.patient_code || b.patient_number,
-                        patient_name: b.patient,
-                        first_name: b.patient ? b.patient.split(" ")[0] : "",
-                        last_name: b.patient ? b.patient.split(" ").slice(1).join(" ") : "",
-                        admission_id: b.admission_id
-                      });
-                    }
-                  }}
-                >
-                  {b.patient}
-                </span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
-                  {b.adm}
-                </span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(est)}</span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
-                  {inr(act)}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: "11.5px",
-                    color: v > est * 0.1 ? PALETTE.critical : v < 0 ? PALETTE.success : PALETTE.text2
-                  }}
-                >
-                  {v >= 0 ? "+" : ""}
-                  {vPct}%
-                </span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.tpa)}</span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", display: "flex", flexDirection: "column", gap: "1px" }}>
-                  <span>{inr(b.patientShare)}</span>
-                  {Number(b.paid_amount || 0) > 0 && b.status !== "Settled" && b.status !== "Paid" && (
-                    <span style={{ fontSize: "10px", color: PALETTE.success, fontWeight: 500 }}>
-                      Paid {inr(b.paid_amount)}
-                    </span>
-                  )}
-                </span>
-                <span>
-                  <StatusPill status={isDisputed ? "Disputed" : b.status} />
-                </span>
+            {/* Loading Indicator */}
+            {loadingBills && (
+              <div style={{ padding: "16px" }}>
+                <ModuleLoadingScreen
+                  title={`Loading ${activeFilter === "All" ? "Patient Bills" : `${activeFilter} Bills`} & Estimates...`}
+                  subtitle="Retrieving live billing items, invoices, co-pays, tariff calculations & settlements..."
+                  badgeText="Live Billing Sync"
+                  showKpis={false}
+                  tableRows={8}
+                  tableColumns={10}
+                />
               </div>
-            );
-          })}
+            )}
 
-          {/* Table Footer Pagination */}
-          <TablePagination
-            total={billTotal}
-            page={billPage}
-            pageSize={billPageSize}
-            onPageChange={(p) => { setLoadingBills(true); setBillPage(p); }}
-            onPageSizeChange={(sz) => { setLoadingBills(true); setBillPageSize(sz); setBillPage(1); }}
-            label="bills"
-          />
+            {/* Empty State */}
+            {!loadingBills && bills.length === 0 && (
+              <div style={{ padding: "40px", textAlign: "center", color: PALETTE.muted }}>
+                <div style={{ fontWeight: 600, color: PALETTE.text2, marginBottom: "4px" }}>Nothing matches</div>
+                No records for this filter or search. Clear the search or choose “All”.
+              </div>
+            )}
+
+            {/* Table Rows */}
+            {!loadingBills && bills.map((b) => {
+              const est = Number(b.gross_amount) || Number(b.total) || 1;
+              const act = Number(b.total) || 0;
+              const v = act - est;
+              const vPct = est > 0 ? Math.round((100 * v) / est) : 0;
+              const isDisputed = /disputed/i.test(b.status);
+
+              return (
+                <div
+                  key={b.bill_id}
+                  onClick={() => openBillDrawer(b.bill_id)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(90px, 0.9fr) minmax(150px, 1.5fr) minmax(100px, 1fr) minmax(85px, 0.85fr) minmax(85px, 0.85fr) minmax(80px, 0.8fr) minmax(85px, 0.85fr) minmax(85px, 0.85fr) minmax(90px, 0.9fr) minmax(110px, 1.1fr)",
+                    gap: "8px",
+                    padding: "7px 12px",
+                    borderBottom: `1px solid #f2f3f4`,
+                    alignItems: "center",
+                    cursor: "pointer",
+                    minWidth: "860px",
+                    fontSize: "12px"
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                >
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{b.inv}</span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                      cursor: onSelectPatient ? "pointer" : "default",
+                      textDecoration: onSelectPatient ? "underline" : "none"
+                    }}
+                    title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                    onClick={(e) => {
+                      if (onSelectPatient) {
+                        e.stopPropagation();
+                        onSelectPatient({
+                          patient_id: b.patient_id,
+                          id: b.patient_id,
+                          patient_code: b.uhid || b.patient_code || b.patient_number,
+                          patient_number: b.uhid || b.patient_code || b.patient_number,
+                          patient_name: b.patient,
+                          first_name: b.patient ? b.patient.split(" ")[0] : "",
+                          last_name: b.patient ? b.patient.split(" ").slice(1).join(" ") : "",
+                          admission_id: b.admission_id
+                        });
+                      }
+                    }}
+                  >
+                    {b.patient}
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
+                    {b.adm}
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(est)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                    {inr(act)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: "11.5px",
+                      color: v > est * 0.1 ? PALETTE.critical : v < 0 ? PALETTE.success : PALETTE.text2
+                    }}
+                  >
+                    {v >= 0 ? "+" : ""}
+                    {vPct}%
+                  </span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.tpa)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", display: "flex", flexDirection: "column", gap: "1px" }}>
+                    <span>{inr(b.patientShare)}</span>
+                    {Number(b.paid_amount || 0) > 0 && b.status !== "Settled" && b.status !== "Paid" && (
+                      <span style={{ fontSize: "10px", color: PALETTE.success, fontWeight: 500 }}>
+                        Paid {inr(b.paid_amount)}
+                      </span>
+                    )}
+                  </span>
+                  <span>
+                    <StatusPill status={isDisputed ? "Disputed" : b.status} />
+                  </span>
+                  <span style={{ textAlign: "right" }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAg08PatientId(String(b.patient_id || b.uhid || "87221"));
+                        setAg08DrawerOpen(true);
+                      }}
+                      style={{
+                        padding: "3px 8px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        borderRadius: "4px",
+                        border: "1px solid #fdba74",
+                        background: "#fff7ed",
+                        color: "#c2410c",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px"
+                      }}
+                    >
+                      ✨ Explain
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Table Footer Pagination */}
+            <TablePagination
+              total={billTotal}
+              page={billPage}
+              pageSize={billPageSize}
+              onPageChange={(p) => { setLoadingBills(true); setBillPage(p); }}
+              onPageSizeChange={(sz) => { setLoadingBills(true); setBillPageSize(sz); setBillPage(1); }}
+              label="bills"
+            />
+          </div>
         </div>
       )}
 
@@ -2926,6 +3005,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           </div>
         </div>
       )}
+
+      {/* AG-08 Embedded Billing Transparency Agent Drawer */}
+      <BillingTransparencyDrawer
+        isOpen={ag08DrawerOpen}
+        onClose={() => setAg08DrawerOpen(false)}
+        patientId={ag08PatientId}
+        onApproved={() => loadBills(true)}
+      />
     </div>
   );
 }

@@ -512,6 +512,77 @@ def ensure_agent_config_table():
         })
         conn.commit()
 
+        # ── AG-08  Billing Transparency Agent ─────────────────────────────────
+        _insert_agent_seed(cur, {
+            "agent_id": "AG-08",
+            "name": "Billing Transparency Agent",
+            "name_ta": "கட்டண வெளிப்படைத்தன்மை முகவர்",
+            "type": "Workflow Agent",
+            "version": "2.0.0",
+            "owner": "Finance",
+            "risk_tier": "High",
+            "status": "Published",
+            "human_approval": "Optional",
+            "purpose": "Assist Billing Desk & Cashier with automated plain-language English & Tamil breakdown of variance items under human oversight.",
+            "last_run": "11:24",
+            "success_rate": "96.4%",
+            "runs": 342,
+            "instructions": {
+                "objective": "Eliminate discharge bill disputes and counter delays by providing instant plain-language explanations of itemized charges.",
+                "system": "You are the Hospital Billing Transparency Agent. Audit running bills against pre-admission estimates. Translate technical consumable codes and OT notes into empathetic everyday language in English and Tamil. Cite exact clinical proof notes.",
+                "rules": "Use Tamil when the patient language is Tamil. Always explain the medical necessity of additional surgical consumables. Log every tool call.",
+                "safety": "Refuse clinical diagnosis or alteration of tariff rates. Do not waive charges autonomously. Mask sensitive financial data outside billing desk.",
+                "escalation": "Escalate to Chief Billing Officer if variance exceeds 50% or clinical justification is missing from EMR logs.",
+                "refusal": "\"I don't have enough verified clinical chart data to justify this charge safely.\" then route to billing auditor."
+            },
+            "tools": [
+                {"tool": "Billing Desk API", "perm": "Read Itemized Consumable Lines, Unit Prices & Running Totals", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "Estimate Ledger", "perm": "Compare Charges Against Pre-Admission Estimate (>10% Variance)", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "EMR & OT Notes API", "perm": "Extract Intra-Operative Notes & Doctor Clinical Orders", "read": True, "write": False, "appr": "None", "enabled": True},
+                {"tool": "Document Generator", "perm": "Assemble Plain Bilingual Breakdown & Print to Invoice", "read": True, "write": True, "appr": "Cashier Sign-off", "enabled": True}
+            ],
+            "knowledge": [
+                {"t": "Tariff Schedule FY26-27 & Package Exclusions", "v": "3.4", "eff": "01 Apr 2026", "status": "Published"},
+                {"t": "Clinical Consumables & Implant Nomenclature", "v": "2.1", "eff": "01 Jun 2026", "status": "Published"},
+                {"t": "Tamil Medical Lexicon & Layman Standards", "v": "1.8", "eff": "15 Jul 2026", "status": "Published"}
+            ],
+            "memory": {
+                "session": "On · 30 min",
+                "patient": "Encounter-scoped",
+                "workflow": "On",
+                "retention": "90 days (audit) · 0 days (conversation)",
+                "sensitive": "No free-text PHI stored"
+            },
+            "access": {
+                "roles": "Billing Staff, Hospital Cashiers, Ward Administrators, Finance Lead",
+                "departments": "All wards",
+                "patients": "Care-team relationship required",
+                "scopes": "Financial + clinical read (no medical prescription write)",
+                "env": "Production"
+            },
+            "model": {
+                "model": "openai/gpt-oss-120b (Groq LPU Inference)",
+                "provider": "Groq Inference API & Google Gemini Engine",
+                "fallback": "gemini-3.5-flash-lite (Google Gemini)",
+                "temperature": 0.2,
+                "tokens": "8,000 tokens (Max context: 128k)",
+                "latency": "< 1,500 ms (Groq accelerated)",
+                "execution_protocol": "Sequential 3-Step Protocol (Estimate Diff → EMR OT Note Proof → Bilingual Synthesis)",
+                "governance_gate": "Cashier Sign-off & Billing Auditor Review",
+                "cost": "₹18 / run"
+            },
+            "evals": [
+                {"id": "EV-708", "ver": "v2.0.0", "when": "Today 11:20", "cases": 120, "acc": "96.4%", "ground": "98.2%", "hall": "0.2%", "ref": "99%", "lat": "1.4s", "res": "Pass"},
+                {"id": "EV-680", "ver": "v1.9.3", "when": "Yesterday 16:30", "cases": 100, "acc": "89.0%", "ground": "91.2%", "hall": "0.9%", "ref": "96%", "lat": "2.2s", "res": "Pass"}
+            ],
+            "versions": [
+                {"v": "2.0.0", "ts": "Active Live", "author": "AI Engineering", "changes": "Groq openai/gpt-oss-120b bilingual English & Tamil synthesis", "score": "96.4", "state": "Published", "bg": "#dcfce7", "fg": "#15803d"},
+                {"v": "1.9.3", "ts": "21 days ago", "author": "AI Engineering", "changes": "Added tariff variance calculator", "score": "89.0", "state": "Archived", "bg": "#f1f5f9", "fg": "#475569"}
+            ],
+            "managed_state": "Configurable • Dynamic"
+        })
+        conn.commit()
+
         cur.close()
         conn.close()
     except Exception as e:
