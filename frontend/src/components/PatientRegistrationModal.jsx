@@ -714,11 +714,26 @@ export default function PatientRegistrationModal({
                 </div>
               )}
               {successData.booking_id && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                   <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>BOOKING TOKEN</span>
                   <span style={{ fontSize: '12px', color: '#0f172a', fontFamily: 'monospace' }}>{successData.booking_id}</span>
                 </div>
               )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
+                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>INSURANCE STATUS</span>
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  background: (formData.insurer && formData.insurer !== 'Self-Pay') ? '#f3e8ff' : '#f1f5f9',
+                  color: (formData.insurer && formData.insurer !== 'Self-Pay') ? '#7e22ce' : '#64748b'
+                }}>
+                  {(formData.insurer && formData.insurer !== 'Self-Pay') 
+                    ? `✓ ${formData.insurer} (${formData.policy_number || 'Covered'})` 
+                    : 'Self-Pay (Non-Insured)'}
+                </span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>

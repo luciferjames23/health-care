@@ -321,8 +321,9 @@ export default function Patient360View({
         }
 
         // Discharge
-        if (dischargeRes.status === 'fulfilled' && dischargeRes.value?.data) {
-          const matched = dischargeRes.value.data.find(r => {
+        if (dischargeRes.status === 'fulfilled' && (dischargeRes.value?.data || Array.isArray(dischargeRes.value))) {
+          const rawSummaries = Array.isArray(dischargeRes.value?.data) ? dischargeRes.value.data : (Array.isArray(dischargeRes.value) ? dischargeRes.value : []);
+          const matched = rawSummaries.find(r => {
             const rAid = cleanNum(r.admission_id);
             const rPid = cleanNum(r.patient_id);
             return (effectiveAid && rAid === effectiveAid) || (effectivePid && rPid === effectivePid);
@@ -510,12 +511,12 @@ export default function Patient360View({
       ''
     ).trim().toLowerCase();
 
-    const isDischarged = !isOP && !isER && (
+    const isExplicitlyAdmitted = rawDischargeStatus === 'admitted';
+
+    const isDischarged = !isOP && !isER && !isExplicitlyAdmitted && (
       rawDischargeStatus === 'discharged' ||
       rawDischargeStatus === 'completed' ||
-      summaryApproval === 'approved' ||
-      summaryApproval === 'signed off' ||
-      summaryApproval === 'completed' ||
+      ((summaryApproval === 'approved' || summaryApproval === 'signed off' || summaryApproval === 'completed') && Boolean(dischargeSummary?.summary_id || dischargeSummary?.id)) ||
       d._type === 'Discharged' ||
       d.isCompleted === true
     );
@@ -624,7 +625,25 @@ export default function Patient360View({
     const billNetAmount = Number(rawBillNet);
     const discountAmount = Number(liveBill?.discount_amount ?? billing.bill_discount_amount ?? 0);
     const taxAmount = Number(liveBill?.tax_amount ?? billing.bill_tax_amount ?? 0);
-    const insuranceAmount = Number(liveBill?.insurance_amount ?? billing.bill_insurance_portion ?? 0);
+    
+    // Check if liveBill has an approved insurance claim or approved cashless guarantee
+    const claimsList = liveBill?.claims || [];
+    const approvedInsuranceClaim = claimsList.find(c => ['approved', 'settled', 'settled cashless'].includes(String(c.claim_status || '').toLowerCase()) && Number(c.approved_amount || 0) > 0);
+    const approvedClaimAmount = approvedInsuranceClaim ? Number(approvedInsuranceClaim.approved_amount || 0) : 0;
+    const hasApprovedInsurance = Boolean(approvedInsuranceClaim && approvedClaimAmount > 0);
+
+    const isPendingInsurance = claimsList.some(c => ['submitted - under review', 'pending', 'under review', 'submitted', 'pending preauth'].includes(String(c.claim_status || '').toLowerCase()) && !['approved', 'settled'].includes(String(c.claim_status || '').toLowerCase()))
+      || (String(raw.insurance_status || d.insurance_status || '').toLowerCase().includes('pending'))
+      || (String(raw.insurance_status || d.insurance_status || '').toLowerCase().includes('review'));
+
+    // Genuinely settled/cleared from DB bill status
+    const rawBillStatusUpper = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || '').trim().toUpperCase();
+    const isDbBillSettled = ['PAID', 'SETTLED', 'RELEASED', 'CLEARED'].includes(rawBillStatusUpper);
+
+    // Insurance amount is only applied as approved credit if approved or settled in DB
+    const insuranceAmount = hasApprovedInsurance
+      ? approvedClaimAmount
+      : (isDbBillSettled && !isPendingInsurance ? Number(liveBill?.insurance_amount || billing.bill_insurance_portion || 0) : 0);
     
     const rawBillStatus = String(liveBill?.bill_status || raw.bill_status || d.bill_status || billing.bill_status || (hasLiveBillData ? 'Pending' : 'Open')).trim();
     const rawClearance = String(raw.bill_clearance_status || d.bill_clearance_status || billing.bill_clearance_status || (hasLiveBillData ? '' : 'Active Care')).trim();
@@ -639,58 +658,78 @@ export default function Patient360View({
       .filter(py => String(py.payment_status || '').toUpperCase() === 'SUCCESS')
       .reduce((sum, py) => sum + Number(py.amount || 0), 0);
 
-    // Determine if bill is genuinely cleared / settled:
+    // Determine if bill is genuinely cleared / settled / cashless approved:
     const isReadyForDischarge = String(raw.discharge_status || d.discharge_status || '').toLowerCase() === 'ready';
+    const isApprovedInsurance = hasApprovedInsurance && (approvedClaimAmount >= billNetAmount && billNetAmount > 0);
 
-    const isExplicitlyCleared = (
-      ['PAID', 'SETTLED', 'RELEASED'].includes(String(raw.bill_status || '').toUpperCase()) ||
-      ['PAID', 'SETTLED', 'RELEASED'].includes(String(liveBill?.bill_status || '').toUpperCase()) ||
+    const isExplicitlyCleared = !isPendingInsurance && (
+      isDbBillSettled ||
       ['SETTLED', 'CLEARED'].includes(rawClearance.toUpperCase()) ||
       isReadyForDischarge ||
+      isApprovedInsurance ||
       (rawAdmOutstanding !== null && rawAdmOutstanding <= 0 && rawClearance.toLowerCase() !== 'pending' && String(raw.bill_status || '').toLowerCase() !== 'pending') ||
       (successfulPaymentsTotal >= billNetAmount && billNetAmount > 0)
     );
 
-    const isCleared = isOP || isExplicitlyCleared;
+    const isCleared = isExplicitlyCleared;
 
-    // Outstanding balance is strictly 0 when cleared, outpatient, or discharged
-    const calculatedOutstanding = (isOP || isCleared || isDischarged)
+    // Outstanding balance is strictly 0 when cleared or discharged
+    const calculatedOutstanding = (isCleared || isDischarged)
       ? 0
       : (rawAdmOutstanding !== null
           ? rawAdmOutstanding
-          : Math.max(0, (liveBill?.patient_amount != null ? Number(liveBill.patient_amount) : (billNetAmount - insuranceAmount)) - successfulPaymentsTotal)
+          : Math.max(0, billNetAmount - insuranceAmount - successfulPaymentsTotal)
         );
     const outstandingBalance = isCleared ? 0 : Math.max(0, calculatedOutstanding);
 
-    const billStatus = isOP ? 'Paid' : isCleared ? 'Settled' : (hasLiveBillData ? rawBillStatus : 'Open');
-    const clearanceStatus = (isOP || isCleared) ? 'Cleared' : (rawClearance || (hasLiveBillData ? 'Pending' : 'Active Care'));
+    const billStatus = isCleared ? (isOP ? 'Paid' : 'Settled') : (hasLiveBillData ? (isPendingInsurance ? 'Pending Preauth' : rawBillStatus) : (isOP ? 'Open OPD' : 'Open'));
+    const clearanceStatus = isCleared ? 'Cleared' : (isPendingInsurance ? 'Under Review' : (rawClearance || (hasLiveBillData ? 'Pending' : 'Active Care')));
     const billNumber = liveBill?.bill_number || raw.bill_number || billing.bill_number || d.bill_number || (hasLiveBillData ? `BILL-2026-${String(rawPid || '1001').slice(-4)}` : (rawPid ? `BILL-2026-${String(rawPid).slice(-4)}` : '—'));
 
-    const billingStatusDisplay = isOP
-      ? 'Settled · Outpatient Fee'
-      : isER
-        ? 'Emergency Active · Covered'
-        : isDischarged
-          ? 'Discharged · Settled'
-          : (isCleared
-              ? 'Cleared · Paid'
-              : (outstandingBalance > 0 ? `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}` : (hasLiveBillData ? 'Pending Clearance' : 'New Admission · Ledger Open')));
+    const billingStatusDisplay = isDischarged
+      ? 'Discharged · Settled'
+      : (isCleared
+          ? (isOP ? 'Settled · Outpatient Fee' : 'Cleared · Paid')
+          : (isPendingInsurance
+              ? 'Pending · Under Insurer Review'
+              : (outstandingBalance > 0 ? (isOP ? `OPD Bill Pending - ₹${outstandingBalance.toLocaleString('en-IN')}` : `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}`) : (hasLiveBillData ? 'Pending Clearance' : (isOP ? 'Outpatient Consultation' : 'New Admission · Ledger Open')))));
 
-    const status = isOP
-      ? 'Outpatient Consultation'
-      : isER
-        ? 'Emergency Triage Active'
-        : isDischarged
-          ? 'Discharged'
-          : (d.status || d._status || (isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : 'Admitted'));
+    const status = isDischarged
+      ? 'Discharged'
+      : (d.status || d._status || (isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : (isOP ? 'Outpatient Consultation · Settled' : 'Bill Cleared · Admitted')) : (isPendingInsurance ? (isOP ? 'Outpatient · Preauth Under Review' : 'Admitted · Preauth Under Review') : (isOP ? 'Outpatient Consultation' : 'Admitted · Active Inpatient Care'))));
 
     let statusBadge = {
-      text: isCleared ? (isReadyForDischarge ? 'Cleared for Discharge' : 'Bill Cleared · Admitted') : (outstandingBalance > 0 ? `Pending Clearance · ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Admitted · Active Inpatient Care'),
-      bg: isCleared || outstandingBalance === 0 ? '#dcfce7' : '#fee2e2',
-      color: isCleared || outstandingBalance === 0 ? '#15803d' : '#991b1b',
-      border: isCleared || outstandingBalance === 0 ? '#bbf7d0' : '#fecaca',
+      text: isCleared 
+        ? (isReadyForDischarge ? 'Cleared for Discharge' : (isOP ? 'Outpatient Consultation · Settled' : 'Bill Cleared · Admitted')) 
+        : (isPendingInsurance 
+            ? (isOP ? 'OPD · Preauth Under Review' : 'Preauth Under Review · Pending') 
+            : (outstandingBalance > 0 ? (isOP ? `OPD · Pending Payment (₹${outstandingBalance.toLocaleString('en-IN')})` : `Pending Clearance · ₹${outstandingBalance.toLocaleString('en-IN')}`) : (isOP ? 'Outpatient Consultation · Active' : 'Admitted · Active Inpatient Care'))),
+      bg: isCleared ? '#dcfce7' : (isPendingInsurance ? '#fef3c7' : (outstandingBalance > 0 ? '#fee2e2' : '#e0f2fe')),
+      color: isCleared ? '#15803d' : (isPendingInsurance ? '#92400e' : (outstandingBalance > 0 ? '#991b1b' : '#0369a1')),
+      border: isCleared ? '#bbf7d0' : (isPendingInsurance ? '#fde68a' : (outstandingBalance > 0 ? '#fecaca' : '#bae6fd')),
     };
-    if (isOP) {
+    if (isOP && isCleared) {
+      statusBadge = {
+        text: 'Outpatient Consultation · Settled',
+        bg: '#dcfce7',
+        color: '#15803d',
+        border: '#bbf7d0',
+      };
+    } else if (isOP && isPendingInsurance) {
+      statusBadge = {
+        text: 'OPD · Preauth Under Review',
+        bg: '#fef3c7',
+        color: '#92400e',
+        border: '#fde68a',
+      };
+    } else if (isOP && outstandingBalance > 0) {
+      statusBadge = {
+        text: `OPD · Pending Payment (₹${outstandingBalance.toLocaleString('en-IN')})`,
+        bg: '#fef3c7',
+        color: '#92400e',
+        border: '#fde68a',
+      };
+    } else if (isOP) {
       statusBadge = {
         text: 'Outpatient Consultation · Active',
         bg: '#e0f2fe',
@@ -3519,7 +3558,7 @@ export default function Patient360View({
                   p.billNumber,
                   `₹${Math.round(p.billNetAmount * 0.9).toLocaleString('en-IN')}`,
                   `₹${p.billNetAmount.toLocaleString('en-IN')}`,
-                  `₹${(p.isCleared ? p.billNetAmount : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
+                  `₹${(p.isCleared ? (p.insuranceAmount > 0 ? p.insuranceAmount : p.billNetAmount) : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
                   `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`,
                   p.billingStatusDisplay
                 ],
@@ -3670,7 +3709,7 @@ export default function Patient360View({
               <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Insurance / Settled</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#15803d', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{(p.isCleared ? p.billNetAmount : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}
+                  ₹{(p.isCleared ? (p.insuranceAmount > 0 ? p.insuranceAmount : p.billNetAmount) : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}
                 </div>
               </div>
 

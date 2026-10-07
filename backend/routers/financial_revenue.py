@@ -818,7 +818,7 @@ def get_bill_detail(bill_id: Any):
 @router.get("/insurance-claims")
 def get_insurance_claims(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     status: Optional[str] = Query(None),
     provider: Optional[str] = Query(None),
     search: Optional[str] = Query(None)
@@ -1220,15 +1220,22 @@ def get_finance_dashboard(
                     b.bill_id as payment_id,
                     b.bill_id,
                     b.patient_id,
-                    COALESCE(b.patient_amount, b.net_amount) as amount,
-                    'UPI' as payment_method,
+                    CASE 
+                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('settled', 'paid', 'cleared') THEN b.net_amount
+                        WHEN COALESCE(b.patient_amount, 0) > 0 THEN b.patient_amount
+                        ELSE b.net_amount
+                    END as amount,
+                    CASE 
+                        WHEN COALESCE(b.insurance_amount, 0) > 0 THEN 'Insurance / TPA'
+                        ELSE 'UPI'
+                    END as payment_method,
                     CASE 
                         WHEN LOWER(COALESCE(b.bill_status, '')) IN ('settled', 'paid', 'cleared') THEN 'SUCCESS'
                         WHEN LOWER(COALESCE(b.bill_status, '')) LIKE '%%part%%' THEN 'PARTIALLY PAID'
                         WHEN LOWER(COALESCE(b.bill_status, '')) IN ('failed', 'disputed', 'voided') THEN 'FAILED'
                         ELSE 'PENDING'
                     END as payment_status,
-                    CONCAT('PAY-', RIGHT(b.bill_number, 5)) as payment_reference,
+                    CONCAT('PAY-', LPAD(b.bill_id::text, 6, '0')) as payment_reference,
                     COALESCE(b.bill_date, NOW()) as payment_date,
                     b.bill_number,
                     COALESCE(

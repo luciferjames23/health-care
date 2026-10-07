@@ -1151,84 +1151,199 @@ def get_all_patients_directory(
             """, ip_params)
             patients.extend(cur.fetchall())
 
-        # 2. Outpatients (OP) - Active Outpatient consultations & WhatsApp appointments
+        # 2. Outpatients (OP) - Active Outpatient consultations, WhatsApp appointments & registered clinic patients
         if cat in ("ALL", "OP"):
-            op_where = ["apt.status != 'CANCELLED'", "p.first_name NOT LIKE 'Patient'"]  # exclude seeded IP-only dummy rows
-            op_params = []
-            if doc_id_val:
-                op_where.append("apt.doctor_id = %s")
-                op_params.append(doc_id_val)
             if clean_search:
-                op_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR apt.booking_id ILIKE %s)")
+                op_where = [
+                    "p.first_name NOT LIKE 'Patient'",
+                    "NOT EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = p.id AND a.discharge_status IN ('Admitted', 'Ready'))",
+                    "(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR (p.first_name || ' ' || COALESCE(p.last_name, '')) ILIKE %s OR la.booking_id ILIKE %s)"
+                ]
                 s_param = f"%{clean_search}%"
-                op_params.extend([s_param, s_param, s_param, s_param])
-
-            op_params.append(domain_limit)
-            cur.execute(f"""
-                WITH latest_apt AS (
-                    SELECT DISTINCT ON (apt.patient_id)
-                        apt.id AS apt_id,
-                        apt.patient_id,
-                        apt.doctor_id,
-                        apt.department_id,
-                        apt.booking_id,
-                        apt.appointment_date,
-                        apt.status,
-                        apt.reason_for_visit
-                    FROM appointments apt
-                    JOIN patients p ON p.id = apt.patient_id
+                op_params = [s_param, s_param, s_param, s_param, s_param]
+                if doc_id_val:
+                    op_where.append("(la.doctor_id = %s OR la.doctor_id IS NULL)")
+                    op_params.append(doc_id_val)
+                op_params.append(domain_limit)
+                cur.execute(f"""
+                    WITH latest_apt AS (
+                        SELECT DISTINCT ON (apt.patient_id)
+                            apt.id AS apt_id,
+                            apt.patient_id,
+                            apt.doctor_id,
+                            apt.department_id,
+                            apt.booking_id,
+                            apt.appointment_date,
+                            apt.status,
+                            apt.reason_for_visit
+                        FROM appointments apt
+                        ORDER BY apt.patient_id, apt.id DESC
+                    )
+                    SELECT 
+                        p.id AS patient_id,
+                        p.patient_code,
+                        p.first_name,
+                        p.last_name,
+                        (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                        p.date_of_birth,
+                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                        p.gender,
+                        p.phone,
+                        COALESCE(p.preferred_language, 'English') AS preferred_language,
+                        p.blood_group,
+                        NULL::int AS admission_id,
+                        COALESCE(la.booking_id, CONCAT('APT-2026-', LPAD(p.id::text, 4, '0'))) AS admission_number,
+                        COALESCE(la.appointment_date::text, p.registration_date::text, CURRENT_DATE::text) AS admission_date,
+                        NULL::date AS discharge_date,
+                        COALESCE(la.status, 'CONFIRMED') AS discharge_status,
+                        COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS diagnosis,
+                        COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS primary_diagnosis,
+                        COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS chief_complaint,
+                        COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS reason_for_visit,
+                        COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                        'OPD Desk' AS bed_number,
+                        COALESCE(d.display_name, 'Dr. Amit Sharma') AS doctor,
+                        'OP' AS patient_type,
+                        COALESCE(la.status, 'CONFIRMED') AS status,
+                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                        COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
+                    FROM patients p
+                    LEFT JOIN latest_apt la ON la.patient_id = p.id
+                    LEFT JOIN doctors d ON d.id = la.doctor_id
+                    LEFT JOIN departments dep ON dep.id = la.department_id
+                    LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_id DESC LIMIT 1
+                    ) ic ON true
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
+                    ) pi ON true
                     WHERE {' AND '.join(op_where)}
-                    ORDER BY apt.patient_id, apt.id DESC
-                )
-                SELECT 
-                    p.id AS patient_id,
-                    p.patient_code,
-                    p.first_name,
-                    p.last_name,
-                    (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
-                    p.date_of_birth,
-                    EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
-                    p.gender,
-                    p.phone,
-                    COALESCE(p.preferred_language, 'English') AS preferred_language,
-                    p.blood_group,
-                    NULL::int AS admission_id,
-                    la.booking_id AS admission_number,
-                    la.appointment_date AS admission_date,
-                    NULL::date AS discharge_date,
-                    la.status AS discharge_status,
-                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS diagnosis,
-                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS primary_diagnosis,
-                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS chief_complaint,
-                    COALESCE(la.reason_for_visit, pv.chief_complaint, 'Routine Outpatient Follow-up') AS reason_for_visit,
-                    COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
-                    'OPD Desk' AS bed_number,
-                    COALESCE(d.display_name, 'Consultant Doctor') AS doctor,
-                    'OP' AS patient_type,
-                    COALESCE(la.status, 'CONFIRMED') AS status,
-                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
-                    COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
-                FROM latest_apt la
-                JOIN patients p ON p.id = la.patient_id
-                LEFT JOIN doctors d ON d.id = la.doctor_id
-                LEFT JOIN departments dep ON dep.id = la.department_id
-                LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
-                LEFT JOIN LATERAL (
-                    SELECT insurance_provider
-                    FROM insurance_claims
-                    WHERE patient_id = p.id
-                    ORDER BY claim_id DESC LIMIT 1
-                ) ic ON true
-                LEFT JOIN LATERAL (
-                    SELECT insurance_provider
-                    FROM patient_insurance
-                    WHERE patient_id = p.id
-                    ORDER BY insurance_id DESC LIMIT 1
-                ) pi ON true
-                ORDER BY la.apt_id DESC
-                LIMIT %s;
-            """, op_params)
-            patients.extend(cur.fetchall())
+                    ORDER BY COALESCE(la.apt_id, p.id) DESC
+                    LIMIT %s;
+                """, op_params)
+                patients.extend(cur.fetchall())
+            else:
+                op_params = []
+                doc_cond = ""
+                if doc_id_val:
+                    doc_cond = "AND (la.doctor_id = %s OR la.doctor_id IS NULL)"
+                    op_params.extend([doc_id_val, doc_id_val])
+                cur.execute(f"""
+                    WITH latest_apt AS (
+                        SELECT DISTINCT ON (apt.patient_id)
+                            apt.id AS apt_id,
+                            apt.patient_id,
+                            apt.doctor_id,
+                            apt.department_id,
+                            apt.booking_id,
+                            apt.appointment_date,
+                            apt.status,
+                            apt.reason_for_visit
+                        FROM appointments apt
+                        ORDER BY apt.patient_id, apt.id DESC
+                    ),
+                    new_op AS (
+                        SELECT 
+                            p.id AS patient_id,
+                            p.patient_code,
+                            p.first_name,
+                            p.last_name,
+                            (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                            p.date_of_birth,
+                            EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                            p.gender,
+                            p.phone,
+                            COALESCE(p.preferred_language, 'English') AS preferred_language,
+                            p.blood_group,
+                            NULL::int AS admission_id,
+                            COALESCE(la.booking_id, CONCAT('APT-2026-', LPAD(p.id::text, 4, '0'))) AS admission_number,
+                            COALESCE(la.appointment_date::text, p.registration_date::text, CURRENT_DATE::text) AS admission_date,
+                            NULL::date AS discharge_date,
+                            COALESCE(la.status, 'CONFIRMED') AS discharge_status,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS diagnosis,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS primary_diagnosis,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS chief_complaint,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS reason_for_visit,
+                            COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                            'OPD Desk' AS bed_number,
+                            COALESCE(d.display_name, 'Dr. Amit Sharma') AS doctor,
+                            'OP' AS patient_type,
+                            COALESCE(la.status, 'CONFIRMED') AS status,
+                            COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                            COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
+                        FROM patients p
+                        LEFT JOIN latest_apt la ON la.patient_id = p.id
+                        LEFT JOIN doctors d ON d.id = la.doctor_id
+                        LEFT JOIN departments dep ON dep.id = la.department_id
+                        LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
+                        LEFT JOIN LATERAL (
+                            SELECT insurance_provider FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_id DESC LIMIT 1
+                        ) ic ON true
+                        LEFT JOIN LATERAL (
+                            SELECT insurance_provider FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
+                        ) pi ON true
+                        WHERE p.first_name NOT LIKE 'Patient'
+                          AND NOT EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = p.id AND a.discharge_status IN ('Admitted', 'Ready'))
+                          AND (p.id >= 1004400 OR p.created_at >= '2026-10-01')
+                          {doc_cond}
+                        ORDER BY p.id DESC
+                    ),
+                    base_op AS (
+                        SELECT 
+                            p.id AS patient_id,
+                            p.patient_code,
+                            p.first_name,
+                            p.last_name,
+                            (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+                            p.date_of_birth,
+                            EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                            p.gender,
+                            p.phone,
+                            COALESCE(p.preferred_language, 'English') AS preferred_language,
+                            p.blood_group,
+                            NULL::int AS admission_id,
+                            COALESCE(la.booking_id, CONCAT('APT-2026-', LPAD(p.id::text, 4, '0'))) AS admission_number,
+                            COALESCE(la.appointment_date::text, p.registration_date::text, CURRENT_DATE::text) AS admission_date,
+                            NULL::date AS discharge_date,
+                            COALESCE(la.status, 'CONFIRMED') AS discharge_status,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS diagnosis,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS primary_diagnosis,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS chief_complaint,
+                            COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS reason_for_visit,
+                            COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                            'OPD Desk' AS bed_number,
+                            COALESCE(d.display_name, 'Dr. Amit Sharma') AS doctor,
+                            'OP' AS patient_type,
+                            COALESCE(la.status, 'CONFIRMED') AS status,
+                            COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
+                            COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider
+                        FROM patients p
+                        LEFT JOIN latest_apt la ON la.patient_id = p.id
+                        LEFT JOIN doctors d ON d.id = la.doctor_id
+                        LEFT JOIN departments dep ON dep.id = la.department_id
+                        LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
+                        LEFT JOIN LATERAL (
+                            SELECT insurance_provider FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_id DESC LIMIT 1
+                        ) ic ON true
+                        LEFT JOIN LATERAL (
+                            SELECT insurance_provider FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
+                        ) pi ON true
+                        WHERE p.first_name NOT LIKE 'Patient'
+                          AND NOT EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = p.id AND a.discharge_status IN ('Admitted', 'Ready'))
+                          AND p.id < 1004400
+                          {doc_cond}
+                        ORDER BY COALESCE(la.apt_id, p.id) DESC
+                        LIMIT 250
+                    ),
+                    all_op AS (
+                        SELECT * FROM new_op
+                        UNION ALL
+                        SELECT * FROM base_op
+                    )
+                    SELECT * FROM all_op;
+                """, tuple(op_params) if op_params else None)
+                patients.extend(cur.fetchall())
 
         # 3. Emergency Patients (ER) - Return active ER triage patients
         if cat in ("ALL", "ER"):
@@ -1325,54 +1440,7 @@ def get_all_patients_directory(
             """, dis_params)
             patients.extend(cur.fetchall())
 
-        # 5. Direct / Newly Registered Patients from database
-        if cat in ("ALL", "OP"):
-            reg_where = ["1=1"]
-            reg_params = []
-            if clean_search:
-                reg_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s)")
-                s_param = f"%{clean_search}%"
-                reg_params.extend([s_param, s_param, s_param])
-            cur.execute(f"""
-                SELECT 
-                    p.id AS patient_id,
-                    p.patient_code,
-                    p.first_name,
-                    p.last_name,
-                    (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
-                    p.date_of_birth,
-                    EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
-                    p.gender,
-                    p.phone,
-                    COALESCE(p.preferred_language, 'English') AS preferred_language,
-                    p.blood_group,
-                    NULL::int AS admission_id,
-                    p.patient_code AS admission_number,
-                    p.created_at AS admission_date,
-                    NULL::date AS discharge_date,
-                    'Active' AS discharge_status,
-                    'General Medical Check' AS diagnosis,
-                    'General Medicine' AS department,
-                    'Registration Desk' AS bed_number,
-                    'Attending Physician' AS doctor,
-                    'OP' AS patient_type,
-                    'ACTIVE' AS status,
-                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurer,
-                    COALESCE(pi.insurance_provider, 'Self-Pay') AS insurance_provider
-                FROM patients p
-                LEFT JOIN LATERAL (
-                    SELECT insurance_provider FROM patient_insurance WHERE patient_id = p.id ORDER BY insurance_id DESC LIMIT 1
-                ) pi ON true
-                WHERE {' AND '.join(reg_where)}
-                ORDER BY p.id DESC
-                LIMIT 50;
-            """, reg_params)
-            registered_patients = cur.fetchall()
-            existing_pids = {p.get('patient_id') for p in patients}
-            for rp in registered_patients:
-                if rp.get('patient_id') not in existing_pids:
-                    patients.append(rp)
-                    existing_pids.add(rp.get('patient_id'))
+
 
         total_count = len(patients)
         if clean_limit is not None:

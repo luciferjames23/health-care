@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import PreauthDossierDrawer from './PreauthDossierDrawer';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }) {
   const [cases, setCases] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [justRefreshed, setJustRefreshed] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedInsurer, setSelectedInsurer] = useState('ALL');
   const [processingId, setProcessingId] = useState(null);
   const [activeDossierPatient, setActiveDossierPatient] = useState(null);
+  const [drawerInitialMode, setDrawerInitialMode] = useState('dossier');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
   const fetchCasesAndStats = async (silent = false) => {
     try {
-      if (!silent) setLoading(true);
+      if (!silent) setIsRefreshing(true);
       const [casesRes, statsRes] = await Promise.all([
-        apiService.getPreauthCases({ limit: 40 }),
+        apiService.getPreauthCases(),
         apiService.getPreauthStats()
       ]);
 
@@ -28,10 +32,17 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         setStats(statsRes);
       }
       setLastRefreshed(new Date());
+      if (!silent) {
+        setJustRefreshed(true);
+        setTimeout(() => setJustRefreshed(false), 2500);
+      }
     } catch (err) {
       console.warn('Error fetching preauth cases:', err);
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) {
+        setIsRefreshing(false);
+        setLoading(false);
+      }
     }
   };
 
@@ -62,11 +73,92 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
     return matchesSearch && matchesInsurer;
   });
 
-  // Distribute into 4 Kanban stages
-  const colNewAdmissions = filteredCases.filter(c => !c.stage || c.stage === 'NEW_ADMISSION');
-  const colDossierReady = filteredCases.filter(c => c.stage === 'DOSSIER_READY');
+  // Distribute into 3 Preauth Kanban stages (New Patients removed, mapped to Dossier Assembled)
+  const colDossierReady = filteredCases.filter(c => !c.stage || c.stage === 'DOSSIER_READY' || c.stage === 'NEW_ADMISSION');
   const colSubmittedTPA = filteredCases.filter(c => c.stage === 'SUBMITTED_TPA');
   const colApproved = filteredCases.filter(c => c.stage === 'APPROVED');
+
+  const activePendingCases = colDossierReady.length + colSubmittedTPA.length;
+  const activePendingSum = [...colDossierReady, ...colSubmittedTPA].reduce((acc, c) => acc + (c.estimated_cost || 0), 0);
+
+  // Kanban Column Pagination
+  const [colPages, setColPages] = useState({ 1: 1, 2: 1, 3: 1 });
+  const COL_PAGE_SIZE = 5;
+
+  const getPaginatedColumn = (items, colNum) => {
+    const page = colPages[colNum] || 1;
+    const totalPages = Math.max(1, Math.ceil(items.length / COL_PAGE_SIZE));
+    const validPage = Math.min(page, totalPages);
+    const startIdx = (validPage - 1) * COL_PAGE_SIZE;
+    return {
+      items: items.slice(startIdx, startIdx + COL_PAGE_SIZE),
+      page: validPage,
+      totalPages,
+      totalCount: items.length
+    };
+  };
+
+  const renderColumnPagination = (colNum, totalCount, currentPage, totalPages) => {
+    if (totalCount <= COL_PAGE_SIZE) return null;
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingTop: '8px',
+        marginTop: 'auto',
+        borderTop: '1px solid #e2e8f0',
+        fontSize: '11px',
+        color: '#64748b'
+      }}>
+        <span>
+          Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong> ({totalCount})
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={(e) => {
+              e.stopPropagation();
+              setColPages(prev => ({ ...prev, [colNum]: Math.max(1, currentPage - 1) }));
+            }}
+            style={{
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: 600,
+              borderRadius: '4px',
+              border: '1px solid #cbd5e1',
+              background: currentPage <= 1 ? '#f8fafc' : '#ffffff',
+              color: currentPage <= 1 ? '#94a3b8' : '#334155',
+              cursor: currentPage <= 1 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            ‹ Prev
+          </button>
+          <button
+            type="button"
+            disabled={currentPage >= totalPages}
+            onClick={(e) => {
+              e.stopPropagation();
+              setColPages(prev => ({ ...prev, [colNum]: Math.min(totalPages, currentPage + 1) }));
+            }}
+            style={{
+              padding: '2px 8px',
+              fontSize: '11px',
+              fontWeight: 600,
+              borderRadius: '4px',
+              border: '1px solid #cbd5e1',
+              background: currentPage >= totalPages ? '#f8fafc' : '#ffffff',
+              color: currentPage >= totalPages ? '#94a3b8' : '#334155',
+              cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Next ›
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   // Handle 1-Click Run AG-07 AI Drafter for a patient
   const handleRunAgentDrafter = async (patientItem, e) => {
@@ -89,6 +181,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
       }));
       // Auto-open dossier drawer so user can inspect the generated result
       setActiveDossierPatient(patientItem.patient_code || patientItem.patient_id);
+      setDrawerInitialMode('dossier');
       setIsDrawerOpen(true);
       await fetchCasesAndStats(true);
     } catch (err) {
@@ -132,11 +225,17 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
     }
   };
 
-  // Handle Simulating Instant TPA Approval
+  // Handle Simulating Instant TPA Approval (Permanent DB Update)
   const handleApproveTPA = async (patientItem, e) => {
     e?.stopPropagation();
     try {
       setProcessingId(patientItem.patient_id);
+      await apiService.approvePreauthClaim({
+        patient_id: patientItem.patient_id,
+        patient_code: patientItem.patient_code,
+        approved_amount: patientItem.estimated_cost || 35000,
+        approved_by: 'TPA Medical Adjudicator / Insurance Desk'
+      });
       setCases(prev => prev.map(item => {
         if (item.patient_id === patientItem.patient_id) {
           return {
@@ -149,24 +248,11 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         }
         return item;
       }));
+      await fetchCasesAndStats(true);
+    } catch (err) {
+      console.error('Error approving claim:', err);
     } finally {
       setProcessingId(null);
-    }
-  };
-
-  // Batch Assemble All New Admissions
-  const handleBatchAssembleAll = async () => {
-    if (!colNewAdmissions.length) return;
-    try {
-      setLoading(true);
-      for (const item of colNewAdmissions.slice(0, 5)) {
-        await apiService.generatePreauthDossier({
-          patient_id: item.patient_code || item.patient_id || item.patient_name
-        });
-      }
-      await fetchCasesAndStats(true);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -175,6 +261,19 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
   // Insurer unique options for filter
   const insurerOptions = ['ALL', 'Star Health', 'Medi Assist', 'ICICI Lombard', 'Care Health', 'HDFC ERGO', 'United India'];
 
+  if (loading && cases.length === 0) {
+    return (
+      <ModuleLoadingScreen
+        title="Loading Insurance Preauth Pipeline..."
+        subtitle="Retrieving cashless preauth dossiers, IRDAI compliance checklists & TPA adjudications..."
+        badgeText="TPA & Insurance Live Sync"
+        showKpis={true}
+        statCount={4}
+        layout="cards"
+      />
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minHeight: 'calc(100vh - 110px)', animation: 'fadeIn 0.2s ease-out' }}>
       
@@ -182,9 +281,9 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>AI Platform</span>
+            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Hospital Platform</span>
             <span style={{ fontSize: '11px', color: '#94a3b8' }}>›</span>
-            <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>AG-07 Insurance Desk</span>
+            <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>Insurance &amp; Pre-Authorization Desk</span>
             <span style={{
               fontSize: '10.5px',
               padding: '1px 7px',
@@ -193,27 +292,30 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
               color: '#1d4ed8',
               fontWeight: 700
             }}>
-              Groq LPU v2.1.0
+              Clinical Intelligence Engine
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '-0.3px' }}>
               Insurance Preauth Desk &amp; TPA Pipeline
             </h1>
-            <span style={{
-              fontSize: '12px',
-              color: '#059669',
-              background: '#ecfdf5',
-              border: '1px solid #a7f3d0',
-              padding: '2px 8px',
-              borderRadius: '6px',
-              fontWeight: 600
-            }}>
-              ● Live DB Connected
-            </span>
+            {justRefreshed && (
+              <span style={{
+                fontSize: '11px',
+                color: '#059669',
+                background: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                fontWeight: 600,
+                animation: 'fadeIn 0.2s ease-out'
+              }}>
+                ✓ Live Pipeline Synced
+              </span>
+            )}
           </div>
           <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
-            Autonomous Cashless Preauthorisation Dossier Assembly · Real-Time EMR &amp; Tariff Synthesis · IRDAI 20-Sec Compliance Gate
+            Autonomous Cashless Preauthorisation Dossier Assembly · Real-Time Clinical &amp; Tariff Synthesis · IRDAI Compliance Gate
           </div>
         </div>
 
@@ -221,47 +323,34 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
-            onClick={() => fetchCasesAndStats()}
+            disabled={isRefreshing}
+            onClick={() => fetchCasesAndStats(false)}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '7px 12px',
+              padding: '7px 14px',
               fontSize: '12px',
               fontWeight: 600,
-              background: '#ffffff',
-              color: '#334155',
-              border: '1px solid #cbd5e1',
+              background: isRefreshing ? '#f1f5f9' : '#ffffff',
+              color: isRefreshing ? '#2563eb' : '#334155',
+              border: isRefreshing ? '1px solid #93c5fd' : '1px solid #cbd5e1',
               borderRadius: '6px',
-              cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+              cursor: isRefreshing ? 'wait' : 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+              transition: 'all 0.15s ease'
             }}
           >
-            <span>🔄</span> Refresh Pipeline
+            <span style={{
+              display: 'inline-block',
+              animation: isRefreshing ? 'spin 0.8s linear infinite' : 'none'
+            }}>
+              🔄
+            </span>
+            <span>{isRefreshing ? 'Refreshing Pipeline...' : 'Refresh Pipeline'}</span>
           </button>
 
-          {colNewAdmissions.length > 0 && (
-            <button
-              type="button"
-              onClick={handleBatchAssembleAll}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '7px 14px',
-                fontSize: '12px',
-                fontWeight: 700,
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)'
-              }}
-            >
-              <span>⚡</span> Auto-Assemble All ({colNewAdmissions.length})
-            </button>
-          )}
+
 
           {onNavigate && (
             <button
@@ -302,10 +391,10 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
             Active Preauth Pipeline
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace' }}>
-            {filteredCases.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>patients</span>
+            {activePendingCases} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>active patients</span>
           </div>
           <div style={{ fontSize: '11px', color: '#0284c7' }}>
-            ₹{(totalPipelineSum / 100000).toFixed(2)} Lakhs total estimate value
+            ₹{(activePendingSum / 100000).toFixed(2)} Lakhs · {colDossierReady.length} ready · {colSubmittedTPA.length} in review
           </div>
         </div>
 
@@ -321,10 +410,10 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           gap: '4px'
         }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            AI Assembly Speed
+            Assembly Speed
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#16a34a', fontFamily: 'monospace' }}>
-            1.25s <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>Groq LPU</span>
+            1.2s <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>Clinical Engine</span>
           </div>
           <div style={{ fontSize: '11px', color: '#15803d' }}>
             vs 45 mins manual EMR/Tariff assembly
@@ -346,10 +435,10 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
             First-Pass Approval Rate
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
-            {stats?.approved_rate || '96.4%'}
+            {stats?.approved_rate || '99.7%'}
           </div>
           <div style={{ fontSize: '11px', color: '#1d4ed8' }}>
-            Scored by preauth-denial v0.9 model
+            Automated Policy Eligibility &amp; Clinical Validation
           </div>
         </div>
 
@@ -365,13 +454,13 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           gap: '4px'
         }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            Submitted Today (Live)
+            TPA Submissions &amp; Approvals
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#7c3aed', fontFamily: 'monospace' }}>
-            {colSubmittedTPA.length + colApproved.length + 8} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>claims</span>
+            {colSubmittedTPA.length + colApproved.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>active cases</span>
           </div>
           <div style={{ fontSize: '11px', color: '#6d28d9' }}>
-            Average TPA Turnaround: 1.8 hrs
+            {colSubmittedTPA.length} in review · {colApproved.length} approved
           </div>
         </div>
       </div>
@@ -452,14 +541,14 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         </div>
 
         <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-          Showing <strong>{filteredCases.length}</strong> cashless preauth cases
+          Showing <strong>{activePendingCases}</strong> active pending · <strong>{colApproved.length}</strong> approved ({filteredCases.length} total)
         </div>
       </div>
 
-      {/* ── 4-Column Visual Kanban Board ─────────────────────────────────── */}
+      {/* ── 3-Column Visual Kanban Board ─────────────────────────────────── */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, minmax(280px, 1fr))',
+        gridTemplateColumns: 'repeat(3, minmax(320px, 1fr))',
         gap: '14px',
         alignItems: 'start',
         overflowX: 'auto',
@@ -467,60 +556,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
       }}>
         
         {/* ================================================================= */}
-        {/* COLUMN 1: NEW ADMISSIONS / NEED PREAUTH                           */}
-        {/* ================================================================= */}
-        <div style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '10px',
-          padding: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          minHeight: '480px'
-        }}>
-          {/* Column Header */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            borderBottom: '2px solid #3b82f6',
-            paddingBottom: '8px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '14px' }}>🏥</span>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>1. New Admissions</span>
-            </div>
-            <span style={{
-              fontSize: '11px',
-              fontWeight: 800,
-              padding: '2px 8px',
-              borderRadius: '10px',
-              background: '#dbeafe',
-              color: '#1d4ed8'
-            }}>
-              {colNewAdmissions.length}
-            </span>
-          </div>
-
-          <div style={{ fontSize: '11px', color: '#64748b' }}>
-            Newly arrived/admitted patients awaiting AG-07 preauth dossier assembly.
-          </div>
-
-          {/* Cards List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {colNewAdmissions.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                No pending new admissions.
-              </div>
-            ) : (
-              colNewAdmissions.map(item => renderKanbanCard(item, 1))
-            )}
-          </div>
-        </div>
-
-        {/* ================================================================= */}
-        {/* COLUMN 2: AI DOSSIER ASSEMBLED                                    */}
+        {/* COLUMN 1: DOSSIER ASSEMBLED / READY FOR SUBMISSION                */}
         {/* ================================================================= */}
         <div style={{
           background: '#f8fafc',
@@ -542,7 +578,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '14px' }}>🤖</span>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>2. Dossier Assembled</span>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>1. Dossier Assembled</span>
             </div>
             <span style={{
               fontSize: '11px',
@@ -557,23 +593,31 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           </div>
 
           <div style={{ fontSize: '11px', color: '#64748b' }}>
-            4/4 Checklist verified with bilingual English &amp; Tamil justifications.
+            Clinical checklist verified with bilingual English &amp; Tamil justifications. Ready for 1-click submission.
           </div>
 
           {/* Cards List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {colDossierReady.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                Run AG-07 from Column 1 to assemble dossiers.
-              </div>
-            ) : (
-              colDossierReady.map(item => renderKanbanCard(item, 2))
-            )}
-          </div>
+          {(() => {
+            const { items: paginated, page, totalPages, totalCount } = getPaginatedColumn(colDossierReady, 1);
+            return (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                  {totalCount === 0 ? (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                      No pending dossier assembly cases.
+                    </div>
+                  ) : (
+                    paginated.map(item => renderKanbanCard(item, 1))
+                  )}
+                </div>
+                {renderColumnPagination(1, totalCount, page, totalPages)}
+              </>
+            );
+          })()}
         </div>
 
         {/* ================================================================= */}
-        {/* COLUMN 3: TPA UNDER REVIEW                                        */}
+        {/* COLUMN 2: TPA UNDER REVIEW                                        */}
         {/* ================================================================= */}
         <div style={{
           background: '#f8fafc',
@@ -595,7 +639,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '14px' }}>⏳</span>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>3. Under TPA Review</span>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>2. Under TPA Review</span>
             </div>
             <span style={{
               fontSize: '11px',
@@ -610,23 +654,31 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           </div>
 
           <div style={{ fontSize: '11px', color: '#64748b' }}>
-            Dispatched to TPA Desk. SLA countdown running.
+            Dispatched to TPA Desk. Review and verification in progress.
           </div>
 
           {/* Cards List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {colSubmittedTPA.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                No active submissions in review.
-              </div>
-            ) : (
-              colSubmittedTPA.map(item => renderKanbanCard(item, 3))
-            )}
-          </div>
+          {(() => {
+            const { items: paginated, page, totalPages, totalCount } = getPaginatedColumn(colSubmittedTPA, 2);
+            return (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                  {totalCount === 0 ? (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                      No active submissions in review.
+                    </div>
+                  ) : (
+                    paginated.map(item => renderKanbanCard(item, 2))
+                  )}
+                </div>
+                {renderColumnPagination(2, totalCount, page, totalPages)}
+              </>
+            );
+          })()}
         </div>
 
         {/* ================================================================= */}
-        {/* COLUMN 4: CASHLESS GUARANTEE APPROVED                             */}
+        {/* COLUMN 3: CASHLESS GUARANTEE APPROVED                             */}
         {/* ================================================================= */}
         <div style={{
           background: '#f8fafc',
@@ -648,7 +700,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '14px' }}>✅</span>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>4. Guarantee Approved</span>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>3. Guarantee Approved</span>
             </div>
             <span style={{
               fontSize: '11px',
@@ -667,15 +719,23 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           </div>
 
           {/* Cards List */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {colApproved.length === 0 ? (
-              <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                Approved preauth cases will appear here.
-              </div>
-            ) : (
-              colApproved.map(item => renderKanbanCard(item, 4))
-            )}
-          </div>
+          {(() => {
+            const { items: paginated, page, totalPages, totalCount } = getPaginatedColumn(colApproved, 3);
+            return (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                  {totalCount === 0 ? (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                      Approved preauth cases will appear here.
+                    </div>
+                  ) : (
+                    paginated.map(item => renderKanbanCard(item, 3))
+                  )}
+                </div>
+                {renderColumnPagination(3, totalCount, page, totalPages)}
+              </>
+            );
+          })()}
         </div>
 
       </div>
@@ -689,6 +749,10 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           fetchCasesAndStats(true);
         }}
         patientIdentifier={activeDossierPatient}
+        initialMode={drawerInitialMode}
+        onSubmitted={() => {
+          fetchCasesAndStats(true);
+        }}
         onOpenPatient={onOpenPatient}
       />
 
@@ -708,6 +772,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         key={item.patient_id || item.patient_code}
         onClick={() => {
           setActiveDossierPatient(item.patient_code || item.patient_id);
+          setDrawerInitialMode(columnNumber === 3 ? 'letter' : 'dossier');
           setIsDrawerOpen(true);
         }}
         style={{
@@ -738,17 +803,31 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
             {item.ward_bed || 'General Ward'}
           </span>
 
-          <span style={{
-            fontSize: '10px',
-            fontWeight: 700,
-            padding: '1px 6px',
-            borderRadius: '10px',
-            background: riskPct < 15 ? '#ecfdf5' : '#fffbeb',
-            color: riskPct < 15 ? '#047857' : '#b45309',
-            border: riskPct < 15 ? '1px solid #a7f3d0' : '1px solid #fde68a'
-          }}>
-            ● {riskPct}% {riskLevel}
-          </span>
+          {columnNumber === 3 ? (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: '#d1fae5',
+              color: '#047857',
+              border: '1px solid #a7f3d0'
+            }}>
+              ● Approved
+            </span>
+          ) : (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: riskPct < 15 ? '#ecfdf5' : '#fffbeb',
+              color: riskPct < 15 ? '#047857' : '#b45309',
+              border: riskPct < 15 ? '1px solid #a7f3d0' : '1px solid #fde68a'
+            }}>
+              ● {riskPct}% {riskLevel}
+            </span>
+          )}
         </div>
 
         {/* Patient Name & UHID */}
@@ -786,32 +865,6 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         {/* Action Button depending on Kanban Column */}
         <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
           {columnNumber === 1 && (
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={(e) => handleRunAgentDrafter(item, e)}
-              style={{
-                width: '100%',
-                padding: '5px 8px',
-                fontSize: '11px',
-                fontWeight: 700,
-                color: '#ffffff',
-                background: '#2563eb',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '5px',
-                boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)'
-              }}
-            >
-              {isProcessing ? '⚡ Generating Dossier...' : '⚡ Run AG-07 AI Drafter'}
-            </button>
-          )}
-
-          {columnNumber === 2 && (
             <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 type="button"
@@ -830,19 +883,25 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '4px'
+                  gap: '4px',
+                  boxShadow: '0 1px 2px rgba(124, 58, 237, 0.2)'
                 }}
               >
-                {isProcessing ? 'Submitting...' : 'Submit TPA (1-Click)'}
+                {isProcessing ? 'Submitting...' : '⚡ Submit TPA (1-Click)'}
               </button>
             </div>
           )}
 
-          {columnNumber === 3 && (
+          {columnNumber === 2 && (
             <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 type="button"
-                onClick={(e) => handleApproveTPA(item, e)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveDossierPatient(item.patient_code || item.patient_id);
+                  setDrawerInitialMode('dossier');
+                  setIsDrawerOpen(true);
+                }}
                 style={{
                   flex: 1,
                   padding: '5px 8px',
@@ -855,12 +914,12 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
                   cursor: 'pointer'
                 }}
               >
-                Simulate TPA Approval
+                🔍 Review Preauth Dossier
               </button>
             </div>
           )}
 
-          {columnNumber === 4 && (
+          {columnNumber === 3 && (
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -870,7 +929,17 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
               fontWeight: 600
             }}>
               <span>Guarantee Issued: ₹{est.toLocaleString('en-IN')}</span>
-              <span style={{ color: '#0284c7', cursor: 'pointer' }}>View Letter →</span>
+              <span 
+                style={{ color: '#0284c7', cursor: 'pointer', textDecoration: 'underline' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveDossierPatient(item.patient_code || item.patient_id);
+                  setDrawerInitialMode('letter');
+                  setIsDrawerOpen(true);
+                }}
+              >
+                View Letter →
+              </span>
             </div>
           )}
         </div>

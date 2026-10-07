@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { financialApi } from "../services/financialApi";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import SearchInput from "./SearchInput";
@@ -122,12 +122,36 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
   // Global search & filter state
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
+
+  // Request sequencing refs to prevent out-of-order async search race conditions
+  const billsReqIdRef = useRef(0);
+  const preauthReqIdRef = useRef(0);
+  const claimsReqIdRef = useRef(0);
+  const dashboardReqIdRef = useRef(0);
+
+  // Debounce search input by 250ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset pagination when debounced search or filter changes
+  useEffect(() => {
+    setBillPage(1);
+    setPreauthPage(1);
+    setClaimPage(1);
+    setPayPage(1);
+  }, [debouncedSearch, activeFilter]);
 
   // Reset filter and search when activeTab changes
   useEffect(() => {
     setActiveFilter("All");
     setSearchQuery("");
+    setDebouncedSearch("");
   }, [activeTab]);
 
   // Live Data States
@@ -158,6 +182,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [claimsAnalytics, setClaimsAnalytics] = useState(null);
   const [claimsViewMode, setClaimsViewMode] = useState("kanban"); // 'table' | 'kanban'
+  const [claimsKanbanPages, setClaimsKanbanPages] = useState({});
 
   // Finance Dashboard State
   const [dashboardData, setDashboardData] = useState(null);
@@ -198,91 +223,115 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   }, []);
 
   const loadBills = useCallback(async (silent = false) => {
+    const reqId = ++billsReqIdRef.current;
     try {
       if (!silent) setLoadingBills(true);
       const res = await financialApi.getBills({
         page: billPage,
         pageSize: billPageSize,
         status: activeFilter === "All" ? undefined : activeFilter,
-        search: searchQuery.trim() || undefined
+        search: debouncedSearch || undefined
       });
-      if (res && res.success) {
+      if (reqId === billsReqIdRef.current && res && res.success) {
         setBills(res.items || []);
         setBillTotal(res.total || 0);
       }
     } catch (e) {
-      console.error("Bills error:", e);
+      if (reqId === billsReqIdRef.current) {
+        console.error("Bills error:", e);
+      }
     } finally {
-      if (!silent) setLoadingBills(false);
+      if (reqId === billsReqIdRef.current && !silent) {
+        setLoadingBills(false);
+      }
     }
-  }, [billPage, billPageSize, activeFilter, searchQuery]);
+  }, [billPage, billPageSize, activeFilter, debouncedSearch]);
 
   const loadPreauths = useCallback(async (silent = false) => {
+    const reqId = ++preauthReqIdRef.current;
     try {
       if (!silent) setLoadingPreauth(true);
       const res = await financialApi.getPreauthorisations({
         page: preauthPage,
         pageSize: preauthPageSize,
         status: activeFilter === "All" ? undefined : activeFilter,
-        search: searchQuery.trim() || undefined
+        search: debouncedSearch || undefined
       });
-      if (res && res.success) {
+      if (reqId === preauthReqIdRef.current && res && res.success) {
         setPreauths(res.items || []);
         setPreauthTotal(res.total || 0);
         if (res.stats) setPreauthStats(res.stats);
       }
     } catch (e) {
-      console.error("Preauth error:", e);
+      if (reqId === preauthReqIdRef.current) {
+        console.error("Preauth error:", e);
+      }
     } finally {
-      if (!silent) setLoadingPreauth(false);
+      if (reqId === preauthReqIdRef.current && !silent) {
+        setLoadingPreauth(false);
+      }
     }
-  }, [preauthPage, preauthPageSize, activeFilter, searchQuery]);
+  }, [preauthPage, preauthPageSize, activeFilter, debouncedSearch]);
 
   const loadClaims = useCallback(async (silent = false) => {
+    const reqId = ++claimsReqIdRef.current;
     try {
       if (!silent) setLoadingClaims(true);
       const isKanban = claimsViewMode === "kanban";
-      const actualSize = isKanban ? 60 : claimPageSize;
+      const actualSize = isKanban ? 150 : claimPageSize;
       const [cRes, aRes] = await Promise.all([
         financialApi.getInsuranceClaims({
           page: isKanban ? 1 : claimPage,
           pageSize: actualSize,
           status: activeFilter === "All" ? undefined : activeFilter,
-          search: searchQuery.trim() || undefined
+          search: debouncedSearch || undefined
         }),
         financialApi.getClaimsAnalytics()
       ]);
-      if (cRes && cRes.success) {
-        setClaims(cRes.items || []);
-        setClaimTotal(cRes.total || 0);
-        if (cRes.stats) setClaimStats(cRes.stats);
-      }
-      if (aRes && aRes.success) {
-        setClaimsAnalytics(aRes);
+      if (reqId === claimsReqIdRef.current) {
+        if (cRes && cRes.success) {
+          setClaims(cRes.items || []);
+          setClaimTotal(cRes.total || 0);
+          if (cRes.stats) setClaimStats(cRes.stats);
+        }
+        if (aRes && aRes.success) {
+          setClaimsAnalytics(aRes);
+        }
       }
     } catch (e) {
-      console.error("Claims error:", e);
+      if (reqId === claimsReqIdRef.current) {
+        console.error("Claims error:", e);
+      }
     } finally {
-      if (!silent) setLoadingClaims(false);
+      if (reqId === claimsReqIdRef.current && !silent) {
+        setLoadingClaims(false);
+      }
     }
-  }, [claimPage, claimPageSize, activeFilter, searchQuery, claimsViewMode]);
+  }, [claimPage, claimPageSize, activeFilter, debouncedSearch, claimsViewMode]);
 
   const loadDashboard = useCallback(async (silent = false) => {
+    const reqId = ++dashboardReqIdRef.current;
     try {
       if (!silent) setLoadingDashboard(true);
       const res = await financialApi.getFinanceDashboard({
         page: payPage,
         pageSize: payPageSize,
         status: activeFilter === "All" ? undefined : activeFilter,
-        search: searchQuery.trim() || undefined
+        search: debouncedSearch || undefined
       });
-      if (res && res.success) setDashboardData(res);
+      if (reqId === dashboardReqIdRef.current && res && res.success) {
+        setDashboardData(res);
+      }
     } catch (e) {
-      console.error("Dashboard error:", e);
+      if (reqId === dashboardReqIdRef.current) {
+        console.error("Dashboard error:", e);
+      }
     } finally {
-      if (!silent) setLoadingDashboard(false);
+      if (reqId === dashboardReqIdRef.current && !silent) {
+        setLoadingDashboard(false);
+      }
     }
-  }, [activeFilter, payPage, payPageSize, searchQuery]);
+  }, [activeFilter, payPage, payPageSize, debouncedSearch]);
 
   const loadTax = useCallback(async (silent = false) => {
     try {
@@ -650,7 +699,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       { k: "Under review / query", v: String(s.under_review ?? 82), col: PALETTE.warning, filter: "Under Review" },
       { k: "Approved", v: String(s.approved ?? 70), col: PALETTE.success, filter: "Approved" },
       { k: "Rejected", v: String(s.rejected ?? 22), col: PALETTE.critical, filter: "Rejected" },
-      { k: "Settled", v: String(s.settled ?? 13367), col: PALETTE.success, filter: "Settled" },
+      { k: "Settled", v: String(s.settled ?? 13367), col: PALETTE.success, filter: "All" },
       { k: "Insurance outstanding", v: inr(s.total_outstanding || 3808607), col: "", filter: "All" },
       { k: "Avg settlement", v: "2.4 days", col: "", filter: "All" }
     ];
@@ -685,20 +734,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
   // Live Kanban items from PostgreSQL DB claims prioritized for current admitted patients
   const kanbanColumns = useMemo(() => {
-    const claimReadyCards = claims
-      .filter(c => /ready|pending/i.test(c.status) || (!c.status))
-      .map(c => ({
-        id: c.claim || "— (not yet)",
-        claim_id: c.claim_id,
-        patient: c.patient,
-        admission: c.admission_number,
-        amount: inr(c.finalClaimed || c.approved || 0),
-        status: "Claim Ready",
-        raw: c
-      }));
-
     const underReviewCards = claims
-      .filter(c => /review|query|additional|missing|awaiting/i.test(c.status) || (c.status && /submitted/i.test(c.status)))
+      .filter(c => /review|query|additional|missing|awaiting|submitted|ready|pending/i.test(c.status) || (!c.status))
       .map(c => ({
         id: c.claim,
         claim_id: c.claim_id,
@@ -710,7 +747,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       }));
 
     const approvedCards = claims
-      .filter(c => /approved/i.test(c.status))
+      .filter(c => /approved|settled|paid/i.test(c.status))
       .map(c => ({
         id: c.claim,
         claim_id: c.claim_id,
@@ -718,18 +755,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         admission: c.admission_number,
         amount: inr(c.approved || c.finalClaimed || 0),
         status: "Approved",
-        raw: c
-      }));
-
-    const settledCards = claims
-      .filter(c => /settled|paid/i.test(c.status))
-      .map(c => ({
-        id: c.claim,
-        claim_id: c.claim_id,
-        patient: c.patient,
-        admission: c.admission_number,
-        amount: inr(c.settled || c.approved || 0),
-        status: "Settled",
         raw: c
       }));
 
@@ -746,10 +771,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       }));
 
     return [
-      { key: "Claim Ready", label: "Claim Ready", count: claimReadyCards.length, bg: "#f3f4f6", textCol: "#52585e", badgeBg: "#e5e7eb", badgeCol: "#374151", items: claimReadyCards },
       { key: "Under Review", label: "Under Review", count: underReviewCards.length, bg: "#fffbeb", textCol: PALETTE.warning, badgeBg: PALETTE.warningTint, badgeCol: PALETTE.warning, items: underReviewCards },
       { key: "Approved", label: "Approved", count: approvedCards.length, bg: "#eff6ff", textCol: PALETTE.primary, badgeBg: "oklch(0.93 0.04 220)", badgeCol: PALETTE.primary, items: approvedCards },
-      { key: "Settled", label: "Settled", count: settledCards.length, bg: "#f0fdf4", textCol: PALETTE.success, badgeBg: PALETTE.successTint, badgeCol: PALETTE.success, items: settledCards },
       { key: "Rejected", label: "Rejected", count: rejectedCards.length, bg: "#fef2f2", textCol: PALETTE.critical, badgeBg: PALETTE.criticalTint, badgeCol: PALETTE.critical, items: rejectedCards }
     ];
   }, [claims]);
@@ -793,20 +816,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
           <SearchInput
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              if (activeTab === "billing") { setBillPage(1); setLoadingBills(true); }
-              else if (activeTab === "insurance") { setPreauthPage(1); setLoadingPreauth(true); }
-              else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
-              else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
-            }}
-            onClear={() => {
-              setSearchQuery('');
-              if (activeTab === "billing") { setBillPage(1); setLoadingBills(true); }
-              else if (activeTab === "insurance") { setPreauthPage(1); setLoadingPreauth(true); }
-              else if (activeTab === "claims") { setClaimPage(1); setLoadingClaims(true); }
-              else if (activeTab === "finance") { setPayPage(1); setLoadingDashboard(true); }
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClear={() => setSearchQuery('')}
             placeholder="Search…"
             loading={
               (activeTab === "billing" && loadingBills) ||
@@ -1016,7 +1027,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             : activeTab === "insurance"
             ? ["All", "Pending", "Submitted · awaiting insurer", "Query Raised", "Missing Documents", "Additional Documents", "High Denial Risk", "Approved", "Rejected"]
             : activeTab === "claims"
-            ? ["All", "Claim Ready", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected", "Settled"]
+            ? ["All", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected"]
             : ["All", "Success", "Pending", "Failed"]
           ).map((filterLabel) => {
             const active = activeFilter === filterLabel;
@@ -1185,7 +1196,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   {vPct}%
                 </span>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.tpa)}</span>
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(b.patientShare)}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", display: "flex", flexDirection: "column", gap: "1px" }}>
+                  <span>{inr(b.patientShare)}</span>
+                  {Number(b.paid_amount || 0) > 0 && b.status !== "Settled" && b.status !== "Paid" && (
+                    <span style={{ fontSize: "10px", color: PALETTE.success, fontWeight: 500 }}>
+                      Paid {inr(b.paid_amount)}
+                    </span>
+                  )}
+                </span>
                 <span>
                   <StatusPill status={isDisputed ? "Disputed" : b.status} />
                 </span>
@@ -1419,16 +1437,19 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 const filteredItems = activeFilter === "All"
                   ? col.items
                   : col.items.filter(it => {
-                      if (activeFilter === "Claim Ready") return col.key === "Claim Ready";
-                      if (activeFilter === "Submitted") return col.key === "Claim Ready" || col.key === "Under Review";
+                      if (activeFilter === "Submitted") return col.key === "Under Review";
                       if (activeFilter === "Under Review") return col.key === "Under Review";
                       if (activeFilter === "Query Raised") return col.key === "Under Review";
                       if (activeFilter === "Approved") return col.key === "Approved";
-                      if (activeFilter === "Partially Approved") return col.key === "Approved" || col.key === "Under Review";
-                      if (activeFilter === "Settled") return col.key === "Settled";
+                      if (activeFilter === "Partially Approved") return col.key === "Approved";
                       if (activeFilter === "Rejected") return col.key === "Rejected";
                       return true;
                     });
+
+                const colPageSize = 6;
+                const totalColPages = Math.ceil(filteredItems.length / colPageSize) || 1;
+                const currentColPage = Math.min(claimsKanbanPages[col.key] || 1, totalColPages);
+                const paginatedItems = filteredItems.slice((currentColPage - 1) * colPageSize, currentColPage * colPageSize);
 
                 return (
                   <div
@@ -1438,7 +1459,9 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                       border: `1px solid ${PALETTE.border}`,
                       borderRadius: "8px",
                       padding: "12px",
-                      minHeight: "450px"
+                      minHeight: "450px",
+                      display: "flex",
+                      flexDirection: "column"
                     }}
                   >
                     {/* Column Header */}
@@ -1488,8 +1511,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     </div>
 
                     {/* Column Cards */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {filteredItems.map((item, idx) => (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", flex: 1 }}>
+                      {paginatedItems.map((item, idx) => (
                         <div
                           key={item.claim_id || idx}
                           onClick={() => openClaimDrawer(item.raw || { claim: item.id, patient: item.patient, status: col.key, finalClaimed: item.amount })}
@@ -1577,6 +1600,72 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                         </div>
                       )}
                     </div>
+
+                    {/* Column Pagination Controls */}
+                    {totalColPages > 1 && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          paddingTop: "10px",
+                          marginTop: "8px",
+                          borderTop: `1px solid ${PALETTE.borderLight}`,
+                          fontSize: "11px",
+                          color: PALETTE.muted
+                        }}
+                      >
+                        <button
+                          type="button"
+                          disabled={currentColPage <= 1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setClaimsKanbanPages(prev => ({
+                              ...prev,
+                              [col.key]: Math.max(1, (prev[col.key] || 1) - 1)
+                            }));
+                          }}
+                          style={{
+                            padding: "3px 8px",
+                            border: `1px solid ${PALETTE.border}`,
+                            background: currentColPage <= 1 ? "#f5f5f5" : "#fff",
+                            color: currentColPage <= 1 ? "#aaa" : PALETTE.text,
+                            borderRadius: "4px",
+                            cursor: currentColPage <= 1 ? "not-allowed" : "pointer",
+                            fontSize: "10.5px",
+                            fontWeight: 500
+                          }}
+                        >
+                          ‹ Prev
+                        </button>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10.5px" }}>
+                          {currentColPage} / {totalColPages}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={currentColPage >= totalColPages}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setClaimsKanbanPages(prev => ({
+                              ...prev,
+                              [col.key]: Math.min(totalColPages, (prev[col.key] || 1) + 1)
+                            }));
+                          }}
+                          style={{
+                            padding: "3px 8px",
+                            border: `1px solid ${PALETTE.border}`,
+                            background: currentColPage >= totalColPages ? "#f5f5f5" : "#fff",
+                            color: currentColPage >= totalColPages ? "#aaa" : PALETTE.text,
+                            borderRadius: "4px",
+                            cursor: currentColPage >= totalColPages ? "not-allowed" : "pointer",
+                            fontSize: "10.5px",
+                            fontWeight: 500
+                          }}
+                        >
+                          Next ›
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1753,8 +1842,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                       payment_id: b.bill_id,
                       patient_name: b.patient,
                       bill_number: b.inv || b.bill_number,
-                      amount: isSettled ? (b.paid_amount || b.total) : (b.patientShare || b.total),
-                      payment_method: "UPI",
+                      amount: isSettled ? (b.paid_amount || b.net_amount || b.total) : (b.patientShare > 0 ? b.patientShare : (b.insuranceShare || b.net_amount || b.total)),
+                      payment_method: (b.insuranceShare > 0 || b.insurance_amount > 0) ? "Insurance / TPA" : "UPI",
                       payment_date: b.bill_date,
                       payment_status: payStatus
                     };
@@ -1811,8 +1900,11 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               return (
                 <>
                   {paymentList.map((py, i) => {
-                    const amt = py.amount || 0;
-                    const payRef = py.payment_reference ? `PAY-${String(py.payment_reference).slice(-6)}` : `PAY-${String(py.payment_id || i + 101).slice(-5)}`;
+                    const amt = Number(py.amount) || 0;
+                    const rawRef = String(py.payment_reference || "").trim();
+                    const payRef = rawRef
+                      ? (rawRef.startsWith("PAY-") ? rawRef : `PAY-${rawRef.replace(/^PAY-+/i, '')}`)
+                      : `PAY-${String(py.payment_id || i + 101).padStart(6, '0')}`;
                     const modeStr = py.payment_method || "UPI";
 
                     return (
@@ -2233,6 +2325,18 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   <span style={{ color: PALETTE.muted }}>Patient Share:</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
                     {inr(drawerData.data.patient_amount || drawerData.data.patientShare)}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Paid to Date:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 600 }}>
+                    {inr(drawerData.data.status === "Settled" || drawerData.data.status === "Paid" 
+                      ? (drawerData.data.patient_amount || drawerData.data.patientShare || drawerData.data.net_amount) 
+                      : (drawerData.data.paid_amount || 0))}
+                  </span>
+                  <span style={{ color: PALETTE.muted }}>Balance Due:</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: (drawerData.data.status === "Settled" || drawerData.data.status === "Paid") ? PALETTE.muted : PALETTE.critical, fontWeight: 600 }}>
+                    {inr(drawerData.data.status === "Settled" || drawerData.data.status === "Paid"
+                      ? 0
+                      : Math.max(0, (drawerData.data.patient_amount || drawerData.data.patientShare || 0) - (drawerData.data.paid_amount || 0)))}
                   </span>
                 </>
               )}

@@ -353,6 +353,27 @@ export default function PatientCreateAndManageView({ onNavigate, currentUser }) 
     { label: '₹1 Crore', value: 10000000 }
   ];
 
+  const INSURANCE_PROVIDERS = [
+    'Star Health & Allied Insurance',
+    'HDFC ERGO General Insurance',
+    'Care Health Insurance',
+    'ICICI Lombard Health Insurance',
+    'Bajaj Allianz General Insurance',
+    'Max Bupa / Niva Bupa Health Insurance',
+    'United India Insurance',
+    'The New India Assurance',
+    'National Insurance Company',
+    'The Oriental Insurance Company',
+    'Tata AIG General Insurance',
+    'Aditya Birla Health Insurance',
+    'Medi Assist Insurance TPA',
+    'Vidal Health TPA',
+    'Family Health Plan Insurance TPA (FHPL)',
+    'MDIndia Health Insurance TPA',
+    'Paramount Health Services TPA',
+    'Heritage Health TPA'
+  ];
+
   // Core Form State
   const [formData, setFormData] = useState(() => {
     const initRef = CLINICAL_REFERENCE_DATABASE[0];
@@ -986,6 +1007,65 @@ export default function PatientCreateAndManageView({ onNavigate, currentUser }) 
                   </div>
                 </div>
 
+                {/* Insurance Details Card */}
+                {(() => {
+                  const ins = creationResult.insurance || {};
+                  const isInsured = Boolean(
+                    creationResult.patient?.is_insured || 
+                    formData.is_insured || 
+                    creationResult.insurance || 
+                    (formData.insurer && formData.insurer !== 'Self-Pay')
+                  );
+                  const provider = ins.insurance_provider || formData.insurance_provider || formData.insurer || (isInsured ? 'Star Health & Allied Insurance' : 'Self-Pay');
+                  const policyNo = ins.policy_number || formData.policy_number || 'N/A';
+                  const limit = ins.coverage_limit || formData.insurance_amount || 500000;
+
+                  return (
+                    <div style={{
+                      background: '#1e293b',
+                      padding: '16px',
+                      borderRadius: '12px',
+                      border: isInsured ? '1px solid #a855f7' : '1px solid #475569',
+                      gridColumn: 'span 2'
+                    }}>
+                      <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>🛡️ Insurance Coverage Details</span>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: isInsured ? 'rgba(168, 85, 247, 0.25)' : 'rgba(100, 116, 139, 0.25)',
+                          color: isInsured ? '#d8b4fe' : '#94a3b8',
+                          border: isInsured ? '1px solid #a855f7' : '1px solid #475569'
+                        }}>
+                          {isInsured ? '✓ Insured' : 'Self-Pay (Non-Insured)'}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '6px' }}>
+                        {isInsured ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <div style={{ fontSize: '16px', fontWeight: 800, color: '#c084fc' }}>
+                              {provider}
+                            </div>
+                            <div style={{ fontSize: '12.5px', color: '#cbd5e1', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                              <span>Policy No: <strong style={{ color: '#f8fafc', fontFamily: 'monospace' }}>{policyNo}</strong></span>
+                              <span>•</span>
+                              <span>Coverage Limit: <strong style={{ color: '#4ade80' }}>₹{Number(limit).toLocaleString('en-IN')}</strong></span>
+                              <span>•</span>
+                              <span style={{ color: '#93c5fd' }}>Cashless Ready</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '14px', color: '#94a3b8', fontWeight: 600 }}>
+                            Self-Pay / Direct Patient Billing (No Active Insurance Claim)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {creationResult.bed && (
                   <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', border: '1px solid #334155' }}>
                     <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Assigned Bed</div>
@@ -1366,12 +1446,27 @@ export default function PatientCreateAndManageView({ onNavigate, currentUser }) 
                         </div>
                         <div>
                           <label style={{ fontSize: '11.5px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Insurance Provider / TPA</label>
-                          <input
-                            type="text"
-                            value={formData.insurance_provider}
+                          <select
+                            value={formData.insurance_provider || 'Star Health & Allied Insurance'}
                             onChange={e => handleChange('insurance_provider', e.target.value)}
-                            style={{ width: '100%', padding: '9px 12px', borderRadius: '7px', background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', fontSize: '13px' }}
-                          />
+                            style={{ 
+                              width: '100%', 
+                              padding: '9px 12px', 
+                              borderRadius: '7px', 
+                              background: '#1e293b', 
+                              border: '1px solid #334155', 
+                              color: '#f8fafc', 
+                              fontSize: '13px',
+                              cursor: 'pointer',
+                              outline: 'none'
+                            }}
+                          >
+                            {INSURANCE_PROVIDERS.map(prov => (
+                              <option key={prov} value={prov} style={{ background: '#0f172a', color: '#f8fafc' }}>
+                                {prov}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label style={{ fontSize: '11.5px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Policy Number</label>

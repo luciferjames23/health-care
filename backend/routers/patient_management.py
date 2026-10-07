@@ -1266,21 +1266,24 @@ def create_patient_full(payload: CreateFullPatientRequest = Body(...)):
             logger.warning(f"Could not insert appointment for patient {patient_id}: {apt_err}")
 
         # 13. Create System Notification and Audit Log
-        cur.execute("""
-            INSERT INTO notifications (
-                patient_id, notification_type, channel, message, reason, status, created_at, sent_at
-            ) VALUES (
-                %s, 'ADMISSION_REMINDER', 'SYSTEM_ALERT', %s, 'New Patient Intake', 'UNREAD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            );
-        """, (patient_id, f"New patient registered: {first_name} {last_name} ({patient_code}). Insured: {'Yes - Rs ' + str(int(payload.insurance_amount or 500000)) if is_insured_flag else 'No (Self-Pay)'}."))
+        try:
+            cur.execute("""
+                INSERT INTO notifications (
+                    patient_id, notification_type, channel, message, reason, status, created_at, sent_at
+                ) VALUES (
+                    %s, 'ADMISSION_REMINDER', 'SYSTEM_ALERT', %s, 'New Patient Intake', 'UNREAD', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                );
+            """, (patient_id, f"New patient registered: {first_name} {last_name} ({patient_code}). Insured: {'Yes - Rs ' + str(int(payload.insurance_amount or 500000)) if is_insured_flag else 'No (Self-Pay)'}."))
 
-        cur.execute("""
-            INSERT INTO agent_action_logs (
-                patient_id, action_name, intent, input_data, output_data, status, created_at
-            ) VALUES (
-                %s, 'PATIENT_CREATION_FULL', 'REGISTER_PATIENT_COMPLETE', %s, %s, 'SUCCESS', CURRENT_TIMESTAMP
-            );
-        """, (patient_id, json.dumps({"name": f"{first_name} {last_name}", "is_insured": is_insured_flag}), json.dumps({"patient_id": patient_id, "patient_code": patient_code})))
+            cur.execute("""
+                INSERT INTO agent_action_logs (
+                    patient_id, action_name, intent, input_data, output_data, status, created_at
+                ) VALUES (
+                    %s, 'PATIENT_CREATION_FULL', 'REGISTER_PATIENT_COMPLETE', %s, %s, 'SUCCESS', CURRENT_TIMESTAMP
+                );
+            """, (patient_id, json.dumps({"name": f"{first_name} {last_name}", "is_insured": is_insured_flag}), json.dumps({"patient_id": patient_id, "patient_code": patient_code})))
+        except Exception as log_err:
+            logger.warning(f"Non-blocking log error during patient registration for {patient_id}: {log_err}")
 
         # Commit everything atomically
         conn.commit()

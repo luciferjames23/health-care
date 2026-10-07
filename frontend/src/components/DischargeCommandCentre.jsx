@@ -317,6 +317,7 @@ export default function DischargeCommandCentre({
   const [pageSize, setPageSize] = useState(25);
   const [sortCol, setSortCol] = useState(0);
   const [sortDir, setSortDir] = useState('asc');
+  const [kanbanColPages, setKanbanColPages] = useState({});
 
   // Push notification helper matching Meridian prototype
   const notify = useCallback((title, text, pri = 'Medium', from = 'Discharge Agent') => {
@@ -758,16 +759,20 @@ export default function DischargeCommandCentre({
     return resultCases;
   }, [rawSummaries, rawAdmissions, rawBeds, rawWards, activeDoctorName]);
 
-  // Notify sidebar/parent of live discharge count whenever allCases changes
+  // Active cases count excluding completed/discharged cases
+  const activeCasesCount = useMemo(() => {
+    return allCases.filter(c => !c.isCompleted && c.category !== 'Completed').length;
+  }, [allCases]);
+
+  // Notify sidebar/parent of live active discharge count whenever allCases changes
   useEffect(() => {
-    const count = allCases.length;
     if (onUpdateCaseCount) {
-      onUpdateCaseCount(count);
+      onUpdateCaseCount(activeCasesCount);
     }
     window.dispatchEvent(new CustomEvent('hc_discharge_count_updated', {
-      detail: { count }
+      detail: { count: activeCasesCount }
     }));
-  }, [allCases.length, onUpdateCaseCount]);
+  }, [activeCasesCount, onUpdateCaseCount]);
 
   // Set default selected card to first case when cases load
   useEffect(() => {
@@ -3348,8 +3353,8 @@ export default function DischargeCommandCentre({
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
-              ? `Doctor Scope: ${activeDoctorName} · Showing ${allCases.length} assigned discharge case${allCases.length === 1 ? '' : 's'}`
-              : `${allCases.length} active hospital cases · dependency graph and critical path by Discharge Orchestration Agent v3.0.2`}
+              ? `Doctor Scope: ${activeDoctorName} · Showing ${activeCasesCount} assigned active discharge case${activeCasesCount === 1 ? '' : 's'}`
+              : `${activeCasesCount} active hospital cases · dependency graph and critical path by Discharge Orchestration Agent v3.0.2`}
           </div>
         </div>
 
@@ -3580,13 +3585,24 @@ export default function DischargeCommandCentre({
               return false;
             });
 
+            const colPage = kanbanColPages[col.key] || 1;
+            const COL_PAGE_SIZE = 5;
+            const totalColPages = Math.max(1, Math.ceil(colCases.length / COL_PAGE_SIZE));
+            const validColPage = Math.min(colPage, totalColPages);
+            const paginatedCases = colCases.slice((validColPage - 1) * COL_PAGE_SIZE, validColPage * COL_PAGE_SIZE);
+
             return (
               <div
                 key={col.key}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px'
+                  gap: '8px',
+                  background: '#f8fafc',
+                  border: '1px solid #e3e6e8',
+                  borderRadius: '8px',
+                  padding: '10px',
+                  minHeight: '420px'
                 }}
               >
                 {/* Column Header matching screenshot: Pill badge on left, count on right */}
@@ -3609,52 +3625,116 @@ export default function DischargeCommandCentre({
                 </div>
 
                 {/* Cards Stack matching screenshot */}
-                {colCases.map(c => {
-                  const isSelected = selectedCardId === c.id;
-
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => {
-                        setSelectedCardId(c.id);
-                        setActiveCaseId(c.id);
-                      }}
-                      style={{
-                        background: '#ffffff',
-                        border: isSelected ? '1.5px solid #0d9488' : '1px solid #e3e6e8',
-                        boxShadow: isSelected ? '0 0 0 1px #0d9488' : '0 1px 2px rgba(0,0,0,0.02)',
-                        borderRadius: '6px',
-                        padding: '10px 12px',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px'
-                      }}
-                      onMouseEnter={e => {
-                        if (!isSelected) e.currentTarget.style.borderColor = '#cbd5e1';
-                      }}
-                      onMouseLeave={e => {
-                        if (!isSelected) e.currentTarget.style.borderColor = '#e3e6e8';
-                      }}
-                    >
-                      {/* Line 1: Patient Name · Bed */}
-                      <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#15181b', lineHeight: 1.3 }}>
-                        {c.patient} · {c.bed}
-                      </div>
-
-                      {/* Line 2: Doctor Name */}
-                      <div style={{ fontSize: '11.5px', color: '#52585e', marginTop: '1px' }}>
-                        {c.doctor}
-                      </div>
-
-                      {/* Line 3: Critical Path / Blocker */}
-                      <div style={{ fontSize: '11px', color: '#8a9096', marginTop: '3px' }}>
-                        {c.blocker}
-                      </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                  {colCases.length === 0 ? (
+                    <div style={{ padding: '24px 8px', textAlign: 'center', color: '#94a3b8', fontSize: '11.5px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                      No {col.label.toLowerCase()} cases
                     </div>
-                  );
-                })}
+                  ) : (
+                    paginatedCases.map(c => {
+                      const isSelected = selectedCardId === c.id;
+
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedCardId(c.id);
+                            setActiveCaseId(c.id);
+                          }}
+                          style={{
+                            background: '#ffffff',
+                            border: isSelected ? '1.5px solid #0d9488' : '1px solid #e3e6e8',
+                            boxShadow: isSelected ? '0 0 0 1px #0d9488' : '0 1px 2px rgba(0,0,0,0.02)',
+                            borderRadius: '6px',
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '2px'
+                          }}
+                          onMouseEnter={e => {
+                            if (!isSelected) e.currentTarget.style.borderColor = '#cbd5e1';
+                          }}
+                          onMouseLeave={e => {
+                            if (!isSelected) e.currentTarget.style.borderColor = '#e3e6e8';
+                          }}
+                        >
+                          {/* Line 1: Patient Name · Bed */}
+                          <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#15181b', lineHeight: 1.3 }}>
+                            {c.patient} · {c.bed}
+                          </div>
+
+                          {/* Line 2: Doctor Name */}
+                          <div style={{ fontSize: '11.5px', color: '#52585e', marginTop: '1px' }}>
+                            {c.doctor}
+                          </div>
+
+                          {/* Line 3: Critical Path / Blocker */}
+                          <div style={{ fontSize: '11px', color: '#8a9096', marginTop: '3px' }}>
+                            {c.blocker}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Column Pagination Controls */}
+                {colCases.length > COL_PAGE_SIZE && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 2px 2px 2px',
+                    borderTop: '1px solid #e2e8f0',
+                    fontSize: '11px',
+                    color: '#64748b',
+                    marginTop: 'auto'
+                  }}>
+                    <span>{validColPage}/{totalColPages} ({colCases.length})</span>
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      <button
+                        type="button"
+                        disabled={validColPage <= 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setKanbanColPages(prev => ({ ...prev, [col.key]: Math.max(1, validColPage - 1) }));
+                        }}
+                        style={{
+                          padding: '1px 6px',
+                          fontSize: '11px',
+                          borderRadius: '3px',
+                          border: '1px solid #cbd5e1',
+                          background: validColPage <= 1 ? '#f8fafc' : '#ffffff',
+                          color: validColPage <= 1 ? '#94a3b8' : '#334155',
+                          cursor: validColPage <= 1 ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        ‹ Prev
+                      </button>
+                      <button
+                        type="button"
+                        disabled={validColPage >= totalColPages}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setKanbanColPages(prev => ({ ...prev, [col.key]: Math.min(totalColPages, validColPage + 1) }));
+                        }}
+                        style={{
+                          padding: '1px 6px',
+                          fontSize: '11px',
+                          borderRadius: '3px',
+                          border: '1px solid #cbd5e1',
+                          background: validColPage >= totalColPages ? '#f8fafc' : '#ffffff',
+                          color: validColPage >= totalColPages ? '#94a3b8' : '#334155',
+                          cursor: validColPage >= totalColPages ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Next ›
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

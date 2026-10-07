@@ -2206,9 +2206,8 @@ def get_bed_management_data(
             assigned = bed_patient_map.get(bnum) or bed_patient_map.get(str(bid)) or bed_patient_map.get(bid)
             raw_status = str(b.get("status") or "").strip().title()
             is_maint = raw_status in ["Maintenance", "Blocked", "Cleaning", "Reserved"]
-            is_occupied = raw_status == "Occupied" or bool(assigned)
 
-            if is_occupied:
+            if assigned:
                 bed_status = "Occupied"
                 occupied_count += 1
             elif is_maint:

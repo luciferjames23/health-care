@@ -1667,6 +1667,18 @@ export const apiService = {
     return data;
   },
 
+  async approvePreauthClaim(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/preauth-agent/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error approving preauth claim ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/preauth-agent/approve`, data);
+    return data;
+  },
+
   // =========================================================================
   // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
   // =========================================================================
@@ -3301,7 +3313,11 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     const doc = (isDischarged
       ? (parsed.doctor_name || adm.attending_doctor)
       : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma';
-    cases.push({ doctor: doc });
+    
+    // Only count active discharge cases (leave completed count out of the active badge)
+    if (!isApproved && !isDischarged) {
+      cases.push({ doctor: doc });
+    }
   });
 
   // 2. Remaining Inpatient Admissions
@@ -3314,8 +3330,11 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     processedPatientIds.add(pid);
     if (aid) processedPatientIds.add('adm_' + aid);
 
-    const doc = adm.attending_doctor || adm.doctor_name || 'Dr. Sneha Das';
-    cases.push({ doctor: doc });
+    const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
+    if (!isDischarged) {
+      const doc = adm.attending_doctor || adm.doctor_name || 'Dr. Sneha Das';
+      cases.push({ doctor: doc });
+    }
   });
 
   if (doctorName) {

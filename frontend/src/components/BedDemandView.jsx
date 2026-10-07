@@ -31,7 +31,7 @@ export default function BedDemandView({ onSelectPatient }) {
           (w.rooms || []).forEach(r => {
             (r.beds || []).forEach(b => {
               const p = b.assigned_patient || b.patient;
-              if (p) {
+              if (p && (p.name || p.patient_name)) {
                 p.name = p.name || p.patient_name || 'Inpatient';
                 p.patient_name = p.patient_name || p.name || 'Inpatient';
                 p.diagnosis = p.diagnosis || p.primary_diagnosis || 'Inpatient Observation';
@@ -39,17 +39,18 @@ export default function BedDemandView({ onSelectPatient }) {
                 p.doctor = p.doctor || p.attending_doctor || 'Attending Physician';
                 b.patient = p;
                 b.assigned_patient = p;
-              }
-              const isOccupied = b.status === 'Occupied' || b.is_occupied;
-              if (isOccupied) {
                 b.status = 'Occupied';
                 b.is_occupied = true;
               } else if (b.status === 'Maintenance') {
                 b.status = 'Maintenance';
                 b.is_occupied = false;
+                b.patient = null;
+                b.assigned_patient = null;
               } else {
                 b.status = 'Available';
                 b.is_occupied = false;
+                b.patient = null;
+                b.assigned_patient = null;
               }
             });
           });
@@ -155,14 +156,19 @@ export default function BedDemandView({ onSelectPatient }) {
 
             // Search query
             if (searchQuery.trim()) {
-              const q = searchQuery.toLowerCase();
-              const matchBed = (b.bed_number || '').toLowerCase().includes(q);
+              const q = searchQuery.toLowerCase().trim();
+              const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q;
               const matchRoom = (r.room_number || '').toLowerCase().includes(q);
               const matchWard = (w.ward_name || '').toLowerCase().includes(q);
               const matchPat = b.patient && (
                 (b.patient.name || '').toLowerCase().includes(q) ||
                 (b.patient.patient_name || '').toLowerCase().includes(q) ||
-                (b.patient.diagnosis || '').toLowerCase().includes(q)
+                (b.patient.patient_number || '').toLowerCase().includes(q) ||
+                (b.patient.diagnosis || '').toLowerCase().includes(q) ||
+                (b.patient.primary_diagnosis || '').toLowerCase().includes(q) ||
+                (b.patient.doctor || '').toLowerCase().includes(q) ||
+                (b.patient.attending_doctor || '').toLowerCase().includes(q) ||
+                String(b.patient.id || '').includes(q)
               );
               return matchBed || matchRoom || matchWard || matchPat;
             }
@@ -188,13 +194,19 @@ export default function BedDemandView({ onSelectPatient }) {
           if (statusFilter === 'Available' && b.status !== 'Available') return;
           if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return;
           if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            const matchBed = (b.bed_number || '').toLowerCase().includes(q);
+            const q = searchQuery.toLowerCase().trim();
+            const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q;
             const matchRoom = (r.room_number || '').toLowerCase().includes(q);
             const matchWard = (w.ward_name || '').toLowerCase().includes(q);
             const matchPat = b.patient && (
               (b.patient.name || '').toLowerCase().includes(q) ||
-              (b.patient.diagnosis || '').toLowerCase().includes(q)
+              (b.patient.patient_name || '').toLowerCase().includes(q) ||
+              (b.patient.patient_number || '').toLowerCase().includes(q) ||
+              (b.patient.diagnosis || '').toLowerCase().includes(q) ||
+              (b.patient.primary_diagnosis || '').toLowerCase().includes(q) ||
+              (b.patient.doctor || '').toLowerCase().includes(q) ||
+              (b.patient.attending_doctor || '').toLowerCase().includes(q) ||
+              String(b.patient.id || '').includes(q)
             );
             if (!matchBed && !matchRoom && !matchWard && !matchPat) return;
           }
