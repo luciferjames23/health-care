@@ -4,6 +4,8 @@ import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
 import BillingTransparencyDrawer from "./BillingTransparencyDrawer";
+import ClaimExclusionModal from "./ClaimExclusionModal";
+import ClaimAppealDrawer from "./ClaimAppealDrawer";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Design System Tokens & Color Palette (Pixel-Accurate to Prototype V2.1)
@@ -211,6 +213,26 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   // AG-08 Billing Transparency Agent State
   const [ag08DrawerOpen, setAg08DrawerOpen] = useState(false);
   const [ag08PatientId, setAg08PatientId] = useState('87221');
+
+  // Dedicated check: Preauth Underwriting actions (Submit, Sanction/Approve, Reject/Decline)
+  const isInsuranceDeskExecutive = useMemo(() => {
+    if (!userRole) return true;
+    const roleStr = String(userRole).trim().toLowerCase();
+    return (
+      roleStr.includes('insurance') ||
+      roleStr.includes('tpa') ||
+      roleStr.includes('coordinator') ||
+      roleStr.includes('admin') ||
+      roleStr.includes('management') ||
+      roleStr.includes('billing') ||
+      roleStr.includes('finance')
+    );
+  }, [userRole]);
+
+  // TPA Claim Rejection / Exclusion Modal State
+  const [rejectionModalData, setRejectionModalData] = useState(null);
+  // AG-20 Reconsideration Appeal Dossier Drawer State
+  const [appealDrawerCase, setAppealDrawerCase] = useState(null);
 
   // ───────────────────────────────────────────────────────────────────────────
   // Data Loaders from Live Backend APIs (Supports silent refresh to avoid UI flashing)
@@ -466,6 +488,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   };
 
   const handlePreauthSubmit = async (claimId) => {
+    if (!isInsuranceDeskExecutive) {
+      alert("Permission Denied: Preauthorisation submission is restricted strictly to the Insurance Desk.");
+      return;
+    }
     try {
       const res = await financialApi.submitPreauth(claimId);
       if (res && res.success) {
@@ -485,7 +511,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     }
   };
 
+  const handlePreauthStatusChange = async (claimId, newStatus) => {
+    try {
+      const res = await financialApi.updatePreauthStatus(claimId, { status: newStatus });
+      if (res && res.success) {
+        alert(res.message);
+        loadPreauths(true);
+        loadClaims(true);
+        loadOverview(true);
+        window.dispatchEvent(new CustomEvent("hc_api_updated"));
+        if (drawerData?.data?.claim_id === claimId) {
+          setDrawerData(prev => ({
+            ...prev,
+            data: { ...prev.data, status: newStatus }
+          }));
+        }
+      }
+    } catch (e) {
+      alert("Error updating preauth status: " + e.message);
+    }
+  };
+
   const handlePreauthApprove = async (claimId, amt) => {
+    if (!isInsuranceDeskExecutive) {
+      alert("Permission Denied: Preauthorisation sanction and approval is restricted strictly to the Insurance Desk.");
+      return;
+    }
     try {
       const res = await financialApi.approvePreauth(claimId, { amount: amt });
       if (res && res.success) {
@@ -506,9 +557,24 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     }
   };
 
-  const handlePreauthReject = async (claimId, reason) => {
+  const handlePreauthReject = async (claimId, reason, exclusionMeta = null) => {
+    if (!isInsuranceDeskExecutive) {
+      alert("Permission Denied: Preauthorisation rejection and exclusion marking is restricted strictly to the Insurance Desk.");
+      return;
+    }
     try {
-      const res = await financialApi.rejectPreauth(claimId, { reason });
+      const payload = {
+        reason: reason || "Excl01: Pre-Existing Diseases exclusion under Policy Clause 4.2",
+        exclusion_code: exclusionMeta?.exclusion_code,
+        exclusion_title: exclusionMeta?.exclusion_title,
+        remarks: exclusionMeta?.remarks,
+        insurer: exclusionMeta?.insurer || drawerData?.data?.insurer,
+        tpa: exclusionMeta?.tpa || drawerData?.data?.tpa,
+        code_system: exclusionMeta?.code_system,
+        policy_clause: exclusionMeta?.policy_clause,
+        full_reason: exclusionMeta?.full_reason || reason
+      };
+      const res = await financialApi.rejectPreauth(claimId, payload);
       if (res && res.success) {
         alert(res.message);
         loadPreauths(true);
@@ -517,7 +583,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         if (drawerData?.data?.claim_id === claimId) {
           setDrawerData(prev => ({
             ...prev,
-            data: { ...prev.data, status: "Rejected" }
+            data: { ...prev.data, status: "Rejected", rejection_reason: reason }
           }));
         }
       }
@@ -1030,7 +1096,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           {(activeTab === "billing"
             ? ["All", "Provisional", "Released", "Part-paid", "Disputed", "Paid", "Settled", "Pending", "Void requested", "Voided"]
             : activeTab === "insurance"
-            ? ["All", "Pending", "Submitted · awaiting insurer", "Query Raised", "Missing Documents", "Additional Documents", "High Denial Risk", "Approved", "Rejected"]
+            ? ["All", "Pending", "Submitted · awaiting insurer", "Missing Documents", "High Denial Risk", "Approved", "Rejected"]
             : activeTab === "claims"
             ? ["All", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected"]
             : ["All", "Success", "Pending", "Failed"]
@@ -1317,19 +1383,19 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           </div>
         ) : (
-        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+        <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflowX: "auto", overflowY: "hidden" }}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(90px, 0.9fr) minmax(140px, 1.4fr) minmax(130px, 1.3fr) minmax(150px, 1.5fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(95px, 0.95fr) minmax(80px, 0.8fr) minmax(75px, 0.75fr) minmax(95px, 0.95fr) minmax(140px, 1.4fr)",
-              gap: "8px",
-              padding: "8px 12px",
+              gridTemplateColumns: "minmax(85px, 0.9fr) minmax(115px, 1.2fr) minmax(110px, 1.15fr) minmax(115px, 1.2fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(120px, 1.2fr) minmax(55px, 0.55fr) minmax(80px, 0.8fr) minmax(115px, 1.2fr)",
+              gap: "6px",
+              padding: "8px 10px",
               color: PALETTE.muted,
               fontSize: "10.5px",
               textTransform: "uppercase",
               letterSpacing: "0.04em",
               borderBottom: `1px solid ${PALETTE.borderLight}`,
-              minWidth: "880px",
+              minWidth: "920px",
               fontWeight: 600
             }}
           >
@@ -1339,7 +1405,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             <span>Procedure</span>
             <span>Requested</span>
             <span>Approved</span>
-            <span>Completeness</span>
             <span>Denial risk</span>
             <span>Age</span>
             <span>Owner</span>
@@ -1368,8 +1433,48 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           )}
 
           {!loadingPreauth && preauthRows.map((p, idx) => {
-            const riskNum = parseInt(p.risk, 10) || 0;
-            const riskHigh = riskNum >= 25;
+            const statusStr = String(p.status || p.claim_status || '').toLowerCase();
+            const rejStr = String(p.rejection_reason || '').toLowerCase();
+            const riskNum = p.risk_score != null ? p.risk_score : (parseInt(p.risk, 10) || 0);
+
+            // Canonical risk level calculation
+            let riskLevel = p.risk_level;
+            if (statusStr.includes('high denial') || rejStr.includes('denial risk')) {
+              riskLevel = 'High Risk';
+            } else if (statusStr.includes('reject')) {
+              riskLevel = 'Critical Risk';
+            } else if (statusStr.includes('approved')) {
+              riskLevel = 'Low Risk';
+            } else if (!riskLevel) {
+              riskLevel = riskNum <= 30 ? 'Low Risk' : riskNum <= 60 ? 'Medium Risk' : riskNum <= 80 ? 'High Risk' : 'Critical Risk';
+            }
+
+            const pillBg =
+              riskLevel === 'Low Risk'
+                ? '#ecfdf5'
+                : riskLevel === 'Medium Risk'
+                ? '#fffbeb'
+                : riskLevel === 'High Risk'
+                ? '#fff1f2'
+                : '#fee2e2';
+
+            const pillColor =
+              riskLevel === 'Low Risk'
+                ? '#047857'
+                : riskLevel === 'Medium Risk'
+                ? '#b45309'
+                : riskLevel === 'High Risk'
+                ? '#e11d48'
+                : '#991b1b';
+
+            const pillBorder =
+              riskLevel === 'Low Risk'
+                ? '#a7f3d0'
+                : riskLevel === 'Medium Risk'
+                ? '#fde68a'
+                : riskLevel === 'High Risk'
+                ? '#fecdd3'
+                : '#fca5a5';
 
             return (
               <div
@@ -1377,27 +1482,32 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 onClick={() => openPreauthDrawer(p)}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(90px, 0.9fr) minmax(140px, 1.4fr) minmax(130px, 1.3fr) minmax(150px, 1.5fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(95px, 0.95fr) minmax(80px, 0.8fr) minmax(75px, 0.75fr) minmax(95px, 0.95fr) minmax(140px, 1.4fr)",
-                  gap: "8px",
-                  padding: "7px 12px",
+                  gridTemplateColumns: "minmax(85px, 0.9fr) minmax(115px, 1.2fr) minmax(110px, 1.15fr) minmax(115px, 1.2fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(120px, 1.2fr) minmax(55px, 0.55fr) minmax(80px, 0.8fr) minmax(115px, 1.2fr)",
+                  gap: "6px",
+                  padding: "7px 10px",
                   borderBottom: `1px solid #f2f3f4`,
                   alignItems: "center",
                   cursor: "pointer",
-                  minWidth: "880px",
+                  minWidth: "920px",
                   fontSize: "12px"
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
               >
-                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{p.claim}</span>
+                <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.claim}>
+                  {p.claim}
+                </span>
                 <span
                   style={{
                     fontWeight: 600,
                     color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
                     cursor: onSelectPatient ? "pointer" : "default",
-                    textDecoration: onSelectPatient ? "underline" : "none"
+                    textDecoration: onSelectPatient ? "underline" : "none",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
                   }}
-                  title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                  title={onSelectPatient ? "Click to view Patient 360 record" : (p.patient || p.patient_name)}
                   onClick={(e) => {
                     if (onSelectPatient) {
                       e.stopPropagation();
@@ -1416,43 +1526,66 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 >
                   {p.patient || p.patient_name}
                 </span>
-                <span style={{ color: PALETTE.text2 }}>{p.tpa || p.insurer}</span>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.procedure}>
+                <span
+                  style={{
+                    color: PALETTE.text2,
+                    fontSize: "11.5px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                  title={p.tpa || p.insurer}
+                >
+                  {p.tpa || p.insurer}
+                </span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11.5px" }} title={p.procedure}>
                   {p.procedure}
                 </span>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(p.requested)}</span>
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
                   {p.approved > 0 ? inr(p.approved) : "—"}
                 </span>
-                <span
-                  style={{
-                    fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: "11.5px",
-                    color: p.completeness < 100 ? PALETTE.warning : PALETTE.success
-                  }}
-                >
-                  {p.completeness}%
-                </span>
-                <span
-                  style={{
-                    fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: "11.5px",
-                    color: riskHigh ? PALETTE.critical : PALETTE.text2
-                  }}
-                >
-                  {p.risk}
-                </span>
+                <div>
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: "10.5px",
+                      fontWeight: 700,
+                      padding: "2px 7px",
+                      borderRadius: "10px",
+                      background: pillBg,
+                      color: pillColor,
+                      border: `1px solid ${pillBorder}`,
+                      display: "inline-block",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={`Two-Stage Risk Prediction: ${riskNum}/100 (${riskLevel})${p.risk_reasons?.length ? '\n' + p.risk_reasons.map(r => `• ${r}`).join('\n') : ''}`}
+                  >
+                    ● {riskLevel}
+                  </span>
+                </div>
                 {/* REAL PATIENT AGE COLUMN (Clean Age and Gender without elapsed d/h) */}
-                <div style={{ display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600, color: PALETTE.text }}>
+                <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", fontWeight: 600, color: PALETTE.text }}>
                     {p.patient_age || p.age || "45 Y"}
                   </span>
                   <span style={{ fontSize: "10px", color: PALETTE.muted }}>
                     {p.gender ? (p.gender.toUpperCase().startsWith("M") ? "Male" : p.gender.toUpperCase().startsWith("F") ? "Female" : p.gender) : "—"}
                   </span>
                 </div>
-                <span style={{ color: PALETTE.text2 }}>{p.owner || "L. Fathima"}</span>
-                <span>
+                <span
+                  style={{
+                    color: PALETTE.text2,
+                    fontSize: "11.5px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                  title={p.owner || "L. Fathima"}
+                >
+                  {p.owner || "L. Fathima"}
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center" }}>
                   <StatusPill status={p.status} />
                 </span>
               </div>
@@ -1751,19 +1884,19 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           ) : (
             /* CLAIMS TABLE VIEW */
-            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
+            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflowX: "auto", overflowY: "hidden" }}>
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(110px, 1.1fr) minmax(150px, 1.5fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(120px, 1.2fr) minmax(130px, 1.3fr)",
-                  gap: "8px",
-                  padding: "8px 12px",
+                  gridTemplateColumns: "minmax(95px, 0.95fr) minmax(120px, 1.2fr) minmax(120px, 1.2fr) minmax(95px, 0.95fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(75px, 0.75fr) minmax(85px, 0.85fr) minmax(105px, 1.1fr)",
+                  gap: "6px",
+                  padding: "8px 10px",
                   color: PALETTE.muted,
                   fontSize: "10.5px",
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
                   borderBottom: `1px solid ${PALETTE.borderLight}`,
-                  minWidth: "860px",
+                  minWidth: "900px",
                   fontWeight: 600
                 }}
               >
@@ -1785,13 +1918,13 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   onClick={() => openClaimDrawer(cl)}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "minmax(110px, 1.1fr) minmax(150px, 1.5fr) minmax(160px, 1.6fr) minmax(110px, 1.1fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(90px, 0.9fr) minmax(120px, 1.2fr) minmax(130px, 1.3fr)",
-                    gap: "8px",
-                    padding: "7px 12px",
+                    gridTemplateColumns: "minmax(95px, 0.95fr) minmax(120px, 1.2fr) minmax(120px, 1.2fr) minmax(95px, 0.95fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(75px, 0.75fr) minmax(85px, 0.85fr) minmax(105px, 1.1fr)",
+                    gap: "6px",
+                    padding: "7px 10px",
                     borderBottom: `1px solid #f2f3f4`,
                     alignItems: "center",
                     cursor: "pointer",
-                    minWidth: "860px",
+                    minWidth: "900px",
                     fontSize: "12px"
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
@@ -2365,7 +2498,9 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     : drawerData.data.status
                 }
               />
-              {drawerData.type === "preauth" && <StatusPill status="Denial risk 14%" />}
+              {drawerData.type === "preauth" && (
+                <StatusPill status={`Denial Risk: ${drawerData.data.risk_level || 'Low Risk'}`} />
+              )}
               {drawerData.type === "bill" && drawerData.data.tax_amount > 0 && (
                 <StatusPill status="Tax Inclusive" />
               )}
@@ -2666,59 +2801,194 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
               {drawerData.type === "preauth" && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
-                      borderRadius: "6px",
-                      border: "0",
-                      background: PALETTE.primary,
-                      color: "#fff",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Submit preauthorisation packet to insurer
-                  </button>
+                  {(drawerData.data.status === "Rejected" || drawerData.data.claim_status === "Rejected") ? (
+                    <>
+                      <div style={{
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        background: "#fff1f2",
+                        border: "1px solid #fecdd3",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "3px"
+                      }}>
+                        <span style={{ fontSize: "11px", fontWeight: 700, color: "#be123c", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Exclusion Reason Cited by Insurer
+                        </span>
+                        <span style={{ fontSize: "12.5px", color: "#9f1239", fontWeight: 600 }}>
+                          {drawerData.data.rejection_reason || "Standard Exclusion Cited"}
+                        </span>
+                      </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
-                      borderRadius: "6px",
-                      border: `1px solid ${PALETTE.border}`,
-                      background: "#fff",
-                      color: PALETTE.text,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Simulate insurer sanction & approval
-                  </button>
+                      {isInsuranceDeskExecutive ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setAppealDrawerCase(drawerData.data)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "0",
+                              background: PALETTE.critical,
+                              color: "#fff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            <span>⚖️ Prepare AG-20 Reconsideration Appeal to TPA</span>
+                          </button>
 
-                  <button
-                    type="button"
-                    onClick={() => handlePreauthReject(drawerData.data.claim_id, "Policy clause exclusion")}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
+                          <button
+                            type="button"
+                            onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
+                            style={{
+                              height: "34px",
+                              padding: "0 12px",
+                              borderRadius: "6px",
+                              border: `1px solid ${PALETTE.border}`,
+                              background: "#fff",
+                              color: PALETTE.text,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              textAlign: "left"
+                            }}
+                          >
+                            Re-submit updated preauthorisation packet
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                          fontSize: "11px",
+                          color: "#64748b"
+                        }}>
+                          🔒 Reconsideration appeals and resubmissions are managed by the Insurance & TPA Desk.
+                        </div>
+                      )}
+                    </>
+                  ) : !isInsuranceDeskExecutive ? (
+                    <div style={{
+                      padding: "10px 14px",
                       borderRadius: "6px",
-                      border: `1px solid ${PALETTE.border}`,
-                      background: "#fff",
-                      color: PALETTE.critical,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Mark preauthorisation rejected / declined
-                  </button>
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "10px"
+                    }}>
+                      <span style={{ fontSize: "16px", marginTop: "1px" }}>🔒</span>
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>
+                          Underwriting Actions Restricted
+                        </div>
+                        <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", lineHeight: "1.4" }}>
+                          Preauthorisation submission, approval, and rejection are restricted strictly to the <strong>Insurance & TPA Coordinator (R. Sundar)</strong>.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Direct Status Selector */}
+                      <div style={{ marginTop: "4px", marginBottom: "8px", background: "#f8fafc", padding: "8px 10px", borderRadius: "6px", border: `1px solid ${PALETTE.borderLight}` }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: PALETTE.muted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                          Change Preauth Status:
+                        </div>
+                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                          {["Submitted · awaiting insurer", "Pending", "Missing Documents", "Approved", "Rejected"].map(st => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, st)}
+                              style={{
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                fontWeight: drawerData.data.status === st ? 700 : 500,
+                                borderRadius: "5px",
+                                border: drawerData.data.status === st ? "1px solid #2563eb" : `1px solid ${PALETTE.border}`,
+                                background: drawerData.data.status === st ? "#eff6ff" : "#fff",
+                                color: drawerData.data.status === st ? "#1d4ed8" : PALETTE.text,
+                                cursor: "pointer",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              {st}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
+                        style={{
+                          height: "36px",
+                          padding: "0 14px",
+                          borderRadius: "6px",
+                          border: "0",
+                          background: PALETTE.primary,
+                          color: "#fff",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px"
+                        }}
+                      >
+                        🚀 Submit Preauthorisation Packet to TPA Portal
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
+                        style={{
+                          height: "36px",
+                          padding: "0 14px",
+                          borderRadius: "6px",
+                          border: "0",
+                          background: "#059669",
+                          color: "#fff",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px"
+                        }}
+                      >
+                        ✓ Sanction & Approve Preauthorisation
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRejectionModalData(drawerData.data)}
+                        style={{
+                          height: "36px",
+                          padding: "0 14px",
+                          borderRadius: "6px",
+                          border: `1px solid ${PALETTE.critical}`,
+                          background: "#fff",
+                          color: PALETTE.critical,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px"
+                        }}
+                      >
+                        ✕ Mark preauthorisation rejected / declined
+                      </button>
+                    </>
+                  )}
                 </>
               )}
 
@@ -3013,6 +3283,37 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         patientId={ag08PatientId}
         onApproved={() => loadBills(true)}
       />
+
+      {/* ABDM / NRCeS & IRDAI Claim Exclusion Reason Modal */}
+      {rejectionModalData && (
+        <ClaimExclusionModal
+          isOpen={!!rejectionModalData}
+          onClose={() => setRejectionModalData(null)}
+          claimData={rejectionModalData}
+          onConfirm={async (exclusionPayload) => {
+            await handlePreauthReject(exclusionPayload.claim_id, exclusionPayload.full_reason, exclusionPayload);
+          }}
+        />
+      )}
+
+      {/* AG-20 Slide-over Claim Appeal Dossier Drawer */}
+      {appealDrawerCase && (
+        <ClaimAppealDrawer
+          isOpen={!!appealDrawerCase}
+          onClose={() => {
+            setAppealDrawerCase(null);
+            loadPreauths(true);
+            loadClaims(true);
+          }}
+          claimIdentifier={appealDrawerCase?.claim_id || appealDrawerCase?.claim || appealDrawerCase?.claim_number}
+          patientData={appealDrawerCase}
+          onAppealSubmitted={() => {
+            setAppealDrawerCase(null);
+            loadPreauths(true);
+            loadClaims(true);
+          }}
+        />
+      )}
     </div>
   );
 }

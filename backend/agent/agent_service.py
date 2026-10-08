@@ -1761,12 +1761,6 @@ def handle_unknown_patient_identification_flow(
         state["reg_confirmation_pending"] = True
         return render_registration_confirmation_card(conversation_code, state, current_lang)
 
-    # Default Initial Gate Prompt (stage is None or AWAITING_PATIENT_TYPE)
-    extracted_pid = extract_patient_id_from_text(msg_raw)
-    if extracted_pid and not any(kw in msg_lower for kw in ["book", "doctor", "report", "cancel"]):
-        state["patient_identification_stage"] = "AWAITING_PATIENT_ID"
-        return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
-
     # Default / Initial Unknown Patient Gate Prompt (stage is None or AWAITING_PATIENT_TYPE)
     # Check if message text already contains Patient ID
     extracted_pid = extract_patient_id_from_text(msg_raw)
@@ -1798,12 +1792,6 @@ def handle_unknown_patient_identification_flow(
     }
 
 
-def ensure_patient_selected(conversation_code: str, state: dict, current_lang: str, action_intent: str) -> tuple:
-    """
-    Validates patient selection for multi-patient WhatsApp contact numbers.
-    Returns (is_selected: bool, response_dict: dict or None).
-    If is_selected is False, response_dict contains the interactive patient selection prompt.
-    """
 def ensure_patient_selected(conversation_code: str, state: dict, current_lang: str, action_intent: str) -> tuple:
     """
     Validates patient selection for multi-patient WhatsApp contact numbers.

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, computeDischargeCasesCount } from '../services/api';
+import { isPageAllowed } from '../services/meridianData';
 
 export const NAV_GROUPS = [
   {
@@ -22,7 +23,6 @@ export const NAV_GROUPS = [
     items: [
       { id: 'clinical', label: 'Clinical Workspace' },
       { id: 'doctor-portal', label: 'Doctor Clinical Desk', badge: 'Portal' },
-      { id: 'todays-queue', label: "Today's Queue", badge: 'OPD' },
       { id: 'nursing', label: 'Nursing Workspace' },
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },
@@ -226,22 +226,25 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     };
   }, [doctorName, userRole]);
 
-  // Sidepanel modules: Doctor Directory & Feedback are only visible for Admin / Hospital Management / Quality
+  // Sidepanel modules: Filter items and groups based on role permissions (Admins see all; specific roles see only their authorized modules)
   const visibleGroups = React.useMemo(() => {
     if (userRole === 'Patient') return [];
     const isAdmin = userRole === 'Hospital Management' || userRole === 'Admin' || userRole === 'System Admin' || userRole === 'Quality';
-    return NAV_GROUPS.map(group => ({
-      ...group,
-      items: group.items.filter(item => {
+    return NAV_GROUPS.map(group => {
+      const filteredItems = group.items.filter(item => {
         if (item.id === 'doctor-management' && !isAdmin) {
           return false;
         }
         if (item.id === 'feedback' && !isAdmin) {
           return false;
         }
-        return true;
-      })
-    }));
+        return isPageAllowed(userRole, item.id);
+      });
+      return {
+        ...group,
+        items: filteredItems
+      };
+    }).filter(group => group.items.length > 0);
   }, [userRole]);
 
   if (userRole === 'Patient' || visibleGroups.length === 0) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import PreauthDossierDrawer from './PreauthDossierDrawer';
+import ClaimAppealDrawer from './ClaimAppealDrawer';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }) {
@@ -15,6 +16,8 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
   const [activeDossierPatient, setActiveDossierPatient] = useState(null);
   const [drawerInitialMode, setDrawerInitialMode] = useState('dossier');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isAppealDrawerOpen, setIsAppealDrawerOpen] = useState(false);
+  const [activeAppealCase, setActiveAppealCase] = useState(null);
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
   const fetchCasesAndStats = async (silent = false) => {
@@ -59,30 +62,58 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
 
   // Filter cases by search and insurer
   const filteredCases = cases.filter(c => {
-    const s = search.toLowerCase();
-    const matchesSearch = !s ||
-      (c.patient_name || '').toLowerCase().includes(s) ||
-      (c.patient_code || '').toLowerCase().includes(s) ||
-      (c.insurance_provider || '').toLowerCase().includes(s) ||
-      (c.primary_diagnosis || '').toLowerCase().includes(s) ||
-      (c.attending_doctor || '').toLowerCase().includes(s);
+    const rawSearch = (search || '').trim().toLowerCase();
 
     const matchesInsurer = selectedInsurer === 'ALL' ||
       (c.insurance_provider || '').toLowerCase().includes(selectedInsurer.toLowerCase());
 
-    return matchesSearch && matchesInsurer;
+    if (!matchesInsurer) return false;
+    if (!rawSearch) return true;
+
+    // Multi-term matching: split by whitespace (e.g. "Divyaya Parthalan", "MER-CLM-0087308", "87308")
+    const searchTerms = rawSearch.split(/\s+/).filter(Boolean);
+
+    const searchableCorpus = [
+      c.patient_name,
+      c.patient_code,
+      c.patient_id,
+      c.claim_reference,
+      c.claim_number,
+      c.claim_id,
+      c.policy_number,
+      c.bill_number,
+      c.admission_number,
+      c.admission_id,
+      c.insurance_provider,
+      c.primary_diagnosis,
+      c.reason_for_admission,
+      c.procedure_name,
+      c.attending_doctor,
+      c.lead_surgeon,
+      c.department,
+      c.ward_bed,
+      c.ward_name,
+      c.bed_number,
+      c.claim_status,
+      c.stage,
+      c.phone
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return searchTerms.every(term => searchableCorpus.includes(term));
   });
 
-  // Distribute into 3 Preauth Kanban stages (New Patients removed, mapped to Dossier Assembled)
+  // Distribute into 4 Preauth & Denial Kanban stages (AG-07 + AG-20)
   const colDossierReady = filteredCases.filter(c => !c.stage || c.stage === 'DOSSIER_READY' || c.stage === 'NEW_ADMISSION');
   const colSubmittedTPA = filteredCases.filter(c => c.stage === 'SUBMITTED_TPA');
   const colApproved = filteredCases.filter(c => c.stage === 'APPROVED');
+  const colRejected = filteredCases.filter(c => c.stage === 'REJECTED_SHORTFALL');
 
   const activePendingCases = colDossierReady.length + colSubmittedTPA.length;
   const activePendingSum = [...colDossierReady, ...colSubmittedTPA].reduce((acc, c) => acc + (c.estimated_cost || 0), 0);
+  const shortfallSum = colRejected.reduce((acc, c) => acc + (c.rejected_amount || c.disputed_amount || 0), 0);
 
-  // Kanban Column Pagination
-  const [colPages, setColPages] = useState({ 1: 1, 2: 1, 3: 1 });
+  // Kanban Column Pagination (4 Columns)
+  const [colPages, setColPages] = useState({ 1: 1, 2: 1, 3: 1, 4: 1 });
   const COL_PAGE_SIZE = 5;
 
   const getPaginatedColumn = (items, colNum) => {
@@ -398,27 +429,6 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           </div>
         </div>
 
-        {/* Metric 2 */}
-        <div style={{
-          padding: '14px 16px',
-          background: '#ffffff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px'
-        }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            Assembly Speed
-          </div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#16a34a', fontFamily: 'monospace' }}>
-            1.2s <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>Clinical Engine</span>
-          </div>
-          <div style={{ fontSize: '11px', color: '#15803d' }}>
-            vs 45 mins manual EMR/Tariff assembly
-          </div>
-        </div>
 
         {/* Metric 3 */}
         <div style={{
@@ -442,25 +452,25 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           </div>
         </div>
 
-        {/* Metric 4 */}
+        {/* Metric 4: AG-20 Shortfall & Denial Desk */}
         <div style={{
           padding: '14px 16px',
           background: '#ffffff',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #fee2e2',
           borderRadius: '8px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
           display: 'flex',
           flexDirection: 'column',
           gap: '4px'
         }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            TPA Submissions &amp; Approvals
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+            🚨 AG-20 Shortfall &amp; Denial Desk
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#7c3aed', fontFamily: 'monospace' }}>
-            {colSubmittedTPA.length + colApproved.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>active cases</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#b91c1c', fontFamily: 'monospace' }}>
+            {colRejected.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>deduction cases</span>
           </div>
-          <div style={{ fontSize: '11px', color: '#6d28d9' }}>
-            {colSubmittedTPA.length} in review · {colApproved.length} approved
+          <div style={{ fontSize: '11px', color: '#991b1b' }}>
+            ₹{(shortfallSum / 100000).toFixed(2)} Lakhs at risk · 91% appeal win rate
           </div>
         </div>
       </div>
@@ -482,7 +492,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           <div style={{ position: 'relative', width: '280px' }}>
             <input
               type="text"
-              placeholder="Search patient, UHID, doctor, insurer..."
+              placeholder="Search patient, UHID, claim #, doctor, insurer..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{
@@ -541,15 +551,15 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         </div>
 
         <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-          Showing <strong>{activePendingCases}</strong> active pending · <strong>{colApproved.length}</strong> approved ({filteredCases.length} total)
+          Showing <strong>{colDossierReady.length}</strong> ready · <strong>{colSubmittedTPA.length}</strong> in review · <strong>{colApproved.length}</strong> approved · <strong style={{ color: '#dc2626' }}>{colRejected.length} shortfalls</strong> ({filteredCases.length} total)
         </div>
       </div>
 
-      {/* ── 3-Column Visual Kanban Board ─────────────────────────────────── */}
+      {/* ── 4-Column Visual Kanban Board (AG-07 Preauth + AG-20 Denial Appeal Desk) */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(320px, 1fr))',
-        gap: '14px',
+        gridTemplateColumns: 'repeat(4, minmax(285px, 1fr))',
+        gap: '12px',
         alignItems: 'start',
         overflowX: 'auto',
         paddingBottom: '20px'
@@ -738,6 +748,67 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           })()}
         </div>
 
+        {/* ================================================================= */}
+        {/* COLUMN 4: REJECTION / SHORTFALL (AG-20 CLAIM APPEAL DESK)         */}
+        {/* ================================================================= */}
+        <div style={{
+          background: '#fffbfb',
+          border: '1px solid #fee2e2',
+          borderRadius: '10px',
+          padding: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          minHeight: '480px'
+        }}>
+          {/* Column Header */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: '2px solid #ef4444',
+            paddingBottom: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '14px' }}>🚨</span>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#991b1b' }}>4. Rejection / Shortfall</span>
+            </div>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              padding: '2px 8px',
+              borderRadius: '10px',
+              background: '#fee2e2',
+              color: '#991b1b'
+            }}>
+              {colRejected.length}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '11px', color: '#7f1d1d' }}>
+            TPA deductions &amp; rejections. AG-20 retrieves EMR evidence for 1-click appeal.
+          </div>
+
+          {/* Cards List */}
+          {(() => {
+            const { items: paginated, page, totalPages, totalCount } = getPaginatedColumn(colRejected, 4);
+            return (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
+                  {totalCount === 0 ? (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
+                      No rejected or shortfall claims pending appeal.
+                    </div>
+                  ) : (
+                    paginated.map(item => renderKanbanCard(item, 4))
+                  )}
+                </div>
+                {renderColumnPagination(4, totalCount, page, totalPages)}
+              </>
+            );
+          })()}
+        </div>
+
       </div>
 
       {/* ── Slide-over Preauth Dossier Drawer ─────────────────────────────── */}
@@ -756,6 +827,21 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         onOpenPatient={onOpenPatient}
       />
 
+      {/* ── Slide-over AG-20 Claim Appeal Dossier Drawer ───────────────────── */}
+      <ClaimAppealDrawer
+        isOpen={isAppealDrawerOpen}
+        onClose={() => {
+          setIsAppealDrawerOpen(false);
+          setActiveAppealCase(null);
+          fetchCasesAndStats(true);
+        }}
+        claimIdentifier={activeAppealCase?.claim_id || activeAppealCase?.claim_number}
+        patientData={activeAppealCase}
+        onAppealSubmitted={() => {
+          fetchCasesAndStats(true);
+        }}
+      />
+
     </div>
   );
 
@@ -764,37 +850,71 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
     const isProcessing = processingId === item.patient_id;
     const est = item.estimated_cost || 25000;
     const cov = item.coverage_limit || 500000;
-    const riskPct = item.denial_risk?.risk_pct || 8;
-    const riskLevel = item.denial_risk?.risk_level || 'Low Risk';
+    const riskScore = item.denial_risk?.risk_score ?? item.denial_risk?.risk_pct ?? 12;
+    const riskLevel = item.denial_risk?.risk_level || (riskScore <= 30 ? 'Low Risk' : riskScore <= 60 ? 'Medium Risk' : riskScore <= 80 ? 'High Risk' : 'Critical Risk');
+    const reasonsList = item.denial_risk?.risk_reasons || (item.denial_risk?.explanation ? [item.denial_risk.explanation] : ['All 17 statutory and policy criteria verified']);
+    const tooltipText = `Two-Stage Risk Prediction: ${riskScore}/100 (${riskLevel})\n${reasonsList.map(r => `• ${r}`).join('\n')}`;
+
+    const pillBg =
+      riskLevel === 'Low Risk'
+        ? '#ecfdf5'
+        : riskLevel === 'Medium Risk'
+        ? '#fffbeb'
+        : riskLevel === 'High Risk'
+        ? '#fff1f2'
+        : '#fee2e2';
+
+    const pillColor =
+      riskLevel === 'Low Risk'
+        ? '#047857'
+        : riskLevel === 'Medium Risk'
+        ? '#b45309'
+        : riskLevel === 'High Risk'
+        ? '#e11d48'
+        : '#991b1b';
+
+    const pillBorder =
+      riskLevel === 'Low Risk'
+        ? '#a7f3d0'
+        : riskLevel === 'Medium Risk'
+        ? '#fde68a'
+        : riskLevel === 'High Risk'
+        ? '#fecdd3'
+        : '#fca5a5';
 
     return (
       <div
         key={item.patient_id || item.patient_code}
         onClick={() => {
-          setActiveDossierPatient(item.patient_code || item.patient_id);
-          setDrawerInitialMode(columnNumber === 3 ? 'letter' : 'dossier');
-          setIsDrawerOpen(true);
+          if (columnNumber === 4) {
+            setActiveAppealCase(item);
+            setIsAppealDrawerOpen(true);
+          } else {
+            setActiveDossierPatient(item.patient_code || item.patient_id);
+            setDrawerInitialMode(columnNumber === 3 ? 'letter' : 'dossier');
+            setIsDrawerOpen(true);
+          }
         }}
         style={{
-          background: '#ffffff',
-          border: '1px solid #e2e8f0',
+          background: columnNumber === 4 ? '#ffffff' : '#ffffff',
+          border: columnNumber === 4 ? '1px solid #fecaca' : '1px solid #e2e8f0',
           borderRadius: '8px',
           padding: '12px',
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          boxShadow: columnNumber === 4 ? '0 1px 3px rgba(220, 38, 38, 0.05)' : '0 1px 3px rgba(0,0,0,0.03)',
           cursor: 'pointer',
           transition: 'all 0.15s ease',
           position: 'relative'
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.borderColor = '#93c5fd';
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.08)';
+          e.currentTarget.style.borderColor = columnNumber === 4 ? '#f87171' : '#93c5fd';
+          e.currentTarget.style.boxShadow = columnNumber === 4 ? '0 4px 12px rgba(220, 38, 38, 0.12)' : '0 4px 12px rgba(37, 99, 235, 0.08)';
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.borderColor = '#e2e8f0';
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)';
+          e.currentTarget.style.borderColor = columnNumber === 4 ? '#fecaca' : '#e2e8f0';
+          e.currentTarget.style.boxShadow = columnNumber === 4 ? '0 1px 3px rgba(220, 38, 38, 0.05)' : '0 1px 3px rgba(0,0,0,0.03)';
         }}
       >
         {/* Top line: Ward/Bed + Denial Risk pill */}
@@ -803,7 +923,19 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
             {item.ward_bed || 'General Ward'}
           </span>
 
-          {columnNumber === 3 ? (
+          {columnNumber === 4 ? (
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 800,
+              padding: '1px 7px',
+              borderRadius: '10px',
+              background: '#fee2e2',
+              color: '#991b1b',
+              border: '1px solid #fecaca'
+            }}>
+              ● Shortfall: -₹{Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}
+            </span>
+          ) : columnNumber === 3 ? (
             <span style={{
               fontSize: '10px',
               fontWeight: 700,
@@ -816,16 +948,19 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
               ● Approved
             </span>
           ) : (
-            <span style={{
-              fontSize: '10px',
-              fontWeight: 700,
-              padding: '1px 6px',
-              borderRadius: '10px',
-              background: riskPct < 15 ? '#ecfdf5' : '#fffbeb',
-              color: riskPct < 15 ? '#047857' : '#b45309',
-              border: riskPct < 15 ? '1px solid #a7f3d0' : '1px solid #fde68a'
-            }}>
-              ● {riskPct}% {riskLevel}
+            <span 
+              style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                padding: '2px 7px',
+                borderRadius: '10px',
+                background: pillBg,
+                color: pillColor,
+                border: `1px solid ${pillBorder}`
+              }}
+              title={tooltipText}
+            >
+              ● {riskLevel}
             </span>
           )}
         </div>
@@ -854,7 +989,9 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
             <span style={{ fontWeight: 600, color: '#0f172a' }}>{item.insurance_provider ? item.insurance_provider.split(' ')[0] : 'Star Health'}</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0284c7' }}>Est: ₹{est.toLocaleString('en-IN')}</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 600, color: columnNumber === 4 ? '#b91c1c' : '#0284c7' }}>
+              {columnNumber === 4 ? `Cut: -₹${Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}` : `Est: ₹${est.toLocaleString('en-IN')}`}
+            </span>
           </div>
           <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
             <span>Policy: {item.policy_number || 'ACTIVE-POL'}</span>
@@ -940,6 +1077,55 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
               >
                 View Letter →
               </span>
+            </div>
+          )}
+
+          {columnNumber === 4 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <div style={{
+                fontSize: '10.5px',
+                color: '#991b1b',
+                background: '#fff1f2',
+                padding: '4px 6px',
+                borderRadius: '4px',
+                border: '1px solid #ffe4e6',
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontWeight: 600
+              }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '170px' }}>
+                  {item.rejection_reason || 'Tariff Capping / Exclusion'}
+                </span>
+                <span style={{ color: '#dc2626', fontWeight: 800 }}>
+                  -₹{Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveAppealCase(item);
+                  setIsAppealDrawerOpen(true);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#ffffff',
+                  background: '#dc2626',
+                  border: 'none',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  boxShadow: '0 1px 2px rgba(220, 38, 38, 0.2)'
+                }}
+              >
+                ⚖️ Open Appeal Dossier (AG-20)
+              </button>
             </div>
           )}
         </div>

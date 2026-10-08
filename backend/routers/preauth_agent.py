@@ -121,3 +121,30 @@ def approve_preauth_claim(req: ApprovePreauthRequest = Body(...)):
     except Exception as e:
         logger.error(f"Error approving preauth claim: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class EvaluateRiskRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = None
+    patient_name: Optional[str] = None
+    primary_diagnosis: Optional[str] = None
+    procedure_name: Optional[str] = None
+    estimated_cost: Optional[float] = None
+    coverage_limit: Optional[float] = None
+    claim_status: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+@router.post("/evaluate-risk")
+def evaluate_risk_llm(req: EvaluateRiskRequest = Body(...)):
+    """Triggers real-time LLM denial risk evaluation for a patient via Groq LPU (openai/gpt-oss-120b)."""
+    try:
+        case_dict = req.dict()
+        res = preauth_service.evaluate_case_risk_with_llm(case_dict)
+        return {
+            "success": True,
+            "denial_risk": res
+        }
+    except Exception as e:
+        logger.error(f"Error evaluating risk with LLM: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

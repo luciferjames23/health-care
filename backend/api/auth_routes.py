@@ -37,42 +37,45 @@ def get_auth_users():
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("""
-            SELECT 
+            SELECT DISTINCT ON (u.id)
                 u.id,
                 u.username,
-                r.name as role,
+                COALESCE(r.name, 'Staff') as role,
                 COALESCE(
                     d.display_name, 
                     NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
                     u.staff_name, 
-                    CONCAT(u.first_name, ' ', u.last_name)
+                    NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''),
+                    u.username
                 ) as name,
-                COALESCE(dept.department_name, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient Portal' ELSE u.staff_type END, r.name) as dept,
-                COALESCE(d.specialization, CASE WHEN LOWER(r.name) = 'patient' THEN p.patient_code ELSE dept.department_name END, u.staff_type, 'General Medicine') as specialization,
-                COALESCE(d.specialization, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient' ELSE u.staff_type END, r.name) as title,
+                COALESCE(dept.department_name, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient Portal' ELSE u.staff_type END, r.name) as dept,
+                COALESCE(d.specialization, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN p.patient_code ELSE dept.department_name END, u.staff_type, 'General Medicine') as specialization,
+                COALESCE(d.specialization, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient' ELSE u.staff_type END, r.name) as title,
                 u.email,
                 u.patient_id,
-                p.patient_code
+                p.patient_code,
+                COALESCE(u.is_active, true) as is_active
             FROM users u
-            JOIN roles r ON u.role_id = r.id
+            LEFT JOIN roles r ON u.role_id = r.id
             LEFT JOIN doctors d ON d.user_id = u.id
             LEFT JOIN departments dept ON u.department_id = dept.id
             LEFT JOIN patients p ON p.id = u.patient_id
-            WHERE u.is_active = true
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(r.name) = 'admin' THEN 1
-                    WHEN LOWER(r.name) = 'doctor' THEN 2
-                    WHEN LOWER(r.name) = 'patient' THEN 3
+            ORDER BY
+                u.id ASC,
+                CASE
+                    WHEN LOWER(COALESCE(r.name, '')) = 'admin' THEN 1
+                    WHEN LOWER(COALESCE(r.name, '')) = 'radiologist' THEN 2
+                    WHEN LOWER(COALESCE(r.name, '')) = 'doctor' THEN 3
+                    WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 5
                     ELSE 4
-                END,
-                u.id ASC;
+                END;
         """)
         rows = cur.fetchall()
+        users = [dict(r) for r in rows]
         return {
-            "success": True, 
-            "count": len(rows),
-            "users": [dict(r) for r in rows]
+            "success": True,
+            "count": len(users),
+            "users": users
         }
     finally:
         cur.close()

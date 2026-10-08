@@ -127,6 +127,12 @@ try:
 except Exception as e:
     print(f"Failed to load queue router: {e}")
 
+try:
+    from routers.claim_denial_agent import router as claim_denial_agent_router
+    routers_to_mount.append(claim_denial_agent_router)
+except Exception as e:
+    print(f"Failed to load claim denial agent router: {e}")
+
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

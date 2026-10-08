@@ -752,7 +752,8 @@ def save_agent_config(
     ensure_agent_config_table()
 
     # Validation
-    if payload.type and payload.type not in ("Workflow Agent", "Answerer", "Monitor", "Task Agent"):
+    valid_types = ("Workflow Agent", "Answerer", "Monitor", "Task Agent", "Drafter", "Summariser", "Extractor", "Predictor", "Router")
+    if payload.type and payload.type not in valid_types:
         raise HTTPException(status_code=400, detail=f"Invalid agent type: {payload.type}")
     if payload.risk_tier and payload.risk_tier not in ("Low", "Medium", "High", "Critical"):
         raise HTTPException(status_code=400, detail=f"Invalid risk tier: {payload.risk_tier}")

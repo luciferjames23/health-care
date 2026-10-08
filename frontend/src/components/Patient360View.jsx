@@ -3566,6 +3566,7 @@ export default function Patient360View({
                   const doseStr = rx.dose || [rx.dosage, rx.route, rx.frequency].filter(Boolean).join(' ') || 'Not recorded';
                   const durationParts = [rx.duration, rx.quantity != null ? `${rx.quantity} units` : null].filter(Boolean);
                   const daysStr = rx.days || durationParts.join(' · ') || 'Not recorded';
+                  const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
                   const statusStr = rx.status || 'Prescribed';
                   const docStr = rx.doctor_name || rx.doctor || p.doctor || 'Attending Doctor';
                   const prescriberSafety = isHighAlert ? `${docStr} · ⚠ High Alert` : docStr;

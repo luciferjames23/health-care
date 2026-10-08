@@ -1825,6 +1825,55 @@ export const apiService = {
   },
 
   // =========================================================================
+  // AG-20 · CLAIM DENIAL & RECONSIDERATION APPEAL AGENT
+  // =========================================================================
+  async getClaimAppealDossier(claimIdentifier) {
+    const id = encodeURIComponent(String(claimIdentifier || '').trim());
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/claim-denials/appeal/${id}`);
+    if (!res.ok) throw new Error(`Error fetching claim appeal dossier ${res.status}`);
+    return await res.json();
+  },
+
+  async generateClaimAppeal(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/claim-denials/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error generating claim appeal ${res.status}`);
+    return await res.json();
+  },
+
+  async submitClaimAppeal(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/claim-denials/submit`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error submitting claim appeal to TPA ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/claim-denials/submit`, data);
+    return data;
+  },
+
+  async resolveClaimChecklistItem(claimId, itemId = 'medical_necessity') {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/claim-denials/resolve-item`, {
+      method: 'POST',
+      body: JSON.stringify({ claim_id: Number(claimId), item_id: itemId })
+    });
+    if (!res.ok) throw new Error(`Error resolving missing checklist item ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/claim-denials/resolve-item`, data);
+    return data;
+  },
+
+  async getClaimDenialStats() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/claim-denials/stats`);
+    if (!res.ok) throw new Error(`Error fetching claim denial stats ${res.status}`);
+    return await res.json();
+  },
+
+  // =========================================================================
   // AG-08 · BILLING TRANSPARENCY AGENT (Groq openai/gpt-oss-120b & Desk Explainer)
   // =========================================================================
   async getBillingTransparencyProfile() {

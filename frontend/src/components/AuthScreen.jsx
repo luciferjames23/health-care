@@ -86,13 +86,17 @@ export default function AuthScreen({
     }
   }, [initialInfo]);
 
-  // Filter staff users (excluding patients)
-  const staffUsers = [...usersList]
-    .filter(u => u.role?.toLowerCase() !== 'patient')
-    .sort((a, b) => {
-      const rank = user => user.role?.toLowerCase() === 'radiologist' ? 0 : user.role?.toLowerCase() === 'admin' ? 1 : 2;
-      return rank(a) - rank(b);
-    });
+  // Show every account from public.users (staff + patient + inactive)
+  const staffUsers = [...usersList].sort((a, b) => {
+    const rank = (user) => {
+      const role = user.role?.toLowerCase() || '';
+      if (role === 'radiologist') return 0;
+      if (role === 'admin') return 1;
+      if (role === 'patient') return 3;
+      return 2;
+    };
+    return rank(a) - rank(b);
+  });
 
   // Selected user lookup
   const selectedUser = usersList.find(u => 
@@ -536,12 +540,14 @@ export default function AuthScreen({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
                 {staffUsers.map((r) => {
                   const isSelected = (username?.toLowerCase() === r.username?.toLowerCase() || selectedUser?.username?.toLowerCase() === r.username?.toLowerCase());
+                  const isPatient = r.role?.toLowerCase() === 'patient';
                   return (
                     <button
-                      key={r.username}
+                      key={r.id || r.username}
                       type="button"
                       disabled={signingIn}
                       onClick={() => {
+                        if (isPatient) setLoginMode('patient');
                         setUsername(r.username);
                         setPassword(getPasswordForUser(r.username));
                         setError('');

@@ -80,6 +80,11 @@ export const financialApi = {
     body: JSON.stringify(payload)
   }),
 
+  updatePreauthStatus: (claimId, payload = {}) => request(`/api/finance/preauth/${claimId}/status`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+
   settleClaimCashless: (claimId) => request(`/api/finance/claims/${claimId}/settle`, {
     method: 'POST'
   }),
