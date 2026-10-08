@@ -835,7 +835,52 @@ def get_sbar_handovers():
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
-        cur.execute("SELECT * FROM ward_sbar_handovers ORDER BY id ASC;")
+        cur.execute("""
+            SELECT 
+                nt.id,
+                COALESCE(dai.bed_number, nt.bed_no) as bed_no,
+                COALESCE(TRIM(dai.first_name || ' ' || dai.last_name), nt.patient_name) as patient_name,
+                COALESCE(dai.patient_number, nt.uhid) as uhid,
+                COALESCE(s.age_gender, dai.gender, 'Adult') as age_gender,
+                COALESCE(s.ews, 'Score ' || COALESCE(nt.ews_score::text, '0')) as ews,
+                s.mar_due,
+                COALESCE(s.last_handover_time, '07:30 · Anitha Kumar, RN') as last_handover_time,
+                COALESCE(s.from_nurse, 'Anitha Kumar, RN') as from_nurse,
+                COALESCE(s.to_nurse, 'Deepa Krishnan, RN') as to_nurse,
+                s.situation,
+                s.background,
+                s.assessment,
+                s.recommendation,
+                COALESCE(s.sbar_full, 'S: ' || nt.patient_name || ' admitted for ' || nt.task_description || '. B: Inpatient care. A: Vitals BP ' || COALESCE(nt.bp, '120/80') || ', HR ' || COALESCE(nt.hr::text, '76') || ', SpO2 ' || COALESCE(nt.spo2::text, '98') || ' pct. R: Continue inpatient monitoring.') as sbar_full,
+                CASE 
+                    WHEN s.status IS NOT NULL THEN s.status
+                    WHEN s.situation IS NOT NULL AND s.situation != '' THEN 'Stale'
+                    ELSE 'Missing'
+                END as status,
+                COALESCE(s.handover_shift, 'Morning (07:00 - 15:00)') as handover_shift,
+                COALESCE(s.acknowledged, false) as acknowledged,
+                s.acknowledged_at,
+                COALESCE(dai.ward_name, nt.ward_name) as ward_name,
+                nt.hr,
+                nt.bp,
+                nt.spo2,
+                nt.temp,
+                nt.rr,
+                nt.ews_score,
+                nt.pain_score,
+                nt.fall_risk,
+                nt.diet_type,
+                (SELECT COUNT(*) FROM emar_records e WHERE e.bed_no = nt.bed_no AND e.is_high_alert = TRUE) as high_alert_meds_count
+            FROM dim_admission_inputs dai
+            INNER JOIN nursing_tasks nt ON (dai.patient_number = nt.uhid OR dai.bed_number = nt.bed_no)
+            LEFT JOIN LATERAL (
+                SELECT * FROM ward_sbar_handovers ws 
+                WHERE ws.bed_no = dai.bed_number OR ws.uhid = dai.patient_number
+                ORDER BY ws.id DESC LIMIT 1
+            ) s ON true
+            WHERE LOWER(COALESCE(dai.discharge_status, '')) != 'discharged'
+            ORDER BY dai.bed_number ASC;
+        """)
         rows = cur.fetchall()
         return {"success": True, "count": len(rows), "data": rows}
     except Exception as e:

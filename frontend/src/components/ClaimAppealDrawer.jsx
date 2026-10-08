@@ -188,7 +188,7 @@ export default function ClaimAppealDrawer({
                 textTransform: 'uppercase'
               }}>
                 <ShieldAlert size={13} />
-                Shortfall &amp; Denial Gate · AG-20 Appeal Desk
+                Claim Denial Gate · AG-20 Appeal Desk
               </span>
               <span style={{
                 fontSize: '11px',
@@ -332,7 +332,7 @@ export default function ClaimAppealDrawer({
               padding: '8px 12px'
             }}>
               <div style={{ fontSize: '10.5px', color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>
-                Disputed Shortfall
+                Disputed / Denied Amount
               </div>
               <div style={{ fontSize: '17px', fontWeight: 900, color: '#dc2626', fontFamily: 'monospace' }}>
                 -₹{disputedAmt.toLocaleString('en-IN')}

@@ -878,9 +878,9 @@ def create_patient_full(payload: CreateFullPatientRequest = Body(...)):
                         batch_no = f"BAT-{datetime.datetime.now().strftime('%Y%m')}-{str(new_inv_id).zfill(3)}"
                         cur.execute("""
                             INSERT INTO pharmacy_inventory (
-                                inventory_id, medication_id, batch_number, quantity_in_stock, unit_cost, selling_price, expiry_date, status
+                                inventory_id, medication_id, batch_number, available_quantity, unit_cost, selling_price, expiry_date, stock_status
                             ) VALUES (
-                                %s, %s, %s, 500, %s, %s, CURRENT_DATE + INTERVAL '1 year', 'Available'
+                                %s, %s, %s, 500, %s, %s, CURRENT_DATE + INTERVAL '1 year', 'In Stock'
                             ) ON CONFLICT DO NOTHING;
                         """, (new_inv_id, med_id, _s(batch_no, 50), unit_pr * 0.8, unit_pr))
                         inv_id = new_inv_id

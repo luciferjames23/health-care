@@ -112,9 +112,9 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
   const activePendingSum = [...colDossierReady, ...colSubmittedTPA].reduce((acc, c) => acc + (c.estimated_cost || 0), 0);
   const shortfallSum = colRejected.reduce((acc, c) => acc + (c.rejected_amount || c.disputed_amount || 0), 0);
 
-  // Kanban Column Pagination (4 Columns)
+  // Kanban Column Pagination (4 Columns) - Even 8 records per column page
   const [colPages, setColPages] = useState({ 1: 1, 2: 1, 3: 1, 4: 1 });
-  const COL_PAGE_SIZE = 5;
+  const COL_PAGE_SIZE = 8;
 
   const getPaginatedColumn = (items, colNum) => {
     const page = colPages[colNum] || 1;
@@ -130,7 +130,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
   };
 
   const renderColumnPagination = (colNum, totalCount, currentPage, totalPages) => {
-    if (totalCount <= COL_PAGE_SIZE) return null;
+    if (totalCount === 0) return null;
     return (
       <div style={{
         display: 'flex',
@@ -464,10 +464,10 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           gap: '4px'
         }}>
           <div style={{ fontSize: '11px', fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-            🚨 AG-20 Shortfall &amp; Denial Desk
+            🚨 AG-20 Claim Denial Desk
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#b91c1c', fontFamily: 'monospace' }}>
-            {colRejected.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>deduction cases</span>
+            {colRejected.length} <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>denial cases</span>
           </div>
           <div style={{ fontSize: '11px', color: '#991b1b' }}>
             ₹{(shortfallSum / 100000).toFixed(2)} Lakhs at risk · 91% appeal win rate
@@ -551,7 +551,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
         </div>
 
         <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-          Showing <strong>{colDossierReady.length}</strong> ready · <strong>{colSubmittedTPA.length}</strong> in review · <strong>{colApproved.length}</strong> approved · <strong style={{ color: '#dc2626' }}>{colRejected.length} shortfalls</strong> ({filteredCases.length} total)
+          Showing <strong>{colDossierReady.length}</strong> ready · <strong>{colSubmittedTPA.length}</strong> in review · <strong>{colApproved.length}</strong> approved · <strong style={{ color: '#dc2626' }}>{colRejected.length} denials</strong> ({filteredCases.length} total)
         </div>
       </div>
 
@@ -771,7 +771,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontSize: '14px' }}>🚨</span>
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#991b1b' }}>4. Rejection / Shortfall</span>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#991b1b' }}>4. Claim Denial</span>
             </div>
             <span style={{
               fontSize: '11px',
@@ -797,7 +797,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
                   {totalCount === 0 ? (
                     <div style={{ padding: '24px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px', border: '1px dashed #cbd5e1', borderRadius: '6px' }}>
-                      No rejected or shortfall claims pending appeal.
+                      No denied claims pending appeal.
                     </div>
                   ) : (
                     paginated.map(item => renderKanbanCard(item, 4))
@@ -933,7 +933,7 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
               color: '#991b1b',
               border: '1px solid #fecaca'
             }}>
-              ● Shortfall: -₹{Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}
+              ● Denied: -₹{Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}
             </span>
           ) : columnNumber === 3 ? (
             <span style={{

@@ -215,17 +215,24 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [ag08PatientId, setAg08PatientId] = useState('87221');
 
   // Dedicated check: Preauth Underwriting actions (Submit, Sanction/Approve, Reject/Decline)
+  // Strictly restricted to Insurance & TPA Desk users (R. Sundar / Insurance Desk), NOT Hospital Management or Admin.
   const isInsuranceDeskExecutive = useMemo(() => {
-    if (!userRole) return true;
+    if (!userRole) return false;
     const roleStr = String(userRole).trim().toLowerCase();
-    return (
-      roleStr.includes('insurance') ||
-      roleStr.includes('tpa') ||
-      roleStr.includes('coordinator') ||
+    if (
       roleStr.includes('admin') ||
       roleStr.includes('management') ||
-      roleStr.includes('billing') ||
-      roleStr.includes('finance')
+      roleStr.includes('doctor') ||
+      roleStr.includes('nurse') ||
+      roleStr.includes('patient')
+    ) {
+      return false;
+    }
+    return (
+      roleStr === 'insurance' ||
+      roleStr.includes('insurance') ||
+      roleStr.includes('tpa') ||
+      roleStr.includes('coordinator')
     );
   }, [userRole]);
 
@@ -512,6 +519,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   };
 
   const handlePreauthStatusChange = async (claimId, newStatus) => {
+    if (!isInsuranceDeskExecutive) {
+      alert("Permission Denied: Preauthorisation status modification is restricted strictly to the Insurance Desk.");
+      return;
+    }
     try {
       const res = await financialApi.updatePreauthStatus(claimId, { status: newStatus });
       if (res && res.success) {

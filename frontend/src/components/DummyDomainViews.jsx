@@ -4481,7 +4481,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
       {/* Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
-          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Total Beds</div>
+          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>Active Inpatients</div>
           {loading ? (
             <div className="hx-shimmer" style={{ width: '56px', height: '26px', borderRadius: '4px', margin: '3px 0' }} />
           ) : (

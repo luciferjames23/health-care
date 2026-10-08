@@ -813,7 +813,7 @@ class InsurancePreauthAgentService:
                     "appeal_status": r.get("appeal_status") or "DRAFT_PENDING",
                     "appeal_submitted_at": r.get("appeal_submitted_at"),
                     "dossier_status": (
-                        f"Shortfall Detected · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+                        f"Claim Denied · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
                         else ("Under TPA Review" if stage == "SUBMITTED_TPA"
                         else ("Approved" if stage == "APPROVED"
                         else "Dossier Ready · 4/4 Verified"))
@@ -845,7 +845,7 @@ class InsurancePreauthAgentService:
                         ]
                     },
                     "dossier_status": (
-                        f"Shortfall Detected · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+                        f"Claim Denied · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
                         else ("Approved" if stage == "APPROVED"
                         else ("Under TPA Review" if stage == "SUBMITTED_TPA"
                         else "Dossier Ready · 4/4 Verified"))
