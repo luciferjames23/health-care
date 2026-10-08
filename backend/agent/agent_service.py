@@ -1767,119 +1767,6 @@ def handle_unknown_patient_identification_flow(
         state["patient_identification_stage"] = "AWAITING_PATIENT_ID"
         return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
-<<<<<<< Updated upstream
-    state["patient_identification_stage"] = "AWAITING_PATIENT_TYPE"
-    prompt_text = language_service.get_patient_identification_prompt("PATIENT_IDENTIFICATION_PROMPT", current_lang)
-    state["interactive_buttons"] = [
-        language_service.get_translated_button("btn_first_time", current_lang),
-        language_service.get_translated_button("btn_existing_patient", current_lang)
-    ]
-    state_manager.save_conversation_state(conversation_code, state)
-    log_message_to_db(conversation_code, "AI_AGENT", prompt_text, current_lang, "PATIENT_IDENTIFICATION", state)
-    return {
-        "success": True, "conversation_id": conversation_code, "language": current_lang,
-        "intent": "PATIENT_IDENTIFICATION", "response": prompt_text, "interactive_buttons": state["interactive_buttons"]
-    }
-=======
-                state["patient_id"] = pat_id
-                state["entities"]["patient_id"] = pat_id
-                state["patient_identification_stage"] = "COMPLETED"
-                state["interactive_buttons"] = main_menu_buttons
-
-                resp = language_service.get_patient_identification_prompt("REGISTRATION_SUCCESS_PROMPT", current_lang, name=full_name, patient_code=p_code)
-                state_manager.save_conversation_state(conversation_code, state)
-                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_IDENTIFICATION", state)
-                return {
-                    "success": True,
-                    "conversation_id": conversation_code,
-                    "language": current_lang,
-                    "intent": "PATIENT_IDENTIFICATION",
-                    "response": resp,
-                    "interactive_buttons": main_menu_buttons
-                }
-            else:
-                raw_dob = reg_fields.get("date_of_birth") or "2000-01-01"
-                norm_dob_tuple = date_normalizer.parse_and_normalize_date(str(raw_dob))
-                norm_dob = norm_dob_tuple[0] if norm_dob_tuple and norm_dob_tuple[0] else "2000-01-01"
-                fn_val = reg_fields.get("first_name") or "Patient"
-                ln_val = reg_fields.get("last_name") or "."
-
-                # Check if patient already exists by phone or (name + DOB)
-                existing_id = None
-                existing_code = None
-                if reg_phone:
-                    cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (reg_phone, reg_phone))
-                    r = cur.fetchone()
-                    if r:
-                        existing_id, existing_code = r[0], r[1]
-                if not existing_id and fn_val and fn_val != "Patient":
-                    cur.execute("""
-                        SELECT id, patient_code FROM patients 
-                        WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
-                          AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
-                          AND date_of_birth = %s 
-                          AND status = 'ACTIVE' 
-                        ORDER BY id ASC LIMIT 1;
-                    """, (fn_val, ln_val, norm_dob))
-                    r = cur.fetchone()
-                    if r:
-                        existing_id, existing_code = r[0], r[1]
-
-                if existing_id:
-                    new_pat_id = existing_id
-                    next_code = existing_code
-                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
-                    conn.commit()
-                else:
-                    # Create new patient record
-                    cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
-                    row = cur.fetchone()
-                    next_num = (row[0] + 1) if (row and row[0]) else 11
-                    next_code = f"P{next_num:03d}"
-
-                    cur.execute("""
-                        INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
-                        RETURNING id;
-                    """, (
-                        next_code,
-                        fn_val,
-                        ln_val,
-                        norm_dob,
-                        reg_fields.get("gender") or "Male",
-                        reg_phone,
-                        whatsapp_val,
-                        current_lang or "ENGLISH"
-                    ))
-                    new_pat_id = cur.fetchone()[0]
-                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
-                    conn.commit()
-
-                state["patient_id"] = new_pat_id
-                state["entities"]["patient_id"] = new_pat_id
-                state["patient_identification_stage"] = "COMPLETED"
-                state["interactive_buttons"] = main_menu_buttons
-
-                full_name = format_patient_full_name(reg_fields.get("first_name"), reg_fields.get("last_name"))
-                resp = language_service.get_patient_identification_prompt("REGISTRATION_SUCCESS_PROMPT", current_lang, name=full_name, patient_code=next_code)
-                state_manager.save_conversation_state(conversation_code, state)
-                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_IDENTIFICATION", state)
-                return {
-                    "success": True,
-                    "conversation_id": conversation_code,
-                    "language": current_lang,
-                    "intent": "PATIENT_IDENTIFICATION",
-                    "response": resp,
-                    "interactive_buttons": main_menu_buttons
-                }
-        except Exception as e:
-            conn.rollback()
-            print(f"[PATIENT_ID_GATE] Error registering new patient: {e}")
-        finally:
-            cur.close()
-            conn.close()
->>>>>>> Stashed changes
-
     # Default / Initial Unknown Patient Gate Prompt (stage is None or AWAITING_PATIENT_TYPE)
     # Check if message text already contains Patient ID
     extracted_pid = extract_patient_id_from_text(msg_raw)
@@ -7939,9 +7826,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             ]
 
     elif intent == "REGISTER_PATIENT":
-<<<<<<< Updated upstream
-        return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
-=======
         state["interactive_buttons"] = []
         msg_raw = message_text.strip()
         reg_fields = state.get("registration_fields") or {
@@ -8251,7 +8135,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "tool_called": None,
             "interactive_buttons": state.get("interactive_buttons", [])
         }
->>>>>>> Stashed changes
 
     elif intent in ["EMERGENCY", "EMERGENCY_GUIDANCE"]:
         log_agent_action(conversation_code, "EMERGENCY_DETECTED", {"trigger_message": message_text})
@@ -9538,8 +9421,23 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         cur.execute("SELECT id, department_name FROM departments WHERE department_name ILIKE %s AND UPPER(status) = 'ACTIVE';", (f"%{dept_name}%",))
                         row = cur.fetchone()
                     if not row:
-                        cur.execute("SELECT id, department_name FROM departments WHERE id = 17 AND UPPER(status) = 'ACTIVE';")
-                        row = cur.fetchone()
+                        response_text = (
+                            f"Could you tell me a bit more about your *{symptom_input}* problem "
+                            f"so I can connect you with the right specialist?"
+                        )
+                        state["booking_stage"] = "AWAITING_SYMPTOM"
+                        state["conversation_state"] = "AWAITING_REASON"
+                        state_manager.save_conversation_state(conversation_code, state)
+                        log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+                        return {
+                            "response": response_text,
+                            "intent": "BOOK_APPOINTMENT",
+                            "language": current_lang,
+                            "interactive_buttons": [
+                                {"id": "btn_another_dept", "title": "Choose Department"},
+                                {"id": "btn_front_desk", "title": "Contact Front Desk"}
+                            ]
+                        }
 
                     dept_id, resolved_dept_name = row[0], row[1]
                     print(f"[DATABASE_LOOKUP] Querying active doctors for department_id={dept_id} ({resolved_dept_name})")
@@ -10001,7 +9899,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         state["department_name"] = dept_name
 
                     if not dept_name:
-                        dept_name = state.get("department_name") or "General Medicine"
+                        dept_name = state.get("department_name") or "Department"
 
                     print(f"[DATABASE_LOOKUP] Querying active doctors for department_id={dept_id}")
                     cur.execute("SELECT id, display_name, specialization FROM doctors WHERE department_id = %s AND status = 'ACTIVE' ORDER BY id;", (dept_id,))

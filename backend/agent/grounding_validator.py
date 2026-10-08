@@ -93,7 +93,10 @@ GARBAGE_NAME_PATTERNS = [
 # ---------------------------------------------------------------------------
 def _log(msg: str, log_list: List[str]) -> None:
     full = f"[GROUNDING] {msg}"
-    print(full)
+    try:
+        print(full)
+    except UnicodeEncodeError:
+        print(full.encode("ascii", "backslashreplace").decode("ascii"))
     log_list.append(full)
 
 

@@ -50,36 +50,36 @@ import agent.llm_service as llm_service
 # Controlled Department Mapping Layer (Must match DB department_name)
 DEPARTMENT_SYMPTOM_MAP = {
     "Dermatology": [
-        "hair loss", "hair fall", "hair fal", "losing hair", "hair falling", "hair problem", "hair fall problem", "hair loss problem",
+        "skin", "skinn", "hair", "hair loss", "hair fall", "hair fal", "losing hair", "hair falling", "hair problem", "hair fall problem", "hair loss problem",
         "hair shedding", "hair is falling", "hair falls", "my hair is falling",
         "losing my hair", "am losing my hair", "i am losing my hair",
         "hair coming out", "hair came out", "hair drop", "thinning hair", "hair thinning",
         "going bald", "getting bald",
         "bald", "baldness", "bald patches", "dandruff",
-        "acne", "pimples", "pimpls", "skin rash", "skin allergy", "skin problem", "skinn",
+        "acne", "pimple", "pimples", "pimpls", "skin rash", "skin allergy", "skin problem",
         "eczema", "psoriasis", "itching", "itchying", "skin itching", "scalp", "itchy", "skin is itchy", "my skin is itchy", "itchy skin"
     ],
     "General Medicine": [
         "fever", "fevr", "fevar", "feveer", "feverr", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever", "corona", "corona virus", "covid", "covid 19", "covid-19", "viral",
-        "general weakness", "body pain", "body ache", "fatigue", "vomiting",
-        "diarrhea", "headache", "migraine", "stomach pain", "stomach ache",
+        "general weakness", "body pain", "body ache", "fatigue", "vomiting", "stomach", "stomach pain", "stomach ache",
+        "diarrhea", "headache", "migraine",
         "nausea", "dizziness"
     ],
     "Cardiology": [
-        "chest pain", "chest hurts", "my chest hurts", "chest hurting", "chest ache", "heart pain", "heart problem", "palpitations",
-        "breathing difficulty", "shortness of breath", "breathlessness", "breathing problem", "breathing",
+        "chest", "heart", "cardio", "cardiac", "chest pain", "chest hurts", "my chest hurts", "chest hurting", "chest ache", "heart pain", "heart problem", "palpitations",
+        "breathing", "breath", "breathing difficulty", "shortness of breath", "breathlessness", "breathing problem",
         "high blood pressure", "hypertension", "angina"
     ],
     "Pediatrics": [
-        "child fever", "baby fever", "pediatric", "child health",
+        "child", "kid", "baby", "infant", "child fever", "baby fever", "pediatric", "child health",
         "child growth", "infant illness", "kid fever", "child cold"
     ],
     "Orthopedics": [
-        "joint pain", "joiont pain", "bone pain", "fracture", "back pain", "knee pain", "knne pain",
+        "knee", "knne", "back", "joint", "bone", "spine", "shoulder", "neck", "hip", "leg", "joint pain", "joiont pain", "bone pain", "fracture", "back pain", "knee pain", "knne pain",
         "leg pain", "shoulder pain", "arthritis", "spine pain"
     ],
     "ENT": [
-        "nose pain", "nos pain", "nos is payning", "noseache", "nose problem", "nasal pain", "nasel pain", "nose", "nos", "pain in nose", "pain in my nose", "my nose hurts", "i have nose pain",
+        "ear", "nose", "nos", "throat", "teeth", "tooth", "toothache", "dental", "nose pain", "nos pain", "nos is payning", "noseache", "nose problem", "nasal pain", "nasel pain", "pain in nose", "pain in my nose", "my nose hurts", "i have nose pain",
         "ear pain", "eare pain", "earache", "ear bleeding", "bleeding from ear", "bleeding ear", "hearing problem", "hearing loss",
         "sinus", "sinusitis", "throat problem", "thorat problem", "throat pain", "sore throat", "tonsils", "my throat hurts", "throat is hurting",
         "nasal congestion", "running nose"
@@ -89,7 +89,7 @@ DEPARTMENT_SYMPTOM_MAP = {
         "gynecology", "obstetrics", "women health"
     ],
     "Neurology": [
-        "seizure", "numbness", "paralysis", "memory loss", "neurological"
+        "head", "brain", "nerve", "seizure", "numbness", "paralysis", "memory loss", "neurological"
     ]
 }
 
