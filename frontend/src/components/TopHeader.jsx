@@ -294,17 +294,20 @@ export default function TopHeader({
                 title="Select role to switch user"
                 onChange={e => {
                   const nextRole = e.target.value;
-                  setRole(nextRole);
                   const matched = combinedUsers.find(r =>
                     r.role?.toLowerCase() === nextRole.toLowerCase() ||
                     (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
                   );
-                  if (matched && matched.username !== user?.username) {
-                    if (onSwitchUserPromptPassword) {
-                      onSwitchUserPromptPassword(matched);
-                    } else if (onSignOut) {
-                      onSignOut();
-                    }
+                  if (!matched) return;
+                  if (matched.username === user?.username) {
+                    // A role label cannot change the backend identity carried by the token.
+                    setRole(user?.role || nextRole);
+                    return;
+                  }
+                  if (onSwitchUserPromptPassword) {
+                    onSwitchUserPromptPassword(matched);
+                  } else if (onSignOut) {
+                    onSignOut();
                   }
                 }}
                 style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}

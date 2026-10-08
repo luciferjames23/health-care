@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
 import { StatusBadge, statusStyle } from './RadiologyShared';
 import { ImagingHistoryButton } from './ImagingHistory';
@@ -112,7 +112,18 @@ export default function Patient360View({
   const [patientDocuments, setPatientDocuments] = useState([]);
   const [patientConsent, setPatientConsent] = useState([]);
   const [patientAiActivity, setPatientAiActivity] = useState([]);
+  const [signedSoapNotes, setSignedSoapNotes] = useState([]);
   const [loadingPatient360, setLoadingPatient360] = useState(true);
+
+  useEffect(() => {
+    const pid = patient?.patient_id || patient?.raw?.patient_id || patient?.id;
+    if (!pid) { setSignedSoapNotes([]); return; }
+    let alive = true;
+    apiService.getSoapNotes({ patient_id: pid, signed_only: true })
+      .then(result => { if (alive) setSignedSoapNotes(result?.notes || []); })
+      .catch(() => { if (alive) setSignedSoapNotes([]); });
+    return () => { alive = false; };
+  }, [patient?.patient_id, patient?.raw?.patient_id, patient?.id]);
 
   // Unified synchronized data fetch for Patient 360 to eliminate screen refreshing/flickering
   useEffect(() => {
@@ -356,7 +367,30 @@ export default function Patient360View({
 
         // Vitals
         if (vitalsRes.status === 'fulfilled' && vitalsRes.value?.data && Array.isArray(vitalsRes.value.data) && vitalsRes.value.data.length > 0) {
-          setPatientVitalsHistory(vitalsRes.value.data);
+          const mergedVitals = [];
+          const soapVitals = new Map();
+          for (const observation of vitalsRes.value.data) {
+            if (observation.source === 'AG17' && observation.source_soap_note_id != null) {
+              // Group sparse rows by SOAP and encounter provenance, not by
+              // their independently recorded timestamps.
+              const key = [observation.source, observation.source_soap_note_id,
+                observation.patient_id ?? '', observation.visit_id ?? ''].join(':');
+              let merged = soapVitals.get(key);
+              if (!merged) {
+                merged = { ...observation };
+                soapVitals.set(key, merged);
+                mergedVitals.push(merged);
+              }
+              for (const field of ['temperature', 'heart_rate', 'systolic_bp', 'diastolic_bp', 'respiratory_rate', 'oxygen_saturation']) {
+                if (merged[field] == null && observation[field] != null) merged[field] = observation[field];
+              }
+              if (observation.recorded_at && (!merged.recorded_at || observation.recorded_at > merged.recorded_at)) merged.recorded_at = observation.recorded_at;
+            } else {
+              mergedVitals.push(observation);
+            }
+          }
+          mergedVitals.sort((a, b) => new Date(b.recorded_at || 0) - new Date(a.recorded_at || 0));
+          setPatientVitalsHistory(mergedVitals);
         } else {
           setPatientVitalsHistory([]);
         }
@@ -910,40 +944,6 @@ export default function Patient360View({
       });
     }
 
-    if (diagnosesList.length === 0) {
-      // 1. Primary Diagnosis (always first, exactly one)
-      const primaryCode = (diag.diagnoses_list && diag.diagnoses_list[0]?.diagnosis_code) || raw.diagnosis_code || (typeof rawPrimary === 'string' && rawPrimary.match(/D-\d+/i) ? rawPrimary.match(/D-\d+/i)[0] : (isOP ? 'OPD-DX-01' : isER ? 'ER-DX-01' : 'D-0'));
-      const primaryDate = (diag.diagnoses_list && diag.diagnoses_list[0]?.diagnosis_date)
-        ? new Date(diag.diagnoses_list[0].diagnosis_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        : admittedDate;
-
-      diagnosesList.push({
-        code: primaryCode,
-        name: primaryDiagnosis,
-        type: 'Primary Diagnosis',
-        date: primaryDate,
-        doctor: doctor,
-        status: 'Active',
-        indication: reasonAdm || (isOP ? 'Outpatient Consultation' : isER ? 'Emergency Triage' : 'Inpatient Admission')
-      });
-      seenDxNames.add(primaryDiagnosis.toLowerCase());
-
-      // 2. Secondary Diagnoses (only if genuinely present and distinct)
-      secondaryDiagnosesList.forEach((secName, idx) => {
-        if (!seenDxNames.has(secName.toLowerCase())) {
-          seenDxNames.add(secName.toLowerCase());
-          diagnosesList.push({
-            code: `D-${idx + 1}`,
-            name: secName,
-            type: 'Secondary Diagnosis',
-            date: admittedDate,
-            doctor: doctor,
-            status: 'Active',
-            indication: 'Secondary / Co-morbid condition'
-          });
-        }
-      });
-    }
     const admitted = d.admitted || `${admittedDate}, ${admittedTime}`;
     const dischargeInfo = isOP
       ? 'Active Outpatient Consultation (Same-day OPD)'
@@ -952,60 +952,45 @@ export default function Patient360View({
         : (d.dischargeInfo || (isCleared ? 'Ready for clinical discharge sign-off' : (hasLiveBillData && outstandingBalance > 0 ? `Billing pending · Outstanding ₹${outstandingBalance.toLocaleString('en-IN')}` : 'Active inpatient clinical care')));
 
     // Genuine vitals summary from database (never fabricated with mock modulo)
-    const latestVitalRec = (patientVitalsHistory && patientVitalsHistory.length > 0) ? patientVitalsHistory[0] : null;
-    const hasRealVitals = Boolean(
-      latestVitalRec ||
-      (vitals.latest_systolic_bp != null) ||
-      (raw.latest_systolic_bp != null) ||
-      (raw.systolic_bp != null) ||
-      (raw.sbp != null) ||
-      (d.vitals?.bp)
-    );
-
-    const sbp = hasRealVitals
-      ? (latestVitalRec?.systolic_bp || Number(vitals.latest_systolic_bp ?? raw.latest_systolic_bp ?? raw.systolic_bp ?? raw.sbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[0] : 120)))
-      : '—';
-    const dbp = hasRealVitals
-      ? (latestVitalRec?.diastolic_bp || Number(vitals.latest_diastolic_bp ?? raw.latest_diastolic_bp ?? raw.diastolic_bp ?? raw.dbp ?? (d.vitals?.bp ? String(d.vitals.bp).split('/')[1] : 80)))
-      : '—';
-    const hr = hasRealVitals
-      ? (latestVitalRec?.heart_rate || Number(vitals.latest_heart_rate ?? raw.latest_heart_rate ?? raw.heart_rate ?? raw.hr ?? d.vitals?.hr ?? 78))
-      : '—';
-    
-    const rawSpo2 = hasRealVitals
-      ? (latestVitalRec?.oxygen_saturation ?? vitals.latest_oxygen_saturation ?? raw.latest_oxygen_saturation ?? raw.oxygen_saturation ?? raw.spo2 ?? d.vitals?.spo2)
-      : null;
-    const spo2 = (rawSpo2 != null && !isNaN(Number(rawSpo2)))
-      ? (Number(rawSpo2) > 100 ? (Number(rawSpo2)/10).toFixed(1) : Number(rawSpo2).toFixed(1).replace(/\.0$/, ''))
-      : (hasRealVitals ? '98.5' : '—');
-    
-    const rawTemp = hasRealVitals
-      ? (latestVitalRec?.temperature ?? vitals.latest_temperature ?? raw.latest_temperature ?? raw.temperature ?? raw.temp ?? d.vitals?.temp)
-      : null;
-    const temp = (rawTemp != null && !isNaN(Number(rawTemp)))
+    // Summary cards describe the latest coherent observation. Missing values
+    // stay missing instead of being inherited from older observations.
+    const latestVitalRec = patientVitalsHistory?.[0] || null;
+    const hasRealVitals = Boolean(latestVitalRec);
+    const latestVitalsIncomplete = Boolean(latestVitalRec && (
+      latestVitalRec.systolic_bp == null || latestVitalRec.diastolic_bp == null ||
+      latestVitalRec.heart_rate == null || latestVitalRec.oxygen_saturation == null ||
+      latestVitalRec.temperature == null || latestVitalRec.respiratory_rate == null
+    ));
+    const sbp = latestVitalRec?.systolic_bp ?? '\u2014';
+    const dbp = latestVitalRec?.diastolic_bp ?? '\u2014';
+    const hr = latestVitalRec?.heart_rate ?? '\u2014';
+    const rawSpo2 = latestVitalRec?.oxygen_saturation ?? null;
+    const spo2 = rawSpo2 != null && !isNaN(Number(rawSpo2))
+      ? (Number(rawSpo2) > 100 ? (Number(rawSpo2) / 10).toFixed(1) : Number(rawSpo2).toFixed(1).replace(/\.0$/, ''))
+      : '\u2014';
+    const rawTemp = latestVitalRec?.temperature ?? null;
+    const temp = rawTemp != null && !isNaN(Number(rawTemp))
       ? Number(rawTemp).toFixed(1).replace(/\.0$/, '')
-      : (hasRealVitals ? '98.6' : '—');
-    
-    const rr = hasRealVitals
-      ? (latestVitalRec?.respiratory_rate || Number(vitals.latest_respiratory_rate ?? raw.respiratory_rate ?? raw.rr ?? 18))
-      : '—';
-
+      : '\u2014';
+    const rr = latestVitalRec?.respiratory_rate ?? '\u2014';
     const spo2Num = parseFloat(spo2);
     const tempNum = parseFloat(temp);
-    const tempFVal = !isNaN(tempNum) ? (tempNum < 50 ? (tempNum * 9 / 5) + 32 : tempNum) : 98.6;
+    const tempFVal = !isNaN(tempNum) ? (tempNum < 50 ? (tempNum * 9 / 5) + 32 : tempNum) : null;
     const hrNum = typeof hr === 'number' ? hr : parseFloat(hr);
     const sbpNum = typeof sbp === 'number' ? sbp : parseFloat(sbp);
     const dbpNum = typeof dbp === 'number' ? dbp : parseFloat(dbp);
 
     const isVitalsAbnormal = hasRealVitals && (
-      (!isNaN(spo2Num) && spo2Num < 92.0) ||
-      (!isNaN(hrNum) && (hrNum < 50 || hrNum > 110)) ||
-      (!isNaN(tempFVal) && (tempFVal >= 100.4 || tempFVal < 95.0)) ||
+      (latestVitalRec?.oxygen_saturation != null && !isNaN(spo2Num) && spo2Num < 92.0) ||
+      (latestVitalRec?.heart_rate != null && !isNaN(hrNum) && (hrNum < 50 || hrNum > 110)) ||
+      (tempFVal != null && (tempFVal >= 100.4 || tempFVal < 95.0)) ||
       (!isNaN(sbpNum) && (sbpNum < 90 || sbpNum > 160)) ||
       (!isNaN(dbpNum) && (dbpNum < 50 || dbpNum > 100))
     );
 
-    const condition = d.condition || (hasRealVitals ? (isVitalsAbnormal ? `Vitals require observation (${doctor})` : `Clinically stable (${doctor})`) : `Newly admitted · Active care (${doctor})`);
+    const condition = d.condition || (hasRealVitals
+      ? (isVitalsAbnormal ? `Vitals require observation (${doctor})` : latestVitalsIncomplete ? `Vitals incomplete (${doctor})` : `Clinically stable (${doctor})`)
+      : `Newly admitted - Active care (${doctor})`);
     
     // Strict clinical temporal synchronization
     let dischargeFormattedDate;
@@ -1217,6 +1202,16 @@ export default function Patient360View({
   const timeline = useMemo(() => {
     const list = [];
     const todayDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    signedSoapNotes.forEach((note, index) => {
+      const signedDate = note.signed_at ? new Date(note.signed_at) : new Date(note.created_at);
+      list.push({
+        t: signedDate.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        ts: 200 - index, c: '#15803d',
+        e: `Signed SOAP note · Visit ${note.visit_id}${note.admission_id ? ` · Admission ${note.admission_id}` : ''} · ${note.author_name} · ${note.assessment || 'No assessment recorded'}`,
+        soapNote: note
+      });
+    });
     
     if (p.isOP) {
       if (livePrescriptions?.length > 0) {
@@ -1325,7 +1320,7 @@ export default function Patient360View({
     });
 
     return list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  }, [liveBill, livePrescriptions, p]);
+  }, [liveBill, livePrescriptions, p, signedSoapNotes]);
 
   // AI Activity on this patient
   const aiAgents = useMemo(() => {
@@ -2574,7 +2569,10 @@ export default function Patient360View({
                     {ev.t}
                   </span>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: ev.c, marginTop: '4px' }} />
-                  <span style={{ lineHeight: 1.45, fontSize: '12px', color: '#15181b' }}>{ev.e}</span>
+                  <span style={{ lineHeight: 1.45, fontSize: '12px', color: '#15181b' }}>
+                    {ev.e}
+                    {ev.soapNote && <button type="button" onClick={() => onOpenSoap?.({ ...patient, patient_id: ev.soapNote.patient_id, visit_id: ev.soapNote.visit_id, admission_id: ev.soapNote.admission_id, soap_note_id: ev.soapNote.soap_note_id })} style={{ display: 'block', marginTop: '4px', border: 0, background: 'transparent', color: '#0369a1', cursor: 'pointer', padding: 0 }}>View signed SOAP</button>}
+                  </span>
                 </div>
               ))}
             </div>
@@ -2926,6 +2924,9 @@ export default function Patient360View({
                     const tempVal = v.temperature != null ? parseFloat(v.temperature) : null;
                     const sbpVal = v.systolic_bp != null ? parseFloat(v.systolic_bp) : null;
                     const dbpVal = v.diastolic_bp != null ? parseFloat(v.diastolic_bp) : null;
+                    const isIncomplete = v.systolic_bp == null || v.diastolic_bp == null ||
+                      v.heart_rate == null || v.oxygen_saturation == null ||
+                      v.temperature == null || v.respiratory_rate == null;
 
                     const tempF = tempVal != null ? (tempVal < 50 ? (tempVal * 9 / 5) + 32 : tempVal) : null;
                     const isAbnormal = (spo2Val != null && !isNaN(spo2Val) && spo2Val < 92.0) ||
@@ -2939,26 +2940,26 @@ export default function Patient360View({
                         <td style={{ padding: '8px 10px', color: '#0f172a', fontFamily: 'monospace' }}>
                           {new Date(v.recorded_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </td>
-                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp}/{v.diastolic_bp} mmHg</td>
-                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate} bpm</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{v.systolic_bp != null && v.diastolic_bp != null ? `${v.systolic_bp}/${v.diastolic_bp} mmHg` : '—'}</td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.heart_rate != null ? `${v.heart_rate} bpm` : '—'}</td>
                         <td style={{ padding: '8px 10px', color: isAbnormal && spo2Val != null && spo2Val < 92 ? '#dc2626' : '#334155', fontWeight: isAbnormal && spo2Val != null && spo2Val < 92 ? 700 : 400 }}>
-                          {Number(v.oxygen_saturation).toFixed(1)}%
+                          {v.oxygen_saturation != null ? `${Number(v.oxygen_saturation).toFixed(1)}%` : '—'}
                         </td>
                         <td style={{ padding: '8px 10px', color: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? '#dc2626' : '#334155', fontWeight: isAbnormal && tempF != null && (tempF >= 100.4 || tempF < 95) ? 700 : 400 }}>
-                          {Number(v.temperature).toFixed(1)}°F
+                          {v.temperature != null ? `${Number(v.temperature).toFixed(1)}\u00b0F` : '\u2014'}
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate} /min</td>
+                        <td style={{ padding: '8px 10px', color: '#334155' }}>{v.respiratory_rate != null ? `${v.respiratory_rate} /min` : '—'}</td>
                         <td style={{ padding: '8px 10px' }}>
                           <span style={{
-                            background: isAbnormal ? '#fee2e2' : '#dcfce7',
-                            color: isAbnormal ? '#b91c1c' : '#15803d',
-                            border: isAbnormal ? '1px solid #fca5a5' : '1px solid #bbf7d0',
+                            background: isAbnormal ? '#fee2e2' : isIncomplete ? '#f1f5f9' : '#dcfce7',
+                            color: isAbnormal ? '#b91c1c' : isIncomplete ? '#475569' : '#15803d',
+                            border: isAbnormal ? '1px solid #fca5a5' : isIncomplete ? '1px solid #cbd5e1' : '1px solid #bbf7d0',
                             padding: '2px 8px',
                             borderRadius: '4px',
                             fontSize: '10.5px',
                             fontWeight: 600
                           }}>
-                            {isAbnormal ? 'Abnormal' : 'Normal'}
+                            {isAbnormal ? 'Abnormal' : isIncomplete ? 'Incomplete' : 'Normal'}
                           </span>
                         </td>
                       </tr>
@@ -2981,7 +2982,7 @@ export default function Patient360View({
                 const actualLabCount = (liveLabOrders?.length || liveBill?.lab_items?.length || p.lab_results_list?.length || 0);
                 const actualXrayCount = (patientXrayOrders?.length || 0);
                 const totalDiagnosticCount = actualLabCount + actualXrayCount;
-                const actualDiagCount = p.diagnoses_list?.length || (p.primary_diagnosis ? 1 : 0);
+                const actualDiagCount = p.diagnoses_list?.length || 0;
                 return (
                   <>
                     <button
@@ -3059,16 +3060,20 @@ export default function Patient360View({
           {/* Section 2: Supporting Diagnostic Investigations & Lab Tests */}
           {(diagFilter === 'all' || diagFilter === 'labs') && (() => {
             const labRows = (liveLabOrders && liveLabOrders.length > 0)
-              ? liveLabOrders.map((lo, idx) => {
+            ? liveLabOrders.map((lo, idx) => {
+                  const hasDemoResult = (lo.results || []).some(r => r.result_source === 'DEMO_GENERATED');
                   const paramStr = (lo.results && lo.results.length > 0)
                     ? lo.results.map(r => `${r.parameter}: ${r.value} ${r.unit || ''} (Ref: ${r.reference_range || 'Normal'})`).join('; ')
-                    : 'Awaiting lab technician verification';
+                    : 'No result recorded';
                   return [
                     lo.order_number || `ORD-${lo.lab_order_id || idx + 101}`,
                     lo.test_name || 'Laboratory Diagnostic Investigation',
                     lo.category || 'LIS',
                     lo.ordered_date || p.admittedDate || 'Admission Day',
-                    paramStr,
+                    hasDemoResult ? <div key={`lab-demo-${lo.lab_order_id}`}>
+                      <div style={{ color: '#92400e', fontWeight: 800, fontSize: '10px', marginBottom: '3px' }}>DEMO / SYNTHETIC RESULT</div>
+                      <div>{paramStr}</div>
+                    </div> : paramStr,
                     lo.status || 'Verified'
                   ];
                 })
@@ -3344,7 +3349,7 @@ export default function Patient360View({
                       <>
                         <img
                           src={sc.image.startsWith('data:') ? sc.image : `data:image/png;base64,${sc.image}`}
-                          alt={`X-ray · ${sc.projection || 'View unverified'} · Scan #${sc.scan_id}`} 
+                          alt={`X-ray · ${sc.projection || 'View unverified'} · Scan #${sc.scan_id}`}
                           style={{ width: '100%', height: '200px', objectFit: 'cover', display: 'block' }}
                         />
                         {isOpacity && sc.x != null && sc.width != null && (
@@ -3557,13 +3562,19 @@ export default function Patient360View({
             (livePrescriptions && livePrescriptions.length > 0)
               ? livePrescriptions.map((rx) => {
                   const rxNo = rx.prescription_number || rx.rx_number || rx.id;
-                  const drugName = rx.drug_name || rx.drug || rx.items?.[0]?.drug_name || 'Prescribed Drug';
-                  const doseStr = rx.dose || `${rx.dosage || '500 mg'} ${rx.route || 'Oral'} ${rx.frequency || 'BD'}`;
-                  const daysStr = rx.days || `${rx.duration || '5 Days'} · ${rx.quantity || 10} units`;
+                  const drugName = rx.drug_name || rx.drug || rx.items?.[0]?.drug_name || 'Not recorded';
+                  const doseStr = rx.dose || [rx.dosage, rx.route, rx.frequency].filter(Boolean).join(' ') || 'Not recorded';
+                  const durationParts = [rx.duration, rx.quantity != null ? `${rx.quantity} units` : null].filter(Boolean);
+                  const daysStr = rx.days || durationParts.join(' · ') || 'Not recorded';
                   const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
+<<<<<<< HEAD
                   const statusStr = rx.status || 'Prescribed';
                   const docStr = rx.doctor_name || rx.doctor || p.doctor || 'Attending Doctor';
                   const prescriberSafety = isHighAlert ? `${docStr} · ⚠ High Alert` : docStr;
+=======
+                  const statusStr = rx.status || 'Not recorded';
+                  const docStr = rx.doctor_name || rx.doctor || 'Not recorded';
+>>>>>>> 4a5427e4a8e85fbe81cd6c0839b61bf141939593
 
                   return [
                     rxNo,
@@ -3597,8 +3608,16 @@ export default function Patient360View({
                   { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || p.doctor || 'Attending Physician' },
                   { k: 'Safety Classification', v: (matchedRx?.is_high_alert || row[4].includes('High Alert')) ? '⚠ High Alert Medication' : 'Standard Formulary' },
                   { k: 'Prescription Status', v: row[5] },
+<<<<<<< HEAD
                   { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Live Order' },
                   { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' }
+=======
+                  { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || 'Not recorded' },
+                  { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Not recorded' },
+                  { k: 'Administration Instructions', v: matchedRx?.instructions || 'Not recorded' },
+                  { k: 'Source', v: matchedRx?.source || 'Not recorded' },
+                  { k: 'SOAP Note / Action', v: `${matchedRx?.source_soap_note_id || 'N/A'} / ${matchedRx?.source_action_id || 'N/A'}` }
+>>>>>>> 4a5427e4a8e85fbe81cd6c0839b61bf141939593
                 ]
               });
             }

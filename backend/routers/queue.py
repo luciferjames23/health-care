@@ -36,13 +36,14 @@ import db_config
 from api.auth_helper import get_current_user, require_doctor_or_admin, require_admin
 from services import queue_service, queue_notification_service
 
-router = APIRouter(prefix="/queue", tags=["AG-06 Queue Agent"])
+router = APIRouter(prefix="/api/queue", tags=["AG-06 Queue Agent"])
 
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
 
 class CheckInRequest(BaseModel):
     appointment_id: int
+    doctor_id: Optional[int] = None
     room_number: Optional[str] = None
 
 
@@ -71,11 +72,36 @@ class CancelEntryRequest(BaseModel):
 
 # ─── Authorization Helpers ───────────────────────────────────────────────────
 
+def resolve_doctor_id(user: dict) -> Optional[int]:
+    """Resolves authenticated doctor_id from user context or DB lookup."""
+    user_doctor_id = user.get("doctor_id")
+    if user_doctor_id:
+        return int(user_doctor_id)
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        user_id = user.get("user_id")
+        if user_id:
+            cur.execute("SELECT id FROM doctors WHERE user_id = %s LIMIT 1;", (user_id,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+        email = user.get("email")
+        if email:
+            cur.execute("SELECT id FROM doctors WHERE email = %s LIMIT 1;", (email,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+        return None
+    finally:
+        cur.close()
+        conn.close()
+
 def verify_session_doctor_access(user: dict, session_id: int):
     """Enforce doctor isolation: Doctor role can only manage their own queue session."""
     user_role = (user.get("role") or "").upper()
     if user_role == "DOCTOR":
-        user_doctor_id = user.get("doctor_id")
+        user_doctor_id = resolve_doctor_id(user)
         if not user_doctor_id:
             raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "Doctor ID missing from credentials."})
         conn = db_config.get_db_connection()
@@ -93,7 +119,7 @@ def verify_entry_doctor_access(user: dict, entry_id: int):
     """Enforce doctor isolation: Doctor role can only manage their own queue entries."""
     user_role = (user.get("role") or "").upper()
     if user_role == "DOCTOR":
-        user_doctor_id = user.get("doctor_id")
+        user_doctor_id = resolve_doctor_id(user)
         if not user_doctor_id:
             raise HTTPException(status_code=403, detail={"error": "UNAUTHORIZED_DOCTOR_ACCESS", "message": "Doctor ID missing from credentials."})
         conn = db_config.get_db_connection()
@@ -133,11 +159,19 @@ def check_in_patient(
 ):
     """AG-06 Entry Point — Token Assignment + Notification."""
     try:
+        expected_doc_id = payload.doctor_id
+        user_role = (user.get("role") or "").upper()
+        if user_role == "DOCTOR":
+            user_doc_id = resolve_doctor_id(user)
+            if user_doc_id:
+                expected_doc_id = user_doc_id
+
         # 1. Execute check-in (assigns token, calculates position/ETA)
         result = queue_service.patient_check_in(
             appointment_id=payload.appointment_id,
             room_number=payload.room_number,
-            created_by_user_id=user.get("user_id")
+            created_by_user_id=user.get("user_id"),
+            expected_doctor_id=expected_doc_id
         )
 
         # 2. Dispatch WhatsApp TOKEN_ASSIGNED notification (non-blocking)
@@ -150,7 +184,7 @@ def check_in_patient(
 
         return {
             "success": True,
-            "message": f"Patient checked in. Token #{result['token_number']} assigned.",
+            "message": result.get("message") or f"Patient checked in. Token #{result['token_number']} assigned.",
             "data": result,
             "notification": {
                 "sent": notification_result.get("success", False),
@@ -620,15 +654,59 @@ def mark_no_show(
     user: dict = Depends(get_current_user)
 ):
     """Mark a patient as no-show. Queue positions recalculated and patients notified."""
+    verify_entry_doctor_access(user, entry_id)
     try:
         result = queue_service.mark_no_show(
             queue_entry_id=entry_id,
             by_user_id=user.get("user_id")
         )
-        return {"success": True, "message": "Patient marked as no-show.", "data": result}
+
+        notifications_sent = 0
+        try:
+            session_id = result.get("queue_session_id")
+            if session_id:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                session_data = {}
+                try:
+                    cur.execute("""
+                        SELECT d.display_name, qs.room_number
+                        FROM queue_sessions qs JOIN doctors d ON d.id = qs.doctor_id
+                        WHERE qs.id = %s;
+                    """, (session_id,))
+                    row = cur.fetchone()
+                    if row:
+                        session_data = {"doctor_name": row[0] or "", "room_number": row[1] or ""}
+                finally:
+                    cur.close()
+                    conn.close()
+
+                for updated_entry in result.get("recalculated_entries", []):
+                    if not updated_entry.get("position_changed"):
+                        continue
+                    e_id = updated_entry["entry_id"]
+                    e_data = {**updated_entry, **session_data}
+
+                    if updated_entry.get("patients_ahead") == 0:
+                        notif = queue_notification_service.process_you_are_next(e_id, e_data)
+                    else:
+                        notif = queue_notification_service.process_position_update(e_id, e_data)
+
+                    if notif.get("success") and not notif.get("skipped_duplicate"):
+                        notifications_sent += 1
+        except Exception as notif_err:
+            print(f"[QUEUE_API] Post-no-show notifications failed (non-fatal): {notif_err}")
+
+        return {
+            "success": True,
+            "message": "Patient marked as no-show. Queue recalculated.",
+            "data": result,
+            "notifications_sent": notifications_sent
+        }
     except queue_service.QueueError as e:
         raise HTTPException(status_code=400, detail={"error": e.error_code, "message": e.message})
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -642,16 +720,60 @@ def cancel_entry(
     user: dict = Depends(get_current_user)
 ):
     """Cancel a queue entry. Queue positions recalculated."""
+    verify_entry_doctor_access(user, entry_id)
     try:
         result = queue_service.cancel_queue_entry(
             queue_entry_id=entry_id,
             reason=payload.reason,
             cancelled_by_user_id=user.get("user_id")
         )
-        return {"success": True, "message": "Queue entry cancelled.", "data": result}
+
+        notifications_sent = 0
+        try:
+            session_id = result.get("queue_session_id")
+            if session_id:
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                session_data = {}
+                try:
+                    cur.execute("""
+                        SELECT d.display_name, qs.room_number
+                        FROM queue_sessions qs JOIN doctors d ON d.id = qs.doctor_id
+                        WHERE qs.id = %s;
+                    """, (session_id,))
+                    row = cur.fetchone()
+                    if row:
+                        session_data = {"doctor_name": row[0] or "", "room_number": row[1] or ""}
+                finally:
+                    cur.close()
+                    conn.close()
+
+                for updated_entry in result.get("recalculated_entries", []):
+                    if not updated_entry.get("position_changed"):
+                        continue
+                    e_id = updated_entry["entry_id"]
+                    e_data = {**updated_entry, **session_data}
+
+                    if updated_entry.get("patients_ahead") == 0:
+                        notif = queue_notification_service.process_you_are_next(e_id, e_data)
+                    else:
+                        notif = queue_notification_service.process_position_update(e_id, e_data)
+
+                    if notif.get("success") and not notif.get("skipped_duplicate"):
+                        notifications_sent += 1
+        except Exception as notif_err:
+            print(f"[QUEUE_API] Post-cancellation notifications failed (non-fatal): {notif_err}")
+
+        return {
+            "success": True,
+            "message": "Queue entry cancelled. Queue recalculated.",
+            "data": result,
+            "notifications_sent": notifications_sent
+        }
     except queue_service.QueueError as e:
         raise HTTPException(status_code=400, detail={"error": e.error_code, "message": e.message})
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -676,21 +798,48 @@ def get_queue_entry(
 
 @router.get(
     "/doctor/today",
-    summary="Doctor: Get today's queue for the logged-in doctor"
+    summary="Doctor: Get today's queue for the logged-in doctor or specified doctor_id"
 )
 def get_my_queue_today(
+    doctor_id: Optional[int] = Query(None, description="Optional doctor ID override for Admin or Doctor selection"),
     user: dict = Depends(get_current_user)
 ):
     """
-    Doctor Portal: returns today's queue session scoped to the authenticated doctor.
-    doctor_id comes from JWT — never from a frontend query parameter.
+    Doctor Portal: returns today's queue session.
+    If doctor_id query param is provided (or if user is Admin), uses that doctor_id.
+    Otherwise resolves doctor_id from user JWT / DB context.
     """
-    doctor_id = user.get("doctor_id") or user.get("user_id")
-    if not doctor_id:
-        raise HTTPException(status_code=400, detail="Doctor ID not found in session.")
+    target_doctor_id = doctor_id
+    if not target_doctor_id:
+        target_doctor_id = resolve_doctor_id(user)
+
+    # Fallback for Admin or unassigned users: pick doctor with appointments today or first active doctor
+    if not target_doctor_id:
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT doctor_id FROM appointments 
+                WHERE appointment_date = CURRENT_DATE 
+                LIMIT 1;
+            """)
+            row = cur.fetchone()
+            if row:
+                target_doctor_id = row[0]
+            else:
+                cur.execute("SELECT id FROM doctors LIMIT 1;")
+                row = cur.fetchone()
+                if row:
+                    target_doctor_id = row[0]
+        finally:
+            cur.close()
+            conn.close()
+
+    if not target_doctor_id:
+        raise HTTPException(status_code=400, detail={"error": "DOCTOR_ID_NOT_RESOLVED", "message": "No doctor ID available."})
 
     try:
-        result = queue_service.get_doctor_queue_today(int(doctor_id))
+        result = queue_service.get_doctor_queue_today(int(target_doctor_id))
         return {"success": True, "data": result}
     except Exception as e:
         traceback.print_exc()

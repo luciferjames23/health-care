@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './api';
+
 const RADIOLOGY_API_BASE_URL = import.meta.env?.VITE_RADIOLOGY_API_URL ?? import.meta.env?.VITE_API_BASE_URL ?? '';
 export const OHIF_BASE_URL =
   (typeof window !== 'undefined' && (window.__OHIF_URL__ || window.localStorage?.getItem('hc_ohif_url'))) ||
@@ -5,10 +7,7 @@ export const OHIF_BASE_URL =
   'http://localhost:3000';
 
 export async function request(path, options = {}) {
-  const token = sessionStorage.getItem('hc_auth_token');
-  const res = await fetch(`${RADIOLOGY_API_BASE_URL}${path}`, {
-    ...options, headers: { ...options.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
+  const res = await fetchWithTimeout(`${RADIOLOGY_API_BASE_URL}${path}`, options);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `Radiology service error (${res.status})`);
   return body;

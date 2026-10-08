@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:encoding": "node tests/patient360-encoding.test.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

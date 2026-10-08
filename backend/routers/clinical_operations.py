@@ -13,10 +13,13 @@ FastAPI Router for Clinical Operations & Front-Office Modules:
 """
 
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 import psycopg2.extras
 from db.postgres_connector import PostgresConnector
+from api.auth_helper import get_current_user
+from services.lab_demo_result_service import generate_demo_result
+from services.vital_signs_service import record_vital_observation
 
 router = APIRouter(
     prefix="/api/v1/clinical-ops",
@@ -993,6 +996,7 @@ def book_ot_slot(body: OtSlotBooking):
 class VitalSignRecordCreate(BaseModel):
     patient_id: int
     patient_code: Optional[str] = None
+    visit_id: Optional[int] = None
     admission_id: Optional[int] = None
     temperature: Optional[float] = 98.6
     heart_rate: Optional[int] = 72
@@ -1030,23 +1034,19 @@ def get_patient_vitals(patient_id: Optional[int] = None, admission_id: Optional[
         conn.close()
 
 @router.post("/vitals", summary="Record Patient Vital Signs Measurement")
-def record_patient_vitals(body: VitalSignRecordCreate):
+def record_patient_vitals(body: VitalSignRecordCreate, user: dict = Depends(get_current_user)):
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor()
-        pcode = body.patient_code
-        if not pcode and body.patient_id:
-            cur.execute("SELECT patient_code FROM patients WHERE id = %s LIMIT 1;", (body.patient_id,))
-            r = cur.fetchone()
-            if r and r[0]:
-                pcode = r[0]
-        cur.execute("""
-            INSERT INTO vital_signs (patient_id, admission_id, temperature, heart_rate, systolic_bp, diastolic_bp, respiratory_rate, oxygen_saturation, recorded_at, patient_code)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s) RETURNING vital_id;
-        """, (body.patient_id, body.admission_id, body.temperature, body.heart_rate, body.systolic_bp, body.diastolic_bp, body.respiratory_rate, body.oxygen_saturation, pcode))
-        new_id = cur.fetchone()[0]
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result, _ = record_vital_observation(
+            cur, patient_id=body.patient_id, visit_id=body.visit_id,
+            admission_id=body.admission_id, recorded_by=user.get("user_id"),
+            temperature=body.temperature, heart_rate=body.heart_rate,
+            systolic_bp=body.systolic_bp, diastolic_bp=body.diastolic_bp,
+            respiratory_rate=body.respiratory_rate, oxygen_saturation=body.oxygen_saturation,
+        )
         conn.commit()
-        return {"success": True, "vital_id": new_id, "patient_code": pcode, "message": "Vitals measurement logged successfully"}
+        return {"success": True, **result, "message": "Vitals measurement logged successfully"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1397,6 +1397,9 @@ def get_diagnoses(
                 d.diagnosis_type,
                 d.diagnosis_date,
                 d.is_primary,
+                d.source,
+                d.source_soap_note_id,
+                d.source_action_id,
                 doc.display_name as doctor_name,
                 doc.specialization as doctor_specialty,
                 p.patient_code,
@@ -1425,6 +1428,9 @@ def get_diagnoses(
                 "diagnosis_name": r['diagnosis_name'],
                 "type": r['diagnosis_type'] or ('Primary' if r['is_primary'] else 'Secondary'),
                 "is_primary": bool(r['is_primary']),
+                "source": r.get('source'),
+                "source_soap_note_id": r.get('source_soap_note_id'),
+                "source_action_id": str(r['source_action_id']) if r.get('source_action_id') else None,
                 "date": dt_str,
                 "diagnosis_date": dt_str,
                 "doctor": r['doctor_name'] or 'Attending Physician',
@@ -1503,7 +1509,13 @@ def get_lab_orders(
                 lo.lab_test_id,
                 lo.ordered_date,
                 lo.priority,
+                lo.source,
+                lo.source_soap_note_id,
+                lo.source_action_id,
                 lo.status as order_status,
+                (SELECT EXTRACT(EPOCH FROM (MIN(lr.result_date) - lo.ordered_date)) / 60.0
+                   FROM lab_results lr
+                  WHERE lr.lab_order_id=lo.lab_order_id AND lr.result_date IS NOT NULL) AS turnaround_minutes,
                 lt.test_code,
                 lt.test_name,
                 lt.test_category,
@@ -1538,7 +1550,8 @@ def get_lab_orders(
                     lr.abnormal_flag,
                     lr.verification_status,
                     lr.result_date,
-                    lr.verified_by
+                    lr.verified_by,
+                    lr.result_source
                 FROM lab_results lr
                 WHERE lr.lab_order_id = ANY(%s)
                 ORDER BY lr.lab_result_id ASC;
@@ -1557,7 +1570,9 @@ def get_lab_orders(
                     "reference_range": r['reference_range'],
                     "is_abnormal": bool(r['abnormal_flag']),
                     "verification_status": r['verification_status'],
-                    "result_date": res_date_str
+                    "result_date": res_date_str,
+                    "result_source": r.get('result_source'),
+                    "result_label": "DEMO / SYNTHETIC RESULT" if r.get('result_source') == "DEMO_GENERATED" else None
                 })
 
         formatted = []
@@ -1577,7 +1592,11 @@ def get_lab_orders(
                 "sample_type": o['sample_type'] or 'Serum',
                 "charge": float(o['standard_charge'] or 0),
                 "priority": o['priority'] or 'Routine',
+                "source": o.get('source'),
+                "source_soap_note_id": o.get('source_soap_note_id'),
+                "source_action_id": str(o['source_action_id']) if o.get('source_action_id') else None,
                 "status": o['order_status'] or 'Completed',
+                "turnaround_minutes": float(o['turnaround_minutes']) if o.get('turnaround_minutes') is not None else None,
                 "ordered_date": ord_date_str,
                 "doctor": o['doctor_name'] or 'Attending Physician',
                 "patient_code": o['patient_code'],
@@ -1595,6 +1614,11 @@ def get_lab_orders(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+
+@router.post("/labs/{order_id}/generate-demo-result", summary="Generate a labeled PoC laboratory result")
+def generate_lab_demo_result(order_id: int, user: dict = Depends(get_current_user)):
+    return generate_demo_result(order_id, user)
 
 # ---------------------------------------------------------------------------
 # 13. COMMUNICATIONS LOGS (Live PostgreSQL Notifications & Messages)

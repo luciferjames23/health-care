@@ -11,6 +11,48 @@ const apiCache = new Map();
 const inFlightRequests = new Map();
 const updateListeners = new Set();
 const CACHE_PREFIX = 'hc_gold_cache_v3_';
+let lastRejectedAuthToken = null;
+
+// Older persisted sessions may still have a valid token on the user object,
+// while the canonical token key is empty. Restore it before API requests so
+// clinical endpoints receive the authenticated session after a page reload.
+function getStoredAuthToken() {
+  if (typeof sessionStorage === 'undefined') return '';
+  const token = sessionStorage.getItem('hc_auth_token');
+  if (token) return token;
+  for (const key of ['hx_auth', 'meridian_user']) {
+    try {
+      const persistedUser = JSON.parse(sessionStorage.getItem(key) || 'null');
+      if (persistedUser?.token) {
+        sessionStorage.setItem('hc_auth_token', persistedUser.token);
+        return persistedUser.token;
+      }
+    } catch { }
+  }
+  return '';
+}
+
+function handleUnauthorized(token) {
+  if (token === lastRejectedAuthToken) return;
+  lastRejectedAuthToken = token;
+  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('hc_auth_token') === token) {
+    sessionStorage.removeItem('hc_auth_token');
+  }
+  clearAllStorageCache();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('hc_session_expired'));
+  }
+}
+
+function sessionExpiredError() {
+  const error = new Error('Your authenticated session is no longer valid. Please sign in again.');
+  error.sessionExpired = true;
+  return error;
+}
+
+export function resetSessionExpiredState() {
+  lastRejectedAuthToken = null;
+}
 
 // Automatically clean legacy long-TTL caches so that new DB records are never blocked
 try {
@@ -55,23 +97,27 @@ function clearAllStorageCache() {
   } catch (e) { }
 }
 
-async function fetchWithTimeout(url, options = {}) {
+export async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const authHeader = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hc_auth_token') : null) || 'demo-session-token';
+  const authToken = getStoredAuthToken() || 'demo-session-token';
+  const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
+  const headers = {
+    'Accept': 'application/json',
+    ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+    ...fetchOptions.headers,
+    'Authorization': `Bearer ${authToken}`,
+  };
   try {
     const res = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authHeader}`,
-        ...fetchOptions.headers,
-      },
+      headers,
     });
     clearTimeout(timeoutId);
+    if (res.status === 401) handleUnauthorized(authToken);
+    else if (res.ok && authToken !== 'demo-session-token') lastRejectedAuthToken = null;
     return res;
   } catch (err) {
     clearTimeout(timeoutId);
@@ -108,6 +154,7 @@ async function fetchCachedJson(url, options = {}) {
       try {
         const res = await fetchWithTimeout(url, options);
         if (!res.ok) {
+          if (res.status === 401) throw sessionExpiredError();
           if (cached?.data) return cached.data;
           throw new Error(`HTTP error ${res.status}`);
         }
@@ -120,6 +167,7 @@ async function fetchCachedJson(url, options = {}) {
         }
         return freshData;
       } catch (err) {
+        if (err.sessionExpired) throw err;
         if (cached?.data) return cached.data;
         throw err;
       } finally {
@@ -377,7 +425,104 @@ export const apiService = {
   },
 
   async getSoapNotes(params = {}, options = {}) {
-    return await this.getCurrentAdmissions(params, options);
+    const query = new URLSearchParams();
+    ['patient_id', 'visit_id', 'admission_id'].forEach(key => {
+      if (params[key] !== undefined && params[key] !== null) query.set(key, params[key]);
+    });
+    if (params.signed_only) query.set('signed_only', 'true');
+    if (params.mine) query.set('mine', 'true');
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/soap/notes?${query.toString()}`, { forceRefresh: true, ...options });
+  },
+
+  async getSoapVisitContext(patientIdentifier, options = {}) {
+    return await this.getPatientFullDetails(patientIdentifier, { forceRefresh: true, ...options });
+  },
+
+  async createSoapNote(payload, options = {}) {
+    return await this.soapRequest('/api/v1/soap/notes', { method: 'POST', body: JSON.stringify(payload), ...options });
+  },
+
+  async updateSoapNote(noteId, payload, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify(payload), ...options });
+  },
+
+  async getSoapNote(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}`, { method: 'GET', ...options });
+  },
+
+  async signSoapNote(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/sign`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async validateSoapClinicalRecord(noteId, payload, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/clinical-validation`, { method: 'POST', body: JSON.stringify(payload), ...options });
+  },
+
+  async resolveSoapClinicalMismatch(noteId, payload, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/clinical-resolution`, { method: 'POST', body: JSON.stringify(payload), ...options });
+  },
+
+  async amendSoapNote(noteId, payload, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/amendments`, { method: 'POST', body: JSON.stringify(payload), ...options });
+  },
+
+  async transcribeSoapAudio(noteId, blob, language = 'auto', options = {}) {
+    const form = new FormData();
+    form.append('file', blob, `dictation.${blob.type.includes('webm') ? 'webm' : blob.type.includes('ogg') ? 'ogg' : 'wav'}`);
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/soap/notes/${noteId}/transcribe?language=${encodeURIComponent(language)}`, {
+      method: 'POST', body: form, ...options
+    });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `Transcription failed (${res.status})`); }
+    return res.json();
+  },
+
+  async generateSoapDraft(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/generate`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async detectSoapActions(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/actions/detect`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async getSoapActions(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/actions`, { method: 'GET', ...options });
+  },
+
+  async updateSoapAction(actionId, payload, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/actions/${actionId}`, { method: 'PATCH', body: JSON.stringify(payload), ...options });
+  },
+
+  async confirmSoapAction(actionId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/actions/${actionId}/confirm`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async rejectSoapAction(actionId, reason, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/actions/${actionId}/reject`, { method: 'POST', body: JSON.stringify({ reason }), ...options });
+  },
+
+  async confirmSoapActions(noteId, actionIds, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/actions/confirm-batch`, { method: 'POST', body: JSON.stringify({ action_ids: actionIds }), ...options });
+  },
+
+  async dispatchSoapActions(noteId, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/actions/dispatch`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async soapEvent(noteId, eventName, options = {}) {
+    return await this.soapRequest(`/api/v1/soap/notes/${noteId}/events/${eventName}`, { method: 'POST', body: '{}', ...options });
+  },
+
+  async soapRequest(path, options = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, options);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail = err.detail;
+      throw new Error((typeof detail === 'string' ? detail : detail?.message) || `SOAP request failed (${res.status})`);
+    }
+    const result = await res.json();
+    this.clearCache();
+    notifyDataUpdated(path, result);
+    return result;
   },
 
   async getExecutiveAnalytics(options = {}) {
@@ -2029,6 +2174,13 @@ export const apiService = {
     });
   },
 
+  async generateDemoLabResult(orderId) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs/${orderId}/generate-demo-result`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
   async getDashboardAppointments(params = {}, options = {}) {
     const query = new URLSearchParams();
     if (params.search) query.append('search', params.search);
@@ -2102,14 +2254,7 @@ export const apiService = {
 
   // ── Patient Portal Endpoints (Authenticated Token-Bound) ───────────────
   async getPatientPortalDashboard(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/dashboard`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/dashboard`, options);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Failed to fetch patient portal dashboard' }));
       throw new Error(err.detail || 'Failed to fetch patient portal dashboard');
@@ -2118,90 +2263,57 @@ export const apiService = {
   },
 
   async getPatientPortalProfile(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/profile`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/profile`, options);
     return await res.json();
   },
 
   async getPatientPortalAdmissions(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/admissions`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/admissions`, options);
     return await res.json();
   },
 
   async getPatientPortalDiagnoses(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/diagnoses`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/diagnoses`, options);
     return await res.json();
   },
 
   async getPatientPortalAppointments(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/appointments`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/appointments`, options);
     return await res.json();
   },
 
   async getPatientPortalVitals(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/vitals`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/vitals`, options);
     return await res.json();
   },
 
   async getPatientPortalPrescriptions(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/prescriptions`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/prescriptions`, options);
     return await res.json();
   },
 
   async getPatientPortalLabResults(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/lab-results`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/lab-results`, options);
     return await res.json();
   },
 
   async getPatientPortalBills(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/bills`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/bills`, options);
     return await res.json();
   },
 
   async getPatientPortalInsurance(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/insurance`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/insurance`, options);
     return await res.json();
   },
 
   async getPatientPortalDischargeSummaries(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/discharge-summaries`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/discharge-summaries`, options);
     return await res.json();
   },
 
   async getPatientPortalNotifications(options = {}) {
-    const token = sessionStorage.getItem('hc_auth_token') || '';
-    const res = await fetch(`${API_BASE_URL}/api/v1/patient/notifications`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/patient/notifications`, options);
     return await res.json();
   },
 
@@ -2434,6 +2546,7 @@ export function parseAdmissionLlmRecord(record) {
     id: String(record.admission_id || record.patient_id),
     patient_id: record.patient_id,
     admission_id: record.admission_id,
+    visit_id: record.visit_id ?? adm.visit_id ?? null,
     doctor_id: record.doctor_id,
     name: fullName,
     patient_name: fullName,

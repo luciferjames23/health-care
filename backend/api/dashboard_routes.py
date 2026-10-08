@@ -1694,11 +1694,18 @@ def get_appointments(
                    COALESCE(d.display_name, 'Doctor #' || a.doctor_id) as doctor_name,
                    COALESCE(d.specialization, 'General Medicine') as specialization,
                    COALESCE(d.department_id, a.department_id, dept.id) as department_id,
-                   COALESCE(dept.department_name, d.specialization, 'General Medicine') as department_name
+                   COALESCE(dept.department_name, d.specialization, 'General Medicine') as department_name,
+                   qe.token_number,
+                   qe.queue_status,
+                   qe.id as queue_entry_id,
+                   qe.position,
+                   qe.patients_ahead,
+                   qe.estimated_wait_minutes
             FROM appointments a
             LEFT JOIN patients p ON a.patient_id = p.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
             LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
+            LEFT JOIN queue_entries qe ON a.id = qe.appointment_id
             LEFT JOIN LATERAL (
                 SELECT slot_duration_minutes
                 FROM doctor_schedules

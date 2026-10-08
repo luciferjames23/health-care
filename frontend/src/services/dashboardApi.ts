@@ -116,9 +116,14 @@ export interface Appointment {
   patient_phone: string;
   doctor_id: number;
   doctor_name: string;
-  specialization: string;
   department_id: number;
   department_name: string;
+  token_number?: number | null;
+  queue_status?: string | null;
+  queue_entry_id?: number | null;
+  position?: number | null;
+  patients_ahead?: number | null;
+  estimated_wait_minutes?: number | null;
 }
 
 export interface AppointmentListResponse {
@@ -347,9 +352,23 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
     clearTimeout(timer);
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const errorMsg = typeof data?.detail === 'string' ? data.detail : (data?.error || `Server error (${res.status})`);
+      const errorMsg =
+        (typeof data?.detail === 'string'
+          ? data.detail
+          : data?.detail?.message || data?.detail?.error) ||
+        data?.message ||
+        data?.error ||
+        `Server error (${res.status})`;
       console.warn(`[Dashboard API] ${path} returned ${res.status}:`, errorMsg);
-      return null;
+      if (data && typeof data === 'object') {
+        return {
+          ...data,
+          success: false,
+          error: errorMsg,
+          message: data.message || errorMsg,
+        } as T;
+      }
+      return { success: false, error: errorMsg, message: errorMsg } as unknown as T;
     }
     return data as T;
   } catch (err) {
@@ -875,4 +894,100 @@ export async function addPatientWhatsApp(whatsapp_number: string): Promise<AddPa
   });
   return data ?? { success: false, message: 'Server connection error.', error: 'Server connection error.' };
 }
+
+// ─── AG-06 Queue API Functions ───────────────────────────────────────────────
+
+export interface CheckInResponse {
+  success: boolean;
+  message?: string;
+  data?: any;
+  error?: string;
+}
+
+export async function checkInPatient(appointmentId: number, roomNumber?: string): Promise<CheckInResponse> {
+  const data = await apiFetch<any>('/api/queue/check-in', {
+    method: 'POST',
+    body: JSON.stringify({ appointment_id: appointmentId, room_number: roomNumber }),
+  });
+  if (!data) {
+    return { success: false, error: 'Check-in request failed.' };
+  }
+  if (data.success === false) {
+    const errorMsg = data.error || data.detail?.message || data.detail?.error || data.message || 'Check-in request failed.';
+    return { success: false, error: errorMsg, message: errorMsg };
+  }
+  return data;
+}
+
+export async function fetchDoctorQueueToday(doctorId?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+  const url = doctorId ? `/api/queue/doctor/today?doctor_id=${doctorId}` : '/api/queue/doctor/today';
+  const data = await apiFetch<any>(url);
+  return data ?? { success: false, error: 'Failed to fetch doctor queue.' };
+}
+
+export async function createQueueSession(doctorId: number, departmentId?: number, roomNumber?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  const data = await apiFetch<any>('/api/queue/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ doctor_id: doctorId, department_id: departmentId || 1, room_number: roomNumber || 'OPD Room 101' }),
+  });
+  return data ?? { success: false, error: 'Failed to create queue session.' };
+}
+
+export async function pauseQueueSession(sessionId: number, reason?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/sessions/${sessionId}/pause`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  return data ?? { success: false, error: 'Failed to pause queue session.' };
+}
+
+export async function resumeQueueSession(sessionId: number): Promise<{ success: boolean; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/sessions/${sessionId}/resume`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Failed to resume queue session.' };
+}
+
+export async function fetchActiveQueueSessions(date?: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  const url = date ? `/api/queue/sessions?queue_date=${date}` : '/api/queue/sessions';
+  const data = await apiFetch<any>(url);
+  return data ?? { success: false, data: [], error: 'Failed to fetch queue sessions.' };
+}
+
+export async function callNextPatient(sessionId: number): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/sessions/${sessionId}/call-next`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Failed to call next patient.' };
+}
+
+export async function startConsultation(entryId: number): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/entries/${entryId}/start`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Failed to start consultation.' };
+}
+
+export async function completeConsultation(entryId: number): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/entries/${entryId}/complete`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Failed to complete consultation.' };
+}
+
+export async function markNoShow(entryId: number): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/entries/${entryId}/no-show`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Failed to mark patient as no-show.' };
+}
+
+export async function cancelQueueEntry(entryId: number, reason?: string): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+  const data = await apiFetch<any>(`/api/queue/entries/${entryId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  return data ?? { success: false, error: 'Failed to cancel queue entry.' };
+}
+
 

@@ -59,6 +59,7 @@ import DoctorsView from './components/DoctorsView';
 import EscalationPage from './pages/admin/EscalationPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
+import TodaysQueueView from './pages/doctor/TodaysQueueView';
 import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
 import PatientCreateAndManageView from './components/PatientCreateAndManageView';
@@ -72,6 +73,7 @@ import {
   SurgeryOTView,
   BloodBankView,
   LabDashboardView,
+  LabWorkQueueView,
   BillingView,
   InsuranceView,
   ClaimsView,
@@ -272,6 +274,30 @@ export default function App() {
   });
 
   useEffect(() => {
+    const handleSessionExpired = () => {
+      setAuthScreenUsername(auth?.username || auth?.loginId || null);
+      setAuthScreenInfo('Your session is no longer valid. Please sign in again to continue.');
+      setAuth(null);
+      setRoleState(null);
+      setActivePage('command');
+      setSelectedPatient(null);
+      setNavHistory([]);
+      setDrawer(null);
+      setModal(null);
+      try {
+        sessionStorage.removeItem('hc_auth_token');
+        sessionStorage.removeItem('hx_auth');
+        sessionStorage.removeItem('hx_role');
+        sessionStorage.removeItem('hx_page');
+        sessionStorage.removeItem('hx_selected_patient');
+        sessionStorage.removeItem('hx_nav_history');
+      } catch { }
+    };
+    window.addEventListener('hc_session_expired', handleSessionExpired);
+    return () => window.removeEventListener('hc_session_expired', handleSessionExpired);
+  }, [auth?.username, auth?.loginId]);
+
+  useEffect(() => {
     try {
       if (navHistory && navHistory.length > 0) {
         sessionStorage.setItem('hx_nav_history', JSON.stringify(navHistory));
@@ -331,7 +357,13 @@ export default function App() {
 
   const handleOpenSoap = (patient) => {
     setSoapReturnPage(activePage === 'soap' ? soapReturnPage : activePage);
-    handleNavigate('soap', patient);
+    const raw = patient?.raw || {};
+    handleNavigate('soap', {
+      ...patient,
+      patient_id: patient?.patient_id ?? raw.patient_id,
+      visit_id: patient?.visit_id ?? raw.visit_id,
+      admission_id: patient?.admission_id ?? raw.admission_id ?? patient?.admission?.admission_id,
+    });
   };
 
   const handleOpenDischargeSummary = (patientOrSummary) => {
@@ -574,6 +606,7 @@ export default function App() {
               <SoapNoteView
                 patient={selectedPatient}
                 doctorName={auth?.name}
+                currentUser={auth}
                 onBack={handleStepBack}
                 onOpenPatient={handleSelectPatient}
               />
@@ -753,6 +786,12 @@ export default function App() {
                 onSelectPatient={handleSelectPatient}
               />
             )}
+            {activePage === 'todays-queue' && (
+              <TodaysQueueView
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
             {activePage === 'patient-chat' && <PatientChat />}
             {activePage === 'emergency' && (
               <EmergencyView
@@ -769,7 +808,8 @@ export default function App() {
             {activePage === 'bloodbank' && <BloodBankView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-            {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} />}
+            {activePage === 'lab-workqueue' && <LabWorkQueueView onOpenDrawer={setDrawer} />}
             {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
               <FinancialRevenueView
                 initialTab={activePage}
@@ -836,7 +876,7 @@ export default function App() {
               'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
               'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
               'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery',
-              'bloodbank', 'deathmlc', 'sbar', 'lab', 'billing', 'insurance', 'claims', 'finance', 'tax',
+              'bloodbank', 'deathmlc', 'sbar', 'lab', 'lab-workqueue', 'billing', 'insurance', 'claims', 'finance', 'tax',
               'exceptions', 'audit',
               'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',
               'hr-dashboard', 'hr', 'employees', 'attendance', 'credentials', 'staff', 'canteen',

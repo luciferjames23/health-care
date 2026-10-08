@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchDashboardSummary, fetchAppointments, fetchDateWiseAnalytics, fetchDailyView,
-  format12HourTime,
+  format12HourTime, fetchDoctorQueueToday, callNextPatient, startConsultation, completeConsultation, checkInPatient,
   type DashboardSummary, type Appointment, type DateWiseAnalytics, type DailyViewResponse
 } from '../../services/dashboardApi';
 import {
@@ -60,11 +60,13 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
   // Interactive View Mode & Detail Modal State
   const [viewMode, setViewMode] = useState<'timeline' | 'table'>('timeline');
   const [selectedApptModal, setSelectedApptModal] = useState<Appointment | null>(null);
+  const [doctorQueue, setDoctorQueue] = useState<any>(null);
+  const [queueActionMsg, setQueueActionMsg] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sum, ana, apptRes, dView] = await Promise.all([
+      const [sum, ana, apptRes, dView, qRes] = await Promise.all([
         fetchDashboardSummary({
           date_from: dateRange.dateFrom,
           date_to: dateRange.dateTo,
@@ -85,16 +87,56 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
           date: toYMD(new Date()),
           doctor_id: doctorId,
         }),
+        fetchDoctorQueueToday(doctorId),
       ]);
       setSummary(sum);
       setAnalytics(ana);
       setRangeAppointments(apptRes?.appointments || []);
       setDailyView(dView);
+      if (qRes?.success && qRes?.data) {
+        setDoctorQueue(qRes.data);
+      }
       setLastUpdated(new Date());
     } finally {
       setLoading(false);
     }
   }, [dateRange, doctorId]);
+
+  const handleCallNext = async (sessionId: number) => {
+    setQueueActionMsg('Calling next patient...');
+    const res = await callNextPatient(sessionId);
+    if (res.success) {
+      setQueueActionMsg(`✅ ${res.message || 'Next patient called.'}`);
+      loadData();
+    } else {
+      setQueueActionMsg(`❌ ${res.error || 'Failed to call next patient.'}`);
+    }
+    setTimeout(() => setQueueActionMsg(''), 4000);
+  };
+
+  const handleStartConsultation = async (entryId: number) => {
+    setQueueActionMsg('Starting consultation...');
+    const res = await startConsultation(entryId);
+    if (res.success) {
+      setQueueActionMsg('✅ Consultation marked as STARTED.');
+      loadData();
+    } else {
+      setQueueActionMsg(`❌ ${res.error || 'Failed to start consultation.'}`);
+    }
+    setTimeout(() => setQueueActionMsg(''), 4000);
+  };
+
+  const handleCompleteConsultation = async (entryId: number) => {
+    setQueueActionMsg('Completing consultation...');
+    const res = await completeConsultation(entryId);
+    if (res.success) {
+      setQueueActionMsg('✅ Consultation COMPLETED. Queue recalculated.');
+      loadData();
+    } else {
+      setQueueActionMsg(`❌ ${res.error || 'Failed to complete consultation.'}`);
+    }
+    setTimeout(() => setQueueActionMsg(''), 4000);
+  };
 
   useEffect(() => {
     loadData();
@@ -219,6 +261,120 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
           {summary?.appointments.total ?? 0} appointment(s) in selected range
         </div>
       </div>
+
+      {/* TODAY'S OPD QUEUE LIVE CONSOLE */}
+      {doctorQueue && doctorQueue.has_session && (
+        <div className="card" style={{ marginBottom: 24, border: '1.5px solid #2563EB', background: '#F8FAFC' }}>
+          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#EFF6FF', borderBottom: '1px solid #BFDBFE', padding: '14px 20px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#1E40AF', display: 'flex', alignItems: 'center', gap: 8, fontSize: 16 }}>
+                <Clock size={18} /> Today's OPD Consultation Queue — {doctorQueue.doctor_name}
+              </h3>
+              <div style={{ fontSize: 12, color: '#4B5563', marginTop: 2 }}>
+                Department: <strong>{doctorQueue.department_name}</strong> · Room: <strong>{doctorQueue.room_number || 'Room 101'}</strong> · Status: <span className="status-badge active" style={{ fontSize: 11, background: '#DCFCE7', color: '#15803D' }}>{doctorQueue.session_status}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handleCallNext(doctorQueue.session_id)}
+                disabled={doctorQueue.waiting_count === 0 && !doctorQueue.next_patient}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, background: '#2563EB', padding: '8px 14px' }}
+              >
+                <UserCheck size={15} /> Call Next Patient
+              </button>
+            </div>
+          </div>
+
+          {queueActionMsg && (
+            <div style={{ padding: '8px 16px', background: '#FEF3C7', color: '#92400E', fontSize: 13, fontWeight: 500, borderBottom: '1px solid #FDE68A' }}>
+              {queueActionMsg}
+            </div>
+          )}
+
+          <div className="card-body" style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              {/* CURRENT PATIENT BOX */}
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  CURRENT CONSULTATION PATIENT
+                </div>
+                {doctorQueue.current_patient ? (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: '#0F172A' }}>{doctorQueue.current_patient.patient_name}</div>
+                        <div style={{ fontSize: 12, color: '#64748B' }}>Token: <strong style={{ color: '#2563EB', fontSize: 14 }}>#{doctorQueue.current_patient.token_number}</strong> · Code: {doctorQueue.current_patient.patient_code}</div>
+                      </div>
+                      <span className="status-badge active" style={{ background: '#DBEAFE', color: '#1E40AF', fontWeight: 600 }}>
+                        {doctorQueue.current_patient.queue_status}
+                      </span>
+                    </div>
+
+                    <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                      {doctorQueue.current_patient.queue_status === 'CALLED' && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => handleStartConsultation(doctorQueue.current_patient.id)}
+                          style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6 }}
+                        >
+                          <CheckCircle size={14} /> Start Consultation
+                        </button>
+                      )}
+                      {doctorQueue.current_patient.queue_status === 'IN_CONSULTATION' && (
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={() => handleCompleteConsultation(doctorQueue.current_patient.id)}
+                          style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6 }}
+                        >
+                          <CheckCircle size={14} /> Complete Consultation
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '20px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                    No patient currently in consultation room. Click "Call Next Patient" to start.
+                  </div>
+                )}
+              </div>
+
+              {/* NEXT PATIENT BOX */}
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748B', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  NEXT IN LINE (POSITION 1)
+                </div>
+                {doctorQueue.next_patient ? (
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>{doctorQueue.next_patient.patient_name}</div>
+                    <div style={{ fontSize: 12, color: '#64748B' }}>Token: <strong style={{ color: '#059669', fontSize: 14 }}>#{doctorQueue.next_patient.token_number}</strong> · Code: {doctorQueue.next_patient.patient_code}</div>
+                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>Time Slot: {format12HourTime(doctorQueue.next_patient.appointment_time)}</div>
+                  </div>
+                ) : (
+                  <div style={{ padding: '20px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                    No waiting patients in queue.
+                  </div>
+                )}
+              </div>
+
+              {/* QUEUE SUMMARY BOX */}
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 8, padding: 16, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, textAlign: 'center' }}>
+                  <div style={{ background: '#F1F5F9', padding: 10, borderRadius: 6 }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#0F172A' }}>{doctorQueue.waiting_count || 0}</div>
+                    <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>Waiting Patients</div>
+                  </div>
+                  <div style={{ background: '#ECFDF5', padding: 10, borderRadius: 6 }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: '#059669' }}>{doctorQueue.completed_count || 0}</div>
+                    <div style={{ fontSize: 11, color: '#047857', marginTop: 2 }}>Completed Today</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Primary KPI Grid */}
       <div className="kpi-grid">

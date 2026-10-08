@@ -162,6 +162,8 @@ class GroqWhisperSpeechToTextProvider(SpeechToTextProvider):
             content_type = "audio/mp3"
         elif ext == ".wav":
             content_type = "audio/wav"
+        elif ext == ".webm":
+            content_type = "audio/webm"
         elif ext in [".m4a", ".aac"]:
             content_type = "audio/aac"
 
@@ -209,7 +211,7 @@ class GroqWhisperSpeechToTextProvider(SpeechToTextProvider):
                         elif any('\u0600' <= c <= '\u06ff' for c in clean_text) or detected_lang_code in ["ur", "urdu"]:
                             detected_lang = "URDU"
 
-                        print(f"[GROQ_WHISPER_SUCCESS] transcript='{clean_text}', lang={detected_lang}")
+                        print(f"[GROQ_WHISPER_SUCCESS] model={model_name}, lang={detected_lang}, characters={len(clean_text)}")
                         return {
                             "success": True,
                             "text": clean_text,
@@ -347,7 +349,7 @@ class GeminiSpeechToTextProvider(SpeechToTextProvider):
                     elif any('\u0600' <= c <= '\u06ff' for c in clean_text):
                         detected_lang = "URDU"
 
-                    print(f"[VOICE_GEMINI_SUCCESS] transcript='{clean_text}', lang={detected_lang}")
+                    print(f"[VOICE_GEMINI_SUCCESS] model={model_name}, lang={detected_lang}, characters={len(clean_text)}")
                     return {
                         "success": True,
                         "text": clean_text,

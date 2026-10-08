@@ -174,7 +174,8 @@ def get_slot_duration_minutes(conn, doctor_id: int, queue_date: datetime.date) -
 def patient_check_in(
     appointment_id: int,
     room_number: Optional[str] = None,
-    created_by_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None,
+    expected_doctor_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Full patient check-in workflow:
@@ -209,7 +210,49 @@ def patient_check_in(
 
         appt_id, patient_id, doctor_id, department_id, appt_date, appt_time, appt_status = appt_row
 
-        # ── Step 2: Validate appointment status ──────────────────────────────
+        if expected_doctor_id is not None and doctor_id != expected_doctor_id:
+            raise AppointmentNotEligibleError(
+                f"Appointment {appointment_id} belongs to doctor ID {doctor_id}, not expected doctor ID {expected_doctor_id}.",
+                "WRONG_DOCTOR"
+            )
+
+        # ── Step 2: Check for existing check-in (Idempotency) ─────────────────
+        cur.execute("""
+            SELECT id, token_number, queue_status, queue_session_id, position, patients_ahead, estimated_wait_minutes, checked_in_at
+            FROM queue_entries
+            WHERE appointment_id = %s;
+        """, (appointment_id,))
+        existing_entry = cur.fetchone()
+        if existing_entry:
+            entry_id, token_num, q_status, session_id, pos, ahead, est_wait, checked_in_at = existing_entry
+            patient_info = validate_patient(cur, patient_id)
+            doctor_info = validate_doctor(cur, doctor_id)
+            dept_name = validate_department(cur, department_id)
+            conn.commit()
+            return {
+                "success": True,
+                "is_duplicate": True,
+                "entry_id": entry_id,
+                "queue_session_id": session_id,
+                "appointment_id": appointment_id,
+                "patient_id": patient_id,
+                "doctor_id": doctor_id,
+                "department_id": department_id,
+                "token_number": token_num,
+                "queue_status": q_status,
+                "position": pos,
+                "patients_ahead": ahead,
+                "estimated_wait_minutes": est_wait,
+                "patient_name": patient_info.get("name"),
+                "whatsapp_number": patient_info.get("whatsapp_number") or patient_info.get("phone"),
+                "doctor_name": doctor_info.get("name"),
+                "department_name": dept_name,
+                "queue_date": str(appt_date),
+                "checked_in_at": checked_in_at.isoformat() if checked_in_at else None,
+                "message": f"Appointment {appointment_id} already checked in. Token #{token_num} retained."
+            }
+
+        # Validate status if not already checked in
         if appt_status not in ELIGIBLE_APPOINTMENT_STATUSES:
             raise AppointmentNotEligibleError(
                 f"Appointment {appointment_id} has status '{appt_status}' and cannot be queued. "
@@ -222,21 +265,6 @@ def patient_check_in(
             raise AppointmentNotEligibleError(
                 f"Appointment {appointment_id} is for {appt_date}, not today ({today}).",
                 "APPOINTMENT_WRONG_DATE"
-            )
-
-        # ── Step 3: Check for duplicate check-in ─────────────────────────────
-        cur.execute("""
-            SELECT id, token_number, queue_status
-            FROM queue_entries
-            WHERE appointment_id = %s;
-        """, (appointment_id,))
-        existing_entry = cur.fetchone()
-        if existing_entry:
-            entry_id, token_num, q_status = existing_entry
-            raise DuplicateCheckInError(
-                f"Appointment {appointment_id} already has queue entry id={entry_id}, "
-                f"token=#{token_num}, status={q_status}.",
-                "DUPLICATE_CHECK_IN"
             )
 
         # ── Step 4: Validate patient, doctor, department ──────────────────────
@@ -290,7 +318,7 @@ def patient_check_in(
         position = patients_ahead + 1  # 1-based
         estimated_wait = patients_ahead * slot_duration
 
-        # ── Step 8: Create queue entry ────────────────────────────────────────
+        # ── Step 8: Create queue entry and update appointment status ────────
         cur.execute("""
             INSERT INTO queue_entries (
                 queue_session_id, appointment_id, patient_id, doctor_id, department_id,
@@ -303,6 +331,12 @@ def patient_check_in(
             token_number, position, patients_ahead, estimated_wait
         ))
         entry_id, created_at = cur.fetchone()
+
+        cur.execute("""
+            UPDATE appointments
+            SET status = 'CHECKED_IN', updated_at = NOW()
+            WHERE id = %s;
+        """, (appointment_id,))
 
         # ── Step 9: Log audit event ───────────────────────────────────────────
         _log_audit(cur,
@@ -942,13 +976,33 @@ def get_doctor_queue_today(doctor_id: int) -> Dict[str, Any]:
     cur = conn.cursor()
     try:
         cur.execute("""
+            SELECT d.id, d.display_name, d.department_id, dept.department_name
+            FROM doctors d
+            LEFT JOIN departments dept ON dept.id = d.department_id
+            WHERE d.id = %s;
+        """, (doctor_id,))
+        doc_row = cur.fetchone()
+        doc_info = {
+            "doctor_id": doc_row[0] if doc_row else doctor_id,
+            "doctor_name": doc_row[1] if doc_row else f"Doctor #{doctor_id}",
+            "department_id": doc_row[2] if doc_row else None,
+            "department_name": doc_row[3] if doc_row else "General Medicine"
+        } if doc_row else {"doctor_id": doctor_id, "doctor_name": f"Doctor #{doctor_id}", "department_name": "General Medicine"}
+
+        cur.execute("""
             SELECT id FROM queue_sessions
             WHERE doctor_id = %s AND queue_date = %s;
         """, (doctor_id, today))
         row = cur.fetchone()
-        if not row:
-            return {"success": True, "session": None, "message": "No queue session for today."}
-        return {"success": True, "session": get_queue_session(row[0])}
+        session_data = get_queue_session(row[0]) if row else None
+
+        return {
+            "success": True,
+            "doctor_info": doc_info,
+            "queue_date": str(today),
+            "session": session_data,
+            "message": "Queue data retrieved successfully."
+        }
     finally:
         cur.close()
         conn.close()
@@ -1243,7 +1297,7 @@ def _update_entry_status(
                    new_values={"to_status": to_status, "token_number": token_number})
 
         conn.commit()
-        print(f"[QUEUE] Entry {entry_id} status: {from_statuses} → {to_status}")
+        print(f"[QUEUE] Entry {entry_id} status: {from_statuses} -> {to_status}")
         return {
             "success": True,
             "entry_id": entry_id,

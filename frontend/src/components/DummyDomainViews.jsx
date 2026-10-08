@@ -258,8 +258,8 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
         </div>
       </div>
 
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+      <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: '1250px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               <th style={{ padding: '10px 14px' }}>Token</th>
@@ -3578,95 +3578,97 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 8. LAB DASHBOARD & LIS (lab)
 // -----------------------------------------------------------------------------
-const LAB_ORDERS = [
-  { id: 'LAB-8801', patient: 'Saanvier Parthalan', uhid: 'MER-PAT-0087227', test: 'HbA1c + Serum Ketones', dept: 'Biochemistry', priority: 'Stat', tat: '24m', status: 'Authorized', result: 'HbA1c 9.4% · Ketones Neg' },
-  { id: 'LAB-8802', patient: 'Kavitha Raman', uhid: 'MER-PAT-0087221', test: 'hs-Troponin I (High Sensitivity)', dept: 'Biochemistry', priority: 'Critical', tat: '12m', status: 'Flagged Critical', result: '53.2 pg/mL (Ref < 15.6)' },
-  { id: 'LAB-8803', patient: 'Christoer Parthalan', uhid: 'MER-PAT-0087233', test: 'CBC + Absolute Neutrophils', dept: 'Hematology', priority: 'Urgent', tat: '18m', status: 'Analyzing', result: 'WBC 14,800/mcL' },
-  { id: 'LAB-8804', patient: 'Sundaram K.', uhid: 'MER-PAT-0087228', test: 'Coagulation Profile (PT/INR, aPTT)', dept: 'Hematology', priority: 'Routine', tat: '45m', status: 'Authorized', result: 'INR 1.08 · aPTT 31s' },
-  { id: 'LAB-8805', patient: 'Deepa Natarajan', uhid: 'MER-PAT-0087242', test: 'Urine Routine & Microalbumin', dept: 'Clinical Path', priority: 'Routine', tat: '30m', status: 'Sample Collected', result: 'Pending Analyzer' },
-];
+function useLabOrders() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    apiService.getPatientLabOrders({ limit: 100 }, { forceRefresh: true })
+      .then(response => { if (active) { setOrders(response?.data || []); setError(''); } })
+      .catch(err => { if (active) setError(err.message || 'Unable to load laboratory orders.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [refreshKey]);
+  return { orders, loading, error, refresh: () => setRefreshKey(value => value + 1) };
+}
 
-export function LabDashboardView({ onOpenDrawer, onOpenModal }) {
-  const handleLabClick = (row) => {
-    if (!onOpenDrawer) return;
-    onOpenDrawer({
-      title: `${row.id} · ${row.test}`,
-      sub: `Patient: ${row.patient} (${row.uhid}) · Discipline: ${row.dept}`,
-      badges: [
-        { t: row.status, bg: row.status === 'Flagged Critical' ? '#fee2e2' : '#dcfce7', fg: row.status === 'Flagged Critical' ? '#991b1b' : '#15803d' },
-        { t: `TAT ${row.tat}`, bg: '#f1f5f9', fg: '#334155' }
-      ],
-      facts: [
-        { k: 'Accession ID', v: row.id, b: true },
-        { k: 'Patient Name', v: row.patient, b: true },
-        { k: 'UHID / MRN', v: row.uhid },
-        { k: 'Investigation', v: row.test },
-        { k: 'Discipline', v: row.dept },
-        { k: 'Turnaround Time', v: row.tat },
-        { k: 'Status', v: row.status },
-        { k: 'Laboratory Result', v: row.result }
-      ],
-      actions: [
-        { label: 'Validate & Sign Out Result', primary: true, on: () => alert(`Validated result for ${row.patient}`) },
-        { label: 'Trigger Clinical Recoll' }
-      ]
-    });
-  };
+function labResultText(order) {
+  const rows = order.results || [];
+  return rows.length
+    ? rows.map(result => `${result.parameter}: ${result.value}${result.unit ? ` ${result.unit}` : ''}`).join(' | ')
+    : 'No result recorded';
+}
 
+function openLabOrder(order, onOpenDrawer) {
+  if (!onOpenDrawer) return;
+  const results = order.results || [];
+  const demo = results.some(result => result.result_source === 'DEMO_GENERATED');
+  const detailedResults = results.length
+    ? results.map(result => `${result.parameter}: ${result.value}${result.unit ? ` ${result.unit}` : ''}${result.reference_range ? ` (Ref: ${result.reference_range})` : ''}`).join(' | ')
+    : 'No result recorded';
+  onOpenDrawer({
+    title: `${order.lab_order_id} - ${order.test_name || order.test_code || 'Laboratory test'}`,
+    sub: `${order.patient_name || 'Patient'} (${order.patient_code || 'N/A'}) - Visit ${order.visit_id || 'N/A'}${order.admission_id ? ` - Admission ${order.admission_id}` : ''}`,
+    badges: [
+      { t: order.status || 'Pending', bg: order.status === 'Completed' ? '#dcfce7' : '#fef3c7', fg: order.status === 'Completed' ? '#166534' : '#92400e' },
+      ...(demo ? [{ t: 'DEMO / SYNTHETIC RESULT', bg: '#fef3c7', fg: '#92400e' }] : []),
+    ],
+    facts: [
+      { k: 'Order ID', v: order.lab_order_id, b: true },
+      { k: 'Patient', v: `${order.patient_name || 'Patient'} (${order.patient_code || 'N/A'})` },
+      { k: 'Visit / Encounter', v: `Visit ${order.visit_id || 'N/A'}${order.admission_id ? ` - Admission ${order.admission_id}` : ''}` },
+      { k: 'Test', v: order.test_name || order.test_code },
+      { k: 'Priority', v: order.priority || 'Routine' },
+      { k: 'Ordering Doctor', v: order.doctor || 'N/A' },
+      { k: 'Ordered Date / Time', v: order.ordered_date || 'N/A' },
+      { k: 'Source', v: order.source || 'N/A' },
+      { k: 'Result', v: detailedResults },
+      ...(demo ? [{ k: 'Result source', v: 'DEMO / SYNTHETIC RESULT' }] : []),
+    ],
+    actions: [],
+  });
+}
+
+export function LabDashboardView({ onOpenDrawer }) {
+  const { orders, loading, error } = useLabOrders();
+  const pending = orders.filter(order => String(order.status).toLowerCase() === 'pending').length;
+  const completed = orders.filter(order => String(order.status).toLowerCase() === 'completed').length;
+  const critical = orders.reduce((sum, order) => sum + (order.results || []).filter(result => result.is_abnormal).length, 0);
+  const tat = orders.map(order => Number(order.turnaround_minutes)).filter(value => Number.isFinite(value) && value >= 0);
+  const averageTat = tat.length ? `${Math.round(tat.reduce((sum, value) => sum + value, 0) / tat.length)} mins` : 'N/A';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header
-        title="Laboratory Information System (LIS) Dashboard"
-        subtitle="Automated analyzer interfaces, critical value verification, turnaround times, and specimen tracking"
-        count={LAB_ORDERS.length}
-        onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'services', title: 'Add Diagnostic Lab Test Service' })}
-        newLabel="+ Order Lab Test"
-        onExport={() => alert('Exported LIS logs')}
-      />
+      <Header title="Laboratory Information System (LIS) Dashboard" subtitle="Laboratory workload, critical values, and turnaround overview" count={orders.length} />
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Specimens Processed Today" value="148" sub="Biochem, Hematology, Micro" color="#0284c7" />
-        <StatCard label="Flagged Critical Values" value="1" sub="hs-Troponin 53.2 pg/mL alert" color="#dc2626" />
-        <StatCard label="Average LIS TAT" value="28 mins" sub="Within CAP/NABL 45 min target" color="#059669" />
-        <StatCard label="Automated Analyzer Link" value="4 Online" sub="Sysmex, Beckman, Roche Cobas" color="#475569" />
+        <StatCard label="Pending Orders" value={loading ? 'N/A' : pending} sub="Awaiting lab processing" color="#d97706" />
+        <StatCard label="Completed Orders" value={loading ? 'N/A' : completed} sub="From the authoritative lab API" color="#059669" />
+        <StatCard label="Critical Results" value={loading ? 'N/A' : critical} sub="Flagged results recorded" color="#dc2626" />
+        <StatCard label="Average LIS TAT" value={loading ? 'N/A' : averageTat} sub="Orders with recorded results" color="#0284c7" />
       </div>
-
-      <div style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
+      <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-              <th style={{ padding: '10px 14px' }}>Order ID</th>
-              <th style={{ padding: '10px 14px' }}>Patient / UHID</th>
-              <th style={{ padding: '10px 14px' }}>Investigation Requested</th>
-              <th style={{ padding: '10px 14px' }}>Discipline</th>
-              <th style={{ padding: '10px 14px' }}>TAT</th>
-              <th style={{ padding: '10px 14px' }}>Status</th>
-              <th style={{ padding: '10px 14px' }}>Verified Result</th>
-            </tr>
-          </thead>
+          <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+            <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
+            <th style={{ padding: '10px 14px' }}>Test</th><th style={{ padding: '10px 14px' }}>Status</th>
+            <th style={{ padding: '10px 14px' }}>Result Summary</th>
+          </tr></thead>
           <tbody>
-            {LAB_ORDERS.map(row => (
-              <tr key={row.id} onClick={() => handleLabClick(row)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{row.id}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ fontWeight: 600 }}>{row.patient}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{row.uhid}</div>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{row.test}</td>
-                <td style={{ padding: '10px 14px' }}>{row.dept}</td>
-                <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{row.tat}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <span style={pillStyle(
-                    row.status === 'Flagged Critical' ? '#fee2e2' : row.status === 'Authorized' ? '#dcfce7' : '#fef3c7',
-                    row.status === 'Flagged Critical' ? '#991b1b' : row.status === 'Authorized' ? '#166534' : '#92400e'
-                  )}>
-                    ● {row.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 14px', fontWeight: 500, color: row.status === 'Flagged Critical' ? '#dc2626' : '#334155' }}>
-                  {row.result}
-                </td>
-              </tr>
-            ))}
+            {loading && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>Loading laboratory summary...</td></tr>}
+            {!loading && error && <tr><td colSpan={5} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
+            {!loading && !error && !orders.length && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>No laboratory orders found.</td></tr>}
+            {!loading && !error && orders.slice(0, 8).map(order => {
+              const demo = (order.results || []).some(result => result.result_source === 'DEMO_GENERATED');
+              return <tr key={order.lab_order_id} onClick={() => openLabOrder(order, onOpenDrawer)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
+                <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
+                <td style={{ padding: '10px 14px' }}>{order.status}</td>
+                <td style={{ padding: '10px 14px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
+              </tr>;
+            })}
           </tbody>
         </table>
       </div>
@@ -3674,7 +3676,81 @@ export function LabDashboardView({ onOpenDrawer, onOpenModal }) {
   );
 }
 
-// -----------------------------------------------------------------------------
+export function LabWorkQueueView({ onOpenDrawer }) {
+  const { orders, loading, error, refresh } = useLabOrders();
+  const [processingId, setProcessingId] = useState(null);
+  const [actionErrors, setActionErrors] = useState({});
+  const sorted = [...orders].sort((a, b) => {
+    const aPending = String(a.status).toLowerCase() === 'pending' ? 0 : 1;
+    const bPending = String(b.status).toLowerCase() === 'pending' ? 0 : 1;
+    return aPending - bPending || Number(b.lab_order_id) - Number(a.lab_order_id);
+  });
+  const generate = async (order) => {
+    setProcessingId(order.lab_order_id);
+    setActionErrors(current => ({ ...current, [order.lab_order_id]: '' }));
+    try {
+      await apiService.generateDemoLabResult(order.lab_order_id);
+      refresh();
+    } catch (err) {
+      setActionErrors(current => ({ ...current, [order.lab_order_id]: err.message || 'Unable to generate a demo result.' }));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <Header title="Lab Work Queue" subtitle="Process requested laboratory orders and review recorded results" count={orders.length} />
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button type="button" onClick={refresh} style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: 'pointer' }}>Refresh</button>
+      </div>
+      <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: '1250px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+            <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
+            <th style={{ padding: '10px 14px' }}>Visit / Encounter</th><th style={{ padding: '10px 14px' }}>Test</th>
+            <th style={{ padding: '10px 14px' }}>Priority</th><th style={{ padding: '10px 14px' }}>Status</th>
+            <th style={{ padding: '10px 14px' }}>Ordering Doctor</th><th style={{ padding: '10px 14px' }}>Ordered Date / Time</th>
+            <th style={{ padding: '10px 14px' }}>Source</th><th style={{ padding: '10px 14px' }}>Result</th><th style={{ padding: '10px 14px' }}>Action</th>
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>Loading laboratory orders...</td></tr>}
+            {!loading && error && <tr><td colSpan={11} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
+            {!loading && !error && !sorted.length && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>No laboratory orders found.</td></tr>}
+            {!loading && !error && sorted.map(order => {
+              const results = order.results || [];
+              const demo = results.some(result => result.result_source === 'DEMO_GENERATED');
+              const completed = String(order.status).toLowerCase() === 'completed';
+              return <tr key={order.lab_order_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
+                <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
+                <td style={{ padding: '10px 14px' }}>Visit {order.visit_id || 'N/A'}{order.admission_id && <div style={{ color: '#64748b', fontSize: '11px' }}>Admission {order.admission_id}</div>}</td>
+                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
+                <td style={{ padding: '10px 14px' }}>{order.priority || 'Routine'}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle(completed ? '#dcfce7' : '#fef3c7', completed ? '#166534' : '#92400e')}>{order.status}</span></td>
+                <td style={{ padding: '10px 14px' }}>{order.doctor || 'N/A'}</td>
+                <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{order.ordered_date || 'N/A'}</td>
+                <td style={{ padding: '10px 14px' }}>{order.source || 'N/A'}</td>
+                <td style={{ padding: '10px 14px', minWidth: '220px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
+                <td style={{ padding: '10px 14px', minWidth: '175px' }}>
+                  {!completed && results.length === 0 ? <button type="button" disabled={processingId === order.lab_order_id}
+                    onClick={() => generate(order)}
+                    style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
+                    {processingId === order.lab_order_id ? 'Generating...' : 'Generate Demo Result'}
+                  </button> : <button type="button" onClick={() => openLabOrder(order, onOpenDrawer)}
+                    style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: 'pointer' }}>
+                    {results.length ? 'View Result' : 'View Order'}
+                  </button>}
+                  {actionErrors[order.lab_order_id] && <div role="alert" style={{ color: '#991b1b', fontSize: '11px', marginTop: '5px' }}>{actionErrors[order.lab_order_id]}</div>}
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // 9. BILLING & CLEARANCE (billing)
 // -----------------------------------------------------------------------------
 const BILLING_RECORDS = [

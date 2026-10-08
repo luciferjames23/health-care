@@ -403,3 +403,6 @@ from routers.rag import router as rag_router
 app.include_router(rag_router)
 from routers.ai_trainer import router as ai_trainer_router
 app.include_router(ai_trainer_router)
+from routers.soap_notes import router as soap_notes_router, actions_router as soap_actions_router
+app.include_router(soap_notes_router)
+app.include_router(soap_actions_router)
