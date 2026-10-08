@@ -1347,6 +1347,38 @@ class RagSearchService:
             except Exception:
                 pass
 
+        # ── Staleness check: if live clinical data is newer than RAG index, trigger background reindex ──
+        # This ensures the RAG always reflects current vitals, labs, etc. without waiting for a full reindex.
+        if rows and patient_id is not None:
+            try:
+                cur.execute("""
+                    SELECT MAX(rag_updated) AS rag_ts, MAX(live_updated) AS live_ts FROM (
+                        SELECT MAX(updated_at) AS rag_updated, NULL::timestamptz AS live_updated
+                        FROM rag_documents WHERE patient_id = %s AND is_active = TRUE
+                        UNION ALL
+                        SELECT NULL, MAX(recorded_at)
+                        FROM vital_signs WHERE patient_id = %s
+                        UNION ALL
+                        SELECT NULL, MAX(result_date)
+                        FROM lab_results WHERE patient_id = %s
+                    ) t
+                """, (patient_id, patient_id, patient_id))
+                ts_row = cur.fetchone()
+                rag_ts = ts_row.get("rag_ts") if ts_row else None
+                live_ts = ts_row.get("live_ts") if ts_row else None
+                if rag_ts and live_ts and live_ts > rag_ts:
+                    # Live data is newer — fire background reindex so the NEXT query is fresh
+                    import threading
+                    from services.rag_ingestion_service import ingestion_service as _ing
+                    def _bg_reindex(pid):
+                        try:
+                            _ing.reindex_patient(pid)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_bg_reindex, args=(patient_id,), daemon=True).start()
+            except Exception:
+                pass
+
         # Supplement admission/discharge records if missing or if query relates to admission/discharge
         if patient_id is not None:
             has_admission_or_dc = any(
