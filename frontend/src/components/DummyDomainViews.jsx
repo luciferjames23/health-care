@@ -3690,6 +3690,9 @@ function openLabOrder(order, onOpenDrawer) {
 export function LabDashboardView({ onOpenDrawer }) {
   const { orders, loading, error } = useLabOrders();
   const controls = useLabListControls(orders);
+  if (loading && !orders.length) {
+    return <ModuleLoadingScreen title="Loading Lab Dashboard..." subtitle="Retrieving live laboratory workload and result summaries..." badgeText="Live Lab Sync" layout="table" statCount={4} tableRows={6} tableColumns={5} />;
+  }
   const pending = orders.filter(order => String(order.status).toLowerCase() === 'pending').length;
   const completed = orders.filter(order => String(order.status).toLowerCase() === 'completed').length;
   const critical = orders.reduce((sum, order) => sum + (order.results || []).filter(result => result.is_abnormal).length, 0);
@@ -3713,10 +3716,9 @@ export function LabDashboardView({ onOpenDrawer }) {
             <th style={{ padding: '10px 14px' }}>Result Summary</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}><span className="loading-spinner" style={{ display: 'inline-block', width: 14, height: 14, borderWidth: 2, verticalAlign: 'middle', marginRight: 8 }} />Loading laboratory summary...</td></tr>}
             {!loading && error && <tr><td colSpan={5} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
-            {!loading && !error && !controls.filtered.length && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
-            {!loading && !error && controls.pageRows.map(order => {
+            {!error && !controls.filtered.length && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
+            {!error && controls.pageRows.map(order => {
               const demo = (order.results || []).some(result => result.result_source === 'DEMO_GENERATED');
               return <tr key={order.lab_order_id} onClick={() => openLabOrder(order, onOpenDrawer)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
@@ -3740,6 +3742,9 @@ export function LabWorkQueueView({ onOpenDrawer }) {
   const [processingId, setProcessingId] = useState(null);
   const [actionErrors, setActionErrors] = useState({});
   const controls = useLabListControls(orders, true);
+  if (loading && !orders.length) {
+    return <ModuleLoadingScreen title="Loading Lab Work Queue..." subtitle="Retrieving laboratory orders and recorded results..." badgeText="Live Lab Sync" layout="table" statCount={4} tableRows={7} tableColumns={11} />;
+  }
   const generate = async (order) => {
     setProcessingId(order.lab_order_id);
     setActionErrors(current => ({ ...current, [order.lab_order_id]: '' }));
@@ -3756,7 +3761,7 @@ export function LabWorkQueueView({ onOpenDrawer }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header title="Lab Work Queue" subtitle="Process requested laboratory orders and review recorded results" count={orders.length} />
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button type="button" onClick={refresh} disabled={loading} style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.65 : 1 }}>Refresh</button>
+        <button type="button" onClick={refresh} disabled={loading} style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.65 : 1 }}>{loading ? 'Refreshing...' : 'Refresh'}</button>
       </div>
       <LabListFilters controls={controls} />
       <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
@@ -3769,10 +3774,9 @@ export function LabWorkQueueView({ onOpenDrawer }) {
             <th style={{ padding: '10px 14px' }}>Source</th><th style={{ padding: '10px 14px' }}>Result</th><th style={{ padding: '10px 14px' }}>Action</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}><span className="loading-spinner" style={{ display: 'inline-block', width: 14, height: 14, borderWidth: 2, verticalAlign: 'middle', marginRight: 8 }} />Loading laboratory orders...</td></tr>}
             {!loading && error && <tr><td colSpan={11} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
-            {!loading && !error && !controls.filtered.length && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
-            {!loading && !error && controls.pageRows.map(order => {
+            {!error && !controls.filtered.length && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
+            {!error && controls.pageRows.map(order => {
               const results = order.results || [];
               const demo = results.some(result => result.result_source === 'DEMO_GENERATED');
               const completed = String(order.status).toLowerCase() === 'completed';
