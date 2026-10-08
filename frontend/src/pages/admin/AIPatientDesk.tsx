@@ -11,7 +11,7 @@ import {
   fetchConversations, fetchIntentBreakdown, fetchConversationMessages,
   type Conversation,
 } from '../../services/dashboardApi';
-import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import ModuleLoadingScreen, { CardGridSkeleton } from '../../components/ModuleLoadingScreen';
 
 const INTENT_COLORS: Record<string, string> = {
   GREETING: '#48BB78',
@@ -303,7 +303,7 @@ const AIPatientDesk: React.FC = () => {
             </div>
 
             {loadingMessages ? (
-              <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>Loading messages...</div>
+              <CardGridSkeleton count={2} />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(convMessages as Array<{ sender_type: string; message_text?: string; created_at: string; intent?: string }>).map((msg, idx) => (

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { TableSkeleton } from './ModuleLoadingScreen';
 import { 
   TableProperties, 
   Search, 
@@ -312,10 +313,7 @@ export default function SchemaExplorerView({ tables = [], initialTable = 'fact_b
           {/* Column Dictionary Table */}
           <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
             {loading ? (
-              <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-                <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-                <span style={{ fontSize: '12px' }}>Fetching table schema...</span>
-              </div>
+              <TableSkeleton rows={6} columns={4} />
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>

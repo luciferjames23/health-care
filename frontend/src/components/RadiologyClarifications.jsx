@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { clarificationApi as api } from '../services/clarificationApi';
 import { OHIF_BASE_URL } from '../services/radiologyApi';
 import { btn, primaryBtn } from './RadiologyShared';
+import { CardGridSkeleton } from './ModuleLoadingScreen';
 
 const date = value => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' }) : '—';
 const box = { border: '1px solid #dbe4ec', borderRadius: 8, padding: 14, background: '#fff' };
@@ -116,7 +117,7 @@ export default function RadiologyClarifications({ orderId, scanId }) {
     </div>
     {orderId && list && !list.context?.reviewed_at && <p>Clarification becomes available after the radiologist reviews the report.</p>}
     {error && <p role="alert" style={{ color: '#b91c1c', whiteSpace: 'pre-wrap' }}>{error}</p>}
-    {!list && !error && <p>Loading discussions…</p>}
+    {!list && !error && <CardGridSkeleton count={3} />}
     {list && <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1 1 260px' }}>
         {!list.threads.length && <p>No clarification requests yet.</p>}
@@ -158,7 +159,7 @@ export default function RadiologyClarifications({ orderId, scanId }) {
             <label>Reply<textarea style={field} required rows={3} maxLength={8000} disabled={busy} value={reply} onChange={e => setReply(e.target.value)} /></label>
             <button style={primaryBtn} disabled={busy || !reply.trim() || (user.role === 'radiologist' && detail.thread.assigned_to && detail.thread.assigned_to !== user.user_id)}>Send reply</button>
           </form> : <p>Resolved. History remains available.</p>}
-        </> : <p>{selected ? 'Loading discussion…' : 'Select a discussion to view its history.'}</p>}
+        </> : selected ? <CardGridSkeleton count={2} /> : <p>Select a discussion to view its history.</p>}
       </div>
     </div>}
   </section>;

@@ -6,6 +6,7 @@ import {
   User, Shield, Building2, Stethoscope, Bed, HeartPulse, Microscope, Syringe, CreditCard, FolderCheck, CheckSquare
 } from 'lucide-react';
 import { apiService } from '../services/api';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 export default function PreauthDossierDrawer({ 
   isOpen, 
@@ -387,17 +388,7 @@ export default function PreauthDossierDrawer({
           
           {/* Loading state */}
           {loading && (
-            <div style={{ padding: '60px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: '12px' }}>
-              <RefreshCw style={{ width: '32px', height: '32px', color: '#2563eb', animation: 'spin 1s linear infinite' }} />
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>
-                  Synthesizing Preauth Dossier from EMR &amp; Tariffs...
-                </div>
-                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                  Aggregating clinical notes, doctor advice, itemized tariffs, and policy compliance
-                </div>
-              </div>
-            </div>
+            <ModuleLoadingScreen title="Loading Preauthorization Dossier..." subtitle="Retrieving clinical notes, advice, tariffs, and policy details..." badgeText="Live Data Sync" layout="cards" statCount={4} />
           )}
 
           {!loading && error && (

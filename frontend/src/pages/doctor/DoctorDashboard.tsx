@@ -5,6 +5,7 @@ import {
   format12HourTime, fetchDoctorQueueToday, callNextPatient, startConsultation, completeConsultation, checkInPatient,
   type DashboardSummary, type Appointment, type DateWiseAnalytics, type DailyViewResponse
 } from '../../services/dashboardApi';
+import { TableSkeleton } from '../../components/ModuleLoadingScreen';
 import {
   CalendarCheck, Users, Clock, Bot, BedDouble,
   CheckCircle, Eye, RefreshCw, XCircle, UserPlus, UserCheck, TrendingUp, AlertTriangle, Calendar
@@ -701,7 +702,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
 
         <div className="card-body">
           {loading ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading appointments...</div>
+            <TableSkeleton rows={5} columns={6} />
           ) : viewMode === 'table' ? (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, textAlign: 'left' }}>

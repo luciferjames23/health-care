@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Users, CalendarCheck, RefreshCw } from 'lucide-react';
 import { fetchDepartments, type Department } from '../../services/dashboardApi';
+import { CardGridSkeleton } from '../../components/ModuleLoadingScreen';
 
 const DEPT_COLORS = [
   '#4A90D9', '#5AAFA5', '#48BB78', '#ECC94B', '#F56565',
@@ -42,9 +43,7 @@ const DepartmentPage: React.FC = () => {
       </div>
 
       {loading ? (
-        <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
-          Loading departments...
-        </div>
+        <CardGridSkeleton count={6} />
       ) : departments.length === 0 ? (
         <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
           No departments found in database.

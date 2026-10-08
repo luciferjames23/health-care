@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
 import SearchInput from './SearchInput';
 import TablePagination from './TablePagination';
+import { TableSkeleton } from './ModuleLoadingScreen';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
@@ -457,7 +458,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
               </div>
             )}
             {loading ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#8a9096' }}>Loading doctor profiles…</div>
+              <TableSkeleton rows={6} columns={7} />
             ) : filteredDoctors.length === 0 ? (
               <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
                 <div style={{ fontWeight: 600, color: '#52585e', marginBottom: '4px' }}>No doctors found</div>

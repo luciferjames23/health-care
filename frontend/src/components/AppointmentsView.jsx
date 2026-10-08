@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { apiService } from "../services/api";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
+import { TableSkeleton } from "./ModuleLoadingScreen";
 
 function getAppointmentStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Scheduled" };
@@ -210,7 +211,7 @@ export default function AppointmentsView({ onNavigate, userRole, doctorId, docto
           </div>
         )}
         {loading ? (
-          <div style={{ padding: "32px", textAlign: "center", color: "#8a9096" }}>Loading appointments…</div>
+          <TableSkeleton rows={6} columns={7} />
         ) : filteredRows.length === 0 ? (
           <div style={{ padding: "40px", textAlign: "center", color: "#8a9096" }}>
             <div style={{ fontWeight: 600, color: "#52585e", marginBottom: "4px" }}>No appointments found</div>

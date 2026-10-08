@@ -4,6 +4,7 @@ import { OHIF_BASE_URL } from '../services/radiologyApi';
 import { ClarificationButton } from './RadiologyClarifications';
 import { btn, primaryBtn } from './RadiologyShared';
 import { studyVersion } from '../services/imagingHistory';
+import { CardGridSkeleton, TableSkeleton } from './ModuleLoadingScreen';
 
 const date = value => value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'Pending';
 const input = { padding: 8, border: '1px solid #cbd5e1', borderRadius: 6, maxWidth: '100%' };
@@ -88,7 +89,7 @@ function ImagingHistory({ orderId, onChanged }) {
   const selected = data?.studies.find(s => s.order_id === current);
   return <section style={{ fontSize: 13 }}>
     {error && <p role="alert" style={{ color: '#b91c1c' }}>{error}</p>}
-    {!data ? !error && <p>Loading study history…</p> : <>
+    {!data ? !error && <CardGridSkeleton count={3} /> : <>
       <p><b>{source?.patient_name} · {source?.patient_code}</b><br />Clinical problem: {source?.clinical_problem}</p>
       <p>Baseline and follow-ups are separate examinations of the same problem. V1, V2 and later numbers identify studies, not revisions of a signed report.</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -107,7 +108,7 @@ function ImagingHistory({ orderId, onChanged }) {
         {comparison ? <>
           {comparison.prior.examination !== comparison.current.examination && <p style={{ color: '#92400e' }}>Different projections: {comparison.prior.examination} versus {comparison.current.examination}. Account for technique differences when comparing.</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}><ComparisonStudy title="Prior" study={comparison.prior} /><ComparisonStudy title="Current" study={comparison.current} /></div>
-        </> : <p>Loading comparison…</p>}
+        </> : <TableSkeleton rows={3} columns={4} />}
       </> : <p>No linked follow-up yet. Use the X-Ray request form to order a follow-up for this problem, or link this examination to an earlier study below when available.</p>}
       {data.user.role === 'doctor' && ((source?.root_order_id && source.study_version === data.studies.at(-1)?.study_version) || candidates.length > 0) && <details style={{ marginTop: 16 }}>
         <summary>{source?.root_order_id ? 'Correct this clinical problem link' : 'Link this existing examination to an earlier study'}</summary>

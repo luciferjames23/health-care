@@ -4,7 +4,7 @@ import {
   fetchDoctors, fetchSchedules, createSchedule, deleteSchedule, updateScheduleStatus, format12HourTime,
   type Doctor, type DoctorSchedule
 } from '../../services/dashboardApi';
-import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
+import ModuleLoadingScreen, { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
@@ -490,7 +490,7 @@ const DoctorSchedules: React.FC = () => {
         </div>
 
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Loading schedules from PostgreSQL database...</div>
+          <TableSkeleton rows={6} columns={7} />
         ) : filteredSchedules.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
             No schedule slots found matching the criteria.

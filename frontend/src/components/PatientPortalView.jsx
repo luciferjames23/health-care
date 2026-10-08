@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 import { apiService } from '../services/api';
 import {
   LayoutDashboard,
@@ -310,33 +311,7 @@ export default function PatientPortalView({ currentUser, onSignOut }) {
   }, [currentUser?.username, currentUser?.patient_id]);
 
   if (loading) {
-    return (
-      <div style={{
-        minHeight: '80vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '16px',
-        color: '#475569'
-      }}>
-        <div style={{
-          width: '42px',
-          height: '42px',
-          border: '3px solid #e2e8f0',
-          borderTopColor: 'oklch(0.5 0.1 200)',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite'
-        }} />
-        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-        <div style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>
-          Loading Your Personal Medical Record...
-        </div>
-        <div style={{ fontSize: '12px', color: '#64748b' }}>
-          Verifying security token and fetching authenticated patient data
-        </div>
-      </div>
-    );
+    return <ModuleLoadingScreen title="Loading Your Personal Medical Record..." subtitle="Verifying your session and retrieving authenticated patient data..." badgeText="Secure Data Sync" layout="cards" statCount={4} />;
   }
 
   if (error || !data) {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 import {
   fetchPatientDetail, updatePatient, isValidEmail, isValidPhone, format12HourTime,
   type Appointment, type Conversation, type PreAdmissionItem
@@ -196,7 +197,7 @@ const PatientProfile: React.FC = () => {
   };
 
   if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading patient data...</div>;
+    return <ModuleLoadingScreen title="Loading Patient Profile..." subtitle="Retrieving patient details and clinical history..." badgeText="Live Data Sync" layout="cards" statCount={4} />;
   }
 
   if (error || !patient) {

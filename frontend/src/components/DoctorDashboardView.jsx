@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiService } from '../services/api';
 import TablePagination from './TablePagination';
+import { TableSkeleton } from './ModuleLoadingScreen';
 
 export default function DoctorDashboardView({ user, onNavigate, onSelectPatient }) {
   const doctorName = user?.name || 'Doctor';
@@ -184,7 +185,7 @@ export default function DoctorDashboardView({ user, onNavigate, onSelectPatient 
         </div>
 
         {loading ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: '#8a9096' }}>Loading appointments schedule…</div>
+          <TableSkeleton rows={5} columns={5} />
         ) : appointments.length === 0 ? (
           <div style={{ padding: '32px', textAlign: 'center', color: '#8a9096' }}>
             No appointments found for the selected date range.

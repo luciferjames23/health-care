@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, extractDischargedPatientIds } from '../services/api';
-import ModuleLoadingScreen from './ModuleLoadingScreen';
+import ModuleLoadingScreen, { CardGridSkeleton } from './ModuleLoadingScreen';
 
 export default function BedDemandView({ onSelectPatient }) {
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
@@ -468,7 +468,7 @@ export default function BedDemandView({ onSelectPatient }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {loading && !bedManagement ? (
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>Loading Ward &amp; Bed Matrix...</div>
+              <CardGridSkeleton count={4} />
               <div style={{ fontSize: '12px' }}>Fetching ward, room & bed data from clinical data system…</div>
             </div>
           ) : filteredWards.length === 0 ? (

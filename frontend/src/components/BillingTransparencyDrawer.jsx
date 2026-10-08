@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import {
   X, AlertTriangle, CheckCircle2, ShieldCheck, FileText, Sparkles,
   Printer, ArrowUpRight, Clock, Stethoscope, RefreshCw, Languages, ChevronRight, HelpCircle, Download
@@ -449,11 +450,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
         {/* Content Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px', backgroundColor: '#f8fafc' }}>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
-              <RefreshCw className="animate-spin" size={32} style={{ margin: '0 auto 12px', color: '#ea580c' }} />
-              <div style={{ fontWeight: 600, fontSize: '14px' }}>Auditing Running Bill & Synthesizing Clinical Notes...</div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>Generating plain-language English & Tamil breakdown</div>
-            </div>
+            <ModuleLoadingScreen title="Loading Billing Transparency..." subtitle="Auditing the bill and preparing the clinical cost breakdown..." badgeText="Live Data Sync" layout="cards" statCount={4} />
           ) : data ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Patient & Financial Overview Card */}
@@ -851,10 +848,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', backgroundColor: '#f8fafc' }}>
               {necessityLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-                  <RefreshCw className="animate-spin" size={24} style={{ margin: '0 auto 8px', color: '#0284c7' }} />
-                  <div>Loading verified clinical audit trail...</div>
-                </div>
+                <TableSkeleton rows={4} columns={4} />
               ) : necessityData ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>

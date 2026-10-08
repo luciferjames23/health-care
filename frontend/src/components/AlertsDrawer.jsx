@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
+import { CardGridSkeleton } from './ModuleLoadingScreen';
 
 /**
  * AlertsDrawer — Hospital Notification Centre Slide-over Panel
@@ -576,9 +577,7 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
           gap: '10px'
         }}>
           {loading && notifications.length === 0 ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '12.5px' }}>
-              Loading alerts...
-            </div>
+            <CardGridSkeleton count={3} />
           ) : filteredList.length === 0 ? (
             <div style={{
               padding: '40px 20px',

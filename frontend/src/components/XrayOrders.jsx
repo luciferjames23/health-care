@@ -5,6 +5,7 @@ import { ImagingHistoryButton } from './ImagingHistory';
 import { studyVersion } from '../services/imagingHistory';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import { Card, btn, primaryBtn } from './RadiologyShared';
+import { TableSkeleton } from './ModuleLoadingScreen';
 
 export default function XrayOrders({ patient, radiologist = false }) {
   const [orders, setOrders] = useState([]);
@@ -145,7 +146,7 @@ export default function XrayOrders({ patient, radiologist = false }) {
     )}
 
     {loading ? (
-      <p>Loading requests…</p>
+      <TableSkeleton rows={6} columns={8} />
     ) : !orders.length ? (
       <p>No X-ray requests yet.</p>
     ) : !filteredOrders.length ? (

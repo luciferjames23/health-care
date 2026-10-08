@@ -120,6 +120,10 @@ export function CardGridSkeleton({ count = 5 }) {
       gridTemplateColumns: `repeat(auto-fit, minmax(210px, 1fr))`,
       gap: '12px'
     }}>
+      <style>{`
+        @keyframes hx-card-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        .hx-shimmer { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: hx-card-shimmer 1.5s infinite ease-in-out; }
+      `}</style>
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}

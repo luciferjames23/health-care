@@ -5,6 +5,7 @@ import {
 } from '../../services/dashboardApi';
 import { CheckCircle, XCircle, RefreshCw, Search, Calendar, UserCheck } from 'lucide-react';
 import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
+import { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const STATUS_CLASS: Record<string, string> = {
   BOOKED: 'pending',
@@ -183,7 +184,7 @@ const DoctorAppointments: React.FC = () => {
       <div className="card">
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading appointments...</div>
+            <TableSkeleton rows={6} columns={8} />
           ) : appointments.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
               No appointments found for the selected date range ({formatFriendlyDate(dateRange.dateFrom)} – {formatFriendlyDate(dateRange.dateTo)}).

@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { fetchPatients, type Patient } from '../../services/dashboardApi';
 import { Eye, Search, RefreshCw } from 'lucide-react';
+import { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const MyPatients: React.FC = () => {
   const { user } = useAuth();
@@ -57,7 +58,7 @@ const MyPatients: React.FC = () => {
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-              {loading ? 'Loading...' : `${patients.length} patient(s)`}
+              {loading ? 'Loading patients…' : `${patients.length} patient(s)`}
             </span>
             <button className="btn btn-secondary btn-sm" onClick={loadPatients} disabled={loading}
               style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -68,7 +69,7 @@ const MyPatients: React.FC = () => {
         </div>
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading patients...</div>
+            <TableSkeleton rows={6} columns={9} />
           ) : patients.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
               {search ? 'No patients match your search.' : 'No patients assigned yet.'}

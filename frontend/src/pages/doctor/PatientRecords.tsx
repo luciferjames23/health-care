@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { fetchPatients, type Patient } from '../../services/dashboardApi';
 import { Eye, Edit3, Search, RefreshCw } from 'lucide-react';
+import { TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const PatientRecords: React.FC = () => {
   const { user } = useAuth();
@@ -62,7 +63,7 @@ const PatientRecords: React.FC = () => {
         </div>
         <div className="table-container">
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>Loading records...</div>
+            <TableSkeleton rows={6} columns={9} />
           ) : patients.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
               {search ? 'No records match your search.' : 'No patient records found.'}
@@ -116,7 +117,7 @@ const PatientRecords: React.FC = () => {
           )}
         </div>
         <div style={{ padding: '12px 22px', fontSize: 13, color: 'var(--text-muted)' }}>
-          {loading ? 'Loading...' : `${patients.length} record(s) shown`}
+          {loading ? 'Loading records…' : `${patients.length} record(s) shown`}
         </div>
       </div>
     </div>

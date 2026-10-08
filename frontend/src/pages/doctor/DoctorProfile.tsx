@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { fetchDashboardSummary, updateDoctorSelfProfile, isValidEmail, isValidPhone, type DashboardSummary } from '../../services/dashboardApi';
 import { Mail, Phone, Building2, Stethoscope, Edit3, Save, X, CheckCircle, Lock, User } from 'lucide-react';
 import logo from '../../assets/logo.svg';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const DoctorProfile: React.FC = () => {
   const { user } = useAuth();
@@ -106,7 +107,7 @@ const DoctorProfile: React.FC = () => {
   const getInitials = (name: string) => name.split(' ').filter(Boolean).map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>Loading profile...</div>;
+    return <ModuleLoadingScreen title="Loading Doctor Profile..." subtitle="Retrieving your professional and account details..." badgeText="Live Data Sync" layout="cards" statCount={4} />;
   }
 
   return (

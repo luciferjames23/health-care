@@ -11,7 +11,7 @@ import {
   Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import ModuleLoadingScreen, { TableSkeleton } from '../../components/ModuleLoadingScreen';
+import ModuleLoadingScreen, { CardGridSkeleton, TableSkeleton } from '../../components/ModuleLoadingScreen';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -1269,7 +1269,7 @@ const PreAdmissionPage: React.FC = () => {
 
             <div style={{ flex: 1, overflowY: 'auto', background: '#f9fafa', padding: '16px' }}>
               {chatLoading ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#8a9096' }}>Loading conversation history...</div>
+                <CardGridSkeleton count={2} />
               ) : !chatData || !chatData.messages || chatData.messages.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#8a9096' }}>
                   No WhatsApp messages exchanged yet for this pre-admission.

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import ModuleLoadingScreen from './ModuleLoadingScreen';
 import {
   X, CheckCircle, ShieldAlert, FileText, Send,
   Sparkles, RefreshCw, Copy, Check,
@@ -381,15 +382,7 @@ export default function ClaimAppealDrawer({
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#f8fafc' }}>
           
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
-              <RefreshCw size={28} style={{ animation: 'spin 1s linear infinite', color: '#dc2626', marginBottom: '12px' }} />
-              <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
-                AG-20 Clinical Denial Engine Auditing Claim...
-              </div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                Parsing rejection reason, classifying denial code, and assembling checklist...
-              </div>
-            </div>
+            <ModuleLoadingScreen title="Loading Claim Appeal..." subtitle="Reviewing the denial reason and assembling appeal details..." badgeText="Live Data Sync" layout="cards" statCount={4} />
           ) : (
             <>
               {error && (

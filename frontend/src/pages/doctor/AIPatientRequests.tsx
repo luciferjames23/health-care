@@ -5,6 +5,7 @@ import {
   type Escalation, type Conversation
 } from '../../services/dashboardApi';
 import { Bot, CheckCircle, MessageSquare, RefreshCw, AlertCircle } from 'lucide-react';
+import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
 const AIPatientRequests: React.FC = () => {
   const { user } = useAuth();
@@ -96,7 +97,7 @@ const AIPatientRequests: React.FC = () => {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>Loading...</div>
+        <ModuleLoadingScreen title="Loading AI Patient Requests..." subtitle="Retrieving escalations and patient conversations..." badgeText="Live Data Sync" layout="table" statCount={3} tableRows={5} tableColumns={6} />
       ) : activeTab === 'escalations' ? (
         /* Escalations Tab */
         <div className="card">

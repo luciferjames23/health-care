@@ -9,6 +9,7 @@ import {
   FileJson
 } from 'lucide-react';
 import { apiService } from '../services/api';
+import { TableSkeleton } from './ModuleLoadingScreen';
 
 const DEFAULT_TABLES = [
   { table_name: 'fact_bed_demand_forecast_7day_detailed', domain: 'Operations', row_count: 350 },
@@ -237,10 +238,7 @@ export default function DataExplorerView({ tables = [], initialTable = 'fact_bed
       {/* Data Table */}
       <div style={{ background: '#ffffff', border: '1px solid #e3e6e8', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
         {loading ? (
-          <div style={{ padding: '48px', textAlign: 'center', color: '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-            <RefreshCw style={{ width: '22px', height: '22px', animation: 'kpi-spin 1s linear infinite', color: '#0284c7' }} />
-            <span style={{ fontSize: '12px' }}>Querying {selectedTable} from Hospital Database...</span>
-          </div>
+          <TableSkeleton rows={6} columns={Math.max(4, columns.length || 0)} />
         ) : filteredRows.length === 0 ? (
           <div style={{ padding: '48px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '14px', fontWeight: 600 }}>No rows found in {selectedTable}</div>

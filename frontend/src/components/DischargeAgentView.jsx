@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
+import { CardGridSkeleton } from './ModuleLoadingScreen';
 
 export default function DischargeAgentView({ onNavigate, initialPatientId = '' }) {
   const [activeTab, setActiveTab] = useState('flow'); // 'flow' | 'inspector'
@@ -748,11 +749,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '420px', overflowY: 'auto', paddingRight: '2px' }}>
-              {loadingPatients && (
-                <div style={{ fontSize: '11px', color: '#8a9096', padding: '8px', textAlign: 'center' }}>
-                  Loading inpatient records...
-                </div>
-              )}
+              {loadingPatients && <CardGridSkeleton count={2} />}
               {!loadingPatients && filteredPatients.length === 0 && (
                 <div style={{ fontSize: '11px', color: '#8a9096', padding: '12px 8px', textAlign: 'center', lineHeight: 1.5 }}>
                   {patientsList.length === 0
