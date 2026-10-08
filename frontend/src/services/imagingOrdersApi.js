@@ -1,8 +1,8 @@
+import { fetchWithTimeout } from './api';
+
 const BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}/api/imaging-orders${path}`, {
-    ...options, headers: { ...options.headers, Authorization: `Bearer ${sessionStorage.getItem('hc_auth_token') || ''}` },
-  });
+  const res = await fetchWithTimeout(`${BASE}/api/imaging-orders${path}`, options);
   const body = await res.json();
   if (!res.ok) {
     let msg = 'Unable to process this order.';

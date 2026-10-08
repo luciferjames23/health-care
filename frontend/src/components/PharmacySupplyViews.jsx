@@ -201,8 +201,9 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
     const patCode = rx.patient_uhid || rx.patientId || rx.patientCode || 'PAT-001';
     const docName = rx.doctor_name || rx.doctor || 'Attending Doctor';
     const drugName = rx.drug_name || rx.drug || rx.items?.[0]?.drug_name || 'Prescription Items';
-    const doseStr = rx.dose || `${rx.dosage || '500 mg'} ${rx.route || 'Oral'} ${rx.frequency || 'BD'}`;
-    const daysStr = rx.days || `${rx.duration || '5 Days'} (${rx.quantity || 10} units)`;
+    const doseStr = rx.dose || [rx.dosage, rx.route, rx.frequency].filter(Boolean).join(' ') || 'Not recorded';
+    const durationParts = [rx.duration, rx.quantity != null ? `${rx.quantity} units` : null].filter(Boolean);
+    const daysStr = rx.days || durationParts.join(' · ') || 'Not recorded';
     const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
     const rxStatus = rx.status || 'Prescribed';
 
@@ -223,8 +224,8 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
         { k: 'Primary Medication', v: `${drugName} (${rx.dosage_form || 'Tablet'} · ${rx.strength || 'Standard'})` },
         { k: 'Prescribed Dosage', v: doseStr },
         { k: 'Duration & Quantity', v: daysStr },
-        { k: 'Administration Instructions', v: rx.instructions || 'Take after meals as advised' },
-        { k: 'Verification Status', v: rx.verifiedBy || 'Verified by Chief Pharmacist' }
+        { k: 'Administration Instructions', v: rx.instructions || 'Not recorded' },
+        { k: 'Verification Status', v: rx.verifiedBy || 'Not recorded' }
       ],
       actions: [
         rxStatus.toLowerCase() !== 'dispensed' ? {
@@ -467,8 +468,9 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
                 const patName = rx.patient_name || rx.patient || 'Patient';
                 const patCode = rx.patient_uhid || rx.patientId || rx.patientCode || 'PAT-001';
                 const drugName = rx.drug_name || rx.drug || rx.items?.[0]?.drug_name || 'Prescription Drug';
-                const doseStr = rx.dose || `${rx.dosage || '500 mg'} ${rx.route || 'Oral'} ${rx.frequency || 'BD'}`;
-                const daysStr = rx.days || `${rx.duration || '5 Days'} (${rx.quantity || 10} units)`;
+                const doseStr = rx.dose || [rx.dosage, rx.route, rx.frequency].filter(Boolean).join(' ') || 'Not recorded';
+                const durationParts = [rx.duration, rx.quantity != null ? `${rx.quantity} units` : null].filter(Boolean);
+                const daysStr = rx.days || durationParts.join(' · ') || 'Not recorded';
                 const docName = rx.doctor_name || rx.doctor || 'Dr. Arjun Menon';
                 const dateStr = rx.prescribed_date || rx.date || '24 Sep 2026';
                 const rxStatus = rx.status || 'Prescribed';

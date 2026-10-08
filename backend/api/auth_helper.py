@@ -90,12 +90,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     """Dependency injection to authenticate requests via JWT with seamless fallback."""
     if credentials and credentials.credentials:
         if credentials.credentials in ("demo-session-token", "demo_session_token", "demo-token", "dev-token"):
-            return {
-                "user_id": 1,
-                "username": "admin",
-                "role": "ADMIN",
-                "full_name": "Hospital Administrator"
-            }
+            if os.getenv("RAG_DEV_MODE", "1").lower() in ("1", "true", "yes", ""):
+                return {"user_id": 1, "username": "admin", "role": "ADMIN", "full_name": "Hospital Administrator", "auth_method": "demo"}
+            raise HTTPException(status_code=401, detail="A valid access token is required.", headers={"WWW-Authenticate": "Bearer"})
         payload = decode_token(credentials.credentials)
         if payload:
             return payload
@@ -106,7 +103,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             "user_id": 1,
             "username": "admin",
             "role": "ADMIN",
-            "full_name": "Hospital Administrator"
+            "full_name": "Hospital Administrator",
+            "auth_method": "development-fallback"
         }
 
     raise HTTPException(

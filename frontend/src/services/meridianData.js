@@ -136,7 +136,7 @@ export const ROLE_PAGE_ACCESS = {
     // Core Data Pages (preserved)
     'command', 'patients', 'criticalvalues', 'diagnostics',
     // Operational & Platform
-    'lab', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant',
+    'lab', 'lab-workqueue', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant',
     // People & Admin
     'hr-dashboard', 'notifications', 'reports'
   ],
@@ -144,7 +144,7 @@ export const ROLE_PAGE_ACCESS = {
     // Core Data Pages (preserved)
     'command', 'patients', 'criticalvalues', 'diagnostics',
     // Operational & Platform
-    'lab', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
+    'lab', 'lab-workqueue', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
     // People & Admin
     'hr-dashboard', 'notifications', 'reports'
   ],

@@ -147,24 +147,29 @@ def get_prescriptions(
                 p.prescription_id as id,
                 'RX-2026-' || p.prescription_id::text as rx_number,
                 p.patient_id,
+                p.visit_id,
+                p.admission_id,
+                p.source,
+                p.source_soap_note_id,
+                p.source_action_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || p.patient_id) as patient,
                 COALESCE(pat.patient_code, 'PAT-' || p.patient_id) as patient_code,
-                COALESCE(d.display_name, 'Dr. Arjun Menon') as doctor,
+                d.display_name as doctor,
                 p.prescription_date as date,
                 COALESCE(p.status, 'Prescribed') as status,
-                COALESCE(m.medication_name, 'Paracetamol 650mg') as drug,
-                COALESCE(m.generic_name, 'Paracetamol') as generic,
-                COALESCE(m.brand_name, 'Dolo 650') as brand,
-                COALESCE(m.category, 'General') as category,
-                COALESCE(m.dosage_form, 'Tablet') as dosage_form,
-                COALESCE(m.strength, '650 mg') as strength,
+                m.medication_name as drug,
+                m.generic_name as generic,
+                m.brand_name as brand,
+                m.category as category,
+                m.dosage_form as dosage_form,
+                m.strength as strength,
                 COALESCE(m.is_high_alert, false) as is_high_alert,
-                COALESCE(pi.dosage, '650 mg') as dosage,
-                COALESCE(pi.frequency, 'TDS') as frequency,
-                COALESCE(pi.route, 'Oral') as route,
-                COALESCE(pi.duration, '5 Days') as duration,
-                COALESCE(pi.quantity, 15) as quantity,
-                COALESCE(pi.instructions, 'Take after meals as advised') as instructions
+                pi.dosage as dosage,
+                pi.frequency as frequency,
+                pi.route as route,
+                pi.duration as duration,
+                pi.quantity as quantity,
+                pi.instructions as instructions
             FROM prescriptions p
             LEFT JOIN patients pat ON p.patient_id = pat.id
             LEFT JOIN doctors d ON p.doctor_id = d.id
@@ -179,9 +184,15 @@ def get_prescriptions(
 
         formatted = []
         for r in rows:
-            dt_str = r['date'].strftime('%d %b %Y, %I:%M %p') if r['date'] else '24 Sep 2026, 10:30 AM'
-            dose_str = f"{r['dosage']} {r['route']} {r['frequency']}"
-            days_str = f"{r['duration']} · {r['quantity']} units"
+            dt_str = r['date'].strftime('%d %b %Y, %I:%M %p') if r['date'] else 'Not recorded'
+            dose_str = ' '.join(str(value) for value in (r['dosage'], r['route'], r['frequency']) if value) or 'Not recorded'
+            duration_parts = [str(r['duration'])] if r['duration'] else []
+            if r['quantity'] is not None:
+                duration_parts.append(f"{r['quantity']} units")
+            days_str = ' · '.join(duration_parts) or 'Not recorded'
+            checks = [f"Category: {r['category']}"] if r['category'] else []
+            if r['instructions']:
+                checks.append(f"Instructions: {r['instructions']}")
 
             formatted.append({
                 "id": r['rx_number'],
@@ -189,6 +200,12 @@ def get_prescriptions(
                 "prescription_number": r['rx_number'],
                 "prescriptionNumber": r['rx_number'],
                 "prescriptionId": r['id'],
+                "patient_id": r['patient_id'],
+                "visit_id": r['visit_id'],
+                "admission_id": r['admission_id'],
+                "source": r['source'],
+                "source_soap_note_id": r['source_soap_note_id'],
+                "source_action_id": str(r['source_action_id']) if r['source_action_id'] else None,
                 "patient": r['patient'],
                 "patient_name": r['patient'],
                 "patientName": r['patient'],
@@ -219,8 +236,8 @@ def get_prescriptions(
                 "dose": dose_str,
                 "days": days_str,
                 "instructions": r['instructions'],
-                "checks": [f"Verified: {r['instructions']}", f"Category: {r['category']}"],
-                "verifiedBy": "S. Devi, RPh" if r['status'].lower() in ('verified', 'dispensed') else "Pending Verification",
+                "checks": checks,
+                "verifiedBy": None,
                 "items_count": 1,
                 "items": [{
                     "drug_name": r['drug'],
@@ -241,7 +258,7 @@ def get_prescriptions(
             "total_prescriptions": stat_row.get('total') or len(formatted),
             "active": stat_row.get('active') or 0,
             "dispensed": stat_row.get('dispensed') or 0,
-            "total_items": stat_row.get('total_items') or (len(formatted) * 2)
+            "total_items": stat_row.get('total_items') or 0
         }
 
         return {"success": True, "total": total, "count": len(formatted), "stats": stats, "data": formatted}

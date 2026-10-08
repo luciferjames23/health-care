@@ -50,7 +50,7 @@ SELECT o.*, COALESCE((SELECT jsonb_agg(jsonb_build_object(
        COALESCE(d.display_name,u.staff_name,u.username) AS requested_by_name,
        prior.accession_number AS follow_up_accession,prior.study_version AS follow_up_version
 FROM radiology_orders o JOIN patients p ON p.id=o.patient_id
-JOIN users u ON u.id=o.requested_by LEFT JOIN doctors d ON d.user_id=u.id
+LEFT JOIN users u ON u.id=o.requested_by LEFT JOIN doctors d ON d.user_id=u.id
 LEFT JOIN radiology_orders prior ON prior.order_id=o.follow_up_of
 """
 
@@ -80,6 +80,15 @@ def list_orders(patient_id: int | None = Query(None, gt=0), user=Depends(order_u
 
 @router.post('', status_code=201)
 def create_order(body: NewOrder, user=Depends(order_user)):
+    with db_config.get_db_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            row = create_order_record(cur, body, user)
+        conn.commit()
+        return row
+
+
+def create_order_record(cur, body: NewOrder, user: dict, provenance: dict | None = None):
+    """Create an imaging request through the same validated workflow as the API."""
     if user['role'] != 'doctor':
         raise HTTPException(403, 'Only a signed-in doctor can request an X-ray.')
     if len(body.indication.strip()) < 3:
@@ -90,46 +99,65 @@ def create_order(body: NewOrder, user=Depends(order_user)):
         raise HTTPException(422, 'A follow-up inherits its clinical problem from the prior study.')
     order_id = str(body.request_id)
     accession = 'XR' + body.request_id.hex[:14].upper()
-    with db_config.get_db_connection() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Guard: table may not exist in this environment
-            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='radiology_orders' LIMIT 1")
-            if not cur.fetchone():
-                raise HTTPException(503, 'X-ray ordering is not set up in this database. Run the database migration scripts first.')
-            cur.execute('SELECT id FROM patients WHERE id=%s', (body.patient_id,))
-            if not cur.fetchone():
-                raise HTTPException(404, 'Patient not found.')
-            from routers.imaging_history import lock_patient, followup_fields, audit_link
-            lock_patient(cur, body.patient_id)
-            cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
-            existing = cur.fetchone()
-            root_id, version = None, 1
-            problem = (body.clinical_problem or body.indication).strip()
-            if not existing:
-                if body.follow_up_of:
-                    root_id, version, problem = followup_fields(cur, body.follow_up_of, body.patient_id, user)
-                cur.execute('''INSERT INTO radiology_orders(order_id,accession_number,patient_id,requested_by,examination,indication,priority,
-                    root_order_id,follow_up_of,study_version,clinical_problem)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (order_id) DO NOTHING''',
-                    (order_id, accession, body.patient_id, user['user_id'], body.examination, body.indication.strip(), body.priority,
-                     root_id,str(body.follow_up_of) if body.follow_up_of else None,version,problem))
-                if cur.rowcount == 1 and body.follow_up_of:
-                    audit_link(cur, order_id, body.follow_up_of, user, 'Requested follow-up study', body.indication.strip())
-            cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
-            row = dict(cur.fetchone())
-            if row['requested_by'] != user['user_id'] or row['patient_id'] != body.patient_id or row['examination'] != body.examination or row['indication'] != body.indication.strip() or row['priority'] != body.priority:
-                raise HTTPException(409, 'This request identifier is already used. Start a new order.')
-            if str(row.get('follow_up_of')) != str(body.follow_up_of) or (not body.follow_up_of and (row.get('clinical_problem') or row['indication']) != problem):
-                raise HTTPException(409, 'This request identifier has different clinical problem details. Start a new order.')
-            projections = ['PA', 'AP'] if body.examination == 'Chest X-ray PA + AP' else [body.examination.rsplit(' ', 1)[-1]]
-            for projection in projections:
-                key = order_id if len(projections) == 1 else str(uuid.uuid5(body.request_id, projection))
-                cur.execute('''INSERT INTO radiology_order_studies(study_key,order_id,projection)
-                    VALUES (%s,%s,%s) ON CONFLICT (order_id,projection) DO NOTHING''', (key,order_id,projection))
-            cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
-            row = dict(cur.fetchone())
-            conn.commit()
-            return row
+    cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='radiology_orders' LIMIT 1")
+    if not cur.fetchone():
+        raise HTTPException(503, 'X-ray ordering is not set up in this database. Run the database migration scripts first.')
+    cur.execute('SELECT id FROM patients WHERE id=%s', (body.patient_id,))
+    if not cur.fetchone():
+        raise HTTPException(404, 'Patient not found.')
+    if provenance:
+        cur.execute('SELECT patient_id FROM patient_visits WHERE visit_id=%s', (provenance['visit_id'],))
+        visit = cur.fetchone()
+        if not visit or int(visit['patient_id']) != int(body.patient_id):
+            raise HTTPException(400, 'The imaging visit does not belong to the requested patient.')
+        if provenance.get('admission_id') is not None:
+            cur.execute('SELECT patient_id,visit_id FROM admissions WHERE admission_id=%s', (provenance['admission_id'],))
+            admission = cur.fetchone()
+            if (not admission or int(admission['patient_id']) != int(body.patient_id)
+                    or int(admission['visit_id']) != int(provenance['visit_id'])):
+                raise HTTPException(400, 'The imaging admission does not belong to the requested patient and visit.')
+    from routers.imaging_history import lock_patient, followup_fields, audit_link
+    lock_patient(cur, body.patient_id)
+    cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
+    existing = cur.fetchone()
+    root_id, version = None, 1
+    problem = (body.clinical_problem or body.indication).strip()
+    if not existing:
+        if body.follow_up_of:
+            root_id, version, problem = followup_fields(cur, body.follow_up_of, body.patient_id, user)
+        if provenance:
+            cur.execute('''INSERT INTO radiology_orders(order_id,accession_number,patient_id,requested_by,examination,indication,priority,
+                root_order_id,follow_up_of,study_version,clinical_problem,visit_id,admission_id,source,source_soap_note_id,source_action_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (order_id) DO NOTHING''',
+                (order_id, accession, body.patient_id, user['user_id'], body.examination, body.indication.strip(), body.priority,
+                 root_id,str(body.follow_up_of) if body.follow_up_of else None,version,problem,
+                 provenance['visit_id'], provenance.get('admission_id'), 'AG17',
+                 provenance['soap_note_id'], provenance['action_id']))
+        else:
+            cur.execute('''INSERT INTO radiology_orders(order_id,accession_number,patient_id,requested_by,examination,indication,priority,
+                root_order_id,follow_up_of,study_version,clinical_problem)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (order_id) DO NOTHING''',
+                (order_id, accession, body.patient_id, user['user_id'], body.examination, body.indication.strip(), body.priority,
+                 root_id,str(body.follow_up_of) if body.follow_up_of else None,version,problem))
+        if cur.rowcount == 1 and body.follow_up_of:
+            audit_link(cur, order_id, body.follow_up_of, user, 'Requested follow-up study', body.indication.strip())
+    cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
+    row = dict(cur.fetchone())
+    if row['requested_by'] != user['user_id'] or row['patient_id'] != body.patient_id or row['examination'] != body.examination or row['indication'] != body.indication.strip() or row['priority'] != body.priority:
+        raise HTTPException(409, 'This request identifier is already used. Start a new order.')
+    if str(row.get('follow_up_of')) != str(body.follow_up_of) or (not body.follow_up_of and (row.get('clinical_problem') or row['indication']) != problem):
+        raise HTTPException(409, 'This request identifier has different clinical problem details. Start a new order.')
+    if provenance and (str(row.get('source_action_id')) != str(provenance.get('action_id'))
+                       or row.get('source_soap_note_id') != provenance.get('soap_note_id')
+                       or row.get('visit_id') != provenance.get('visit_id')):
+        raise HTTPException(409, 'This request identifier has different SOAP provenance. Start a new order.')
+    projections = ['PA', 'AP'] if body.examination == 'Chest X-ray PA + AP' else [body.examination.rsplit(' ', 1)[-1]]
+    for projection in projections:
+        key = order_id if len(projections) == 1 else str(uuid.uuid5(body.request_id, projection))
+        cur.execute('''INSERT INTO radiology_order_studies(study_key,order_id,projection)
+            VALUES (%s,%s,%s) ON CONFLICT (order_id,projection) DO NOTHING''', (key,order_id,projection))
+    cur.execute(ORDER_SELECT + ' WHERE o.order_id=%s', (order_id,))
+    return dict(cur.fetchone())
 
 
 PATIENT_MAPPING_SQL = """SELECT DISTINCT p.id,p.patient_code FROM patients p
