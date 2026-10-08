@@ -37,8 +37,8 @@ def get_db_intent(intent: str) -> str:
 PATTERNS = {
     # ---- Priority 0: EMERGENCY (checked first, always) ----
     "EMERGENCY_GUIDANCE": [
-        r"\b(chest\s*pain|severe\s*chest|breathing\s*difficulty|shortness\s*of\s*breath|cant\s*breathe|can't\s*breathe|"
-        r"cannot\s*breathe|not\s*breathing|breathe\s*difficulty|trouble\s*breathing|"
+        r"\b(severe\s*chest\s*pain|acute\s*chest\s*pain|severe\s*breathing\s*difficulty|shortness\s*of\s*breath|cant\s*breathe|can't\s*breathe|"
+        r"cannot\s*breathe|not\s*breathing|trouble\s*breathing|"
         r"heart\s*attack|severe\s*bleeding|heavy\s*bleed|unconscious|stroke|seizure|convulsion|"
         r"accident|trauma|emergency|paralysis|sudden\s*numbness|anaphylaxis|allergic\s*reaction|"
         r"severe\s*head\s*injury|overdose|poisoning)\b",

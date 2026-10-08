@@ -60,13 +60,14 @@ DEPARTMENT_SYMPTOM_MAP = {
         "eczema", "psoriasis", "itching", "itchying", "skin itching", "scalp", "itchy", "skin is itchy", "my skin is itchy", "itchy skin"
     ],
     "General Medicine": [
-        "fever", "fevr", "fevar", "feveer", "feverr", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever",
+        "fever", "fevr", "fevar", "feveer", "feverr", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever", "corona", "corona virus", "covid", "covid 19", "covid-19", "viral",
         "general weakness", "body pain", "body ache", "fatigue", "vomiting",
         "diarrhea", "headache", "migraine", "stomach pain", "stomach ache",
-        "nausea", "dizziness", "don't feel well", "not feeling well", "feel unwell", "unwell", "ill", "i have pain", "pain", "payn", "payning"
+        "nausea", "dizziness"
     ],
     "Cardiology": [
         "chest pain", "chest hurts", "my chest hurts", "chest hurting", "chest ache", "heart pain", "heart problem", "palpitations",
+        "breathing difficulty", "shortness of breath", "breathlessness", "breathing problem", "breathing",
         "high blood pressure", "hypertension", "angina"
     ],
     "Pediatrics": [
@@ -93,8 +94,8 @@ DEPARTMENT_SYMPTOM_MAP = {
 }
 
 EMERGENCY_SYMPTOMS = [
-    "chest pain", "can't breathe", "cannot breathe", "not breathing",
-    "severe breathing problem", "breathing difficulty", "shortness of breath",
+    "severe chest pain", "can't breathe", "cannot breathe", "not breathing",
+    "severe breathing problem", "severe breathing difficulty", "shortness of breath",
     "unconscious", "unconsciousness", "severe bleeding", "major bleeding",
     "stroke symptoms", "heart attack", "choking"
 ]

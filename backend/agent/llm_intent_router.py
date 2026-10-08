@@ -169,12 +169,58 @@ INTENT_NORMALISATION_MAP = {
 }
 
 # ---------------------------------------------------------------------------
-# Departments that must match the DB department_name column exactly
+# Dynamic DB Active Departments Helper (30s TTL cache)
 # ---------------------------------------------------------------------------
+_DEPARTMENTS_CACHE = None
+_DEPARTMENTS_CACHE_TIME = 0.0
+
+def get_active_departments_from_db() -> list:
+    """
+    Fetches active departments directly from database with 30s TTL caching.
+    Returns list of dicts: [{'id': int, 'department_code': str, 'department_name': str, 'description': str}, ...]
+    """
+    global _DEPARTMENTS_CACHE, _DEPARTMENTS_CACHE_TIME
+    import time
+    now = time.time()
+    if _DEPARTMENTS_CACHE is not None and (now - _DEPARTMENTS_CACHE_TIME) < 30.0:
+        return _DEPARTMENTS_CACHE
+    try:
+        import db_config
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, department_code, department_name, description
+            FROM departments
+            WHERE UPPER(status) = 'ACTIVE'
+            ORDER BY id
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        depts = []
+        for r in rows:
+            depts.append({
+                "id": r[0],
+                "department_code": r[1] or "",
+                "department_name": r[2] or "",
+                "description": r[3] or ""
+            })
+        if depts:
+            _DEPARTMENTS_CACHE = depts
+            _DEPARTMENTS_CACHE_TIME = now
+            return depts
+    except Exception as e:
+        _log(f"Error fetching active departments from DB: {e}")
+    if _DEPARTMENTS_CACHE is not None:
+        return _DEPARTMENTS_CACHE
+    return []
+
+# Fallback set if DB is unavailable
 VALID_DEPARTMENTS = {
     "General Medicine", "Cardiology", "Pediatrics",
     "Orthopedics", "Dermatology", "ENT", "Gynecology", "Neurology",
 }
+
 
 # ---------------------------------------------------------------------------
 # Logging helper
@@ -421,6 +467,13 @@ def _build_prompt(
 
     tomorrow_str = (_get_ist_now().date() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
+    active_depts = get_active_departments_from_db()
+    dept_lines = []
+    for d in active_depts:
+        desc = f" - {d['description']}" if d.get('description') else ""
+        dept_lines.append(f"- ID {d['id']}: {d['department_name']}{desc}")
+    dept_list_str = "\n".join(dept_lines) if dept_lines else "- ID 17: General Medicine\n- ID 18: Cardiology"
+
     prompt = f"""You are the Patient Intent Router for Meridian Hospital's AI Patient Desk.
 Your ONLY job is to classify the patient's intent and extract structured entities from their message.
 
@@ -474,15 +527,8 @@ CRITICAL RULES:
 CURRENT DATE & TIME (IST): {now_str}  ({weekday_str})
 TODAY: {today_str}
 
-HOSPITAL DEPARTMENTS (must match exactly one of these names or null):
-- General Medicine
-- Cardiology
-- Pediatrics
-- Orthopedics
-- Dermatology
-- ENT
-- Gynecology
-- Neurology
+ACTIVE HOSPITAL DEPARTMENTS IN DATABASE (must select department_id and department_name from this exact list, or null if uncertain):
+{dept_list_str}
 
 SYMPTOM → DEPARTMENT SEMANTIC MAPPING (use semantic understanding, not just keywords):
 - Hair loss, hair falling, hair thinning, baldness, dandruff, scalp problems, acne, pimples, skin rash, eczema, psoriasis, itching, skin allergy, skin infection → Dermatology
@@ -555,7 +601,8 @@ Return ONLY a JSON object with these exact fields (no explanation, no markdown):
   "symptoms": [<list of symptom strings, or []>],
   "medical_reason": "<symptom/visit-reason extracted from THIS message, or null>",
   "reason_raw_quote": "<exact substring from THIS message that supports medical_reason, or null>",
-  "department": "<department name from the list above, or null>",
+  "department_id": <int matching DB department ID from the active list above, or null>,
+  "department": "<department_name matching DB department from active list above, or null>",
   "doctor_name": "<doctor name ONLY if patient explicitly requested a specific doctor in THIS message, otherwise null>",
   "doctor_raw_quote": "<exact substring from THIS message that supports doctor_name, or null>",
   "patient_type": "EXISTING" | "FIRST_TIME" | null,
@@ -663,13 +710,38 @@ def _validate_and_normalise(parsed: dict, message_text: str, current_state: dict
     except (TypeError, ValueError):
         confidence = 0.5
 
-    # --- Department validation ---
-    dept = parsed.get("department")
-    if dept and dept not in VALID_DEPARTMENTS:
-        # Try case-insensitive fix
-        dept_lower = dept.lower()
-        found = next((d for d in VALID_DEPARTMENTS if d.lower() == dept_lower), None)
-        dept = found  # None if not found
+    # --- Dynamic Department Validation ---
+    active_depts = get_active_departments_from_db()
+    dept_id_map = {d["id"]: d["department_name"] for d in active_depts}
+    dept_name_map = {d["department_name"].lower(): d for d in active_depts}
+
+    raw_dept_id = parsed.get("department_id")
+    raw_dept_name = parsed.get("department")
+
+    dept_id = None
+    dept = None
+
+    if raw_dept_id is not None:
+        try:
+            cand_id = int(raw_dept_id)
+            if cand_id in dept_id_map:
+                dept_id = cand_id
+                dept = dept_id_map[cand_id]
+        except (ValueError, TypeError):
+            pass
+
+    if not dept and raw_dept_name:
+        clean_dname = str(raw_dept_name).strip().lower()
+        if clean_dname in dept_name_map:
+            matched_dept = dept_name_map[clean_dname]
+            dept = matched_dept["department_name"]
+            dept_id = matched_dept["id"]
+        else:
+            found_d = next((d for d in active_depts if d["department_name"].lower() in clean_dname or clean_dname in d["department_name"].lower()), None)
+            if found_d:
+                dept = found_d["department_name"]
+                dept_id = found_d["id"]
+
 
     # --- Doctor Name (extracted ONLY if explicitly requested by patient) ---
     doc_name = parsed.get("doctor_name") or parsed.get("doctor_preference")
@@ -808,6 +880,7 @@ def _validate_and_normalise(parsed: dict, message_text: str, current_state: dict
         "symptoms":              symptoms,
         "medical_reason":        med_reason,
         "reason_raw_quote":      _clean_quote(parsed.get("reason_raw_quote")),
+        "department_id":         dept_id,
         "department":            dept,
         "doctor_name":           doc_name,
         "doctor_raw_quote":      _clean_quote(parsed.get("doctor_raw_quote")),

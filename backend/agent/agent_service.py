@@ -7795,6 +7795,31 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 cur.close()
                 conn.close()
 
+        msg_l_check = (message_text or "").lower().strip()
+        specific_body_part_or_dept = any(b in msg_l_check for b in [
+            "chest", "heart", "knee", "joint", "back", "bone", "skin", "hair", "ear", "throat",
+            "nose", "eye", "stomach", "fever", "cough", "cold", "acne", "rash", "pregnant", "pregnancy"
+        ])
+        is_ambig_symptom = (
+            msg_l_check in ["i have pain", "pain", "my pain", "i don't feel well", "not feeling well", "don't feel well", "unwell", "ill", "having pain", "feel sick"] or
+            (any(phrase in msg_l_check for phrase in ["i have pain", "don't feel well", "not feeling well", "feel unwell"]) and not specific_body_part_or_dept)
+        )
+        if is_ambig_symptom:
+            if "pain" in msg_l_check:
+                response_text = "Could you tell me where you are experiencing the pain, such as chest, stomach, back, knee, or somewhere else?"
+            else:
+                response_text = "Could you please describe what symptom or health issue you are experiencing (e.g., fever, cold, skin rash, joint pain)?"
+            state["conversation_state"] = "BOOKING_REASON_REQUIRED"
+            state["previous_question"] = "ask_booking_symptom"
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+            return {
+                "response": response_text,
+                "intent": "BOOK_APPOINTMENT",
+                "language": current_lang,
+                "interactive_buttons": []
+            }
+
         if existing_patient:
             p_name = format_patient_full_name(existing_patient.get("first_name"), existing_patient.get("last_name"), existing_patient.get("full_name"))
             if current_lang == "TAMIL":
@@ -8302,6 +8327,29 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         state["interactive_buttons"] = []
         msg_lower = (message_text or "").lower()
         is_change_doc_req = any(kw in msg_lower for kw in ["change doctor", "another doctor", "different doctor", "switch doctor", "show another doctor"])
+
+        # Resolve new department if extracted in current turn
+        extracted_dept_id = llm_route.get("department_id")
+        extracted_dept_name = llm_route.get("department") or extracted.get("department") or entity_extractor.map_symptom_to_department_name(message_text)
+        if extracted_dept_id or extracted_dept_name:
+            conn = db_config.get_db_connection()
+            cur = conn.cursor()
+            try:
+                row = None
+                if extracted_dept_id:
+                    cur.execute("SELECT id, department_name FROM departments WHERE id = %s AND UPPER(status) = 'ACTIVE';", (extracted_dept_id,))
+                    row = cur.fetchone()
+                if not row and extracted_dept_name:
+                    cur.execute("SELECT id, department_name FROM departments WHERE LOWER(department_name) = LOWER(%s) AND UPPER(status) = 'ACTIVE';", (extracted_dept_name,))
+                    row = cur.fetchone()
+                if row:
+                    state["entities"]["department_id"] = row[0]
+                    state["department_name"] = row[1]
+                    state["selected_department_name"] = row[1]
+                    state["selected_department_id"] = row[0]
+            finally:
+                cur.close()
+                conn.close()
 
         if is_change_doc_req:
             state["selected_doctor_id"] = None
@@ -9466,50 +9514,68 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
                 state["booking_stage"] = None
                 state["previous_question"] = None
-                symptom_input = extracted_reason or message_text.strip()
 
-                # Map symptom to department (using LLM extracted department first, then map_symptom_to_department_name)
+                # Use current message text if provided, otherwise extracted reason
+                if message_text and not message_text.strip().lower().startswith("btn_") and message_text.strip().lower() not in _generic_booking_kws:
+                    symptom_input = message_text.strip()
+                else:
+                    symptom_input = extracted_reason or "consultation"
+
+                extracted_dept_id = llm_route.get("department_id")
                 dept_name = extracted_dept or entity_extractor.map_symptom_to_department_name(symptom_input)
+
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 try:
-                    cur.execute("SELECT id, department_name FROM departments WHERE department_name ILIKE %s AND status = 'ACTIVE';", (dept_name,))
-                    row = cur.fetchone()
+                    row = None
+                    if extracted_dept_id:
+                        cur.execute("SELECT id, department_name FROM departments WHERE id = %s AND UPPER(status) = 'ACTIVE';", (extracted_dept_id,))
+                        row = cur.fetchone()
+                    if not row and dept_name:
+                        cur.execute("SELECT id, department_name FROM departments WHERE LOWER(department_name) = LOWER(%s) AND UPPER(status) = 'ACTIVE';", (dept_name,))
+                        row = cur.fetchone()
+                    if not row and dept_name:
+                        cur.execute("SELECT id, department_name FROM departments WHERE department_name ILIKE %s AND UPPER(status) = 'ACTIVE';", (f"%{dept_name}%",))
+                        row = cur.fetchone()
                     if not row:
-                        response_text = language_service.translate_response("NO_DOCTORS_AVAILABLE", current_lang, dept=dept_name)
-                        state_manager.save_conversation_state(conversation_code, state)
-                        log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
-                        return {
-                            "response": response_text,
-                            "intent": "BOOK_APPOINTMENT",
-                            "language": current_lang,
-                            "interactive_buttons": []
-                        }
-                    dept_id, resolved_dept_name = row[0], row[1]
+                        cur.execute("SELECT id, department_name FROM departments WHERE id = 17 AND UPPER(status) = 'ACTIVE';")
+                        row = cur.fetchone()
 
-                    print(f"[DATABASE_LOOKUP] Querying active doctors for department_id={dept_id}")
-                    cur.execute("SELECT id, display_name, specialization FROM doctors WHERE department_id = %s AND status = 'ACTIVE' ORDER BY id;", (dept_id,))
+                    dept_id, resolved_dept_name = row[0], row[1]
+                    print(f"[DATABASE_LOOKUP] Querying active doctors for department_id={dept_id} ({resolved_dept_name})")
+                    cur.execute("SELECT id, display_name, specialization FROM doctors WHERE department_id = %s AND UPPER(status) = 'ACTIVE' ORDER BY id;", (dept_id,))
                     docs = cur.fetchall()
                 finally:
                     cur.close()
                     conn.close()
 
                 if not docs:
-                    response_text = language_service.translate_response("NO_DOCTORS_AVAILABLE", current_lang, dept=resolved_dept_name)
+                    response_text = (
+                        f"For *{symptom_input}*, our *\"{resolved_dept_name}\"* department currently has no active doctors listed for online booking.\n\n"
+                        f"You can contact our hospital front desk directly or select a different department."
+                    )
+                    state["conversation_state"] = "AWAITING_REASON"
                     state_manager.save_conversation_state(conversation_code, state)
                     log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
                     return {
                         "response": response_text,
                         "intent": "BOOK_APPOINTMENT",
                         "language": current_lang,
-                        "interactive_buttons": []
+                        "interactive_buttons": [
+                            {"id": "btn_another_dept", "title": "Choose Department"},
+                            {"id": "btn_front_desk", "title": "Contact Front Desk"}
+                        ]
                     }
 
                 state["entities"]["department_id"] = dept_id
                 state["department_name"] = resolved_dept_name
+                state["selected_department_name"] = resolved_dept_name
+                state["selected_department_id"] = dept_id
                 state["entities"]["reason"] = symptom_input.capitalize()
-                # DO NOT auto-assign doctor_id! doctor_id remains None until selected by patient.
                 state["entities"]["doctor_id"] = None
+                state["doctor_name"] = None
+                state["selected_doctor_id"] = None
+                state["selected_doctor_name"] = None
 
                 target_date = state["entities"].get("appointment_date")
 
@@ -10992,8 +11058,33 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             ]
 
     else:
-        # ── LLM-powered fallback for UNKNOWN / unmatched intents ────────────
+        # ── Check for ambiguous symptom in UNKNOWN intent fallback ────────────
         msg_l_feat = message_text.lower().strip()
+        specific_body_part_or_dept = any(b in msg_l_feat for b in [
+            "chest", "heart", "knee", "joint", "back", "bone", "skin", "hair", "ear", "throat",
+            "nose", "eye", "stomach", "fever", "cough", "cold", "acne", "rash", "pregnant", "pregnancy"
+        ])
+        is_ambig_symptom = (
+            msg_l_feat in ["i have pain", "pain", "my pain", "i don't feel well", "not feeling well", "don't feel well", "unwell", "ill", "having pain", "feel sick"] or
+            (any(phrase in msg_l_feat for phrase in ["i have pain", "don't feel well", "not feeling well", "feel unwell"]) and not specific_body_part_or_dept)
+        )
+        if is_ambig_symptom:
+            if "pain" in msg_l_feat:
+                response_text = "Could you tell me where you are experiencing the pain, such as chest, stomach, back, knee, or somewhere else?"
+            else:
+                response_text = "Could you please describe what symptom or health issue you are experiencing (e.g., fever, cold, skin rash, joint pain)?"
+            state["conversation_state"] = "BOOKING_REASON_REQUIRED"
+            state["previous_question"] = "ask_booking_symptom"
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+            return {
+                "response": response_text,
+                "intent": "BOOK_APPOINTMENT",
+                "language": current_lang,
+                "interactive_buttons": []
+            }
+
+        # ── LLM-powered fallback for UNKNOWN / unmatched intents ────────────
         is_features_query = any(w in msg_l_feat for w in [
             "feature", "features", "available features", "what can you do",
             "what do you do", "capabilities", "help me", "how can you help",

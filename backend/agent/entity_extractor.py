@@ -379,14 +379,14 @@ def extract_entities(text: str) -> dict:
     return entities
 
 
-def map_symptom_to_department_name(text: str) -> str:
+def map_symptom_to_department_name(text: str) -> Optional[str]:
     """
     Maps a symptom/disease description to the most appropriate hospital department name.
     Rules are ordered from MOST SPECIFIC to LEAST SPECIFIC to avoid false positives.
-    CRITICAL: Dermatology keywords (hair, skin) must be checked BEFORE General Medicine.
+    Returns None if no department matches (avoiding hardcoded defaults).
     """
     if not text:
-        return "General Medicine"
+        return None
     text_lower = text.lower()
 
     rules = [
@@ -417,7 +417,7 @@ def map_symptom_to_department_name(text: str) -> str:
         ),
         # 3. CARDIOLOGY — before General Medicine (chest-related)
         (
-            r"(?:\b(chest\s*pain|chest\s*hurts|chest\s*hurting|chest\s*ache|heart|cardio|cardiac|palpitations|breathlessness|"
+            r"(?:\b(chest|chest\s*pain|chest\s*hurts|chest\s*hurting|chest\s*ache|heart|cardio|cardiac|palpitations|breathing|breath|breathlessness|"
             r"chest\s*tightness|blood\s*pressure|hypertension|cardiologist|cardiology)\b|"
             r"நெஞ்சு\s*வலி|இதயம்|மாரடைப்பு|सीने\s*में\s*दर्द|छाती\s*में\s*दर्द|दिल|ఛాతీ\s*నొప్పి|గుండె|നെഞ്ചുവേദന|ഹൃദയം|ಎದೆ\s*ನೋವು)",
             "Cardiology"
@@ -465,7 +465,7 @@ def map_symptom_to_department_name(text: str) -> str:
         if re.search(pattern, text_lower):
             return dept_name
 
-    return "General Medicine"
+    return None
 
 
 def extract_relationship(text: str) -> dict:

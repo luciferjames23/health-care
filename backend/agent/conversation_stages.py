@@ -457,8 +457,8 @@ def _accept_field(state: dict, field: str, value: Any, log_fn, permissive: bool 
             target(state, value)
         else:
             existing = state.get(target)
-            if target == "department_name" and value and existing and str(existing).strip().lower() != str(value).strip().lower():
-                log_fn(f"  DEPT CHANGE {existing!r} -> {value!r}: clearing stale doctor & date selection")
+            if target == "department_name" and value:
+                log_fn(f"  DEPARTMENT SET {existing!r} -> {value!r}: resetting doctor & slot selection for new turn context")
                 state["doctor_name"] = None
                 state["selected_doctor_id"] = None
                 state["selected_doctor_name"] = None
