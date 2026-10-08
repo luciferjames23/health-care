@@ -59,6 +59,7 @@ import DoctorsView from './components/DoctorsView';
 import EscalationPage from './pages/admin/EscalationPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
+import TodaysQueueView from './pages/doctor/TodaysQueueView';
 import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
 import PatientCreateAndManageView from './components/PatientCreateAndManageView';
@@ -749,6 +750,12 @@ export default function App() {
             )}
             {activePage === 'doctor-portal' && (
               <DoctorDashboard
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
+                onSelectPatient={handleSelectPatient}
+              />
+            )}
+            {activePage === 'todays-queue' && (
+              <TodaysQueueView
                 onNavigate={(p, pat) => handleNavigate(p, pat)}
                 onSelectPatient={handleSelectPatient}
               />

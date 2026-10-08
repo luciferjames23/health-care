@@ -22,6 +22,7 @@ export const NAV_GROUPS = [
     items: [
       { id: 'clinical', label: 'Clinical Workspace' },
       { id: 'doctor-portal', label: 'Doctor Clinical Desk', badge: 'Portal' },
+      { id: 'todays-queue', label: "Today's Queue", badge: 'OPD' },
       { id: 'nursing', label: 'Nursing Workspace' },
       { id: 'medications', label: 'Medication Administration' },
       { id: 'surgery', label: 'OT & Surgery' },

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search, Filter, CheckCircle, XCircle, RefreshCw,
-  Download, ArrowUpDown, Clock, Calendar, User, Stethoscope, Building
+  Download, ArrowUpDown, Clock, Calendar, User, Stethoscope, Building, UserCheck
 } from 'lucide-react';
 import {
-  fetchAppointments, fetchDoctors, fetchDepartments, updateAppointmentStatus,
+  fetchAppointments, fetchDoctors, fetchDepartments, updateAppointmentStatus, checkInPatient,
   format12HourTime,
   type Appointment, type Doctor, type Department
 } from '../../services/dashboardApi';
@@ -249,6 +249,16 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       loadAppointments();
     } else {
       showToast('❌ Status update failed. Check the backend.');
+    }
+  };
+
+  const handleCheckIn = async (appointmentId: number, patientName: string) => {
+    const res = await checkInPatient(appointmentId);
+    if (res.success) {
+      showToast(`✅ Patient ${patientName} checked in. Token #${res.data?.token_number} assigned.`);
+      loadAppointments();
+    } else {
+      showToast(`❌ ${res.error || 'Check-in failed.'}`);
     }
   };
 
@@ -570,9 +580,10 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                 <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Date</th>
                 <th style={{ padding: '10px 12px', width: '145px', minWidth: '145px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Time</th>
                 <th style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
+                <th style={{ padding: '10px 12px', width: '130px', minWidth: '130px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Queue Token</th>
                 <th style={{ padding: '10px 12px', width: '125px', minWidth: '125px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Source</th>
                 <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Created</th>
-                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
+                <th style={{ padding: '10px 12px', width: '150px', minWidth: '150px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -661,6 +672,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                       </span>
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      {a.queue_status ? (
+                        <span
+                          style={{
+                            background: '#e0f2fe',
+                            color: '#0369a1',
+                            border: '1px solid #bae6fd',
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 600,
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block'
+                          }}
+                        >
+                          Token #{a.token_number} ({a.queue_status})
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '10.5px', color: '#8a9096' }}>Not Checked In</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '4px', padding: '2px 7px', fontSize: '10.5px', color: '#52585e', whiteSpace: 'nowrap', display: 'inline-block' }}>
                         {formatSourceLabel(a.booking_source)}
                       </span>
@@ -670,6 +702,20 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        {!a.queue_status && (a.status === 'CONFIRMED' || a.status === 'BOOKED') && (
+                          <button
+                            type="button"
+                            onClick={() => handleCheckIn(a.id, a.patient_name)}
+                            title="Check In Patient to Queue"
+                            style={{
+                              height: '24px', padding: '0 8px', borderRadius: '4px', border: '1px solid #bae6fd',
+                              background: '#f0f9ff', color: '#0369a1', fontSize: '11px',
+                              fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3
+                            }}
+                          >
+                            <UserCheck size={12} /> Check In
+                          </button>
+                        )}
                         {a.status === 'BOOKED' && (
                           <button
                             type="button"

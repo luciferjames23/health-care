@@ -258,6 +258,7 @@ export function isPageAllowed(role, page) {
     'patient360': 'patients',
     'soap': 'clinical',
     'doctor-portal': 'clinical',
+    'todays-queue': 'clinical',
     'lab': 'lab',
     'lab-dashboard': 'lab',
     'lab-workqueue': 'lab',

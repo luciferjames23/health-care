@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
-  fetchAppointments, updateAppointmentStatus, format12HourTime, type Appointment
+  fetchAppointments, updateAppointmentStatus, format12HourTime, checkInPatient, type Appointment
 } from '../../services/dashboardApi';
-import { CheckCircle, XCircle, RefreshCw, Search, Calendar } from 'lucide-react';
+import { CheckCircle, XCircle, RefreshCw, Search, Calendar, UserCheck } from 'lucide-react';
 import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -78,6 +78,16 @@ const DoctorAppointments: React.FC = () => {
       loadAppointments();
     } else {
       showToast('❌ Status update failed.');
+    }
+  };
+
+  const handleCheckIn = async (appointmentId: number, patientName: string) => {
+    const res = await checkInPatient(appointmentId);
+    if (res.success) {
+      showToast(`✅ Patient ${patientName} checked in. Token #${res.data?.token_number} assigned.`);
+      loadAppointments();
+    } else {
+      showToast(`❌ ${res.error || 'Check-in failed.'}`);
     }
   };
 
@@ -189,6 +199,7 @@ const DoctorAppointments: React.FC = () => {
                   <th>Time & Duration</th>
                   <th>Source</th>
                   <th>Status</th>
+                  <th>Queue Token</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -216,7 +227,26 @@ const DoctorAppointments: React.FC = () => {
                       <span className={`status-badge ${STATUS_CLASS[a.status] || ''}`}>{a.status}</span>
                     </td>
                     <td>
+                      {a.queue_status ? (
+                        <span className="status-badge active" style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>
+                          #{a.token_number} ({a.queue_status})
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Not Checked In</span>
+                      )}
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: 4 }}>
+                        {!a.queue_status && (a.status === 'CONFIRMED' || a.status === 'BOOKED') && (
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleCheckIn(a.id, a.patient_name)}
+                            title="Check In Patient to Queue"
+                            style={{ background: '#F0F9FF', border: '1px solid #BAE6FD', color: '#0369A1' }}
+                          >
+                            <UserCheck size={13} /> Check In
+                          </button>
+                        )}
                         {a.status === 'BOOKED' && (
                           <button
                             className="btn btn-primary btn-sm"
