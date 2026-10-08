@@ -11,6 +11,37 @@ import { financialApi } from '../services/financialApi';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
+import PreauthDossierDrawer from './PreauthDossierDrawer';
+import BillingTransparencyDrawer from './BillingTransparencyDrawer';
+
+const formatTime12h = (timeVal) => {
+  if (!timeVal) return '';
+  const rawT = String(timeVal).trim();
+  if (/am|pm/i.test(rawT)) return rawT.toLowerCase();
+  const parts = rawT.match(/^(\d{1,2}):(\d{2})/);
+  if (parts) {
+    let hour = parseInt(parts[1], 10);
+    const minute = parts[2];
+    const ampm = hour >= 12 ? 'pm' : 'am';
+    hour = hour % 12 || 12;
+    return `${hour}:${minute} ${ampm}`;
+  }
+  return rawT;
+};
+
+const formatDateTimeWithAmPm = (dateVal, timeVal, defaultDate = 'Today') => {
+  let dStr = defaultDate;
+  if (dateVal) {
+    const d = new Date(dateVal);
+    if (!isNaN(d.getTime())) {
+      dStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } else {
+      dStr = String(dateVal);
+    }
+  }
+  const tStr = formatTime12h(timeVal);
+  return tStr ? `${dStr}, ${tStr}` : dStr;
+};
 
 export default function Patient360View({
   patient: propPatient,
@@ -51,6 +82,7 @@ export default function Patient360View({
   const [patientScans, setPatientScans] = useState([]);
   const [activeScanIdx, setActiveScanIdx] = useState(0);
   const [liveAdmission, setLiveAdmission] = useState(null);
+  const [livePatientDetails, setLivePatientDetails] = useState(null);
   const [liveBill, setLiveBill] = useState(null);
   const [diagFilter, setDiagFilter] = useState('all');
   const [assignedBed, setAssignedBed] = useState(null);
@@ -58,6 +90,8 @@ export default function Patient360View({
   const [diagScans, setDiagScans] = useState([]);
   const [diagScanIdx, setDiagScanIdx] = useState(0);
   const [ohifViewerModal, setOhifViewerModal] = useState(null);
+  const [billingDrawerOpen, setBillingDrawerOpen] = useState(false);
+  const [preauthDrawerOpen, setPreauthDrawerOpen] = useState(false);
 
   const getOhifViewerUrl = (uid) => {
     const base = `${OHIF_BASE_URL}/viewer`;
@@ -161,6 +195,19 @@ export default function Patient360View({
         const effectivePid = cleanNum(resolvedAdmission?.patient_id) || pid || pcodeDigits;
         const effectiveBid = patient?.bill_id || resolvedAdmission?.bill_id;
 
+        // 1b. Fetch full patient profile from DB if not already populated
+        let resolvedPatientProfile = null;
+        if (effectivePid || pcode) {
+          try {
+            const pDetailsRes = await withTimeout(apiService.getPatientFullDetails(effectivePid || pcode), 4000);
+            if (pDetailsRes?.patient) {
+              resolvedPatientProfile = pDetailsRes.patient;
+            }
+          } catch (e) {
+            console.debug("Patient profile full-details fetch fallback:", e?.message);
+          }
+        }
+
         // 2. Concurrently fetch all secondary datasets in parallel directly from DB
         const [
           bedRes, vitalsRes, billRes, dischargeRes, ordersRes, scansRes,
@@ -240,8 +287,8 @@ export default function Patient360View({
               }), 10000)
             : Promise.resolve(null),
           // Real Appointments History (both OPD and IPD)
-          (effectivePid || pcode || effectiveAid)
-            ? withTimeout(apiService.getPatientAppointments(effectivePid || pcode || effectiveAid), 8000)
+          (effectivePid || pcode)
+            ? withTimeout(apiService.getPatientAppointments(effectivePid || pcode), 8000)
             : Promise.resolve(null),
           // Communications (Live DB notifications)
           effectivePid
@@ -269,6 +316,7 @@ export default function Patient360View({
 
         // Apply all data atomically in a single state update batch
         setLiveAdmission(resolvedAdmission);
+        setLivePatientDetails(resolvedPatientProfile);
 
         // Bed assignment
         if (bedRes.status === 'fulfilled' && bedRes.value?.wards) {
@@ -383,12 +431,11 @@ export default function Patient360View({
         if (resolvedApts.length === 0 && (patient?.appointments && Array.isArray(patient.appointments))) {
           resolvedApts = patient.appointments;
         }
-        // Fallback: If primary query returned 0, try pcode or aid if different from effectivePid
-        if (resolvedApts.length === 0 && (pcode || effectiveAid)) {
+        // Fallback: If primary query returned 0, try pcode if different from effectivePid
+        if (resolvedApts.length === 0 && pcode) {
           try {
-            const fallbackKey = pcode || effectiveAid;
-            if (String(fallbackKey) !== String(effectivePid)) {
-              const fbApts = await apiService.getPatientAppointments(fallbackKey);
+            if (String(pcode) !== String(effectivePid)) {
+              const fbApts = await apiService.getPatientAppointments(pcode);
               if (Array.isArray(fbApts) && fbApts.length > 0) {
                 resolvedApts = fbApts;
               }
@@ -542,25 +589,41 @@ export default function Patient360View({
     const procs = parsedLlm?.procedures?.procedures_list || raw.procedures || [];
     const billing = parsedLlm?.billing || raw.billing || {};
 
-    const firstName = demo.first_name || raw.first_name || '';
-    const lastName = demo.last_name || raw.last_name || '';
-    const name = d.name || d.patient || d.patient_name || (firstName ? `${firstName} ${lastName}`.trim() : (raw.patient_name || (rawPid ? `Patient #${rawPid}` : (isOP ? 'Outpatient' : isER ? 'Emergency Patient' : 'Inpatient'))));
+    const firstName = demo.first_name || raw.first_name || livePatientDetails?.first_name || '';
+    const lastName = demo.last_name || raw.last_name || livePatientDetails?.last_name || '';
+    const name = d.name || d.patient || d.patient_name || (livePatientDetails ? `${livePatientDetails.first_name || ''} ${livePatientDetails.last_name || ''}`.trim() : null) || (firstName ? `${firstName} ${lastName}`.trim() : (raw.patient_name || (rawPid ? `Patient #${rawPid}` : (isOP ? 'Outpatient' : isER ? 'Emergency Patient' : 'Inpatient'))));
 
-    const uhid = d.mrn || d.uhid || raw.patient_code || demo.patient_number || (rawPid ? `MER-PAT-${String(rawPid).padStart(7, '0')}` : 'MER-PAT-0000000');
-    const age = liveAdmission?.age_at_admission || raw.age_at_admission || demo.age_at_admission || d.age || raw.age || '—';
-    const rawSex = liveAdmission?.gender || raw.gender || demo.gender || d.sex || d.gender || 'Unknown';
+    let computedAge = null;
+    const rawDob = livePatientDetails?.date_of_birth || raw.date_of_birth || raw.dob || demo.date_of_birth;
+    if (rawDob) {
+      const birthDate = new Date(rawDob);
+      if (!isNaN(birthDate.getTime())) {
+        const today = new Date();
+        let calculated = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+          calculated--;
+        }
+        if (calculated > 0 && calculated < 130) computedAge = calculated;
+      }
+    }
+
+    const uhid = d.mrn || d.uhid || raw.patient_code || demo.patient_number || livePatientDetails?.patient_code || (rawPid ? `MER-PAT-${String(rawPid).padStart(7, '0')}` : 'MER-PAT-0000000');
+    const age = liveAdmission?.age_at_admission || raw.age_at_admission || demo.age_at_admission || computedAge || livePatientDetails?.age || d.age || raw.age || '—';
+    const rawSex = liveAdmission?.gender || raw.gender || demo.gender || livePatientDetails?.gender || d.sex || d.gender || 'Unknown';
     const sex = (rawSex.toLowerCase().startsWith('f'))
       ? 'Female'
       : (rawSex.toLowerCase().startsWith('m') || rawSex.toLowerCase() === 'other')
         ? 'Male'
         : rawSex;
-    const lang = d.language || d.lang || demo.preferred_language || raw.preferred_language || 'English';
-    const blood = d.bloodGroup || d.blood || demo.blood_group || raw.blood_group || 'B+';
-    const phone = d.phone || demo.phone || raw.phone || (rawPid ? `+9198100${String(rawPid).slice(-4)}` : '+91 98100 00000');
-    const email = demo.email || raw.email || (rawPid ? `patient.${rawPid}@hospital.com` : 'patient@hospital.com');
-    const address = [demo.address, demo.city, demo.state].filter(Boolean).join(', ') || raw.address || 'Chennai, Tamil Nadu';
+    const lang = d.language || d.lang || demo.preferred_language || raw.preferred_language || livePatientDetails?.preferred_language || 'English';
+    const blood = d.bloodGroup || d.blood || demo.blood_group || raw.blood_group || livePatientDetails?.blood_group || 'B+';
+    const phone = d.phone || demo.phone || raw.phone || livePatientDetails?.phone || (rawPid ? `+9198100${String(rawPid).slice(-4)}` : '+91 98100 00000');
+    const email = demo.email || raw.email || livePatientDetails?.email || (rawPid ? `patient.${rawPid}@hospital.com` : 'patient@hospital.com');
+    const address = [demo.address, demo.city, demo.state].filter(Boolean).join(', ') || [livePatientDetails?.address, livePatientDetails?.city, livePatientDetails?.state].filter(Boolean).join(', ') || raw.address || 'Chennai, Tamil Nadu';
 
-    const rawAdmNum = adm.admission_number || raw.admission_number || d.admission_number || (rawAdmId ? `MER-ADM-${String(rawAdmId).padStart(7, '0')}` : (isOP ? (d.appointment_number || `APT-2026-${String(rawPid || '661').slice(-4)}`) : isER ? (d.triage_number || `ER-2026-${String(rawPid || '4421').slice(-4)}`) : 'ENC-000000'));
+    const hasInpatientRecord = Boolean(liveAdmission?.admission_id || rawAdmId || (d.admission_number && !isOP && !isER));
+    const rawAdmNum = adm.admission_number || raw.admission_number || d.admission_number || (rawAdmId ? `MER-ADM-${String(rawAdmId).padStart(7, '0')}` : (isOP ? (d.appointment_number || `APT-2026-${String(rawPid || '661').slice(-4)}`) : isER ? (d.triage_number || `ER-2026-${String(rawPid || '4421').slice(-4)}`) : (hasInpatientRecord ? `ENC-000000` : `REG-2026-${String(rawPid || '1001').slice(-4)}`)));
     
     let encounter = d.encounter;
     if (!encounter) {
@@ -568,8 +631,10 @@ export default function Patient360View({
         encounter = d.appointment_number || (rawAdmNum.startsWith('APT-') ? rawAdmNum : `APT-${rawAdmNum}`);
       } else if (isER) {
         encounter = d.triage_number || (rawAdmNum.startsWith('ER-') ? rawAdmNum : `ER-${rawAdmNum}`);
-      } else {
+      } else if (hasInpatientRecord) {
         encounter = rawAdmNum.startsWith('ENC-') ? rawAdmNum : `ENC-${rawAdmNum}`;
+      } else {
+        encounter = `REG-2026-${String(rawPid || '1001').slice(-4)}`;
       }
     }
 
@@ -584,8 +649,10 @@ export default function Patient360View({
       bed = d.bed || (d.triage_bay ? `Bay ${d.triage_bay}` : 'Emergency Bay 14');
     } else if (isDischarged) {
       bed = validCandidate || 'BED-0193';
-    } else {
+    } else if (hasInpatientRecord) {
       bed = validCandidate || 'BED-0193';
+    } else {
+      bed = '— (Outpatient / Not Admitted)';
     }
 
     let room = d.room;
@@ -593,13 +660,15 @@ export default function Patient360View({
       room = 'OPD-Desk';
     } else if (isER) {
       room = 'ER-Triage';
-    } else {
+    } else if (hasInpatientRecord) {
       room = assignedBed?.room_number || liveAdmission?.room_number || raw.room_number || 'RM-044';
+    } else {
+      room = '— (OPD)';
     }
 
-    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || (isER ? 'Emergency Medicine' : 'Clinical Services');
-    const ward = isOP ? 'Outpatient Services' : isER ? 'Emergency Department' : (assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept);
-    const doctor = cleanDoctorName(d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || (isER ? 'Emergency Physician' : 'Dr. Sneha Das'));
+    const dept = d.department || d.dept || adm.doctor_specialization || raw.doctor_specialization || (isER ? 'Emergency Medicine' : 'General Medicine');
+    const ward = isOP ? 'Outpatient Services' : isER ? 'Emergency Department' : (hasInpatientRecord ? (assignedBed?.ward_name || liveAdmission?.ward_name || raw.ward_name || dept) : 'Outpatient Desk');
+    const doctor = cleanDoctorName(d.doctor || d.primary_consultant || adm.attending_doctor || raw.attending_doctor || (isER ? 'Emergency Physician' : 'Dr. Amit Sharma'));
     const insurer = liveBill?.claims?.[0]?.insurance_provider
       || liveBill?.insurance_provider
       || liveBill?.insurer
@@ -816,8 +885,8 @@ export default function Patient360View({
 
     const admittedDate = rawDate ? new Date(rawDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     const admittedTime = isOP 
-      ? (d.appointment_time || (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })))
-      : (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '12:00 pm');
+      ? (d.appointment_time ? formatTime12h(d.appointment_time) : (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() : '10:00 am'))
+      : (rawDate ? new Date(rawDate).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() : '11:29 am');
 
     // Build comprehensive, deduplicated list of clinical diagnoses for Diagnoses view
     const diagnosesList = [];
@@ -1260,16 +1329,45 @@ export default function Patient360View({
 
   // AI Activity on this patient
   const aiAgents = useMemo(() => {
-    if (patientAiActivity && patientAiActivity.length > 0) {
-      return patientAiActivity.map((a, idx) => ({
-        id: a.id || `ACT-${String(a.action_id || idx + 1).padStart(6, '0')}`,
-        agent: a.agent || a.action_type || 'Clinical AI Agent',
-        version: '2.1.0',
-        status: a.status || 'Completed',
-        steps: a.steps || (String(a.status).toUpperCase() === 'COMPLETED' ? 4 : 2),
-        bg: String(a.status).toUpperCase() === 'COMPLETED' ? '#dcfce7' : '#e0f2fe',
-        fg: String(a.status).toUpperCase() === 'COMPLETED' ? '#15803d' : '#0369a1',
-      }));
+    const dynamicList = patientAiActivity && patientAiActivity.length > 0
+      ? patientAiActivity.map((a, idx) => ({
+          id: a.id || `ACT-${String(a.action_id || idx + 1).padStart(6, '0')}`,
+          agent: a.agent || a.action_type || 'Clinical AI Agent',
+          version: a.version || '2.1.0',
+          status: a.status || 'Completed',
+          steps: a.steps || (String(a.status).toUpperCase() === 'COMPLETED' ? 4 : 2),
+          bg: String(a.status).toUpperCase() === 'COMPLETED' ? '#dcfce7' : '#e0f2fe',
+          fg: String(a.status).toUpperCase() === 'COMPLETED' ? '#15803d' : '#0369a1',
+          action: a.action || (a.agent?.toLowerCase().includes('billing') ? 'billing_agent' : a.agent?.toLowerCase().includes('insurance') || a.agent?.toLowerCase().includes('preauth') ? 'preauth_agent' : 'runs'),
+        }))
+      : [];
+
+    if (dynamicList.length > 0) {
+      if (!dynamicList.some(a => a.agent?.toLowerCase().includes('billing'))) {
+        dynamicList.push({
+          id: `EXE-2026-BIL-${String(p.patient_id || p.admission_id || 87221).slice(-5)}`,
+          agent: 'Billing Transparency Agent',
+          version: '2.0.0',
+          status: 'Active',
+          steps: 6,
+          bg: '#ecfdf5',
+          fg: '#047857',
+          action: 'billing_agent',
+        });
+      }
+      if (!dynamicList.some(a => a.agent?.toLowerCase().includes('insurance') || a.agent?.toLowerCase().includes('preauth'))) {
+        dynamicList.push({
+          id: `EXE-2026-INS-${String(p.patient_id || p.admission_id || 87264).slice(-5)}`,
+          agent: 'Insurance Preauth Agent',
+          version: '2.1.0',
+          status: 'Verified',
+          steps: 8,
+          bg: '#eff6ff',
+          fg: '#1d4ed8',
+          action: 'preauth_agent',
+        });
+      }
+      return dynamicList;
     }
 
     if (p.isOP) {
@@ -1282,6 +1380,27 @@ export default function Patient360View({
           steps: 4,
           bg: '#e0f2fe',
           fg: '#0369a1',
+          action: 'opd',
+        },
+        {
+          id: `EXE-2026-BIL-${String(p.patient_id || 87221).slice(-5)}`,
+          agent: 'Billing Transparency Agent',
+          version: '2.0.0',
+          status: 'Active',
+          steps: 4,
+          bg: '#ecfdf5',
+          fg: '#047857',
+          action: 'billing_agent',
+        },
+        {
+          id: `EXE-2026-INS-${String(p.patient_id || 87264).slice(-5)}`,
+          agent: 'Insurance Preauth Agent',
+          version: '2.1.0',
+          status: 'Verified',
+          steps: 6,
+          bg: '#eff6ff',
+          fg: '#1d4ed8',
+          action: 'preauth_agent',
         },
         {
           id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
@@ -1291,24 +1410,7 @@ export default function Patient360View({
           steps: 3,
           bg: '#e0f2fe',
           fg: '#0369a1',
-        },
-        {
-          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 24).slice(-6)}`,
-          agent: 'Diagnostic Coordination Agent',
-          version: '1.5.1',
-          status: 'Standby',
-          steps: 2,
-          bg: '#f1f5f9',
-          fg: '#475569',
-        },
-        {
-          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 36).slice(-6)}`,
-          agent: 'Patient Feedback Agent',
-          version: '1.2.0',
-          status: 'Scheduled',
-          steps: 1,
-          bg: '#f1f5f9',
-          fg: '#475569',
+          action: 'queue',
         },
       ];
     }
@@ -1323,6 +1425,27 @@ export default function Patient360View({
           steps: 6,
           bg: '#dcfce7',
           fg: '#15803d',
+          action: 'er',
+        },
+        {
+          id: `EXE-2026-BIL-${String(p.patient_id || 87221).slice(-5)}`,
+          agent: 'Billing Transparency Agent',
+          version: '2.0.0',
+          status: 'Active',
+          steps: 5,
+          bg: '#ecfdf5',
+          fg: '#047857',
+          action: 'billing_agent',
+        },
+        {
+          id: `EXE-2026-INS-${String(p.patient_id || 87264).slice(-5)}`,
+          agent: 'Insurance Preauth Agent',
+          version: '2.1.0',
+          status: 'Verified',
+          steps: 7,
+          bg: '#eff6ff',
+          fg: '#1d4ed8',
+          action: 'preauth_agent',
         },
         {
           id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
@@ -1332,37 +1455,51 @@ export default function Patient360View({
           steps: 4,
           bg: '#e0f2fe',
           fg: '#0369a1',
-        },
-        {
-          id: `EXE-2026-${String((Number(p.patient_id) || 117718) + 24).slice(-6)}`,
-          agent: 'STAT Diagnostic Coordination Agent',
-          version: '1.5.1',
-          status: 'Completed',
-          steps: 5,
-          bg: '#dcfce7',
-          fg: '#15803d',
+          action: 'flow',
         },
       ];
     }
 
     return [
       {
-        id: `EXE-2026-${String(p.admission_id || 118204).slice(-6)}`,
+        id: `EXE-2026-${String(p.admission_id || p.patient_id || 87172).slice(-5)}`,
         agent: 'Discharge Summary Agent',
         version: '3.0.2',
         status: p.isCleared ? 'Completed' : 'Waiting',
         steps: 12,
         bg: p.isCleared ? '#dcfce7' : '#fef3c7',
         fg: p.isCleared ? '#15803d' : '#92400e',
+        action: 'discharge',
       },
       {
-        id: `EXE-2026-${String((p.admission_id || 118204) - 82).slice(-6)}`,
+        id: `EXE-2026-${String((Number(p.admission_id || p.patient_id) || 87172) - 82).slice(-5)}`,
         agent: 'Nurse Handover Agent',
         version: '1.2.0',
         status: p.isDischarged ? 'Completed' : (p.isCleared ? 'Active' : 'Standby'),
         steps: p.isDischarged ? 8 : (p.isCleared ? 4 : 0),
         bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#f1f5f9'),
         fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#475569'),
+        action: 'sbar',
+      },
+      {
+        id: `EXE-2026-BIL-${String(p.patient_id || p.admission_id || 87221).slice(-5)}`,
+        agent: 'Billing Transparency Agent',
+        version: '2.0.0',
+        status: 'Active',
+        steps: 6,
+        bg: '#ecfdf5',
+        fg: '#047857',
+        action: 'billing_agent',
+      },
+      {
+        id: `EXE-2026-INS-${String(p.patient_id || p.admission_id || 87264).slice(-5)}`,
+        agent: 'Insurance Preauth Agent',
+        version: '2.1.0',
+        status: 'Verified',
+        steps: 8,
+        bg: '#eff6ff',
+        fg: '#1d4ed8',
+        action: 'preauth_agent',
       },
     ];
   }, [p, patientAiActivity]);
@@ -1796,14 +1933,14 @@ export default function Patient360View({
 
       onOpenDrawer({
         title: `${p.billNumber} · ${p.name}`,
-        sub: `Admission: ${p.encounter} · Bed: ${p.bed}`,
+        sub: p.isOP ? `Encounter: ${p.encounter} · Outpatient Consultation Fee` : (p.isER ? `Emergency: ${p.encounter} · ${p.bed}` : `Admission: ${p.encounter} · Bed: ${p.bed}`),
         badges: [
           isCleared
             ? { t: 'Cleared · Paid in Full', bg: '#dcfce7', fg: '#15803d' }
             : { t: 'Pending Settlement', bg: '#fef3c7', fg: '#92400e' }
         ],
         facts: [
-          { k: 'Hospital & Bed Charges', v: `₹${hospitalSum.toLocaleString('en-IN')}` },
+          { k: p.isOP ? 'Consultation & Clinical Services' : (p.isER ? 'Emergency Evaluation & Triage' : 'Hospital & Bed Charges'), v: `₹${hospitalSum.toLocaleString('en-IN')}` },
           { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
           { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
           { k: 'Actual Gross Bill', v: `₹${net.toLocaleString('en-IN')}`, b: true },
@@ -2497,7 +2634,18 @@ export default function Patient360View({
               {aiAgents.map((e) => (
                 <div
                   key={e.id}
-                  onClick={() => onNavigate && onNavigate('runs')}
+                  onClick={() => {
+                    if (e.action === 'billing_agent' || e.agent.toLowerCase().includes('billing')) {
+                      setBillingDrawerOpen(true);
+                    } else if (e.action === 'preauth_agent' || e.agent.toLowerCase().includes('insurance') || e.agent.toLowerCase().includes('preauth')) {
+                      setPreauthDrawerOpen(true);
+                    } else if (e.action === 'discharge' || e.agent.toLowerCase().includes('discharge')) {
+                      if (onOpenDischarge) onOpenDischarge();
+                      else if (onNavigate) onNavigate('discharge');
+                    } else if (onNavigate) {
+                      onNavigate('runs');
+                    }
+                  }}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'minmax(0, 1fr) auto',
@@ -2507,10 +2655,11 @@ export default function Patient360View({
                     background: '#f6f7f8',
                     marginBottom: '6px',
                     cursor: 'pointer',
-                    transition: 'background 0.15s',
+                    transition: 'all 0.15s ease',
                   }}
                   onMouseEnter={(evt) => (evt.currentTarget.style.background = '#f1f5f9')}
                   onMouseLeave={(evt) => (evt.currentTarget.style.background = '#f6f7f8')}
+                  title={`Click to open ${e.agent} actions & details`}
                 >
                   <span style={{ fontWeight: 600, fontSize: '12px', color: '#15181b' }}>
                     {e.agent} v{e.version}
@@ -2600,17 +2749,22 @@ export default function Patient360View({
           grid="120px minmax(180px, 1fr) 140px 180px 140px 100px"
           rows={
             (patientAppointments && patientAppointments.length > 0)
-              ? patientAppointments.map(apt => {
-                  const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'On file');
-                  const timeStr = apt.appointment_time ? `${aptDate}, ${apt.appointment_time}` : aptDate;
-                  const typeStr = apt.patient_reason ? `${apt.department_name ? apt.department_name + ' · ' : ''}${apt.patient_reason}` : (apt.department_name ? `${apt.department_name} Consultation` : 'Clinical Consultation');
+              ? patientAppointments
+                .filter(apt => String(apt.appointment_type || '').toUpperCase() !== 'INPATIENT_ROUNDS')
+                .map(apt => {
+                  const timeStr = formatDateTimeWithAmPm(apt.appointment_date, apt.appointment_time, p.admittedDate || 'On file');
+                  const typeStr = apt.department_name
+                    ? `${apt.department_name} Consultation`
+                    : (apt.patient_reason ? `Consultation · ${apt.patient_reason}` : 'Clinical Consultation');
+                  const rawSt = String(apt.status || 'Confirmed').trim();
+                  const displayStatus = rawSt.toUpperCase() === 'CONFIRMED' ? 'Confirmed' : (rawSt.charAt(0).toUpperCase() + rawSt.slice(1).toLowerCase());
                   return [
                     apt.booking_id || `APT-${apt.appointment_id || '01'}`,
                     apt.doctor_name || p.doctor,
                     timeStr,
                     typeStr,
                     'Hospital OPD Desk',
-                    apt.status || 'Confirmed'
+                    displayStatus
                   ];
                 })
               : []
@@ -2621,7 +2775,7 @@ export default function Patient360View({
               onOpenDrawer({
                 title: `${row[0]} · ${p.name}`,
                 sub: `Doctor: ${row[1]} · Timing: ${row[2]}`,
-                badges: [{ t: row[5], bg: row[5] === 'Completed' ? '#dcfce7' : '#e0f2fe', fg: row[5] === 'Completed' ? '#15803d' : '#0369a1' }],
+                badges: [{ t: row[5], bg: row[5].toLowerCase() === 'completed' ? '#dcfce7' : '#e0f2fe', fg: row[5].toLowerCase() === 'completed' ? '#15803d' : '#0369a1' }],
                 facts: [
                   { k: 'Appointment ID', v: row[0], b: true },
                   { k: 'Consultant', v: row[1] },
@@ -2649,17 +2803,28 @@ export default function Patient360View({
               p.admitted,
               p.isDischarged ? 'Discharged' : (p.status || 'Active')
             ]] : []),
-            ...(patientAppointments || []).map(apt => {
-              const aptDate = apt.appointment_date ? new Date(apt.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today');
-              const timeStr = apt.appointment_time ? `${aptDate}, ${apt.appointment_time}` : aptDate;
-              return [
-                `ENC-${apt.booking_id || apt.id}`,
-                apt.patient_reason ? `Outpatient Consultation (${apt.patient_reason})` : 'Outpatient Consultation',
-                apt.doctor_name || p.doctor,
-                timeStr,
-                apt.status || 'Completed'
-              ];
-            }).filter(r => !p.admission_id || !r[0].includes(String(p.admission_id)))
+            ...(patientAppointments || [])
+              .filter(apt => {
+                const isIpRounds = String(apt.appointment_type || '').toUpperCase() === 'INPATIENT_ROUNDS';
+                if (isIpRounds) return false;
+                if (p.admission_id && apt.booking_id && String(apt.booking_id).includes(String(p.admission_id))) return false;
+                return true;
+              })
+              .map(apt => {
+                const timeStr = formatDateTimeWithAmPm(apt.appointment_date, apt.appointment_time, p.admittedDate || 'Today');
+                const typeLabel = apt.department_name
+                  ? `${apt.department_name} Consultation`
+                  : (apt.patient_reason ? `Outpatient Consultation (${apt.patient_reason})` : 'Outpatient Consultation');
+                const rawSt = String(apt.status || 'Completed').trim();
+                const displayStatus = rawSt.toUpperCase() === 'CONFIRMED' ? 'Confirmed' : (rawSt.charAt(0).toUpperCase() + rawSt.slice(1).toLowerCase());
+                return [
+                  `ENC-${apt.booking_id || apt.id}`,
+                  typeLabel,
+                  apt.doctor_name || p.doctor,
+                  timeStr,
+                  displayStatus
+                ];
+              })
           ]}
           emptyMessage="No clinical encounter records available on file for this patient."
         />
@@ -3387,7 +3552,7 @@ export default function Patient360View({
       {activeTab === 'Medications' && (
         <TableContainer
           cols={['Rx #', 'Prescribed Medication', 'Dose · Route · Freq', 'Duration · Qty', 'Prescriber / Safety', 'Status']}
-          grid="130px minmax(200px, 1fr) 180px 140px 160px 100px"
+          grid="130px minmax(200px, 1fr) 180px 140px minmax(180px, 1fr) 100px"
           rows={
             (livePrescriptions && livePrescriptions.length > 0)
               ? livePrescriptions.map((rx) => {
@@ -3397,14 +3562,15 @@ export default function Patient360View({
                   const daysStr = rx.days || `${rx.duration || '5 Days'} · ${rx.quantity || 10} units`;
                   const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
                   const statusStr = rx.status || 'Prescribed';
-                  const docStr = rx.doctor_name || rx.doctor || 'Attending Doctor';
+                  const docStr = rx.doctor_name || rx.doctor || p.doctor || 'Attending Doctor';
+                  const prescriberSafety = isHighAlert ? `${docStr} · ⚠ High Alert` : docStr;
 
                   return [
                     rxNo,
                     drugName,
                     doseStr,
                     daysStr,
-                    isHighAlert ? '⚠ High Alert' : docStr,
+                    prescriberSafety,
                     statusStr
                   ];
                 })
@@ -3428,9 +3594,9 @@ export default function Patient360View({
                   { k: 'Medication Name', v: row[1], b: true },
                   { k: 'Dosage · Regimen · Route', v: row[2] },
                   { k: 'Duration & Dispense Units', v: row[3] },
-                  { k: 'Safety / High Alert', v: row[4] },
+                  { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || p.doctor || 'Attending Physician' },
+                  { k: 'Safety Classification', v: (matchedRx?.is_high_alert || row[4].includes('High Alert')) ? '⚠ High Alert Medication' : 'Standard Formulary' },
                   { k: 'Prescription Status', v: row[5] },
-                  { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || 'Attending Physician' },
                   { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Live Order' },
                   { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' }
                 ]
@@ -3547,7 +3713,7 @@ export default function Patient360View({
           {/* Master Bill Overview Row */}
           <div>
             <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Inpatient Master Bill · Summary</span>
+              <span>{p.isOP ? 'Outpatient Consultation Bill · Summary' : (p.isER ? 'Emergency Triage & Evaluation Bill · Summary' : 'Inpatient Master Bill · Summary')}</span>
               <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>Click row to view full drawer facts</span>
             </div>
             <TableContainer
@@ -3571,8 +3737,8 @@ export default function Patient360View({
           <div>
             <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>🏥</span>
-                <span>Inpatient Bed Accommodation & Hospital Base Care</span>
+                <span>{p.isOP ? '🩺' : (p.isER ? '🚑' : '🏥')}</span>
+                <span>{p.isOP ? 'Outpatient Consultation & Clinical Services' : (p.isER ? 'Emergency Triage & Bay Observation Care' : 'Inpatient Bed Accommodation & Hospital Base Care')}</span>
               </div>
               <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 600, color: '#15181b' }}>
                 Subtotal: ₹{hospitalSum.toLocaleString('en-IN')}
@@ -3584,15 +3750,15 @@ export default function Patient360View({
               rows={
                 (liveBill?.items && liveBill.items.length > 0)
                   ? liveBill.items.map((bi, i) => [
-                      bi.description || `Inpatient Bed & Dietary Care #${i + 1}`,
-                      bi.service_code || 'BED-CLR',
-                      bi.service_date ? new Date(bi.service_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
+                      bi.description || (p.isOP ? 'Outpatient Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : `Inpatient Bed & Dietary Care #${i + 1}`)),
+                      bi.service_code || (p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'BED-CLR')),
+                      bi.service_date ? new Date(bi.service_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today'),
                       `${bi.quantity || 1} ${Number(bi.quantity) > 1 ? 'days' : 'unit'}`,
                       `₹${Number(bi.unit_price || 0).toLocaleString('en-IN')}`,
                       `₹${Number(bi.net_amount || bi.gross_amount || 0).toLocaleString('en-IN')}`
                     ])
                   : (hospitalSum > 0 ? [
-                      ['Inpatient Base Fee & Clinical Nursing Care', 'BASE-FEE', p.admittedDate || 'Admission Day', '1 unit', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
+                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient Base Fee & Clinical Nursing Care'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'BASE-FEE'), p.admittedDate || 'Today', '1 unit', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
                     ] : [])
               }
               onRowClick={handleOpenBillDrawer}
@@ -3686,7 +3852,7 @@ export default function Patient360View({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
               <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Hospital Stay & Nursing</div>
+                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>{p.isOP ? 'Consultation & Services' : (p.isER ? 'Emergency Evaluation' : 'Hospital Stay & Nursing')}</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
                   ₹{hospitalSum.toLocaleString('en-IN')}
                 </div>
@@ -4431,6 +4597,26 @@ export default function Patient360View({
           </div>
         </div>
       )}
+
+      {/* AG-08: Billing Transparency Agent Drawer */}
+      <BillingTransparencyDrawer
+        isOpen={billingDrawerOpen}
+        onClose={() => setBillingDrawerOpen(false)}
+        patientId={String(p?.patient_id || p?.admission_id || p?.uhid || '87221')}
+        onApproved={() => {
+          setBillingDrawerOpen(false);
+        }}
+      />
+
+      {/* AG-07: Insurance Preauth Agent Drawer */}
+      <PreauthDossierDrawer
+        isOpen={preauthDrawerOpen}
+        onClose={() => setPreauthDrawerOpen(false)}
+        patientIdentifier={String(p?.patient_id || p?.admission_id || p?.uhid || '87264')}
+        onSubmitted={() => {
+          setPreauthDrawerOpen(false);
+        }}
+      />
     </div>
   );
 }

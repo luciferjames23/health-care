@@ -1767,6 +1767,7 @@ def handle_unknown_patient_identification_flow(
         state["patient_identification_stage"] = "AWAITING_PATIENT_ID"
         return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
 
+<<<<<<< Updated upstream
     state["patient_identification_stage"] = "AWAITING_PATIENT_TYPE"
     prompt_text = language_service.get_patient_identification_prompt("PATIENT_IDENTIFICATION_PROMPT", current_lang)
     state["interactive_buttons"] = [
@@ -1779,6 +1780,105 @@ def handle_unknown_patient_identification_flow(
         "success": True, "conversation_id": conversation_code, "language": current_lang,
         "intent": "PATIENT_IDENTIFICATION", "response": prompt_text, "interactive_buttons": state["interactive_buttons"]
     }
+=======
+                state["patient_id"] = pat_id
+                state["entities"]["patient_id"] = pat_id
+                state["patient_identification_stage"] = "COMPLETED"
+                state["interactive_buttons"] = main_menu_buttons
+
+                resp = language_service.get_patient_identification_prompt("REGISTRATION_SUCCESS_PROMPT", current_lang, name=full_name, patient_code=p_code)
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_IDENTIFICATION", state)
+                return {
+                    "success": True,
+                    "conversation_id": conversation_code,
+                    "language": current_lang,
+                    "intent": "PATIENT_IDENTIFICATION",
+                    "response": resp,
+                    "interactive_buttons": main_menu_buttons
+                }
+            else:
+                raw_dob = reg_fields.get("date_of_birth") or "2000-01-01"
+                norm_dob_tuple = date_normalizer.parse_and_normalize_date(str(raw_dob))
+                norm_dob = norm_dob_tuple[0] if norm_dob_tuple and norm_dob_tuple[0] else "2000-01-01"
+                fn_val = reg_fields.get("first_name") or "Patient"
+                ln_val = reg_fields.get("last_name") or "."
+
+                # Check if patient already exists by phone or (name + DOB)
+                existing_id = None
+                existing_code = None
+                if reg_phone:
+                    cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (reg_phone, reg_phone))
+                    r = cur.fetchone()
+                    if r:
+                        existing_id, existing_code = r[0], r[1]
+                if not existing_id and fn_val and fn_val != "Patient":
+                    cur.execute("""
+                        SELECT id, patient_code FROM patients 
+                        WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
+                          AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
+                          AND date_of_birth = %s 
+                          AND status = 'ACTIVE' 
+                        ORDER BY id ASC LIMIT 1;
+                    """, (fn_val, ln_val, norm_dob))
+                    r = cur.fetchone()
+                    if r:
+                        existing_id, existing_code = r[0], r[1]
+
+                if existing_id:
+                    new_pat_id = existing_id
+                    next_code = existing_code
+                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                    conn.commit()
+                else:
+                    # Create new patient record
+                    cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
+                    row = cur.fetchone()
+                    next_num = (row[0] + 1) if (row and row[0]) else 11
+                    next_code = f"P{next_num:03d}"
+
+                    cur.execute("""
+                        INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
+                        RETURNING id;
+                    """, (
+                        next_code,
+                        fn_val,
+                        ln_val,
+                        norm_dob,
+                        reg_fields.get("gender") or "Male",
+                        reg_phone,
+                        whatsapp_val,
+                        current_lang or "ENGLISH"
+                    ))
+                    new_pat_id = cur.fetchone()[0]
+                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                    conn.commit()
+
+                state["patient_id"] = new_pat_id
+                state["entities"]["patient_id"] = new_pat_id
+                state["patient_identification_stage"] = "COMPLETED"
+                state["interactive_buttons"] = main_menu_buttons
+
+                full_name = format_patient_full_name(reg_fields.get("first_name"), reg_fields.get("last_name"))
+                resp = language_service.get_patient_identification_prompt("REGISTRATION_SUCCESS_PROMPT", current_lang, name=full_name, patient_code=next_code)
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "PATIENT_IDENTIFICATION", state)
+                return {
+                    "success": True,
+                    "conversation_id": conversation_code,
+                    "language": current_lang,
+                    "intent": "PATIENT_IDENTIFICATION",
+                    "response": resp,
+                    "interactive_buttons": main_menu_buttons
+                }
+        except Exception as e:
+            conn.rollback()
+            print(f"[PATIENT_ID_GATE] Error registering new patient: {e}")
+        finally:
+            cur.close()
+            conn.close()
+>>>>>>> Stashed changes
 
     # Default / Initial Unknown Patient Gate Prompt (stage is None or AWAITING_PATIENT_TYPE)
     # Check if message text already contains Patient ID
@@ -6790,19 +6890,46 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 try:
-                    cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
-                    row = cur.fetchone()
-                    next_num = (row[0] + 1) if (row and row[0]) else 100010
-                    next_code = f"P{next_num}"
+                    # Check if patient already exists by phone or (name + DOB)
+                    existing_id = None
+                    existing_code = None
+                    if user_phone:
+                        cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (user_phone, user_phone))
+                        r = cur.fetchone()
+                        if r:
+                            existing_id, existing_code = r[0], r[1]
+                    if not existing_id and first_name and first_name != "Patient":
+                        cur.execute("""
+                            SELECT id, patient_code FROM patients 
+                            WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
+                              AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
+                              AND date_of_birth = %s 
+                              AND status = 'ACTIVE' 
+                            ORDER BY id ASC LIMIT 1;
+                        """, (first_name, last_name, reg_dob))
+                        r = cur.fetchone()
+                        if r:
+                            existing_id, existing_code = r[0], r[1]
 
-                    cur.execute("""
-                        INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
-                        RETURNING id;
-                    """, (next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
-                    new_pat_id = cur.fetchone()[0]
-                    cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
-                    conn.commit()
+                    if existing_id:
+                        new_pat_id = existing_id
+                        next_code = existing_code
+                        cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                        conn.commit()
+                    else:
+                        cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
+                        row = cur.fetchone()
+                        next_num = (row[0] + 1) if (row and row[0]) else 100010
+                        next_code = f"P{next_num}"
+
+                        cur.execute("""
+                            INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
+                            RETURNING id;
+                        """, (next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
+                        new_pat_id = cur.fetchone()[0]
+                        cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                        conn.commit()
                 finally:
                     cur.close()
                     conn.close()
@@ -7787,7 +7914,319 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             ]
 
     elif intent == "REGISTER_PATIENT":
+<<<<<<< Updated upstream
         return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
+=======
+        state["interactive_buttons"] = []
+        msg_raw = message_text.strip()
+        reg_fields = state.get("registration_fields") or {
+            "first_name": None, "last_name": None, "date_of_birth": None, "gender": None, "phone": None, "reason_for_visit": None
+        }
+
+        # 0. Check if user typed an edit/change request or tapped Edit button during registration
+        is_edit_request = (state.get("patient_identification_stage") == "REGISTRATION") and (
+            any(re.search(rf"\b{w}\b", msg_raw.lower()) for w in ["edit", "modify", "reset", "start over", "btn_edit_reg"]) or
+            (msg_raw.lower() in ["no", "n"] and state.get("reg_confirmation_pending"))
+        )
+        if is_edit_request:
+            state["reg_confirmation_pending"] = False
+            state["registration_fields"] = { "first_name": None, "last_name": None, "date_of_birth": None, "gender": None, "phone": None, "reason_for_visit": None }
+            response_text = "Please send your updated registration details in one message:\n\nFull Name, Date of Birth, Gender, Phone Number, Reason for Visit"
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+            return {
+                "success": True,
+                "conversation_id": conversation_code,
+                "language": current_lang,
+                "intent": intent,
+                "response": response_text,
+                "missing_information": [],
+                "tool_called": None,
+                "interactive_buttons": []
+            }
+
+        # Check confirmation tap or response (Yes/Confirm)
+        if state.get("reg_confirmation_pending"):
+            if any(w in msg_raw.lower() for w in ["confirm", "yes", "btn_confirm_reg", "correct", "ok"]):
+                state["reg_confirmation_pending"] = False
+                conn = db_config.get_db_connection()
+                cur = conn.cursor()
+                try:
+                    whatsapp_val = extract_whatsapp_number(conversation_code, state)
+                    phone_val = reg_fields.get("phone") or whatsapp_val
+                    fn_val = reg_fields.get("first_name") or "Patient"
+                    ln_val = reg_fields.get("last_name") or "."
+                    dob_val = reg_fields.get("date_of_birth") or "2000-01-01"
+
+                    # Check if patient already exists by phone or (name + DOB)
+                    existing_id = None
+                    existing_code = None
+                    if phone_val:
+                        cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (phone_val, phone_val))
+                        r = cur.fetchone()
+                        if r:
+                            existing_id, existing_code = r[0], r[1]
+                    if not existing_id and fn_val and fn_val != "Patient":
+                        cur.execute("""
+                            SELECT id, patient_code FROM patients 
+                            WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
+                              AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
+                              AND date_of_birth = %s 
+                              AND status = 'ACTIVE' 
+                            ORDER BY id ASC LIMIT 1;
+                        """, (fn_val, ln_val, dob_val))
+                        r = cur.fetchone()
+                        if r:
+                            existing_id, existing_code = r[0], r[1]
+
+                    if existing_id:
+                        new_pat_id = existing_id
+                        next_code = existing_code
+                        cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, phone_val, conversation_code))
+                        conn.commit()
+                    else:
+                        cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
+                        row = cur.fetchone()
+                        next_num = (row[0] + 1) if (row and row[0]) else 11
+                        next_code = f"P{next_num:03d}"
+
+                        cur.execute("""
+                            INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
+                            RETURNING id;
+                        """, (
+                            next_code,
+                            fn_val,
+                            ln_val,
+                            dob_val,
+                            reg_fields.get("gender") or "Male",
+                            phone_val,
+                            phone_val,
+                            current_lang or "ENGLISH"
+                        ))
+                        new_pat_id = cur.fetchone()[0]
+                        cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, phone_val, conversation_code))
+                        conn.commit()
+
+                    state["patient_id"] = new_pat_id
+                    state["entities"]["patient_id"] = new_pat_id
+                    state["intent"] = "GREETING"
+                    state["registration_fields"] = { "first_name": None, "last_name": None, "date_of_birth": None, "gender": None, "phone": None, "reason_for_visit": None }
+
+                    log_agent_action(conversation_code, "PATIENT_REGISTERED", {"patient_id": new_pat_id, "patient_code": next_code})
+                    full_name = format_patient_full_name(reg_fields.get("first_name"), reg_fields.get("last_name"))
+                    response_text = f"Thank you, {full_name}. Your registration with Meridian Hospital is complete. Patient ID: {next_code}\n\nHow can I help you today?"
+                    state["interactive_buttons"] = language_service.get_main_menu_buttons(current_lang)
+                except Exception as e:
+                    conn.rollback()
+                    response_text = f"Registration failed: {str(e)}"
+                finally:
+                    cur.close()
+                    conn.close()
+
+                state_manager.save_conversation_state(conversation_code, state)
+                log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+                return {
+                    "success": True,
+                    "conversation_id": conversation_code,
+                    "language": current_lang,
+                    "intent": intent,
+                    "response": response_text,
+                    "missing_information": [],
+                    "tool_called": "register_patient",
+                    "interactive_buttons": state.get("interactive_buttons", [])
+                }
+
+        # Extract structured info via LLM and fallback rule parser
+        llm_info = llm_service.extract_structured_info(message_text, state, current_lang)
+        if llm_info.get("gender"):
+            reg_fields["gender"] = llm_info["gender"]
+        if llm_info.get("phone"):
+            reg_fields["phone"] = llm_info["phone"]
+        if llm_info.get("reason"):
+            _llm_reason_val = llm_info["reason"]
+            # Bug 2 fix: only accept llm reason if it contains a real medical keyword
+            # (prevents patient name or DOB from being inferred as the visit reason)
+            _med_kw_check = [
+                "fever", "cough", "cold", "pain", "ache", "loss", "rash", "itch",
+                "vomit", "nausea", "breath", "chest", "head", "consult", "checkup",
+                "check-up", "fatigue", "weak", "diarrhea", "bleed", "swelling",
+                "throat", "ear", "back", "knee", "joint", "migraine", "seizure",
+            ]
+            if any(kw in _llm_reason_val.lower() for kw in _med_kw_check):
+                reg_fields["reason_for_visit"] = _llm_reason_val
+
+        parts = [p.strip() for p in re.split(r"[,;\n]+", msg_raw) if p.strip()]
+
+        # 1. Flexible Full Name Extraction (preserves existing valid name, validates new name)
+        existing_fn = reg_fields.get("first_name")
+        p_name_is = re.search(r"^(?:my\s+name\s+is|i\s+am|iam|name[:\s]+)\s+([a-zA-Z\s\.]+)", msg_raw, re.IGNORECASE)
+        p_is_name = re.search(r"^([a-zA-Z\s\.]+)\s+(?:is\s+my\s+(?:full\s+)?name)\b", msg_raw, re.IGNORECASE)
+
+        if p_name_is and entity_extractor.is_valid_person_name(p_name_is.group(1).strip()):
+            raw_n = p_name_is.group(1).strip()
+            n_parts = raw_n.split(None, 1)
+            reg_fields["first_name"] = n_parts[0].capitalize()
+            reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
+        elif p_is_name and entity_extractor.is_valid_person_name(p_is_name.group(1).strip()):
+            raw_n = p_is_name.group(1).strip()
+            n_parts = raw_n.split(None, 1)
+            reg_fields["first_name"] = n_parts[0].capitalize()
+            reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
+        elif not existing_fn or not entity_extractor.is_valid_person_name(existing_fn):
+            extracted_fn = llm_info.get("first_name")
+            if extracted_fn and entity_extractor.is_valid_person_name(extracted_fn):
+                reg_fields["first_name"] = extracted_fn
+                reg_fields["last_name"] = llm_info.get("last_name") or reg_fields.get("last_name")
+            elif len(parts) >= 1:
+                first_part = parts[0]
+                if entity_extractor.is_valid_person_name(first_part):
+                    n_parts = first_part.split(None, 1)
+                    reg_fields["first_name"] = n_parts[0].capitalize()
+                    reg_fields["last_name"] = n_parts[1].capitalize() if len(n_parts) > 1 else None
+
+        # 2. Phone Extraction & Sender Number Fallback
+        if not reg_fields.get("phone"):
+            match_phone = re.search(r"\b(\d{10,12})\b", msg_raw)
+            if match_phone:
+                reg_fields["phone"] = match_phone.group(1)
+            else:
+                reg_fields["phone"] = extract_whatsapp_number(conversation_code, state)
+
+        # 3. Gender matching
+        if re.search(r"\b(male|man)\b", msg_raw.lower()):
+            reg_fields["gender"] = "Male"
+        elif re.search(r"\b(female|woman)\b", msg_raw.lower()):
+            reg_fields["gender"] = "Female"
+
+        # 4. DOB parsing & validation
+        is_command_msg = any(kw in msg_raw.lower() for kw in ["first-time", "first time", "visitor", "register", "hi", "hello", "existing"])
+        dob_candidate = llm_info.get("date_of_birth")
+        if not dob_candidate and not is_command_msg:
+            for part in parts:
+                if any(c.isdigit() for c in part) and not part.isdigit() and len(part) >= 6:
+                    dob_candidate = part
+                    break
+        if dob_candidate:
+            is_valid_dob, norm_dob, dob_err = date_normalizer.validate_dob(dob_candidate)
+            if is_valid_dob and norm_dob:
+                reg_fields["date_of_birth"] = norm_dob
+
+        # 5. Reason for visit matching
+        # IMPORTANT: Exclude first_name, last_name, AND the full combined name from
+        # reason candidates so the patient's name never leaks into reason_for_visit (Bug 2 fix).
+        if not reg_fields.get("reason_for_visit"):
+            _fn_low = (reg_fields.get("first_name") or "").lower().strip()
+            _ln_low = (reg_fields.get("last_name") or "").lower().strip(". ")
+            _full_low = f"{_fn_low} {_ln_low}".strip()
+            _name_variants = {v for v in [_fn_low, _ln_low, _full_low] if v}
+            reason_candidates = [
+                p for p in parts
+                if not any(c.isdigit() for c in p)
+                and p.lower() not in ["male", "female", "other"]
+                and p.lower() not in _name_variants
+            ]
+            # Only treat a part as a reason if it looks like a symptom/medical reason
+            # (i.e., has more than one word OR contains a known medical keyword).
+            # Single-word non-medical parts during registration are likely just stray name parts.
+            _medical_kw = [
+                "fever", "cough", "cold", "pain", "ache", "loss", "rash", "itch",
+                "vomit", "nausea", "breath", "chest", "head", "consult", "checkup",
+                "check-up", "fatigue", "weak", "diarrhea", "bleed", "swelling"
+            ]
+            valid_reasons = [
+                p for p in reason_candidates
+                if len(p.split()) > 1 or any(kw in p.lower() for kw in _medical_kw)
+            ]
+            if valid_reasons:
+                reg_fields["reason_for_visit"] = valid_reasons[-1].capitalize()
+            # If no valid reason found, leave it None (do not default to "General Consultation"
+            # here — we only set a default at DB-insert time if still missing).
+
+        fn = reg_fields.get("first_name")
+        ln = reg_fields.get("last_name") or ""
+        dob = reg_fields.get("date_of_birth")
+        gen = reg_fields.get("gender")
+        ph = reg_fields.get("phone")
+
+        if fn and dob and gen and ph:
+            state["registration_fields"] = reg_fields
+            state["reg_confirmation_pending"] = True
+
+            try:
+                dob_obj = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
+                formatted_dob = dob_obj.strftime("%d-%b-%Y")
+            except Exception:
+                formatted_dob = dob
+
+            full_n = f"{fn} {ln}".strip()
+            # Build confirmation message. Only show Reason line if an explicit
+            # medical reason was provided (Bug 2 fix: never show patient name as reason).
+            _reason_display = reg_fields.get("reason_for_visit")
+            reason_line = f"📝 Reason: {_reason_display}\n" if _reason_display else ""
+            response_text = (
+                f"Thank you! 😊\n\n"
+                f"I understood your details as:\n\n"
+                f"👤 Name: {full_n}\n"
+                f"🎂 Date of Birth: {formatted_dob}\n"
+                f"👨 Gender: {gen}\n"
+                f"📱 Phone: {ph}\n"
+                f"{reason_line}\n"
+                f"Please confirm your details."
+            )
+            state["interactive_buttons"] = [
+                {"id": "btn_confirm_reg", "title": "Confirm"},
+                {"id": "btn_edit_reg", "title": "Edit"}
+            ]
+        else:
+            state["registration_fields"] = reg_fields
+            known_list = []
+            if fn: known_list.append(f"👤 Name: {fn} {ln}".strip())
+            if dob: known_list.append(f"🎂 DOB: {dob}")
+            if gen: known_list.append(f"👨 Gender: {gen}")
+            if ph: known_list.append(f"📱 Phone: {ph}")
+
+            known_text = "\n".join(known_list) if known_list else ""
+
+            missing_req = []
+            if not fn: missing_req.append("Full Name")
+            if not dob: missing_req.append("Date of Birth (e.g., 08/09/2004)")
+            if not gen: missing_req.append("Gender (Male / Female)")
+            if not ph: missing_req.append("Phone Number")
+
+            if known_text:
+                detail_heading = "detail" if len(missing_req) == 1 else "details"
+                together_suffix = "\n\nYou can send them together (e.g., 08/09/2004, Male, 8072851813)." if len(missing_req) > 1 else "."
+                greeting_name = f", *{fn}*" if fn else ""
+                response_text = (
+                    f"Got it{greeting_name}! 👍\n\n"
+                    f"{known_text}\n\n"
+                    f"Please provide the remaining {detail_heading}:\n• " + "\n• ".join(missing_req) + together_suffix
+                )
+
+            else:
+                response_text = (
+                    f"Welcome! 😊\n\n"
+                    f"To create your patient profile, please send the following details in one message:\n\n"
+                    f"• " + "\n• ".join(missing_req) + "\n\n"
+                    f"Example:\n"
+                    f"Arokiya Gilbrit, 08/09/2004, Male, 8072851813, fever and cough"
+                )
+            state["interactive_buttons"] = []
+
+        state_manager.save_conversation_state(conversation_code, state)
+        log_message_to_db(conversation_code, "AI_AGENT", response_text, current_lang, intent, state)
+        return {
+            "success": True,
+            "conversation_id": conversation_code,
+            "language": current_lang,
+            "intent": intent,
+            "response": response_text,
+            "missing_information": [],
+            "tool_called": None,
+            "interactive_buttons": state.get("interactive_buttons", [])
+        }
+>>>>>>> Stashed changes
 
     elif intent in ["EMERGENCY", "EMERGENCY_GUIDANCE"]:
         log_agent_action(conversation_code, "EMERGENCY_DETECTED", {"trigger_message": message_text})

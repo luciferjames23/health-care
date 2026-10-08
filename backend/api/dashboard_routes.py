@@ -806,31 +806,56 @@ def register_patient(
             phone = "+91 98400 00000"
         whatsapp = (req.whatsapp_number or "").strip() or phone
 
-        cur.execute(
-            """
-            INSERT INTO patients (
-                patient_code, first_name, last_name, date_of_birth, gender,
-                phone, whatsapp_number, email, address, city, state, pincode,
-                emergency_contact_name, emergency_contact_phone, blood_group,
-                preferred_language, status, registration_date, created_at, updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            ) RETURNING id, patient_code;
-            """,
-            (
-                patient_code, first_name, last_name, dob, gender,
-                phone, whatsapp, req.email, req.address or "Chennai Metropolitan Area",
-                req.city or "Chennai", req.state or "Tamil Nadu", req.pincode or "600001",
-                req.emergency_contact_name, req.emergency_contact_phone,
-                req.blood_group or "O+", req.preferred_language or "English"
+        # Check if patient already exists
+        existing_patient = None
+        if phone and phone != "+91 98400 00000":
+            cur.execute("""
+                SELECT id, patient_code FROM patients 
+                WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' 
+                ORDER BY id ASC LIMIT 1;
+            """, (phone, phone))
+            existing_patient = cur.fetchone()
+
+        if not existing_patient and first_name:
+            cur.execute("""
+                SELECT id, patient_code FROM patients 
+                WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
+                  AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
+                  AND date_of_birth = %s 
+                  AND status = 'ACTIVE' 
+                ORDER BY id ASC LIMIT 1;
+            """, (first_name, last_name, dob))
+            existing_patient = cur.fetchone()
+
+        if existing_patient:
+            patient_id = existing_patient[0]
+            assigned_code = existing_patient[1]
+        else:
+            cur.execute(
+                """
+                INSERT INTO patients (
+                    patient_code, first_name, last_name, date_of_birth, gender,
+                    phone, whatsapp_number, email, address, city, state, pincode,
+                    emergency_contact_name, emergency_contact_phone, blood_group,
+                    preferred_language, status, registration_date, created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id, patient_code;
+                """,
+                (
+                    patient_code, first_name, last_name, dob, gender,
+                    phone, whatsapp, req.email, req.address or "Chennai Metropolitan Area",
+                    req.city or "Chennai", req.state or "Tamil Nadu", req.pincode or "600001",
+                    req.emergency_contact_name, req.emergency_contact_phone,
+                    req.blood_group or "O+", req.preferred_language or "English"
+                )
             )
-        )
-        patient_row = cur.fetchone()
-        patient_id = patient_row[0]
-        assigned_code = patient_row[1]
+            patient_row = cur.fetchone()
+            patient_id = patient_row[0]
+            assigned_code = patient_row[1]
 
         # Resolve Doctor ID
         resolved_doctor_id = req.doctor_id

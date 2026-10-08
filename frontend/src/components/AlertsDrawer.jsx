@@ -346,7 +346,14 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
                 type="button"
                 onClick={() => {
                   onClose();
-                  onOpenPatient({ id: item.patient_id, name: item.patient_name, patient_id: item.patient_id });
+                  onOpenPatient({
+                    id: item.patient_id,
+                    name: item.patient_name,
+                    patient_id: item.patient_id,
+                    patient_code: item.patient_code,
+                    uhid: item.patient_code,
+                    mrn: item.patient_code
+                  });
                 }}
                 style={{
                   color: '#0284c7',

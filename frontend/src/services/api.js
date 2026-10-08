@@ -2046,6 +2046,15 @@ export const apiService = {
     });
   },
 
+  async getPatientFullDetails(patientIdentifier, options = {}) {
+    if (!patientIdentifier) return null;
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/patients/${encodeURIComponent(patientIdentifier)}/full-details`, {
+      forceRefresh: true,
+      ...options,
+      revalidateMs: 1000
+    });
+  },
+
   async getPatientAppointments(patientId, options = {}) {
     if (!patientId) return [];
     return await fetchCachedJson(`${API_BASE_URL}/api/patients/${encodeURIComponent(patientId)}/appointments`, {

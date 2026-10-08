@@ -836,20 +836,54 @@ def create_patient_full(payload: CreateFullPatientRequest = Body(...)):
                         med_id = mrow['medication_id'] if isinstance(mrow, dict) else mrow[0]
                         unit_pr = float((mrow['unit_price'] if isinstance(mrow, dict) else mrow[1]) or 50.0)
 
+                if not med_id and m_name:
+                    # Dynamically insert medication into medications catalog
+                    _sync_sequence(cur, 'medications', 'medication_id')
+                    new_med_id = _get_next_id(cur, 'medications', 'medication_id')
+                    med_code = f"MED-{str(new_med_id).zfill(4)}"
+                    is_ha = any(k in m_name.lower() for k in ['inj', 'heparin', 'enoxaparin', 'insulin', 'digoxin', 'potassium', 'propofol', 'midazolam', 'warfarin'])
+                    cur.execute("""
+                        INSERT INTO medications (
+                            medication_id, medication_code, medication_name, generic_name, unit_price, status, is_high_alert, dosage_form, route
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, 'Active', %s, %s, %s
+                        ) RETURNING medication_id, unit_price;
+                    """, (
+                        new_med_id, med_code, _s(m_name, 255), _s(m_name, 255), unit_pr, is_ha,
+                        "Injection" if is_ha or "inj" in m_name.lower() else "Tablet",
+                        _s(med.route or "Oral", 50)
+                    ))
+                    new_mrow = cur.fetchone()
+                    if new_mrow:
+                        med_id = new_mrow['medication_id'] if isinstance(new_mrow, dict) else new_mrow[0]
+                        unit_pr = float((new_mrow['unit_price'] if isinstance(new_mrow, dict) else new_mrow[1]) or unit_pr)
+
                 if not med_id:
-                    # Look for fallback medication from database
+                    # Final fallback from database catalog
                     cur.execute("SELECT medication_id, unit_price FROM medications ORDER BY medication_id ASC LIMIT 1;")
                     mrow = cur.fetchone()
                     if mrow:
                         med_id = mrow['medication_id'] if isinstance(mrow, dict) else mrow[0]
                         unit_pr = float((mrow['unit_price'] if isinstance(mrow, dict) else mrow[1]) or 50.0)
 
-                # Look up inventory batch if available
+                # Look up or create inventory batch if available
                 if med_id:
                     cur.execute("SELECT inventory_id FROM pharmacy_inventory WHERE medication_id = %s LIMIT 1;", (med_id,))
                     inv_row = cur.fetchone()
                     if inv_row:
                         inv_id = inv_row['inventory_id'] if isinstance(inv_row, dict) else inv_row[0]
+                    else:
+                        _sync_sequence(cur, 'pharmacy_inventory', 'inventory_id')
+                        new_inv_id = _get_next_id(cur, 'pharmacy_inventory', 'inventory_id')
+                        batch_no = f"BAT-{datetime.datetime.now().strftime('%Y%m')}-{str(new_inv_id).zfill(3)}"
+                        cur.execute("""
+                            INSERT INTO pharmacy_inventory (
+                                inventory_id, medication_id, batch_number, quantity_in_stock, unit_cost, selling_price, expiry_date, status
+                            ) VALUES (
+                                %s, %s, %s, 500, %s, %s, CURRENT_DATE + INTERVAL '1 year', 'Available'
+                            ) ON CONFLICT DO NOTHING;
+                        """, (new_inv_id, med_id, _s(batch_no, 50), unit_pr * 0.8, unit_pr))
+                        inv_id = new_inv_id
 
                 qty = int(med.quantity or 10)
                 item_total = float(qty * unit_pr)
@@ -1230,40 +1264,40 @@ def create_patient_full(payload: CreateFullPatientRequest = Body(...)):
                 total_net, _s(assigned_bed_number or "BED-0189", 50), _s(assigned_room_number or "RM-004", 50), _s(assigned_ward_name or "Medical Intensive Care MICU", 255)
             ))
 
-        # 12. Create Appointment in appointments table
+        # 12. Create Appointment in appointments table (Only for Outpatient registrations)
         apt_rec = None
-        try:
-            _sync_sequence(cur, 'appointments', 'id')
-            next_apt_id = _get_next_id(cur, 'appointments', 'id')
-            booking_id = f"BK-{datetime.datetime.now().strftime('%Y%m%d')}-{str(next_apt_id).zfill(4)}"
-            apt_reason = _s(primary_diag_str or "Clinical Intake Consultation", 50)
+        if not is_ip:
+            try:
+                _sync_sequence(cur, 'appointments', 'id')
+                next_apt_id = _get_next_id(cur, 'appointments', 'id')
+                booking_id = f"BK-{datetime.datetime.now().strftime('%Y%m%d')}-{str(next_apt_id).zfill(4)}"
+                apt_reason = _s(primary_diag_str or "Outpatient Consultation", 50)
 
-            cur.execute("""
-                INSERT INTO appointments (
-                    id, booking_id, patient_id, doctor_id, department_id,
-                    appointment_date, appointment_time, status, booking_source,
-                    patient_reason, reason_for_visit, appointment_type,
-                    created_at, updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s,
-                    CURRENT_DATE, CURRENT_TIME, 'CONFIRMED', 'Hospital Portal',
-                    %s, %s, %s,
-                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                );
-            """, (
-                next_apt_id, booking_id, patient_id, doc_id, dept_id,
-                apt_reason, apt_reason,
-                "INPATIENT_ROUNDS" if is_ip else "OUTPATIENT_CONSULTATION"
-            ))
-            apt_rec = {
-                "appointment_id": next_apt_id,
-                "booking_id": booking_id,
-                "doctor_name": doc_name,
-                "department_name": dept_name,
-                "status": "CONFIRMED"
-            }
-        except Exception as apt_err:
-            logger.warning(f"Could not insert appointment for patient {patient_id}: {apt_err}")
+                cur.execute("""
+                    INSERT INTO appointments (
+                        id, booking_id, patient_id, doctor_id, department_id,
+                        appointment_date, appointment_time, status, booking_source,
+                        patient_reason, reason_for_visit, appointment_type,
+                        created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        CURRENT_DATE, CURRENT_TIME, 'CONFIRMED', 'Hospital Portal',
+                        %s, %s, 'OUTPATIENT_CONSULTATION',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    );
+                """, (
+                    next_apt_id, booking_id, patient_id, doc_id, dept_id,
+                    apt_reason, apt_reason
+                ))
+                apt_rec = {
+                    "appointment_id": next_apt_id,
+                    "booking_id": booking_id,
+                    "doctor_name": doc_name,
+                    "department_name": dept_name,
+                    "status": "CONFIRMED"
+                }
+            except Exception as apt_err:
+                logger.warning(f"Could not insert appointment for patient {patient_id}: {apt_err}")
 
         # 13. Create System Notification and Audit Log
         try:
