@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import XrayOrders from './XrayOrders';
 import { StatusBadge, statusStyle } from './RadiologyShared';
 import { ImagingHistoryButton } from './ImagingHistory';
@@ -3566,15 +3566,9 @@ export default function Patient360View({
                   const doseStr = rx.dose || [rx.dosage, rx.route, rx.frequency].filter(Boolean).join(' ') || 'Not recorded';
                   const durationParts = [rx.duration, rx.quantity != null ? `${rx.quantity} units` : null].filter(Boolean);
                   const daysStr = rx.days || durationParts.join(' · ') || 'Not recorded';
-                  const isHighAlert = Boolean(rx.is_high_alert || rx.highAlert);
-<<<<<<< HEAD
                   const statusStr = rx.status || 'Prescribed';
                   const docStr = rx.doctor_name || rx.doctor || p.doctor || 'Attending Doctor';
                   const prescriberSafety = isHighAlert ? `${docStr} · ⚠ High Alert` : docStr;
-=======
-                  const statusStr = rx.status || 'Not recorded';
-                  const docStr = rx.doctor_name || rx.doctor || 'Not recorded';
->>>>>>> 4a5427e4a8e85fbe81cd6c0839b61bf141939593
 
                   return [
                     rxNo,
@@ -3608,16 +3602,10 @@ export default function Patient360View({
                   { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || p.doctor || 'Attending Physician' },
                   { k: 'Safety Classification', v: (matchedRx?.is_high_alert || row[4].includes('High Alert')) ? '⚠ High Alert Medication' : 'Standard Formulary' },
                   { k: 'Prescription Status', v: row[5] },
-<<<<<<< HEAD
                   { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Live Order' },
-                  { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' }
-=======
-                  { k: 'Prescribing Clinician', v: matchedRx?.doctor || matchedRx?.doctor_name || 'Not recorded' },
-                  { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Not recorded' },
-                  { k: 'Administration Instructions', v: matchedRx?.instructions || 'Not recorded' },
-                  { k: 'Source', v: matchedRx?.source || 'Not recorded' },
+                  { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' },
+                  { k: 'Source', v: matchedRx?.source || 'Electronic Record' },
                   { k: 'SOAP Note / Action', v: `${matchedRx?.source_soap_note_id || 'N/A'} / ${matchedRx?.source_action_id || 'N/A'}` }
->>>>>>> 4a5427e4a8e85fbe81cd6c0839b61bf141939593
                 ]
               });
             }
