@@ -40,7 +40,7 @@ async def _ag11_background_loop(interval_seconds: int = 60):
     print("[AG11_SCHEDULER] Background worker started for AG-11 Follow-up Agent.")
     while _ag11_scheduler_running:
         try:
-            run_ag11_cycle()
+            await asyncio.to_thread(run_ag11_cycle)
         except Exception as e:
             print(f"[AG11_SCHEDULER_LOOP_ERROR] {e}")
         await asyncio.sleep(interval_seconds)

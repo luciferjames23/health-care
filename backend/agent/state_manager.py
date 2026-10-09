@@ -108,18 +108,20 @@ def resolve_valid_patient_id(cur, candidate_patient_id = None, whatsapp_number: 
         try:
             cond = get_phone_query_condition()
             params = get_phone_query_params(whatsapp_number)
-            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;"
+            query = f"SELECT id, whatsapp_number FROM patients WHERE {cond} AND status = 'ACTIVE' ORDER BY id ASC;"
             cur.execute(query, params)
-            row = cur.fetchone()
-            if row:
-                pat_id, curr_wnum = row[0], row[1]
-                # Sync whatsapp_number if empty or not updated
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                pat_id, curr_wnum = rows[0][0], rows[0][1]
                 if not curr_wnum and whatsapp_number:
                     try:
                         cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (whatsapp_number, pat_id))
                     except Exception:
                         pass
                 return pat_id
+            elif len(rows) > 1:
+                # Multiple active patients share this phone. Require explicit patient selection.
+                return None
         except Exception as e:
             print("Error in resolve_valid_patient_id:", e)
 

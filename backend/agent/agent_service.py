@@ -1883,39 +1883,101 @@ def handle_switch_patient_flow(conversation_code: str, state: dict, current_lang
 def prompt_patient_selection(conversation_code: str, state: dict, current_lang: str, action_intent: str = "PATIENT_PROFILE", custom_prompt: str = None) -> dict:
     """
     Renders an interactive patient selection screen when multiple patient records
-    are associated with a single WhatsApp contact number.
+    are associated with a single WhatsApp contact number. Reuses active patient context if valid.
     """
     w_num = extract_whatsapp_number(conversation_code, state)
     patients = patient_id_service.get_all_patients_by_phone(w_num)
     if not patients:
         return build_patient_profile_response(conversation_code, state, current_lang)
 
+    # 1. Reuse existing active patient selection if already valid for this phone number
+    sel_pid = state.get("selected_patient_id") or state.get("patient_id")
+    if sel_pid and any(p["id"] == sel_pid or str(p.get("patient_code")) == str(sel_pid) for p in patients):
+        matching_pat = [p for p in patients if p["id"] == sel_pid or str(p.get("patient_code")) == str(sel_pid)][0]
+        state["selected_patient_id"] = matching_pat["id"]
+        state["patient_id"] = matching_pat["id"]
+        state.setdefault("entities", {})["patient_id"] = matching_pat["id"]
+        state["patient_identification_stage"] = "COMPLETED"
+        if action_intent in ["BOOK_APPOINTMENT", "DEPENDENT_BOOKING", "APPOINTMENT_CONFIRMATION"]:
+            state["booking_stage"] = "AWAITING_SYMPTOM"
+            state["previous_question"] = "ask_booking_symptom"
+            state["active_workflow"] = "BOOKING"
+            state["intent"] = "BOOK_APPOINTMENT"
+            p_full_name = format_patient_full_name(matching_pat.get("first_name"), matching_pat.get("last_name"), matching_pat.get("full_name"))
+            p_code = str(matching_pat.get("patient_code") or f"P{matching_pat['id']}").strip().strip("`")
+            resp = f"Booking for: *{p_full_name}* (`{p_code}`)\n\n" + language_service.translate_response("ASK_BOOKING_REASON", current_lang)
+            state["interactive_buttons"] = []
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BOOK_APPOINTMENT", state)
+            return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": []}
+        elif action_intent == "MY_APPOINTMENTS":
+            return build_my_appointments_response(conversation_code, state, current_lang)
+        elif action_intent == "PATIENT_PROFILE":
+            return build_patient_profile_response(conversation_code, state, current_lang)
+
+    # 2. If only one patient record is linked to this phone, auto-select it directly
+    if len(patients) == 1:
+        single_p = patients[0]
+        state["selected_patient_id"] = single_p["id"]
+        state["patient_id"] = single_p["id"]
+        state.setdefault("entities", {})["patient_id"] = single_p["id"]
+        state["patient_identification_stage"] = "COMPLETED"
+        state_manager.save_conversation_state(conversation_code, state)
+        if action_intent in ["BOOK_APPOINTMENT", "DEPENDENT_BOOKING", "APPOINTMENT_CONFIRMATION"]:
+            state["booking_stage"] = "AWAITING_SYMPTOM"
+            state["previous_question"] = "ask_booking_symptom"
+            state["active_workflow"] = "BOOKING"
+            state["intent"] = "BOOK_APPOINTMENT"
+            p_full_name = format_patient_full_name(single_p.get("first_name"), single_p.get("last_name"), single_p.get("full_name"))
+            p_code = str(single_p.get("patient_code") or f"P{single_p['id']}").strip().strip("`")
+            resp = f"Booking for: *{p_full_name}* (`{p_code}`)\n\n" + language_service.translate_response("ASK_BOOKING_REASON", current_lang)
+            state["interactive_buttons"] = []
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BOOK_APPOINTMENT", state)
+            return {"response": resp, "intent": "BOOK_APPOINTMENT", "language": current_lang, "interactive_buttons": []}
+        elif action_intent == "MY_APPOINTMENTS":
+            return build_my_appointments_response(conversation_code, state, current_lang)
+        else:
+            return build_patient_profile_response(conversation_code, state, current_lang)
+
     state["pending_stage"] = "AWAITING_PATIENT_SELECTION"
     state["pending_action_intent"] = action_intent
 
-    if custom_prompt:
-        resp = custom_prompt
-    elif current_lang == "TAMIL":
-        resp = "👤 *நோயாளியின் சுயவிவரங்கள்*\n\nஇந்த வாட்ஸ்அப் எண்ணுடன் பல நோயாளி சுயவிவரங்கள் இணைக்கப்பட்டுள்ளன.\n\nஎந்த நோயாளியின் சுயவிவரத்தை அணுக விரும்புகிறீர்கள்?"
-    elif current_lang == "HINDI":
-        resp = "👤 *मरीजों की प्रोफ़ाइल*\n\nइस व्हाट्सएप नंबर से कई मरीजों की प्रोफ़ाइल जुड़ी हुई हैं।\n\nआप किस मरीज की प्रोफ़ाइल तक पहुँचना चाहते हैं?"
-    else:
-        resp = "👤 *Patient Profiles*\n\nI found multiple patient profiles linked to this WhatsApp number.\n\nWhich patient would you like to access?"
-
-    buttons = []
-    seen_ids = set()
-    for p in patients[:9]:
-        if p['id'] in seen_ids:
-            continue
-        seen_ids.add(p['id'])
-        p_code = p.get("patient_code") or f"P{p['id']}"
+    # Format text prompt listing matching profiles with complete Name and Patient Code:
+    patient_lines = []
+    for idx, p in enumerate(patients[:9], 1):
+        p_code = str(p.get("patient_code") or f"P{p['id']}").strip().strip("`")
         full_n = format_patient_full_name(p.get("first_name"), p.get("last_name"), p.get("full_name"))
-        title_str = f"{full_n} — {p_code}"
-        if len(title_str) > 24:
-            title_str = f"{p.get('first_name') or 'Patient'} ({p_code})"
-            if len(title_str) > 24:
-                title_str = title_str[:24]
-        buttons.append({"id": f"btn_select_pat_{p['id']}", "title": title_str})
+        patient_lines.append(f"*{idx}. {full_n}* - `{p_code}`")
+
+    pat_list_text = "\n".join(patient_lines)
+
+    if custom_prompt:
+        header = custom_prompt
+    elif current_lang == "TAMIL":
+        header = "👤 *நோயாளியின் சுயவிவரங்கள்*\n\nஇந்த வாட்ஸ்அப் எண்ணுடன் பல நோயாளி சுயவிவரங்கள் இணைக்கப்பட்டுள்ளன:\n\n"
+    elif current_lang == "HINDI":
+        header = "👤 *मरीजों की प्रोफ़ाइल*\n\nइस व्हाट्सएप नंबर से कई मरीजों की प्रोफ़ाइल जुड़ी हुई हैं:\n\n"
+    else:
+        header = "👤 *Patient Profiles*\n\nMultiple patient profiles are registered under this WhatsApp number:\n\n"
+
+    resp = f"{header}{pat_list_text}\n\nPlease select a profile below to continue:"
+
+    # Format reply buttons with primary patient name (<= 20 chars) and unique titles
+    buttons = []
+    seen_titles = {}
+    for p in patients[:9]:
+        full_n = format_patient_full_name(p.get("first_name"), p.get("last_name"), p.get("full_name"))
+        base_title = full_n[:20].strip() if full_n else f"Patient {p['id']}"
+        if base_title in seen_titles:
+            seen_titles[base_title] += 1
+            suffix = f" ({seen_titles[base_title]})"
+            final_title = base_title[:20 - len(suffix)] + suffix
+        else:
+            seen_titles[base_title] = 1
+            final_title = base_title
+
+        buttons.append({"id": f"btn_select_pat_{p['id']}", "title": final_title})
 
     state["interactive_buttons"] = buttons
     state_manager.save_conversation_state(conversation_code, state)
@@ -2817,6 +2879,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             btn_id = "btn_existing_patient"
         elif m_strip in ["try again", "retry", "btn_retry_patient_id"]:
             btn_id = "btn_retry_patient_id"
+        elif any(kw in m_strip for kw in ["switch patient", "switch profile", "change patient", "select patient", "select profile", "btn_switch_patient"]):
+            btn_id = "btn_switch_patient"
         elif any(kw in m_strip for kw in ["hospital information", "hospital info", "location", "timings", "visiting hours"]):
             btn_id = "btn_hosp_info"
         elif any(kw in m_strip for kw in ["doctor availability", "doctor information", "doctor info", "doctors available", "find doctor", "available doctor", "doctor schedule"]):
@@ -4132,9 +4196,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             state["dependent_patient_id"] = None
             state["dependent_name"] = None
             state["dependent_collected"] = False
-            if state.get("primary_patient_id"):
-                state["patient_id"] = state["primary_patient_id"]
-                state.setdefault("entities", {})["patient_id"] = state["primary_patient_id"]
+            eff_pid = state.get("selected_patient_id") or state.get("patient_id") or state.get("primary_patient_id")
+            if eff_pid:
+                state["patient_id"] = eff_pid
+                state.setdefault("entities", {})["patient_id"] = eff_pid
             # Clear stale entities
             ents = state.setdefault("entities", {})
             ents["doctor_id"] = None
@@ -5768,10 +5833,90 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     return {"response": resp, "intent": "RESCHEDULE_APPOINTMENT", "language": current_lang, "interactive_buttons": buttons}
 
     # ── NEW: Dynamic button fast-path handlers ──────────────────────────────────
-    # These handle btn_doc_{id}, btn_dep_{id}, btn_slot_{HH:MM}, btn_date_*, btn_chg_*
+    # These handle btn_select_pat_{id}, btn_switch_patient, btn_doc_{id}, btn_dep_{id}, btn_slot_{HH:MM}, btn_date_*, btn_chg_*
     # They are resolved here BEFORE the LLM router to avoid expensive LLM calls for
     # simple structured button selections.
-    if btn_id and btn_id.startswith("btn_doc_"):
+    if btn_id and (btn_id.startswith("btn_select_pat_") or btn_id.startswith("btn_select_patient_")):
+        try:
+            raw_pid = btn_id.replace("btn_select_patient_", "").replace("btn_select_pat_", "")
+            target_pat_id = int(raw_pid)
+        except (ValueError, TypeError):
+            target_pat_id = None
+
+        w_num = extract_whatsapp_number(conversation_code, state)
+        all_pats = patient_id_service.get_all_patients_by_phone(w_num)
+        valid_pat = next((p for p in all_pats if p["id"] == target_pat_id), None) if target_pat_id else None
+
+        if not valid_pat:
+            print(f"[SECURITY_WARNING] Selected patient_id {target_pat_id} not linked to WhatsApp number {w_num}")
+            return prompt_patient_selection(conversation_code, state, current_lang, action_intent="PATIENT_PROFILE", custom_prompt="Invalid profile selected. Please select one of your registered profiles:")
+
+        # Persist active patient context
+        state["selected_patient_id"] = valid_pat["id"]
+        state["patient_id"] = valid_pat["id"]
+        state.setdefault("entities", {})["patient_id"] = valid_pat["id"]
+        state["patient_identification_stage"] = "COMPLETED"
+        state["pending_stage"] = None
+
+        # Reset patient-specific transient state (isolation across patient switch)
+        state["modifying_booking_id"] = None
+        state["selected_booking_id"] = None
+        state["selected_doctor_id"] = None
+        state["selected_doctor_name"] = None
+        state["selected_department_id"] = None
+        state["selected_department_name"] = None
+        state["doctor_name"] = None
+        state["department_name"] = None
+        state.setdefault("entities", {})
+        state["entities"]["doctor_id"] = None
+        state["entities"]["department_id"] = None
+        state["entities"]["appointment_date"] = None
+        state["entities"]["appointment_time"] = None
+        state["entities"]["reason"] = None
+        state["entities"]["symptoms"] = []
+        state["payment_context"] = None
+        state["payment_id"] = None
+        state["bill_id"] = None
+        state["profile_update_field"] = None
+        state["profile_update_stage"] = None
+        state["dependent_patient_id"] = None
+        state["dependent_name"] = None
+
+        pending_action = state.get("pending_action_intent") or "PATIENT_PROFILE"
+        state["pending_action_intent"] = None
+
+        state_manager.save_conversation_state(conversation_code, state)
+
+        if pending_action in ["BOOK_APPOINTMENT", "DEPENDENT_BOOKING", "APPOINTMENT_CONFIRMATION"]:
+            state["booking_stage"] = "AWAITING_SYMPTOM"
+            state["previous_question"] = "ask_booking_symptom"
+            state["active_workflow"] = "BOOKING"
+            state["intent"] = "BOOK_APPOINTMENT"
+            p_full_name = format_patient_full_name(valid_pat.get("first_name"), valid_pat.get("last_name"), valid_pat.get("full_name"))
+            p_code = str(valid_pat.get("patient_code") or f"P{valid_pat['id']}").strip().strip("`")
+            resp = f"Booking for: *{p_full_name}* (`{p_code}`)\n\n" + language_service.translate_response("ASK_BOOKING_REASON", current_lang)
+            state["interactive_buttons"] = []
+            state_manager.save_conversation_state(conversation_code, state)
+            log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BOOK_APPOINTMENT", state)
+            return {
+                "response": resp,
+                "intent": "BOOK_APPOINTMENT",
+                "language": current_lang,
+                "interactive_buttons": []
+            }
+        elif pending_action == "MY_APPOINTMENTS":
+            return build_my_appointments_response(conversation_code, state, current_lang)
+        elif pending_action in ["PATIENT_REPORTS", "PATIENT_DOCUMENTS"]:
+            return build_patient_reports_response(conversation_code, state, current_lang)
+        elif pending_action in ["BILLING_AND_PAYMENTS", "BILLING"]:
+            return build_billing_response(conversation_code, state, current_lang)
+        else:
+            return build_patient_profile_response(conversation_code, state, current_lang)
+
+    elif btn_id == "btn_switch_patient" or ((message_text or "").strip().lower() in ["switch patient", "change patient", "switch profile"]):
+        return handle_switch_patient_flow(conversation_code, state, current_lang)
+
+    elif btn_id and btn_id.startswith("btn_doc_"):
         try:
             pressed_doc_id = int(btn_id.split("btn_doc_")[1])
         except (ValueError, IndexError):
@@ -6680,9 +6825,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         state["dependent_patient_id"] = None
         state["dependent_name"] = None
         state["dependent_collected"] = False
-        if state.get("primary_patient_id"):
-            state["patient_id"] = state["primary_patient_id"]
-            state.setdefault("entities", {})["patient_id"] = state["primary_patient_id"]
+        eff_pid = state.get("selected_patient_id") or state.get("patient_id") or state.get("primary_patient_id")
+        if eff_pid:
+            state["patient_id"] = eff_pid
+            state.setdefault("entities", {})["patient_id"] = eff_pid
     else:
         if _b_for and _b_for != "SELF":
             state["booking_for"] = _b_for

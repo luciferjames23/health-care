@@ -141,7 +141,7 @@ async def _background_scheduler_loop(interval_seconds: int = 900):
     print("[POST_DISCHARGE_FB_SCHEDULER] Started background post-discharge feedback worker loop.")
     while _scheduler_running:
         try:
-            check_and_trigger_post_discharge_feedback()
+            await asyncio.to_thread(check_and_trigger_post_discharge_feedback)
         except Exception as e:
             print(f"[POST_DISCHARGE_FB_LOOP_ERR] {e}")
         await asyncio.sleep(interval_seconds)

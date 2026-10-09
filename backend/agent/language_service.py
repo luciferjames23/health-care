@@ -657,9 +657,18 @@ MENU_BUTTON_TRANSLATIONS = {
         "btn_cat_feedback": "رائے دیں",
         "btn_write_feedback": "تحریری رائے",
         "btn_voice_feedback": "وائس رائے",
-        "btn_skip_feedback": "چھوڑیں"
+        "btn_skip_feedback": "چھوڑیں",
+        "btn_switch_patient": "مریض تبدیل کریں"
     }
 }
+
+for _l_key, _trans in [
+    ("ENGLISH", "Switch Patient"), ("TAMIL", "மாற்று நோயாளி"),
+    ("HINDI", "मरीज बदलें"), ("TELUGU", "పేషెంట్‌ని మార్చండి"),
+    ("MALAYALAM", "രോഗിയെ മാറ്റുക"), ("KANNADA", "ರೋಗಿಯನ್ನು ಬದಲಾಯಿಸಿ")
+]:
+    if _l_key in MENU_BUTTON_TRANSLATIONS:
+        MENU_BUTTON_TRANSLATIONS[_l_key]["btn_switch_patient"] = _trans
 
 MENU_BUTTON_DESCRIPTIONS = {
     "btn_cat_appts": "Book, view, reschedule, cancel or register",
@@ -1568,7 +1577,7 @@ def format_patient_profile_card(patient_info: dict, language: str = "ENGLISH") -
         lang = "ENGLISH"
     labels = CARD_LABELS[lang]
 
-    p_code = patient_info.get("patient_code") or ""
+    p_code = str(patient_info.get("patient_code") or "").strip().strip("`")
     name = patient_info.get("name") or ""
     phone = patient_info.get("phone") or ""
     dob = patient_info.get("dob") or ""

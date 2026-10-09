@@ -13,6 +13,7 @@ Step 5.3 — Meridian Hospital
 """
 
 import os
+from typing import Optional
 import requests
 import base64
 import uuid
@@ -295,12 +296,50 @@ def send_welcome_message(to_number: str, template_name: str = "meridian_patient_
     return send_template_message(to_number, template_name=template_name, language_code=language_code)
 
 
+def upload_media(file_path: str, mime_type: str = "image/jpeg") -> Optional[str]:
+    """
+    Uploads a local media file to Meta WhatsApp Cloud API media endpoint.
+    Returns media_id string on success, or None on failure.
+    """
+    if is_mock_mode() or not os.path.exists(file_path):
+        return None
+
+    try:
+        url = f"{get_api_url()}/{get_phone_number_id()}/media"
+        headers = {
+            "Authorization": f"Bearer {get_access_token()}"
+        }
+        with open(file_path, "rb") as f:
+            files = {
+                "file": (os.path.basename(file_path), f, mime_type),
+                "messaging_product": (None, "whatsapp")
+            }
+            res = get_http_session().post(url, files=files, headers=headers, timeout=15)
+            if res.ok:
+                data = res.json()
+                media_id = data.get("id")
+                print(f"[WhatsApp] Successfully uploaded media '{os.path.basename(file_path)}' -> media_id={media_id}")
+                return media_id
+            else:
+                print(f"[WhatsApp] Media upload failed (HTTP {res.status_code}): {res.text}")
+                return None
+    except Exception as e:
+        print(f"[WhatsApp] Media upload exception for '{file_path}': {e}")
+        return None
+
+
 def send_image_message(to_number: str, image_url_or_path: str, caption: str = None) -> dict:
     """
     Send an image message to a WhatsApp number.
-    Supports either a public HTTP/HTTPS URL or local file path.
+    Supports either a public HTTP/HTTPS URL or local file path via media upload API.
     """
     to_number = clean_whatsapp_number(to_number)
+
+    # Check env override for welcome image public URL
+    env_img_url = os.getenv("WELCOME_IMAGE_URL") or os.getenv("PUBLIC_WELCOME_IMAGE_URL")
+    if env_img_url and env_img_url.startswith("http"):
+        image_url_or_path = env_img_url
+
     payload_mock = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",

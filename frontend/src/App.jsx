@@ -670,7 +670,7 @@ export default function App() {
               />
             )}
 
-            {activePage === 'patients' && (
+            {['patients', 'patient-records', 'doctor-patient-records', '/doctor/patient-records'].includes(activePage) && (
               <PatientsView
                 onSelectPatient={handleSelectPatient}
                 onOpenSoap={handleOpenSoap}
@@ -938,7 +938,8 @@ export default function App() {
               'integration-arch', 'notifications', 'config', 'reports', 'users', 'roles', 'permissions', 'identity',
               'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
               'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
-              'forecasting', 'beforeafter', 'feedback', 'create-full-details', 'create-full', '/create-full/details'
+              'forecasting', 'beforeafter', 'feedback', 'create-full-details', 'create-full', '/create-full/details',
+              'followup-agent', 'patient-records', 'doctor-patient-records', '/doctor/patient-records'
             ].includes(activePage) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

@@ -231,7 +231,7 @@ async def _queue_monitor_loop(interval_seconds: int = MONITOR_INTERVAL):
     print(f"[AG-06_SCHEDULER] Queue monitor started. Interval: {interval_seconds}s.")
     while _scheduler_running:
         try:
-            _run_monitor_cycle()
+            await asyncio.to_thread(_run_monitor_cycle)
         except Exception as e:
             print(f"[AG-06_SCHEDULER_LOOP_ERR] {e}")
         await asyncio.sleep(interval_seconds)
