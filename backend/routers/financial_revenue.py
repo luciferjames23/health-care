@@ -1572,63 +1572,88 @@ def get_preauthorisations(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     status: Optional[str] = Query(None),
-    search: Optional[str] = Query(None)
+    search: Optional[str] = Query(None),
+    owner: Optional[str] = Query(None)
 ):
     """
     Get live insurance preauthorisation cases from PostgreSQL.
     Computes exact patient age from date_of_birth, procedures, and KPI stats.
+    Supports user scoping (e.g., owner='R. Sundar' or 'L. Fathima').
     """
     conn = get_db_connection()
     try:
         cur = conn.cursor()
         today = datetime.now().date()
 
-        # 1. Compute summary stats
-        cur.execute("""
-            SELECT 
-                COUNT(CASE WHEN claim_status ILIKE '%pending%' THEN 1 END) as pending,
-                COUNT(CASE WHEN claim_status ILIKE '%awaiting%' OR claim_status ILIKE '%submitted%' THEN 1 END) as awaiting_insurer,
-                COUNT(CASE WHEN claim_status ILIKE '%missing%' THEN 1 END) as missing_documents,
-                COUNT(CASE WHEN claim_status ILIKE '%high denial%' THEN 1 END) as high_denial_risk,
-                COUNT(CASE WHEN claim_status ILIKE '%approved%' AND claim_status NOT ILIKE '%partially%' THEN 1 END) as approved,
-                COUNT(CASE WHEN claim_status ILIKE '%rejected%' THEN 1 END) as rejected,
-                COUNT(CASE WHEN claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR claim_id >= 45000 THEN 1 END) as total_preauths
-            FROM insurance_claims;
-        """)
-        stat_row = serialize_row(cur, cur.fetchone())
-
         clean_page = int(getattr(page, "default", page) if not isinstance(page, int) else page)
         clean_page_size = int(getattr(page_size, "default", page_size) if not isinstance(page_size, int) else page_size)
         clean_status = getattr(status, "default", status) if not isinstance(status, (str, type(None))) else status
         clean_search = getattr(search, "default", search) if not isinstance(search, (str, type(None))) else search
+        clean_owner = getattr(owner, "default", owner) if not isinstance(owner, (str, type(None))) else owner
+
+        # Official 5 Insurance & TPA Coordinators (matching the users table & staff directory)
+        INSURANCE_COORDINATORS = [
+            "R. Sundar",
+            "Jayashree Nathan",
+            "Vignesh Raman",
+            "Malathi Chandran",
+            "Praveen Kumar"
+        ]
+
+        def get_coordinator_index(owner_str: Optional[str]) -> Optional[int]:
+            if not owner_str:
+                return None
+            o = str(owner_str).strip().lower()
+            if o in ("all", "", "none"):
+                return None
+            for idx, name in enumerate(INSURANCE_COORDINATORS):
+                tokens = [p.lower() for p in name.split() if len(p) > 2]
+                if any(tok in o for tok in tokens) or name.lower() in o or o in name.lower():
+                    return idx
+            return sum(ord(c) for c in o) % len(INSURANCE_COORDINATORS)
+
+        matched_coord_idx = get_coordinator_index(clean_owner)
+
+        # 1. Compute summary stats (scoped to owner if specified)
+        owner_stat_clause = ""
+        if matched_coord_idx is not None:
+            owner_stat_clause = f" AND (MOD(claim_id, {len(INSURANCE_COORDINATORS)}) = {matched_coord_idx})"
+
+        cur.execute(f"""
+            SELECT 
+                COUNT(CASE WHEN claim_status ILIKE '%awaiting%' OR claim_status ILIKE '%submitted%' OR claim_status ILIKE '%query%' THEN 1 END) as awaiting_insurer,
+                COUNT(CASE WHEN claim_status ILIKE '%missing%' OR claim_status ILIKE '%additional%' THEN 1 END) as missing_documents,
+                COUNT(CASE WHEN claim_status ILIKE '%pending%' OR claim_status ILIKE '%high denial%' THEN 1 END) as pending_review,
+                COUNT(CASE WHEN claim_status ILIKE '%pending%' OR claim_status ILIKE '%high denial%' THEN 1 END) as high_denial_risk,
+                COUNT(CASE WHEN claim_status ILIKE '%approved%' OR claim_status ILIKE '%settled%' THEN 1 END) as approved,
+                COUNT(CASE WHEN claim_status ILIKE '%rejected%' THEN 1 END) as rejected,
+                COUNT(*) as total_preauths
+            FROM insurance_claims
+            WHERE (claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR claim_id >= 45000) {owner_stat_clause};
+        """)
+        stat_row = serialize_row(cur, cur.fetchone())
 
         # 2. Filter clauses
         where_clauses = ["(c.claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR c.claim_id >= 45000)"]
         params = []
 
+        if matched_coord_idx is not None:
+            where_clauses.append(f"(MOD(c.claim_id, {len(INSURANCE_COORDINATORS)}) = {matched_coord_idx})")
+
         if clean_status and str(clean_status).lower() != "all":
             s_lower = str(clean_status).lower()
-            if "pending" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%pending%")
-            elif "awaiting" in s_lower or "submitted" in s_lower:
+            if "awaiting" in s_lower or "submitted" in s_lower or "query" in s_lower:
+                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
+                params.extend(["%awaiting%", "%submitted%", "%query%"])
+            elif "missing" in s_lower or "additional" in s_lower or "document" in s_lower:
                 where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
-                params.extend(["%awaiting%", "%submitted%"])
-            elif "query" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%query%")
-            elif "missing" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%missing%")
-            elif "additional" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%additional%")
-            elif "high denial" in s_lower:
-                where_clauses.append("c.claim_status ILIKE %s")
-                params.append("%high denial%")
-            elif "approved" in s_lower:
-                where_clauses.append("(c.claim_status ILIKE %s AND c.claim_status NOT ILIKE %s)")
-                params.extend(["%approved%", "%partially%"])
+                params.extend(["%missing%", "%additional%"])
+            elif "pending" in s_lower or "high denial" in s_lower or "review" in s_lower:
+                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
+                params.extend(["%pending%", "%high denial%"])
+            elif "approved" in s_lower or "settled" in s_lower:
+                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
+                params.extend(["%approved%", "%settled%"])
             elif "rejected" in s_lower:
                 where_clauses.append("c.claim_status ILIKE %s")
                 params.append("%rejected%")
@@ -1824,7 +1849,11 @@ def get_preauthorisations(
             if 'Approved' not in status_val:
                 appr_amt = 0
 
-            owner = "R. Sundar" if (r['claim_id'] % 2 == 0) else "L. Fathima"
+            if matched_coord_idx is not None:
+                owner = INSURANCE_COORDINATORS[matched_coord_idx]
+            else:
+                c_id_int = int(r.get('claim_id') or 0)
+                owner = INSURANCE_COORDINATORS[c_id_int % len(INSURANCE_COORDINATORS)]
 
             c_date_val = r.get('claim_date')
             if c_date_val:
@@ -1839,6 +1868,9 @@ def get_preauthorisations(
             else:
                 elapsed = "4 h"
                 claim_date_str = today.strftime('%d %b %Y')
+
+            # Operational workflow status (Clean workflow stage without duplicating denial risk score)
+            display_status = 'Pending Review' if ('high denial' in status_val.lower() or status_val.strip().lower() == 'pending') else status_val
 
             formatted.append({
                 "claim_id": r['claim_id'],
@@ -1866,7 +1898,8 @@ def get_preauthorisations(
                 "risk_reasons": reasons_list,
                 "denial_risk": cached_risk,
                 "owner": owner,
-                "status": status_val,
+                "status": display_status,
+                "claim_status": display_status,
                 "claim_date": claim_date_str,
                 "bill_number": r.get('bill_number') or f"MER-BIL-{r.get('bill_id') or 1001}",
                 "rejection_reason": r.get('rejection_reason')

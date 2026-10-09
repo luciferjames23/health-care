@@ -27,6 +27,12 @@ class ApproveExplanationRequest(BaseModel):
     notes: Optional[str] = Field(default="Reviewed and approved plain-language explanation for invoice print.", description="Staff notes")
 
 
+class BillingQuestionRequest(BaseModel):
+    patient_id: Optional[Union[str, int]] = Field("87221", description="Patient ID, UHID, or Invoice ID")
+    question: str = Field(..., description="Patient or family billing question")
+    language: Optional[str] = Field(default="en", description="Language: 'en' for English or 'ta' for Tamil")
+
+
 @router.get("/status", summary="Get AG-08 Agent Profile & Benchmarks")
 def get_agent_status():
     """Returns AG-08 prototype specification, architecture, tools, knowledge bases, and performance benchmarks."""
@@ -57,7 +63,7 @@ def get_billing_stats():
 def list_billing_cases(
     limit: Optional[int] = Query(None, description="Max cases to return"),
     search: Optional[str] = Query(None, description="Search by name, UHID, invoice or department"),
-    status_filter: Optional[str] = Query(None, description="Filter by 'variance' or 'cleared'")
+    status_filter: Optional[str] = Query(None, description="Filter by 'variance', 'cleared', 'pending', or 'all'")
 ):
     """Lists inpatient billing files with real-time variance calculation against initial estimate."""
     try:
@@ -122,6 +128,51 @@ def investigate_clinical_necessity(
         }
     except Exception as e:
         logger.error(f"Error investigating clinical necessity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/patient/{patient_identifier}/summary", summary="Get Full Reconciled Patient Billing Profile")
+def get_patient_billing_summary(patient_identifier: str):
+    """
+    Returns complete master bill, itemized lines, insurance claims, payments,
+    refunds, discounts, and reconciled net balances from PostgreSQL.
+    """
+    try:
+        result = billing_service.get_patient_billing_profile(patient_identifier)
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Error in get_patient_billing_summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/query", summary="Ask Agent Billing Question & Receive Dynamic Explanation")
+def ask_billing_question_endpoint(req: BillingQuestionRequest = Body(...)):
+    """
+    Answers specific patient billing questions dynamically based on actual database records:
+    - What is my total bill amount?
+    - How much have I paid so far?
+    - How much is still pending?
+    - What are the individual charges included in my bill?
+    - How much is covered by insurance?
+    - Why is there an outstanding balance?
+    - Which payments or insurance claims are still pending?
+    - Has my bill been fully settled?
+    """
+    try:
+        result = billing_service.ask_billing_question(
+            patient_identifier=str(req.patient_id or "87221"),
+            question=req.question,
+            language=req.language or "en"
+        )
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Error answering billing question: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -264,8 +264,8 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
           </div>
           <div>
             <div class="grid-label">Insurance / TPA Coverage</div>
-            <div class="grid-val" style="color: #059669;">Star Health & Allied Insurance</div>
-            <div style="color: #64748b; font-size: 11px;">Approved: ₹2,20,000</div>
+            <div class="grid-val" style="color: #059669;">${data.insurance_provider || 'Self-Pay / Direct'}</div>
+            <div style="color: #64748b; font-size: 11px;">Approved: ₹${Number(data.insurance_approved_amount || data.tpa_approved || 0).toLocaleString()}</div>
           </div>
         </div>
 
@@ -302,11 +302,11 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
             </div>
             <div class="totals-row" style="color: #059669;">
               <span>Insurance Settled Share:</span>
-              <span>-₹2,20,000</span>
+              <span>-₹${Number(data.insurance_approved_amount || data.tpa_approved || 0).toLocaleString()}</span>
             </div>
             <div class="due-row">
-              <span>Patient Co-Pay Due:</span>
-              <span>₹48,450</span>
+              <span>Patient Due / Co-Pay:</span>
+              <span>₹${Number(data.patient_outstanding_balance ?? data.patient_share ?? 0).toLocaleString()}</span>
             </div>
           </div>
         </div>

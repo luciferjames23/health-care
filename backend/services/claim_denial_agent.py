@@ -242,7 +242,7 @@ class ClaimDenialAgentService:
 
             insurer = claim.get("insurance_provider") or "Star Health & Allied Insurance"
             tpa = claim.get("tpa") or "Medi Assist TPA"
-            denial_code_num, denial_code_lbl, denial_category, policy_clause, stated_reason, code_system = self._classify_denial(
+            denial_code_num, denial_code_lbl, denial_category, policy_clause, stated_reason, code_system, disposition_type, recommended_action = self._classify_denial(
                 raw_reason, insurer=insurer, tpa=tpa
             )
 
@@ -279,12 +279,24 @@ class ClaimDenialAgentService:
             checklist = self._build_checklist(denial_code_num, has_resolved_missing, attending_doc, adm, diagnosis, claimed_amt)
 
             missing_items = [it for it in checklist if it["status"] == "MISSING"]
-            can_resubmit = len(missing_items) == 0
-            gate_status = "READY_FOR_RESUBMISSION" if can_resubmit else "RE_SUBMISSION_BLOCKED"
-            blocked_reason = (
-                f"{missing_items[0]['title']} is missing. Re-appeal blocked because required evidence is missing."
-                if not can_resubmit else None
-            )
+            if disposition_type == "GENUINE_DENIAL":
+                can_resubmit = False
+                gate_status = "GENUINE_DENIAL_NOT_PAYABLE"
+                blocked_reason = f"Service/Procedure is permanently excluded under {policy_clause} ({denial_code_lbl}). Claim is genuinely denied under insurer policy terms."
+            elif disposition_type == "CORRECTION_REQUIRED":
+                can_resubmit = has_resolved_missing or len(missing_items) == 0
+                gate_status = "READY_FOR_RESUBMISSION" if can_resubmit else "CORRECTION_REQUIRED_BEFORE_SUBMISSION"
+                blocked_reason = (
+                    f"{denial_category} ({denial_code_lbl}) detected. Discrepancy must be corrected before re-submission."
+                    if not can_resubmit else None
+                )
+            else: # ADDITIONAL_INFO_REQUIRED
+                can_resubmit = len(missing_items) == 0
+                gate_status = "READY_FOR_RESUBMISSION" if can_resubmit else "RE_SUBMISSION_BLOCKED"
+                blocked_reason = (
+                    f"{missing_items[0]['title']} is missing. Re-appeal blocked because required evidence is missing."
+                    if not can_resubmit else None
+                )
 
             # 5. Draft the Formal Reconsideration Appeal Letter Dynamically
             if existing_appeal and existing_appeal.get("appeal_status") == "SUBMITTED_TPA" and existing_appeal.get("appeal_letter"):
@@ -342,6 +354,8 @@ class ClaimDenialAgentService:
                 "denial_code": denial_code_lbl,
                 "denial_code_number": denial_code_num,
                 "denial_category": denial_category,
+                "disposition_type": disposition_type,
+                "recommended_action": recommended_action,
                 "policy_clause": policy_clause,
                 "irda_guideline_reference": policy_clause,
                 "rejection_reason": stated_reason,
@@ -390,131 +404,148 @@ class ClaimDenialAgentService:
         elif "[insurer_internal]" in r:
             code_system = "INSURER_INTERNAL"
 
+        # ── 0. Coding & Patient Identification Discrepancies ─────────────────
+        if "305" in r or "cod-01" in r or "coding" in r or "cpt" in r or "unbundling" in r:
+            return (
+                "305", "COD-01", "Coding Discrepancy & Procedure Code Mismatch",
+                "IRDAI Billing & Coding Clause 7.2",
+                "Discrepancy identified between diagnosis code and billed surgical procedure codes",
+                "STANDARDIZED_IRDAI", "CORRECTION_REQUIRED",
+                "Review clinical records, rectify ICD-10/CPT coding discrepancy in billing module, and generate corrected claim."
+            )
+        elif "101" in r or "id-01" in r or "demographic" in r or "name mismatch" in r or "identity" in r or "enrollment" in r:
+            return (
+                "101", "ID-01", "Patient Demographic & Policy Identification Mismatch",
+                "Policy Verification Guidelines Clause 1.2",
+                "Discrepancy detected between patient identification/demographics and insurer policy enrollment records",
+                "STANDARDIZED_IRDAI", "CORRECTION_REQUIRED",
+                "Verify patient UHID, name spelling, and policy number against insurer portal; correct enrollment discrepancies and resubmit."
+            )
+
         # ── 1. Insurer-Specific Internal Codes ──────────────────────────────
         # Star Health Internal: PED-01, EX-W30, SPEC-24M, MED-NEC-04, DOC-MIS-09, POL-EX-12, SUM-EXH-07
         if "ped-01" in r:
-            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease exclusion invoked under Policy Clause 4.2", code_system)
+            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease exclusion invoked under Policy Clause 4.2", code_system, "ADDITIONAL_INFO_REQUIRED", "Obtain treating doctor clarification certifying acute onset and attach historical OPD records proving condition is not pre-existing.")
         elif "ex-w30" in r:
-            return ("402", "EX-W30", "30-day initial waiting period", "Policy Clause 4.1", "30-day waiting period moratorium on non-accidental care", code_system)
+            return ("402", "EX-W30", "30-day initial waiting period", "Policy Clause 4.1", "30-day waiting period moratorium on non-accidental care", code_system, "GENUINE_DENIAL", "Statutory 30-day initial moratorium applies; verify emergency waiver or bill patient directly.")
         elif "spec-24m" in r:
-            return ("402", "SPEC-24M", "Specified disease 24-month waiting period", "Policy Clause 4.3", "Specified procedure 24-month waiting period", code_system)
+            return ("402", "SPEC-24M", "Specified disease 24-month waiting period", "Policy Clause 4.3", "Specified procedure 24-month waiting period", code_system, "GENUINE_DENIAL", "Specific disease 24-month waiting period applicable under Policy Clause 4.3.")
         elif "med-nec-04" in r:
-            return ("204", "MED-NEC-04", "Conservative management / Clinical justification", "Policy Clause 5.1", "Lack of documented trial of conservative non-operative medical treatment", code_system)
+            return ("204", "MED-NEC-04", "Conservative management / Clinical justification", "Policy Clause 5.1", "Lack of documented trial of conservative non-operative medical treatment", code_system, "ADDITIONAL_INFO_REQUIRED", "Collate outpatient conservative treatment history (physiotherapy, medication records) and treating doctor certificate.")
         elif "doc-mis-09" in r:
-            return ("501", "DOC-MIS-09", "Missing medical documents / Investigation reports", "Policy Clause 5.3", "Treating specialist prescription and pre-admission diagnostics missing", code_system)
+            return ("501", "DOC-MIS-09", "Missing medical documents / Investigation reports", "Policy Clause 5.3", "Treating specialist prescription and pre-admission diagnostics missing", code_system, "ADDITIONAL_INFO_REQUIRED", "Retrieve missing operative notes, lab investigations, and specialist consultation records from EMR archive and attach to appeal.")
         elif "pol-ex-12" in r:
-            return ("402", "POL-EX-12", "Policy exclusion under general conditions", "Policy Clause 6.1", "Intervention not covered under standard policy terms", code_system)
+            return ("402", "POL-EX-12", "Policy exclusion under general conditions", "Policy Clause 6.1", "Intervention not covered under standard policy terms", code_system, "GENUINE_DENIAL", "General exclusion under policy schedule. Advise patient of non-covered benefit.")
         elif "sum-exh-07" in r:
-            return ("102", "SUM-EXH-07", "Sum insured exhausted", "Policy Clause 3.4", "Cumulative claims have exhausted the active sum insured", code_system)
+            return ("102", "SUM-EXH-07", "Sum insured exhausted", "Policy Clause 3.4", "Cumulative claims have exhausted the active sum insured", code_system, "GENUINE_DENIAL", "Annual sum insured exhausted. Settle balance via patient direct payment or secondary policy.")
 
         # ICICI Lombard Internal: 402, 204, 102, 405, DOC-401, EX-30D
-        elif "402" in r or "icici-402" in r:
-            return ("402", "402", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", code_system)
-        elif "204" in r or "icici-204" in r:
-            return ("204", "204", "Lack of documented conservative management trial", "Policy Clause 5.1", "Insufficient clinical justification / Lack of documented conservative management trial", code_system)
+        elif "icici-402" in r:
+            return ("402", "402", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", code_system, "ADDITIONAL_INFO_REQUIRED", "Obtain treating doctor clarification certifying acute onset and attach historical OPD records.")
+        elif "icici-204" in r:
+            return ("204", "204", "Lack of documented conservative management trial", "Policy Clause 5.1", "Insufficient clinical justification / Lack of documented conservative management trial", code_system, "ADDITIONAL_INFO_REQUIRED", "Collate outpatient conservative treatment history and treating specialist certificate.")
         elif "doc-401" in r:
-            return ("501", "DOC-401", "Missing clinical documents & diagnostic imaging", "Policy Clause 5.3", "Pre-operative imaging and physician records pending", code_system)
+            return ("501", "DOC-401", "Missing clinical documents & diagnostic imaging", "Policy Clause 5.3", "Pre-operative imaging and physician records pending", code_system, "ADDITIONAL_INFO_REQUIRED", "Collate missing pre-operative diagnostic imaging and physician notes from EMR.")
         elif "ex-30d" in r:
-            return ("402", "EX-30D", "30-day initial waiting period", "Policy Clause 4.1", "Incurred within 30 days of insurance policy inception", code_system)
+            return ("402", "EX-30D", "30-day initial waiting period", "Policy Clause 4.1", "Incurred within 30 days of insurance policy inception", code_system, "GENUINE_DENIAL", "Statutory 30-day initial moratorium applies.")
 
         # HDFC ERGO Internal: HDFC-PED-99, HDFC-MED-03, HDFC-DOC-11, HDFC-W30-01, HDFC-SPEC-02, HDFC-EX-GEN
         elif "hdfc-ped-99" in r or "hdfc-ped" in r:
-            return ("402", "HDFC-PED-99", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing condition clause invoked under HDFC ERGO terms", code_system)
+            return ("402", "HDFC-PED-99", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing condition clause invoked under HDFC ERGO terms", code_system, "ADDITIONAL_INFO_REQUIRED", "Provide doctor certificate proving first clinical diagnosis during active policy term.")
         elif "hdfc-med-03" in r or "hdfc-med" in r:
-            return ("204", "HDFC-MED-03", "Insufficient clinical justification / Active line of treatment", "Policy Clause 5.1", "Active inpatient line of treatment not clinically justified", code_system)
+            return ("204", "HDFC-MED-03", "Insufficient clinical justification / Active line of treatment", "Policy Clause 5.1", "Active inpatient line of treatment not clinically justified", code_system, "ADDITIONAL_INFO_REQUIRED", "Collate clinical progress notes demonstrating active inpatient medical care.")
         elif "hdfc-doc-11" in r or "hdfc-doc" in r:
-            return ("501", "HDFC-DOC-11", "Missing doctor recommendation & diagnostic proof", "Policy Clause 5.3", "Treating physician prescription and diagnostic proofs missing", code_system)
+            return ("501", "HDFC-DOC-11", "Missing doctor recommendation & diagnostic proof", "Policy Clause 5.3", "Treating physician prescription and diagnostic proofs missing", code_system, "ADDITIONAL_INFO_REQUIRED", "Retrieve doctor advice and diagnostic test results from hospital records.")
         elif "hdfc-w30-01" in r or "hdfc-w30" in r:
-            return ("402", "HDFC-W30-01", "30-day initial waiting period", "Policy Clause 4.1", "30-day initial waiting period moratorium", code_system)
+            return ("402", "HDFC-W30-01", "30-day initial waiting period", "Policy Clause 4.1", "30-day initial waiting period moratorium", code_system, "GENUINE_DENIAL", "Statutory 30-day moratorium applies.")
         elif "hdfc-spec-02" in r or "hdfc-spec" in r:
-            return ("402", "HDFC-SPEC-02", "Specified disease 24-month waiting period", "Policy Clause 4.3", "24-month specific disease waiting period", code_system)
+            return ("402", "HDFC-SPEC-02", "Specified disease 24-month waiting period", "Policy Clause 4.3", "24-month specific disease waiting period", code_system, "GENUINE_DENIAL", "Specific disease 2-year waiting period applies.")
         elif "hdfc-ex-gen" in r:
-            return ("402", "HDFC-EX-GEN", "General policy exclusion", "Policy Clause 6.1", "General policy exclusion schedule", code_system)
+            return ("402", "HDFC-EX-GEN", "General policy exclusion", "Policy Clause 6.1", "General policy exclusion schedule", code_system, "GENUINE_DENIAL", "Excluded benefit under policy schedule.")
 
         # ── 2. TPA-Specific Internal Codes ───────────────────────────────────
-        # Medi Assist TPA: MA-PED-01, MA-MED-02, MA-DOC-03, MA-POL-04, MA-W30-05
         elif "ma-ped-01" in r or "ma-ped" in r:
-            return ("402", "MA-PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease exclusion cited by Medi Assist TPA", code_system)
+            return ("402", "MA-PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease exclusion cited by Medi Assist TPA", code_system, "ADDITIONAL_INFO_REQUIRED", "Submit specialist clarification rebutting pre-existing disease.")
         elif "ma-med-02" in r or "ma-med" in r:
-            return ("204", "MA-MED-02", "Medical necessity justification / Conservative trial", "Policy Clause 5.1", "Documented conservative management trial required by Medi Assist protocol", code_system)
+            return ("204", "MA-MED-02", "Medical necessity justification / Conservative trial", "Policy Clause 5.1", "Documented conservative management trial required by Medi Assist protocol", code_system, "ADDITIONAL_INFO_REQUIRED", "Upload OPD therapy notes and physician clinical justification.")
         elif "ma-doc-03" in r or "ma-doc" in r:
-            return ("501", "MA-DOC-03", "Missing medical documents", "Policy Clause 5.3", "Original indoor case papers and lab results pending", code_system)
+            return ("501", "MA-DOC-03", "Missing medical documents", "Policy Clause 5.3", "Original indoor case papers and lab results pending", code_system, "ADDITIONAL_INFO_REQUIRED", "Upload complete indoor case record and lab investigations.")
         elif "ma-pol-04" in r:
-            return ("402", "MA-POL-04", "Policy exclusion", "Policy Clause 6.1", "Procedure excluded under policy schedule", code_system)
+            return ("402", "MA-POL-04", "Policy exclusion", "Policy Clause 6.1", "Procedure excluded under policy schedule", code_system, "GENUINE_DENIAL", "Procedure excluded under policy schedule.")
         elif "ma-w30-05" in r:
-            return ("402", "MA-W30-05", "30-day waiting period", "Policy Clause 4.1", "Moratorium clause within 30 days of policy start", code_system)
-
-        # Paramount & Vidal TPA
+            return ("402", "MA-W30-05", "30-day waiting period", "Policy Clause 4.1", "Moratorium clause within 30 days of policy start", code_system, "GENUINE_DENIAL", "Statutory moratorium.")
         elif "par-ped-10" in r or "vh-ped-21" in r or "tpa-ped-01" in r:
-            return ("402", "TPA-PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease waiting period", code_system)
+            return ("402", "TPA-PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease waiting period", code_system, "ADDITIONAL_INFO_REQUIRED", "Submit treating specialist clarification certifying acute presentation.")
         elif "par-doc-11" in r or "vh-doc-22" in r or "tpa-doc-02" in r or "tpa-doc" in r:
-            return ("501", "TPA-DOC-02", "Missing medical documents", "Policy Clause 5.3", "Clinical documentation and diagnostic proof pending", code_system)
+            return ("501", "TPA-DOC-02", "Missing medical documents", "Policy Clause 5.3", "Clinical documentation and diagnostic proof pending", code_system, "ADDITIONAL_INFO_REQUIRED", "Collate missing laboratory and radiology records from hospital archives.")
         elif "par-med-12" in r or "vh-med-23" in r or "tpa-med-03" in r or "tpa-med" in r:
-            return ("204", "TPA-MED-03", "Medical necessity justification", "Policy Clause 5.1", "Conservative management compliance documentation required", code_system)
+            return ("204", "TPA-MED-03", "Medical necessity justification", "Policy Clause 5.1", "Conservative management compliance documentation required", code_system, "ADDITIONAL_INFO_REQUIRED", "Document conservative treatment failure and surgical urgency.")
 
         # ── 3. ABDM / NRCeS Health-Insurance Claim-Exclusion CodeSystem ─────
         elif "excl01" in r:
-            return ("402", "Excl01", "Pre-Existing Diseases", "Policy Clause 4.2", "Excl01: Pre-Existing Diseases exclusion under Policy Clause 4.2", "ABDM_NRCES")
+            return ("402", "Excl01", "Pre-Existing Diseases", "Policy Clause 4.2", "Excl01: Pre-Existing Diseases exclusion under Policy Clause 4.2", "ABDM_NRCES", "ADDITIONAL_INFO_REQUIRED", "Submit medical necessity and clinical onset history.")
         elif "excl02" in r:
-            return ("402", "Excl02", "Specified disease / procedure waiting period", "Policy Clause 4.3", "Excl02: Specified disease / procedure waiting period", "ABDM_NRCES")
+            return ("402", "Excl02", "Specified disease / procedure waiting period", "Policy Clause 4.3", "Excl02: Specified disease / procedure waiting period", "ABDM_NRCES", "GENUINE_DENIAL", "Standard waiting period for specified disease.")
         elif "excl03" in r:
-            return ("402", "Excl03", "30-day waiting period", "Policy Clause 4.1", "Excl03: 30-day waiting period", "ABDM_NRCES")
+            return ("402", "Excl03", "30-day waiting period", "Policy Clause 4.1", "Excl03: 30-day waiting period", "ABDM_NRCES", "GENUINE_DENIAL", "Standard initial 30-day waiting period.")
         elif "excl04" in r:
-            return ("405", "Excl04", "Investigation & Evaluation", "Policy Clause 2.4", "Excl04: Investigation & Evaluation", "ABDM_NRCES")
+            return ("405", "Excl04", "Investigation & Evaluation", "Policy Clause 2.4", "Excl04: Investigation & Evaluation", "ABDM_NRCES", "ADDITIONAL_INFO_REQUIRED", "Provide inpatient active treatment log distinguishing from pure diagnostic admission.")
         elif "excl05" in r:
-            return ("405", "Excl05", "Rest Cure, Rehabilitation and Respite Care", "Policy Clause Excl05", "Excl05: Rest Cure, Rehabilitation and Respite Care", "ABDM_NRCES")
+            return ("405", "Excl05", "Rest Cure, Rehabilitation and Respite Care", "Policy Clause Excl05", "Excl05: Rest Cure, Rehabilitation and Respite Care", "ABDM_NRCES", "GENUINE_DENIAL", "Rest cure / respite care is not payable under standard policy terms.")
         elif "excl06" in r:
-            return ("402", "Excl06", "Obesity / Weight Control", "Policy Clause Excl06", "Excl06: Obesity / Weight Control", "ABDM_NRCES")
+            return ("402", "Excl06", "Obesity / Weight Control", "Policy Clause Excl06", "Excl06: Obesity / Weight Control", "ABDM_NRCES", "GENUINE_DENIAL", "Weight control procedures excluded under Policy Clause Excl06.")
         elif "excl07" in r:
-            return ("402", "Excl07", "Change-of-Gender treatments", "Policy Clause Excl07", "Excl07: Change-of-Gender treatments", "ABDM_NRCES")
-        elif "excl08" in r:
-            return ("402", "Excl08", "Cosmetic or Plastic Surgery", "Policy Clause Excl08", "Excl08: Cosmetic or Plastic Surgery", "ABDM_NRCES")
+            return ("402", "Excl07", "Change-of-Gender treatments", "Policy Clause Excl07", "Excl07: Change-of-Gender treatments", "ABDM_NRCES", "GENUINE_DENIAL", "Gender transition treatments excluded under Policy Clause Excl07.")
+        elif "excl08" in r or "cosmetic" in r or "plastic surgery" in r or "aesthetic" in r:
+            return ("402", "Excl08", "Cosmetic or Plastic Surgery", "Policy Clause Excl08", "Excl08: Cosmetic or Plastic Surgery", "ABDM_NRCES", "GENUINE_DENIAL", "Cosmetic, aesthetic or plastic surgery not covered under standard medical policy. Inform patient and settle balance through non-insurance payment.")
         elif "excl09" in r:
-            return ("402", "Excl09", "Hazardous or Adventure Sports", "Policy Clause Excl09", "Excl09: Hazardous or Adventure Sports", "ABDM_NRCES")
+            return ("402", "Excl09", "Hazardous or Adventure Sports", "Policy Clause Excl09", "Excl09: Hazardous or Adventure Sports", "ABDM_NRCES", "GENUINE_DENIAL", "Adventure sports injury exclusion under Policy Clause Excl09.")
         elif "excl10" in r:
-            return ("402", "Excl10", "Breach of Law", "Policy Clause Excl10", "Excl10: Breach of Law", "ABDM_NRCES")
+            return ("402", "Excl10", "Breach of Law", "Policy Clause Excl10", "Excl10: Breach of Law", "ABDM_NRCES", "GENUINE_DENIAL", "Injury resulting from breach of law excluded under Policy Clause Excl10.")
         elif "excl11" in r:
-            return ("402", "Excl11", "Excluded Providers", "Policy Clause Excl11", "Excl11: Excluded Providers", "ABDM_NRCES")
+            return ("402", "Excl11", "Excluded Providers", "Policy Clause Excl11", "Excl11: Excluded Providers", "ABDM_NRCES", "GENUINE_DENIAL", "Excluded provider facility.")
         elif "excl12" in r:
-            return ("405", "Excl12", "Rehabilitation", "Policy Clause Excl12", "Excl12: Rehabilitation", "ABDM_NRCES")
+            return ("405", "Excl12", "Rehabilitation", "Policy Clause Excl12", "Excl12: Rehabilitation", "ABDM_NRCES", "GENUINE_DENIAL", "Rehabilitation therapy excluded under Policy Clause Excl12.")
         elif "excl13" in r:
-            return ("402", "Excl13", "Hydrotherapy", "Policy Clause Excl13", "Excl13: Hydrotherapy", "ABDM_NRCES")
+            return ("402", "Excl13", "Hydrotherapy", "Policy Clause Excl13", "Excl13: Hydrotherapy", "ABDM_NRCES", "GENUINE_DENIAL", "Hydrotherapy treatments excluded under Policy Clause Excl13.")
         elif "excl14" in r:
-            return ("102", "Excl14", "Non-prescription", "Policy Clause Excl14", "Excl14: Non-prescription", "ABDM_NRCES")
+            return ("102", "Excl14", "Non-prescription", "Policy Clause Excl14", "Excl14: Non-prescription", "ABDM_NRCES", "GENUINE_DENIAL", "Non-prescription items excluded under Policy Clause Excl14.")
         elif "excl15" in r:
-            return ("402", "Excl15", "Refractive Error", "Policy Clause Excl15", "Excl15: Refractive Error", "ABDM_NRCES")
+            return ("402", "Excl15", "Refractive Error", "Policy Clause Excl15", "Excl15: Refractive Error", "ABDM_NRCES", "GENUINE_DENIAL", "Refractive error correction excluded under Policy Clause Excl15.")
         elif "excl16" in r:
-            return ("402", "Excl16", "Unproven Treatments", "Policy Clause Excl16", "Excl16: Unproven Treatments", "ABDM_NRCES")
+            return ("402", "Excl16", "Unproven Treatments", "Policy Clause Excl16", "Excl16: Unproven Treatments", "ABDM_NRCES", "GENUINE_DENIAL", "Experimental treatments excluded under Policy Clause Excl16.")
         elif "excl17" in r:
-            return ("402", "Excl17", "Sterility and Infertility", "Policy Clause Excl17", "Excl17: Sterility and Infertility", "ABDM_NRCES")
+            return ("402", "Excl17", "Sterility and Infertility", "Policy Clause Excl17", "Excl17: Sterility and Infertility", "ABDM_NRCES", "GENUINE_DENIAL", "Infertility treatments excluded under Policy Clause Excl17.")
         elif "excl18" in r:
-            return ("402", "Excl18", "Maternity Expenses", "Policy Clause Excl18", "Excl18: Maternity Expenses", "ABDM_NRCES")
+            return ("402", "Excl18", "Maternity Expenses", "Policy Clause Excl18", "Excl18: Maternity Expenses", "ABDM_NRCES", "GENUINE_DENIAL", "Maternity expenses excluded under standard non-maternity policy.")
 
         # ABDM / NRCeS IIB codes
         elif "iib13" in r:
-            return ("402", "IIB13", "Fraudulent Claim", "Policy Clause IIB13", "IIB13: Fraudulent Claim", "ABDM_NRCES")
+            return ("402", "IIB13", "Fraudulent Claim", "Policy Clause IIB13", "IIB13: Fraudulent Claim", "ABDM_NRCES", "GENUINE_DENIAL", "Fraudulent claim exclusion.")
         elif "iib14" in r:
-            return ("102", "IIB14", "Sum Insured Exhausted", "Policy Clause IIB14", "IIB14: Sum Insured Exhausted", "ABDM_NRCES")
+            return ("102", "IIB14", "Sum Insured Exhausted", "Policy Clause IIB14", "IIB14: Sum Insured Exhausted", "ABDM_NRCES", "GENUINE_DENIAL", "Sum insured exhausted under Policy Clause IIB14.")
         elif "iib15" in r:
-            return ("301", "IIB15", "Withdrawal by the Insured", "Policy Clause IIB15", "IIB15: Withdrawal by the Insured", "ABDM_NRCES")
+            return ("301", "IIB15", "Withdrawal by the Insured", "Policy Clause IIB15", "IIB15: Withdrawal by the Insured", "ABDM_NRCES", "GENUINE_DENIAL", "Claim withdrawn by insured.")
         elif "iib16" in r:
-            return ("402", "IIB16", "Suppression of Material Information", "Policy Clause IIB16", "IIB16: Suppression of Material Information", "ABDM_NRCES")
+            return ("402", "IIB16", "Suppression of Material Information", "Policy Clause IIB16", "IIB16: Suppression of Material Information", "ABDM_NRCES", "GENUINE_DENIAL", "Suppression of material information.")
         elif "iib17" in r:
-            return ("402", "IIB17", "Waiting Period beyond 30 days", "Policy Clause IIB17", "IIB17: Waiting Period beyond 30 days", "ABDM_NRCES")
+            return ("402", "IIB17", "Waiting Period beyond 30 days", "Policy Clause IIB17", "IIB17: Waiting Period beyond 30 days", "ABDM_NRCES", "GENUINE_DENIAL", "Waiting period exclusion.")
         elif "iib20" in r:
-            return ("402", "IIB20", "Not covered under the Terms and Conditions of the Contract", "Policy Clause IIB20", "IIB20: Not covered under the Terms and Conditions of the Contract", "ABDM_NRCES")
+            return ("402", "IIB20", "Not covered under the Terms and Conditions of the Contract", "Policy Clause IIB20", "IIB20: Not covered under the Terms and Conditions of the Contract", "ABDM_NRCES", "GENUINE_DENIAL", "Non-covered service under contract terms.")
 
         # ── 4. Fallbacks by semantic text ────────────────────────────────────
-        elif "conservative" in r or "physio" in r or "justification" in r:
-            return ("204", "204", "Clinical Justification & Conservative Management Protocol", "Policy Clause 5.1", "Insufficient clinical justification / Lack of documented conservative management trial", "STANDARDIZED_IRDAI")
+        elif "conservative" in r or "physio" in r or "justification" in r or "204" in r:
+            return ("204", "204", "Clinical Justification & Conservative Management Protocol", "Policy Clause 5.1", "Insufficient clinical justification / Lack of documented conservative management trial", "STANDARDIZED_IRDAI", "ADDITIONAL_INFO_REQUIRED", "Collate outpatient conservative treatment history (physiotherapy, medication records) and treating doctor certificate.")
         elif "room rent" in r or "capping" in r or "102" in r:
-            return ("102", "102", "Tariff & Room Rent Capping Dispute", "Policy Clause 3.1", "Capping on Room Rent or Exclusions Applied under Policy Clause 3.1", "STANDARDIZED_IRDAI")
+            return ("102", "102", "Tariff & Room Rent Capping Dispute", "Policy Clause 3.1", "Capping on Room Rent or Exclusions Applied under Policy Clause 3.1", "STANDARDIZED_IRDAI", "ADDITIONAL_INFO_REQUIRED", "Submit agreed GIPSA tariff schedule reconciliation and sterile consumable essentiality certificate.")
         elif "inpatient" in r or "admission criteria" in r or "405" in r:
-            return ("405", "405", "Medical Necessity & Inpatient Admission Criteria", "Policy Clause 2.4", "Hospitalization does not meet active inpatient admission criteria", "STANDARDIZED_IRDAI")
-        elif "pre-existing" in r or "ped" in r:
-            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", "INSURER_INTERNAL")
+            return ("405", "405", "Medical Necessity & Inpatient Admission Criteria", "Policy Clause 2.4", "Hospitalization does not meet active inpatient admission criteria", "STANDARDIZED_IRDAI", "ADDITIONAL_INFO_REQUIRED", "Attach inpatient vital monitoring charts, ICU telemetry, and physician certification of acute necessity.")
+        elif "missing" in r or "document" in r or "report" in r or "501" in r:
+            return ("501", "501", "Missing Medical Documents & Clinical Records", "Policy Clause 5.3", "Treating specialist prescription and pre-admission diagnostics missing", "STANDARDIZED_IRDAI", "ADDITIONAL_INFO_REQUIRED", "Retrieve missing medical records from hospital archive and upload to claim portal.")
+        elif "pre-existing" in r or "ped" in r or "402" in r:
+            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", "INSURER_INTERNAL", "ADDITIONAL_INFO_REQUIRED", "Obtain treating doctor clarification certifying acute onset and attach historical OPD records proving condition is not pre-existing.")
         else:
-            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", "INSURER_INTERNAL")
+            return ("402", "PED-01", "Pre-existing disease", "Policy Clause 4.2", "Pre-existing disease / 24-month waiting-period exclusion under Policy Clause 4.2", "INSURER_INTERNAL", "ADDITIONAL_INFO_REQUIRED", "Obtain treating doctor clarification certifying acute onset and attach historical OPD records.")
 
 
     def _build_clinical_evidence(self, denial_code_num: str, claim: dict, adm: dict, appt_rows: list, attending_doc: str, spec: str, diagnosis: str):
@@ -606,6 +637,63 @@ class ClaimDenialAgentService:
                 "source": "Itemized Bill Breakdown & Hospital Schedule of Charges",
                 "status": "Verified Proof"
             })
+        elif denial_code_num == "305":
+            evidence_items.append({
+                "evidence_id": "EVID-COD-01",
+                "title": "Procedural CPT & Diagnostic ICD-10 Audit Report",
+                "date": claim.get("claim_date") or adm_date,
+                "doctor": "Medical Records & Coding Compliance",
+                "finding": f"Clinical documentation maps precisely to primary diagnosis ({diagnosis}). Correct CPT procedure code certified.",
+                "source": "Health Information Management System (HIMS)",
+                "status": "Verified Proof"
+            })
+            evidence_items.append({
+                "evidence_id": "EVID-SUR-02",
+                "title": "Operative Surgical Intervention Protocol",
+                "date": adm_date,
+                "doctor": attending_doc,
+                "finding": "Surgeon notes document active operative intervention matching unbundled procedural components.",
+                "source": "Operation Theatre Clinical Dossier",
+                "status": "Verified Proof"
+            })
+        elif denial_code_num == "101":
+            evidence_items.append({
+                "evidence_id": "EVID-ID-01",
+                "title": "Patient Identification & Demographic Dossier",
+                "date": adm_date,
+                "doctor": "Patient Admission Helpdesk",
+                "finding": f"Patient identification verified against National ID. UHID {claim.get('patient_code')} matches policyholder {claim.get('patient_name') or 'the insured patient'}.",
+                "source": "Admission Desk KYC Verification Registry",
+                "status": "Verified Proof"
+            })
+            evidence_items.append({
+                "evidence_id": "EVID-POL-02",
+                "title": "Insurer Policy Schedule & TPA E-Card Reconciliation",
+                "date": adm_date,
+                "doctor": "Insurance Desk Liaison",
+                "finding": f"Policy enrollment records verified with {claim.get('insurance_provider') or 'Insurer'}. Active coverage confirmed under policy {claim.get('policy_number')}.",
+                "source": "TPA Real-Time Portal Gateway",
+                "status": "Verified Proof"
+            })
+        elif denial_code_num == "501":
+            evidence_items.append({
+                "evidence_id": "EVID-DOC-01",
+                "title": "Treating Specialist Clinical Prescription & Intake Notes",
+                "date": adm_date,
+                "doctor": attending_doc,
+                "finding": f"Treating specialist Dr. {attending_doc} complete clinical case notes, vital signs, and admission prescription attached.",
+                "source": "Central Hospital EMR Archive",
+                "status": "Verified Proof"
+            })
+            evidence_items.append({
+                "evidence_id": "EVID-LAB-02",
+                "title": "Pre-Admission Diagnostic & Radiology Archive",
+                "date": adm_date,
+                "doctor": "Department of Laboratory Medicine & Imaging",
+                "finding": "Comprehensive hematology, biochemistry, and pre-operative imaging dossiers attached.",
+                "source": "Laboratory Information System (LIS) & PACS",
+                "status": "Verified Proof"
+            })
         else:
             evidence_items.append({
                 "evidence_id": "EVID-VIT-01",
@@ -661,6 +749,39 @@ class ClaimDenialAgentService:
                 "finding": "Surgical barrier packs and disposables certified as mandatory sterile barriers under NABH infection control standards.",
                 "source": "Hospital Revenue Cycle & NABH Quality Dossier"
             }
+        elif denial_code_num == "305":
+            return {
+                "evidence_id": "EVID-COD-RESOLVED",
+                "title": "Medical Coding & Billing Audit Reconciliation",
+                "resolved": True,
+                "status": "Verified EMR Proof",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "doctor": "Department of Medical Records & Coding Compliance",
+                "finding": f"Certified Medical Coder reviewed operative report. Rectified procedural CPT code to align with primary ICD-10 diagnosis ({diagnosis}).",
+                "source": "Health Information Management & Coding Audit System"
+            }
+        elif denial_code_num == "101":
+            return {
+                "evidence_id": "EVID-ID-RESOLVED",
+                "title": "Patient Demographic & Policy Identification Audit",
+                "resolved": True,
+                "status": "Verified EMR Proof",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "doctor": "Patient Admission & Billing Helpdesk",
+                "finding": f"Patient identification verified against Aadhaar / Insurer enrollment database. Corrected spelling and demographic record for {patient_name}.",
+                "source": "Hospital Registration & Insurer Verification Desk"
+            }
+        elif denial_code_num == "501":
+            return {
+                "evidence_id": "EVID-DOC-RESOLVED",
+                "title": "Treating Specialist Clinical Prescription & Investigation Dossier",
+                "resolved": True,
+                "status": "Verified EMR Proof",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "doctor": attending_doc,
+                "finding": f"Treating specialist Dr. {attending_doc} uploaded missing clinical prescription, pre-admission blood panels, and radiological investigations.",
+                "source": "Central Hospital Laboratory & EMR Archive"
+            }
         else:
             return {
                 "evidence_id": "EVID-ADM-RESOLVED",
@@ -676,7 +797,69 @@ class ClaimDenialAgentService:
     def _build_checklist(self, denial_code_num: str, has_resolved: bool, attending_doc: str, adm: dict, diagnosis: str, claimed_amt: float):
         adm_date = adm.get("admission_date") or "2026-08-20"
         
-        if denial_code_num == "402":
+        if denial_code_num == "305":
+            return [
+                {
+                    "id": "coding_audit",
+                    "title": "ICD-10 & CPT coding crosswalk audit",
+                    "status": "AVAILABLE" if has_resolved else "MISSING",
+                    "source": "Health Information Management & Medical Coding Desk" if has_resolved else "Discrepancy Unresolved",
+                    "detail": (
+                        "Verified: Certified coder reviewed operative report; CPT procedural code reconciled with primary ICD-10 diagnosis."
+                        if has_resolved else
+                        "Missing: Mandatory coding reconciliation proving CPT procedural code maps to clinical diagnosis."
+                    ),
+                    "mandatory": True
+                },
+                {
+                    "id": "operative_surgical_note",
+                    "title": "Detailed operative surgical procedure note",
+                    "status": "AVAILABLE",
+                    "source": f"Dr. {attending_doc} (Treating Specialist)",
+                    "detail": "Surgeon operating notes describing clinical interventions performed.",
+                    "mandatory": True
+                },
+                {
+                    "id": "itemized_tariff_crosswalk",
+                    "title": "Itemized hospital bill breakdown",
+                    "status": "AVAILABLE",
+                    "source": f"Hospital Revenue Cycle Tariff Schedule: ₹{claimed_amt:,.2f}",
+                    "detail": "Line-item bill mapped to standard insurer tariff codes.",
+                    "mandatory": True
+                }
+            ]
+        elif denial_code_num == "101":
+            return [
+                {
+                    "id": "identity_reconciliation",
+                    "title": "Patient demographic & policy identity reconciliation",
+                    "status": "AVAILABLE" if has_resolved else "MISSING",
+                    "source": "Patient Registration & Insurer Verification Desk" if has_resolved else "Discrepancy Unresolved",
+                    "detail": (
+                        "Verified: Patient name spelling and policy number verified against insurer eligibility portal."
+                        if has_resolved else
+                        "Missing: Demographic mismatch audit certificate reconciling patient identity with insurer policy records."
+                    ),
+                    "mandatory": True
+                },
+                {
+                    "id": "govt_photo_id",
+                    "title": "Government photo identification",
+                    "status": "AVAILABLE",
+                    "source": "Patient Identity Dossier (National ID / Aadhaar)",
+                    "detail": "Validated government-issued photo identity proof.",
+                    "mandatory": True
+                },
+                {
+                    "id": "policy_schedule_copy",
+                    "title": "Insurer policy schedule copy & digital TPA card",
+                    "status": "AVAILABLE",
+                    "source": "Insurance Helpdesk Verification Gateway",
+                    "detail": "Current active insurance policy enrollment document.",
+                    "mandatory": True
+                }
+            ]
+        elif denial_code_num == "402":
             return [
                 {
                     "id": "previous_medical_records",
@@ -1294,7 +1477,7 @@ Meridian Hospitals, Chennai
             attending_doc = row[6]
             spec = row[7]
 
-            denial_code_num, denial_code_lbl, _, policy_clause, stated_reason, _ = self._classify_denial(raw_reason)
+            denial_code_num, denial_code_lbl, _, policy_clause, stated_reason, _, _, _ = self._classify_denial(raw_reason)
             resolved_item = self._get_resolved_evidence_proof(denial_code_num, p_name, diagnosis, attending_doc, spec, policy_clause)
 
             cur.execute("""

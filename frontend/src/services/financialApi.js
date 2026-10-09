@@ -63,6 +63,7 @@ export const financialApi = {
     if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
     if (params.status) q.append('status', params.status);
     if (params.search) q.append('search', params.search);
+    if (params.owner) q.append('owner', params.owner);
     return request(`/api/finance/preauth?${q.toString()}`);
   },
 

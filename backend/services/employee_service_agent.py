@@ -432,17 +432,44 @@ class EmployeeServiceAgentService:
             cur.close()
             conn.close()
 
+    def _get_dynamic_instructions(self) -> Dict[str, Any]:
+        """Loads dynamic prompt directives and rules from PostgreSQL agent_configurations."""
+        try:
+            conn = self.get_db()
+            cur = conn.cursor()
+            cur.execute("SELECT instructions FROM agent_configurations WHERE agent_id = 'AG-04';")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0]:
+                inst = row[0]
+                if isinstance(inst, str):
+                    return json.loads(inst)
+                return inst
+        except Exception as e:
+            logger.debug(f"Could not load dynamic instructions for AG-04: {e}")
+        return {}
+
     def _call_llm_for_leave_intent(
         self,
         message: str,
         user: Dict[str, Any],
         today: datetime.date
     ) -> Optional[Dict[str, Any]]:
-        """Invokes LLM API (Groq or Gemini) to parse intent, leave details, and actions."""
+        """Invokes LLM API (Groq or Gemini) using dynamic system prompts and rules from database."""
         tomorrow = today + datetime.timedelta(days=1)
+        dynamic_inst = self._get_dynamic_instructions()
+        base_system = dynamic_inst.get("system") or (
+            "You are the Hospital Employee Service Agent AI (AG-04) for Meridian Hospital. "
+            "Your task is to understand staff requests regarding shift rosters, leave applications, comp-offs, and HR policy."
+        )
+        rules = dynamic_inst.get("rules", "Present duty shifts clearly, support bilingual responses, and log all actions.")
+        safety = dynamic_inst.get("safety", "Strictly restricted to internal hospital employee operations. Never provide clinical medical diagnoses.")
+
         system_prompt = (
-            "You are the hospital Employee Service Agent AI (AG-04) for Meridian Hospital. "
-            "Your task is to understand staff requests regarding shift rosters, leave applications, comp-offs, and HR policy. "
+            f"{base_system}\n"
+            f"Rules & Formatting: {rules}\n"
+            f"Safety & Boundaries: {safety}\n"
             f"Context: Today is {today.strftime('%A, %Y-%m-%d')}. Tomorrow is {tomorrow.strftime('%A, %Y-%m-%d')}. "
             f"Employee: {user.get('staff_name')} ({user.get('role_name')}, {user.get('department_name')}). "
             "Output strictly a JSON object with keys: "

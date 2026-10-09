@@ -468,9 +468,37 @@ export default function App() {
                 <span>Back</span>
               </button>
               <span style={{ color: '#94a3b8', fontSize: '11px' }}>·</span>
-              <span style={{ color: '#334155', fontSize: '12.5px', fontWeight: 600, textTransform: 'capitalize' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activePage === 'patient360') {
+                    handleNavigate('patients');
+                  } else if (activePage === 'soap' && selectedPatient) {
+                    handleNavigate('patient360', selectedPatient);
+                  }
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  font: 'inherit',
+                  color: '#334155',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  textTransform: 'capitalize',
+                  cursor: (activePage === 'patient360' || activePage === 'soap') ? 'pointer' : 'default',
+                  transition: 'color 0.15s ease'
+                }}
+                onMouseEnter={e => {
+                  if (activePage === 'patient360' || activePage === 'soap') e.currentTarget.style.color = '#0284c7';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.color = '#334155';
+                }}
+                title={activePage === 'patient360' ? 'View all patients' : activePage === 'soap' ? 'Return to Patient 360' : undefined}
+              >
                 {activePage === 'patient360' ? 'Patient 360' : activePage === 'soap' ? 'SOAP Clinical Note' : activePage.replace(/-/g, ' ')}
-              </span>
+              </button>
               {['patient360', 'soap'].includes(activePage) && selectedPatient && (selectedPatient.name || selectedPatient.patient_name || selectedPatient.patient) && (
                 <>
                   <span style={{ color: '#94a3b8', fontSize: '11px' }}>›</span>
@@ -839,6 +867,7 @@ export default function App() {
                 onOpenModal={setModal}
                 onSelectPatient={handleSelectPatient}
                 userRole={role}
+                currentUser={auth}
               />
             )}
             {activePage === 'exceptions' && <ExceptionsView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

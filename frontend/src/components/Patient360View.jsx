@@ -1324,51 +1324,10 @@ export default function Patient360View({
 
   // AI Activity on this patient
   const aiAgents = useMemo(() => {
-    const dynamicList = patientAiActivity && patientAiActivity.length > 0
-      ? patientAiActivity.map((a, idx) => ({
-          id: a.id || `ACT-${String(a.action_id || idx + 1).padStart(6, '0')}`,
-          agent: a.agent || a.action_type || 'Clinical AI Agent',
-          version: a.version || '2.1.0',
-          status: a.status || 'Completed',
-          steps: a.steps || (String(a.status).toUpperCase() === 'COMPLETED' ? 4 : 2),
-          bg: String(a.status).toUpperCase() === 'COMPLETED' ? '#dcfce7' : '#e0f2fe',
-          fg: String(a.status).toUpperCase() === 'COMPLETED' ? '#15803d' : '#0369a1',
-          action: a.action || (a.agent?.toLowerCase().includes('billing') ? 'billing_agent' : a.agent?.toLowerCase().includes('insurance') || a.agent?.toLowerCase().includes('preauth') ? 'preauth_agent' : 'runs'),
-        }))
-      : [];
-
-    if (dynamicList.length > 0) {
-      if (!dynamicList.some(a => a.agent?.toLowerCase().includes('billing'))) {
-        dynamicList.push({
-          id: `EXE-2026-BIL-${String(p.patient_id || p.admission_id || 87221).slice(-5)}`,
-          agent: 'Billing Transparency Agent',
-          version: '2.0.0',
-          status: 'Active',
-          steps: 6,
-          bg: '#ecfdf5',
-          fg: '#047857',
-          action: 'billing_agent',
-        });
-      }
-      if (!dynamicList.some(a => a.agent?.toLowerCase().includes('insurance') || a.agent?.toLowerCase().includes('preauth'))) {
-        dynamicList.push({
-          id: `EXE-2026-INS-${String(p.patient_id || p.admission_id || 87264).slice(-5)}`,
-          agent: 'Insurance Preauth Agent',
-          version: '2.1.0',
-          status: 'Verified',
-          steps: 8,
-          bg: '#eff6ff',
-          fg: '#1d4ed8',
-          action: 'preauth_agent',
-        });
-      }
-      return dynamicList;
-    }
-
     if (p.isOP) {
       return [
         {
-          id: `EXE-2026-${String(p.patient_id || 117666).slice(-6)}`,
+          id: `EXE-2026-${String(p.patient_id || p.mrn || 117666).slice(-6)}`,
           agent: 'Outpatient Consultation Agent',
           version: '2.1.0',
           status: 'Active',
@@ -1378,7 +1337,7 @@ export default function Patient360View({
           action: 'opd',
         },
         {
-          id: `EXE-2026-BIL-${String(p.patient_id || 87221).slice(-5)}`,
+          id: `EXE-2026-BIL-${String(p.patient_id || p.mrn || 87221).slice(-5)}`,
           agent: 'Billing Transparency Agent',
           version: '2.0.0',
           status: 'Active',
@@ -1388,7 +1347,7 @@ export default function Patient360View({
           action: 'billing_agent',
         },
         {
-          id: `EXE-2026-INS-${String(p.patient_id || 87264).slice(-5)}`,
+          id: `EXE-2026-INS-${String(p.patient_id || p.mrn || 87264).slice(-5)}`,
           agent: 'Insurance Preauth Agent',
           version: '2.1.0',
           status: 'Verified',
@@ -1398,7 +1357,7 @@ export default function Patient360View({
           action: 'preauth_agent',
         },
         {
-          id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
+          id: `EXE-2026-${String((Number(p.patient_id || 117666)) + 12).slice(-6)}`,
           agent: 'Queue / Flow Agent',
           version: '2.0.4',
           status: 'Active',
@@ -1413,7 +1372,7 @@ export default function Patient360View({
     if (p.isER) {
       return [
         {
-          id: `EXE-2026-${String(p.patient_id || 117666).slice(-6)}`,
+          id: `EXE-2026-${String(p.patient_id || p.mrn || 117666).slice(-6)}`,
           agent: 'Emergency Triage & Acuity Agent',
           version: '2.4.0',
           status: 'Completed',
@@ -1423,7 +1382,7 @@ export default function Patient360View({
           action: 'er',
         },
         {
-          id: `EXE-2026-BIL-${String(p.patient_id || 87221).slice(-5)}`,
+          id: `EXE-2026-BIL-${String(p.patient_id || p.mrn || 87221).slice(-5)}`,
           agent: 'Billing Transparency Agent',
           version: '2.0.0',
           status: 'Active',
@@ -1433,7 +1392,7 @@ export default function Patient360View({
           action: 'billing_agent',
         },
         {
-          id: `EXE-2026-INS-${String(p.patient_id || 87264).slice(-5)}`,
+          id: `EXE-2026-INS-${String(p.patient_id || p.mrn || 87264).slice(-5)}`,
           agent: 'Insurance Preauth Agent',
           version: '2.1.0',
           status: 'Verified',
@@ -1443,7 +1402,7 @@ export default function Patient360View({
           action: 'preauth_agent',
         },
         {
-          id: `EXE-2026-${String((Number(p.patient_id) || 117666) + 12).slice(-6)}`,
+          id: `EXE-2026-${String((Number(p.patient_id || 117666)) + 12).slice(-6)}`,
           agent: 'Emergency Bay Flow Agent',
           version: '2.0.4',
           status: 'Active',
@@ -1455,29 +1414,30 @@ export default function Patient360View({
       ];
     }
 
+    // Standard Inpatient Care Pathway (All admitted inpatients)
     return [
       {
-        id: `EXE-2026-${String(p.admission_id || p.patient_id || 87172).slice(-5)}`,
+        id: `EXE-2026-${String(p.admission_id || p.patient_id || p.mrn || 87172).slice(-5)}`,
         agent: 'Discharge Summary Agent',
         version: '3.0.2',
-        status: p.isCleared ? 'Completed' : 'Waiting',
-        steps: 12,
-        bg: p.isCleared ? '#dcfce7' : '#fef3c7',
-        fg: p.isCleared ? '#15803d' : '#92400e',
+        status: (p.isDischarged || p.isCleared) ? 'Completed' : 'Active',
+        steps: (p.isDischarged || p.isCleared) ? 12 : 8,
+        bg: (p.isDischarged || p.isCleared) ? '#dcfce7' : '#ecfdf5',
+        fg: (p.isDischarged || p.isCleared) ? '#15803d' : '#047857',
         action: 'discharge',
       },
       {
-        id: `EXE-2026-${String((Number(p.admission_id || p.patient_id) || 87172) - 82).slice(-5)}`,
+        id: `EXE-2026-${String((Number(p.admission_id || p.patient_id || 87172)) - 82).slice(-5)}`,
         agent: 'Nurse Handover Agent',
         version: '1.2.0',
-        status: p.isDischarged ? 'Completed' : (p.isCleared ? 'Active' : 'Standby'),
-        steps: p.isDischarged ? 8 : (p.isCleared ? 4 : 0),
-        bg: p.isDischarged ? '#dcfce7' : (p.isCleared ? '#e0f2fe' : '#f1f5f9'),
-        fg: p.isDischarged ? '#15803d' : (p.isCleared ? '#0369a1' : '#475569'),
+        status: p.isDischarged ? 'Completed' : 'Active',
+        steps: p.isDischarged ? 8 : 4,
+        bg: p.isDischarged ? '#dcfce7' : '#e0f2fe',
+        fg: p.isDischarged ? '#15803d' : '#0369a1',
         action: 'sbar',
       },
       {
-        id: `EXE-2026-BIL-${String(p.patient_id || p.admission_id || 87221).slice(-5)}`,
+        id: `EXE-2026-BIL-${String(p.patient_id || p.admission_id || p.mrn || 87221).slice(-5)}`,
         agent: 'Billing Transparency Agent',
         version: '2.0.0',
         status: 'Active',
@@ -1487,7 +1447,7 @@ export default function Patient360View({
         action: 'billing_agent',
       },
       {
-        id: `EXE-2026-INS-${String(p.patient_id || p.admission_id || 87264).slice(-5)}`,
+        id: `EXE-2026-INS-${String(p.patient_id || p.admission_id || p.mrn || 87264).slice(-5)}`,
         agent: 'Insurance Preauth Agent',
         version: '2.1.0',
         status: 'Verified',
@@ -1497,7 +1457,7 @@ export default function Patient360View({
         action: 'preauth_agent',
       },
     ];
-  }, [p, patientAiActivity]);
+  }, [p]);
 
   const pendingApprovals = useMemo(() => {
     const list = [];
@@ -2086,9 +2046,56 @@ export default function Patient360View({
     const patientUhid = p.uhid || patient?.uhid || patient?.patient_code || patient?.mrn || (patient?.patient_id ? `UHID-${String(patient.patient_id).padStart(6, '0')}` : '');
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
-        <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-          <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
-          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{patientUhid || 'Loading Profile...'}</span>
+        <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            type="button"
+            onClick={() => onNavigate && onNavigate('ai-command')}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              font: 'inherit',
+              fontSize: '11px',
+              color: '#64748b',
+              cursor: onNavigate ? 'pointer' : 'default',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'color 0.15s ease'
+            }}
+            onMouseEnter={e => { if (onNavigate) { e.currentTarget.style.color = '#0284c7'; e.currentTarget.style.textDecoration = 'underline'; } }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.textDecoration = 'none'; }}
+            title="Navigate to AI Command Centre"
+          >
+            AI Command Centre
+          </button>
+          <span style={{ color: '#cbd5e1' }}>›</span>
+          <button
+            type="button"
+            onClick={() => onNavigate && onNavigate('patients')}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              font: 'inherit',
+              fontSize: '11px',
+              color: '#64748b',
+              cursor: onNavigate ? 'pointer' : 'default',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'color 0.15s ease'
+            }}
+            onMouseEnter={e => { if (onNavigate) { e.currentTarget.style.color = '#0284c7'; e.currentTarget.style.textDecoration = 'underline'; } }}
+            onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.textDecoration = 'none'; }}
+            title="Navigate to Patients Registry"
+          >
+            Patient 360
+          </button>
+          <span style={{ color: '#cbd5e1' }}>›</span>
+          <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600, color: '#1e293b' }}>
+            {patientUhid || 'Loading Profile...'}
+          </span>
         </div>
         <ModuleLoadingScreen
           title={`Loading Patient 360 · ${patientDisplayName}${patientUhid ? ` (${patientUhid})` : ''}...`}
@@ -2169,9 +2176,74 @@ export default function Patient360View({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       {/* Top Breadcrumb */}
-      <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-        <span>AI Command Centre</span> › <span>Patient 360</span> ›{' '}
-        <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 600 }}>{p.uhid}</span>
+      <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <button
+          type="button"
+          onClick={() => onNavigate && onNavigate('ai-command')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            fontSize: '11px',
+            color: '#64748b',
+            cursor: onNavigate ? 'pointer' : 'default',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            transition: 'color 0.15s ease'
+          }}
+          onMouseEnter={e => { if (onNavigate) { e.currentTarget.style.color = '#0284c7'; e.currentTarget.style.textDecoration = 'underline'; } }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.textDecoration = 'none'; }}
+          title="Navigate to AI Command Centre"
+        >
+          AI Command Centre
+        </button>
+        <span style={{ color: '#cbd5e1' }}>›</span>
+        <button
+          type="button"
+          onClick={() => onNavigate && onNavigate('patients')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            fontSize: '11px',
+            color: '#64748b',
+            cursor: onNavigate ? 'pointer' : 'default',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            transition: 'color 0.15s ease'
+          }}
+          onMouseEnter={e => { if (onNavigate) { e.currentTarget.style.color = '#0284c7'; e.currentTarget.style.textDecoration = 'underline'; } }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.textDecoration = 'none'; }}
+          title="Navigate to Patients Registry"
+        >
+          Patient 360
+        </button>
+        <span style={{ color: '#cbd5e1' }}>›</span>
+        <span
+          style={{
+            fontFamily: 'ui-monospace, Menlo, monospace',
+            fontWeight: 600,
+            color: '#1e293b',
+            cursor: 'pointer',
+            padding: '1px 4px',
+            borderRadius: '4px',
+            transition: 'background 0.15s ease'
+          }}
+          onClick={() => {
+            if (p.uhid) {
+              navigator.clipboard?.writeText(p.uhid);
+            }
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#0284c7'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#1e293b'; }}
+          title="Click to copy UHID"
+        >
+          {p.uhid}
+        </span>
       </div>
 
       {/* Scan Alert Notification Banner */}
@@ -2640,6 +2712,8 @@ export default function Patient360View({
                     } else if (e.action === 'discharge' || e.agent.toLowerCase().includes('discharge')) {
                       if (onOpenDischarge) onOpenDischarge();
                       else if (onNavigate) onNavigate('discharge');
+                    } else if (e.action === 'sbar' || e.agent.toLowerCase().includes('handover') || e.agent.toLowerCase().includes('nurse')) {
+                      if (onNavigate) onNavigate('sbar');
                     } else if (onNavigate) {
                       onNavigate('runs');
                     }

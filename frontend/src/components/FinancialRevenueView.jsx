@@ -79,10 +79,10 @@ function StatusPill({ status }) {
   if (/settled|approved|paid|released|active|cleared|success|pass/i.test(lower)) {
     bg = PALETTE.successTint;
     fg = PALETTE.success;
-  } else if (/disputed|rejected|high denial|critical|failed|voided/i.test(lower)) {
+  } else if (/disputed|rejected|critical|failed|voided/i.test(lower)) {
     bg = PALETTE.criticalTint;
     fg = PALETTE.critical;
-  } else if (/pending|awaiting|query|missing|provisional|part-paid|partially|under review/i.test(lower)) {
+  } else if (/pending|awaiting|query|missing|provisional|part-paid|partially|under review|pending review/i.test(lower)) {
     bg = PALETTE.warningTint;
     fg = PALETTE.warning;
   } else if (/submitted|claim ready/i.test(lower)) {
@@ -112,7 +112,7 @@ function StatusPill({ status }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Component: FinancialRevenueView
 // ─────────────────────────────────────────────────────────────────────────────
-export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal, onSelectPatient, userRole }) {
+export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal, onSelectPatient, userRole, currentUser }) {
   // Active view matches the selected Revenue cycle sub-module from sidebar
   const activeTab = initialTab || "billing";
 
@@ -122,6 +122,39 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     const allowed = ['Insurance', 'Billing', 'Finance Manager', 'Hospital Management', 'Admin', 'Auditor', 'AI Administrator', 'IT Administrator'];
     return allowed.includes(userRole);
   }, [userRole]);
+
+  // Dedicated check: Preauth Underwriting actions (Submit, Sanction/Approve, Reject/Decline)
+  // Strictly restricted to Insurance & TPA Desk users (R. Sundar / Insurance Desk), NOT Hospital Management or Admin.
+  const isInsuranceDeskExecutive = useMemo(() => {
+    if (!userRole) return false;
+    const roleStr = String(userRole).trim().toLowerCase();
+    if (
+      roleStr.includes('admin') ||
+      roleStr.includes('management') ||
+      roleStr.includes('doctor') ||
+      roleStr.includes('nurse') ||
+      roleStr.includes('patient')
+    ) {
+      return false;
+    }
+    return (
+      roleStr === 'insurance' ||
+      roleStr.includes('insurance') ||
+      roleStr.includes('tpa') ||
+      roleStr.includes('coordinator')
+    );
+  }, [userRole]);
+
+  // When logged in as Insurance user (e.g. R. Sundar), scope cases to the current user
+  const loggedUserName = currentUser?.name || (userRole === 'Insurance' ? 'R. Sundar' : null);
+  const isInsuranceUser = isInsuranceDeskExecutive && Boolean(loggedUserName);
+  const [ownerFilter, setOwnerFilter] = useState(isInsuranceUser ? (loggedUserName || 'R. Sundar') : 'All');
+
+  useEffect(() => {
+    if (isInsuranceUser && loggedUserName) {
+      setOwnerFilter(loggedUserName);
+    }
+  }, [isInsuranceUser, loggedUserName]);
 
   // Global search & filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -148,7 +181,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     setPreauthPage(1);
     setClaimPage(1);
     setPayPage(1);
-  }, [debouncedSearch, activeFilter]);
+  }, [debouncedSearch, activeFilter, ownerFilter]);
 
   // Reset filter and search when activeTab changes
   useEffect(() => {
@@ -214,28 +247,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [ag08DrawerOpen, setAg08DrawerOpen] = useState(false);
   const [ag08PatientId, setAg08PatientId] = useState('87221');
 
-  // Dedicated check: Preauth Underwriting actions (Submit, Sanction/Approve, Reject/Decline)
-  // Strictly restricted to Insurance & TPA Desk users (R. Sundar / Insurance Desk), NOT Hospital Management or Admin.
-  const isInsuranceDeskExecutive = useMemo(() => {
-    if (!userRole) return false;
-    const roleStr = String(userRole).trim().toLowerCase();
-    if (
-      roleStr.includes('admin') ||
-      roleStr.includes('management') ||
-      roleStr.includes('doctor') ||
-      roleStr.includes('nurse') ||
-      roleStr.includes('patient')
-    ) {
-      return false;
-    }
-    return (
-      roleStr === 'insurance' ||
-      roleStr.includes('insurance') ||
-      roleStr.includes('tpa') ||
-      roleStr.includes('coordinator')
-    );
-  }, [userRole]);
-
   // TPA Claim Rejection / Exclusion Modal State
   const [rejectionModalData, setRejectionModalData] = useState(null);
   // AG-20 Reconsideration Appeal Dossier Drawer State
@@ -285,11 +296,13 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     const reqId = ++preauthReqIdRef.current;
     try {
       if (!silent) setLoadingPreauth(true);
+      const effectiveOwner = (ownerFilter && ownerFilter !== "All") ? ownerFilter : (isInsuranceUser ? (loggedUserName || "R. Sundar") : undefined);
       const res = await financialApi.getPreauthorisations({
         page: preauthPage,
         pageSize: preauthPageSize,
         status: activeFilter === "All" ? undefined : activeFilter,
-        search: debouncedSearch || undefined
+        search: debouncedSearch || undefined,
+        owner: effectiveOwner
       });
       if (reqId === preauthReqIdRef.current && res && res.success) {
         setPreauths(res.items || []);
@@ -305,7 +318,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
         setLoadingPreauth(false);
       }
     }
-  }, [preauthPage, preauthPageSize, activeFilter, debouncedSearch]);
+  }, [preauthPage, preauthPageSize, activeFilter, debouncedSearch, ownerFilter, isInsuranceUser, loggedUserName]);
 
   const loadClaims = useCallback(async (silent = false) => {
     const reqId = ++claimsReqIdRef.current;
@@ -765,12 +778,11 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const insuranceStats = useMemo(() => {
     const s = preauthStats || {};
     return [
-      { k: "Pending", v: String(s.pending ?? 45), col: "", filter: "Pending" },
-      { k: "Awaiting insurer", v: String(s.awaiting_insurer ?? 40), col: "", filter: "Submitted · awaiting insurer" },
-      { k: "Missing documents", v: String(s.missing_documents ?? 20), col: "", filter: "Missing Documents" },
-      { k: "High denial risk", v: String(s.high_denial_risk ?? 15), col: PALETTE.critical, filter: "High Denial Risk" },
-      { k: "Approved", v: String(s.approved ?? 120), col: PALETTE.success, filter: "Approved" },
-      { k: "Rejected", v: String(s.rejected ?? 10), col: PALETTE.critical, filter: "Rejected" }
+      { k: "Awaiting insurer", v: String(s.awaiting_insurer ?? 56), col: "", filter: "Submitted · awaiting insurer" },
+      { k: "Missing documents", v: String(s.missing_documents ?? 21), col: "", filter: "Missing Documents" },
+      { k: "Pending review", v: String(s.pending_review ?? s.high_denial_risk ?? 27), col: PALETTE.warning, filter: "Pending Review" },
+      { k: "Approved", v: String(s.approved ?? 101), col: PALETTE.success, filter: "Approved" },
+      { k: "Rejected", v: String(s.rejected ?? 8), col: PALETTE.critical, filter: "Rejected" }
     ];
   }, [preauthStats]);
 
@@ -1107,7 +1119,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           {(activeTab === "billing"
             ? ["All", "Provisional", "Released", "Part-paid", "Disputed", "Paid", "Settled", "Pending", "Void requested", "Voided"]
             : activeTab === "insurance"
-            ? ["All", "Pending", "Submitted · awaiting insurer", "Missing Documents", "High Denial Risk", "Approved", "Rejected"]
+            ? ["All", "Submitted · awaiting insurer", "Missing Documents", "Pending Review", "Approved", "Rejected"]
             : activeTab === "claims"
             ? ["All", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected"]
             : ["All", "Success", "Pending", "Failed"]
@@ -1592,9 +1604,9 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap"
                   }}
-                  title={p.owner || "L. Fathima"}
+                  title={p.owner || loggedUserName || "R. Sundar"}
                 >
-                  {p.owner || "L. Fathima"}
+                  {p.owner || loggedUserName || "R. Sundar"}
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center" }}>
                   <StatusPill status={p.status} />
@@ -2579,7 +2591,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   <span style={{ color: PALETTE.muted }}>Completeness:</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>100%</span>
                   <span style={{ color: PALETTE.muted }}>Human Owner:</span>
-                  <span>L. Fathima (Insurance Supervisor)</span>
+                  <span>{drawerData.data.owner || (loggedUserName ? `${loggedUserName} (TPA Coordinator)` : "R. Sundar (Insurance Coordinator)")}</span>
                   <span style={{ color: PALETTE.muted }}>Submitted:</span>
                   <span>{drawerData.data.claim_date || "Today"}</span>
                 </>
@@ -2901,103 +2913,306 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                           Underwriting Actions Restricted
                         </div>
                         <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", lineHeight: "1.4" }}>
-                          Preauthorisation submission, approval, and rejection are restricted strictly to the <strong>Insurance & TPA Coordinator (R. Sundar)</strong>.
+                          Preauthorisation submission, approval, and rejection are restricted strictly to the <strong>Insurance & TPA Coordinator ({loggedUserName || 'Insurance Desk'})</strong>.
                         </div>
                       </div>
                     </div>
                   ) : (
                     <>
-                      {/* Direct Status Selector */}
-                      <div style={{ marginTop: "4px", marginBottom: "8px", background: "#f8fafc", padding: "8px 10px", borderRadius: "6px", border: `1px solid ${PALETTE.borderLight}` }}>
-                        <div style={{ fontSize: "11px", fontWeight: 700, color: PALETTE.muted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                          Change Preauth Status:
+                      {/* Case 1: ALREADY APPROVED */}
+                      {/approved|settled/i.test(drawerData.data.status || '') ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          <div style={{
+                            background: "#f0fdf4",
+                            border: "1px solid #86efac",
+                            borderRadius: "8px",
+                            padding: "12px 14px",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "10px"
+                          }}>
+                            <span style={{ fontSize: "18px", color: "#16a34a", lineHeight: 1 }}>✓</span>
+                            <div>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: "#166534" }}>
+                                Preauthorisation Sanctioned & Approved
+                              </div>
+                              <div style={{ fontSize: "11.5px", color: "#15803d", marginTop: "2px", lineHeight: 1.4 }}>
+                                Guarantee of Payment (GOP) active for <strong>{inr(drawerData.data.approved || drawerData.data.requested || drawerData.data.finalClaimed || 0)}</strong>. Patient is cleared for cashless medical care.
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              alert(`Preauthorisation Approval Letter\n\nPatient: ${drawerData.data.patient || drawerData.data.patient_name}\nSanction Amount: ${inr(drawerData.data.approved || drawerData.data.requested)}\nInsurer / TPA: ${drawerData.data.tpa || drawerData.data.insurer}\nPolicy: ${drawerData.data.policy}\nGuarantee of Payment (GOP): ACTIVE`);
+                            }}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "1px solid #16a34a",
+                              background: "#f0fdf4",
+                              color: "#166534",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            📄 View TPA Approval Letter & Guarantee of Payment
+                          </button>
+
+                          {/* Re-open / Update Status (Administrative) */}
+                          <div style={{ marginTop: "4px", background: "#f8fafc", padding: "8px 10px", borderRadius: "6px", border: `1px solid ${PALETTE.borderLight}` }}>
+                            <div style={{ fontSize: "10.5px", fontWeight: 700, color: PALETTE.muted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                              Re-open / Update Status (Administrative):
+                            </div>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                              {["Submitted · awaiting insurer", "Missing Documents", "Pending Review", "Approved", "Rejected"].map(st => (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, st)}
+                                  style={{
+                                    padding: "3px 7px",
+                                    fontSize: "10.5px",
+                                    fontWeight: drawerData.data.status === st ? 700 : 500,
+                                    borderRadius: "4px",
+                                    border: drawerData.data.status === st ? "1px solid #2563eb" : `1px solid ${PALETTE.border}`,
+                                    background: drawerData.data.status === st ? "#eff6ff" : "#fff",
+                                    color: drawerData.data.status === st ? "#1d4ed8" : PALETTE.text,
+                                    cursor: "pointer",
+                                    transition: "all 0.15s ease"
+                                  }}
+                                >
+                                  {st}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                          {["Submitted · awaiting insurer", "Pending", "Missing Documents", "Approved", "Rejected"].map(st => (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, st)}
-                              style={{
-                                padding: "4px 8px",
-                                fontSize: "11px",
-                                fontWeight: drawerData.data.status === st ? 700 : 500,
-                                borderRadius: "5px",
-                                border: drawerData.data.status === st ? "1px solid #2563eb" : `1px solid ${PALETTE.border}`,
-                                background: drawerData.data.status === st ? "#eff6ff" : "#fff",
-                                color: drawerData.data.status === st ? "#1d4ed8" : PALETTE.text,
-                                cursor: "pointer",
-                                transition: "all 0.15s ease"
-                              }}
-                            >
-                              {st}
-                            </button>
-                          ))}
+                      ) : /rejected|declined/i.test(drawerData.data.status || '') ? (
+                        /* Case 2: REJECTED */
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          <div style={{
+                            background: "#fef2f2",
+                            border: "1px solid #fecaca",
+                            borderRadius: "8px",
+                            padding: "12px 14px",
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: "10px"
+                          }}>
+                            <span style={{ fontSize: "18px", color: "#dc2626", lineHeight: 1 }}>✕</span>
+                            <div>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: "#991b1b" }}>
+                                Preauthorisation Rejected by Insurer
+                              </div>
+                              <div style={{ fontSize: "11.5px", color: "#b91c1c", marginTop: "2px", lineHeight: 1.4 }}>
+                                Reason: {drawerData.data.rejection_reason || "Adverse policy exclusion / waiting period criteria."}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleClaimAppeal(drawerData.data.claim_id, "Inpatient medical record and diagnostic reports attached for reconsideration.")}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "0",
+                              background: "#0284c7",
+                              color: "#fff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            ⚖️ Prepare Reconsideration Appeal Dossier (AG-20)
+                          </button>
+
+                          {/* Re-open / Update Status */}
+                          <div style={{ marginTop: "4px", background: "#f8fafc", padding: "8px 10px", borderRadius: "6px", border: `1px solid ${PALETTE.borderLight}` }}>
+                            <div style={{ fontSize: "10.5px", fontWeight: 700, color: PALETTE.muted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
+                              Re-open / Update Status:
+                            </div>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                              {["Submitted · awaiting insurer", "Missing Documents", "Pending Review", "Approved", "Rejected"].map(st => (
+                                <button
+                                  key={st}
+                                  type="button"
+                                  onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, st)}
+                                  style={{
+                                    padding: "3px 7px",
+                                    fontSize: "10.5px",
+                                    fontWeight: drawerData.data.status === st ? 700 : 500,
+                                    borderRadius: "4px",
+                                    border: drawerData.data.status === st ? "1px solid #2563eb" : `1px solid ${PALETTE.border}`,
+                                    background: drawerData.data.status === st ? "#eff6ff" : "#fff",
+                                    color: drawerData.data.status === st ? "#1d4ed8" : PALETTE.text,
+                                    cursor: "pointer",
+                                    transition: "all 0.15s ease"
+                                  }}
+                                >
+                                  {st}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      ) : /submitted|awaiting/i.test(drawerData.data.status || '') ? (
+                        /* Case 3: SUBMITTED - AWAITING INSURER */
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          <div style={{
+                            background: "#eff6ff",
+                            border: "1px solid #bfdbfe",
+                            borderRadius: "8px",
+                            padding: "10px 14px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            fontSize: "12px",
+                            color: "#1d4ed8",
+                            fontWeight: 500
+                          }}>
+                            <span>⏳</span>
+                            <span>Packet submitted to TPA portal. Awaiting insurer medical adjudication.</span>
+                          </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: "0",
-                          background: PALETTE.primary,
-                          color: "#fff",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        🚀 Submit Preauthorisation Packet to TPA Portal
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "0",
+                              background: "#059669",
+                              color: "#fff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            ✓ Sanction & Approve Preauthorisation (Approval Letter Received)
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: "0",
-                          background: "#059669",
-                          color: "#fff",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        ✓ Sanction & Approve Preauthorisation
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => setRejectionModalData(drawerData.data)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: `1px solid ${PALETTE.critical}`,
+                              background: "#fff",
+                              color: PALETTE.critical,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            ✕ Mark preauthorisation rejected / declined
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setRejectionModalData(drawerData.data)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: `1px solid ${PALETTE.critical}`,
-                          background: "#fff",
-                          color: PALETTE.critical,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        ✕ Mark preauthorisation rejected / declined
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, "Missing Documents")}
+                            style={{
+                              height: "32px",
+                              padding: "0 12px",
+                              borderRadius: "6px",
+                              border: `1px solid ${PALETTE.border}`,
+                              background: "#fff",
+                              color: PALETTE.text2,
+                              fontSize: "11.5px",
+                              fontWeight: 500,
+                              cursor: "pointer"
+                            }}
+                          >
+                            📨 Insurer Query: Request Additional / Missing Documents
+                          </button>
+                        </div>
+                      ) : (
+                        /* Case 4: PENDING / MISSING DOCUMENTS / PENDING REVIEW */
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "0",
+                              background: PALETTE.primary,
+                              color: "#fff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            🚀 Submit Preauthorisation Packet to TPA Portal
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: "0",
+                              background: "#059669",
+                              color: "#fff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            ✓ Sanction & Approve Preauthorisation
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setRejectionModalData(drawerData.data)}
+                            style={{
+                              height: "36px",
+                              padding: "0 14px",
+                              borderRadius: "6px",
+                              border: `1px solid ${PALETTE.critical}`,
+                              background: "#fff",
+                              color: PALETTE.critical,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px"
+                            }}
+                          >
+                            ✕ Mark preauthorisation rejected / declined
+                          </button>
+                        </div>
+                      )}
                     </>
                   )}
                 </>

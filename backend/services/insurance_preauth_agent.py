@@ -70,6 +70,24 @@ class InsurancePreauthAgentService:
             if conn:
                 conn.close()
 
+    def _get_dynamic_instructions(self) -> Dict[str, Any]:
+        """Loads dynamic prompt directives and rules from PostgreSQL agent_configurations."""
+        try:
+            conn = self.db.get_connection()
+            cur = self.db.get_dict_cursor(conn)
+            cur.execute("SELECT instructions FROM agent_configurations WHERE agent_id = 'AG-07';")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row.get("instructions"):
+                inst = row["instructions"]
+                if isinstance(inst, str):
+                    return json.loads(inst)
+                return inst
+        except Exception as e:
+            logger.debug(f"Could not load dynamic instructions for AG-07: {e}")
+        return {}
+
     KNOWN_WAITING_PERIOD_CONDITIONS = [
         "cataract", "hernia", "hysterectomy", "knee replacement", "hip replacement",
         "spondylosis", "gallstones", "cholelithiasis", "calculus", "hydrocele",
@@ -105,9 +123,14 @@ class InsurancePreauthAgentService:
         # 1. Policy Validity
         is_pol_valid = bool(pol_no and pol_no != "N/A" and "INACTIVE" not in pol_no.upper() and "EXPIRED" not in pol_no.upper())
         pol_status = str(case.get("policy_status") or case.get("policy") or "").lower()
-        if not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
+        chk_pol = chk.get("policy_id")
+        cov_end = str(case.get("coverage_end_date") or "").strip()
+        if cov_end and cov_end[:10] < str(datetime.date.today()):
+            pol_status = "expired"
+
+        if chk_pol is False or not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
             violations.append("Policy expired, inactive, or invalid policy number on admission date")
-            rule_score += 35
+            rule_score += 45
             checks["policy_validity"] = {"status": "FAIL", "detail": "Policy expired or inactive"}
         else:
             checks["policy_validity"] = {"status": "PASS", "detail": f"Active ({pol_no})"}
@@ -221,7 +244,7 @@ class InsurancePreauthAgentService:
             checks["medical_necessity"] = {"status": "PASS", "detail": f"Treatment clinically justified (HR {hr}, SpO2 {spo2}%)"}
 
         # 10. Documents
-        doc_complete = chk.get("doctor_advice", True) and chk.get("cost_estimate", True) and chk.get("policy_id", True) and chk.get("operative_report", True)
+        doc_complete = chk.get("doctor_advice", True) and chk.get("cost_estimate", True) and chk.get("operative_report", True)
         docs_val = str(case.get("required_documents") or "").lower()
         if "missing" in c_status.lower() or "missing" in rej_reason or "missing" in docs_val or not doc_complete:
             violations.append("Mandatory documents unavailable: missing clinical report or physician prescription")
@@ -301,13 +324,17 @@ class InsurancePreauthAgentService:
             checks["timelines"] = {"status": "PASS", "detail": "Notification/preauth submitted on time"}
 
         # Calibrate base score strictly to match statutory and underwriting claim status
-        if "rejected" in c_status.lower():
+        if chk_pol is False or not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
+            rule_score = min(100, max(90, rule_score + 50))
+        elif non_covered:
+            rule_score = min(100, max(85, rule_score + 50))
+        elif "rejected" in c_status.lower():
             rule_score = min(100, max(85, rule_score))
         elif "high denial" in c_status.lower() or "denial risk" in rej_reason:
             rule_score = min(80, max(68, rule_score))
-        elif "missing" in c_status.lower():
-            rule_score = min(78, max(62, rule_score))
-        elif "approved" in c_status.lower() or c_status == "Approved":
+        elif "missing" in c_status.lower() or not doc_complete:
+            rule_score = min(85, max(65, rule_score))
+        elif ("approved" in c_status.lower() or c_status == "Approved") and not violations:
             rule_score = min(15, max(5, rule_score))
         else:
             rule_score = min(100, max(8, rule_score))
@@ -417,9 +444,13 @@ class InsurancePreauthAgentService:
                     res_data = json.loads(resp.read().decode("utf-8"))
                     content = json.loads(res_data["choices"][0]["message"]["content"])
                     if "risk_score" in content:
-                        predicted_score = int(content["risk_score"])
+                        predicted_score = max(int(content["risk_score"]), baseline_score)
                     if "risk_reasons" in content and isinstance(content["risk_reasons"], list) and content["risk_reasons"]:
-                        predicted_reasons = content["risk_reasons"]
+                        merged_reasons = list(violations)
+                        for r in content["risk_reasons"]:
+                            if r not in merged_reasons:
+                                merged_reasons.append(r)
+                        predicted_reasons = merged_reasons if merged_reasons else content["risk_reasons"]
                     if "mitigation_actions" in content and isinstance(content["mitigation_actions"], list) and content["mitigation_actions"]:
                         mitigation_actions = content["mitigation_actions"]
             except Exception as e:
@@ -592,8 +623,8 @@ class InsurancePreauthAgentService:
                         p.phone,
                         p.preferred_language,
                         COALESCE(dai.admission_date::text, c.claim_date::text, CURRENT_DATE::text) as admission_date,
-                        COALESCE(dai.reason_for_admission, appt.reason_for_visit, 'Specialized Inpatient Care') as reason_for_admission,
-                        COALESCE(dai.primary_diagnosis, appt.reason_for_visit, 'Specialized Inpatient Care') as primary_diagnosis,
+                        COALESCE(dai.reason_for_admission, appt.reason_for_visit, NULL) as reason_for_admission,
+                        COALESCE(dai.primary_diagnosis, appt.reason_for_visit, NULL) as primary_diagnosis,
                         COALESCE(dai.attending_doctor, NULLIF(TRIM(CONCAT(d.first_name, ' ', d.last_name)), ''), 'Dr. Amit Sharma') as attending_doctor,
                         COALESCE(dai.doctor_specialization, d.specialization, dept.department_name, 'General Medicine') as doctor_specialization,
                         COALESCE(dai.ward_name, 'Outpatient Consultation Desk') as ward_name,
@@ -620,14 +651,14 @@ class InsurancePreauthAgentService:
                         ca.submitted_at as appeal_submitted_at,
                         l.id as log_id,
                         CASE
-                            WHEN c.claim_status = 'Rejected' THEN
+                            WHEN c.claim_status ILIKE '%%%%reject%%%%' OR c.claim_status ILIKE '%%%%deni%%%%' OR c.claim_status = 'Partially Approved' THEN
                                 CASE
                                     WHEN ca.appeal_status = 'SUBMITTED_TPA' THEN 'SUBMITTED_TPA'
                                     WHEN ca.appeal_status IN ('OVERTURNED', 'ACCEPTED') THEN 'APPROVED'
                                     ELSE 'REJECTED_SHORTFALL'
                                 END
-                            WHEN c.claim_status = 'Approved' THEN 'APPROVED'
-                            WHEN c.claim_status ILIKE '%%%%awaiting%%%%' OR c.claim_status ILIKE '%%%%submitted%%%%' THEN 'SUBMITTED_TPA'
+                            WHEN c.claim_status ILIKE '%%%%approv%%%%' OR c.claim_status ILIKE '%%%%settled%%%%' THEN 'APPROVED'
+                            WHEN c.claim_status ILIKE '%%%%awaiting%%%%' OR c.claim_status ILIKE '%%%%submitted%%%%' OR c.claim_status ILIKE '%%%%review%%%%' THEN 'SUBMITTED_TPA'
                             ELSE 'DOSSIER_READY'
                         END as computed_stage
                     FROM insurance_claims c
@@ -828,10 +859,10 @@ class InsurancePreauthAgentService:
                         "oxygen_saturation": float(r["latest_oxygen_saturation"]) if r.get("latest_oxygen_saturation") is not None else 98.0
                     },
                     "checklist": {
-                        "doctor_advice": True,
-                        "cost_estimate": True,
-                        "policy_id": True,
-                        "operative_report": True
+                        "doctor_advice": bool(doc_name and doc_name.lower() not in ["unknown", "none", "", "null"]),
+                        "cost_estimate": bool(est_cost > 0),
+                        "policy_id": bool(r.get("policy_status") not in ["Inactive", "Expired"] and "INACTIVE" not in str(r.get("policy_number") or "").upper()),
+                        "operative_report": bool(primary_diag and len(primary_diag.strip()) >= 3 and primary_diag.lower() not in ["specialized inpatient care", "documentation incomplete", "clinical inpatient care"] and "missing" not in c_status.lower() and "missing" not in str(r.get("rejection_reason") or "").lower())
                     },
                     "denial_risk": {
                         "risk_pct": denial_risk_pct,
@@ -936,18 +967,20 @@ class InsurancePreauthAgentService:
                 updated = True
             else:
                 c_num = f"TPA-AUTH-{int(time.time())}"
+                b_row = self.query("SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1;", (p_id,))
+                actual_bill_id = b_row[0]["bill_id"] if b_row else 101
                 ins_sql = """
                     INSERT INTO insurance_claims (
                         claim_number, patient_id, bill_id, insurance_provider, policy_number,
                         claim_date, claimed_amount, approved_amount, claim_status, settlement_date
                     ) VALUES (
-                        %s, %s, 101, 'Star Health & Allied Insurance', %s,
+                        %s, %s, %s, 'Star Health & Allied Insurance', %s,
                         CURRENT_DATE, %s, %s, 'Approved', CURRENT_DATE
                     ) RETURNING claim_id;
                 """
                 pol = f"POL-{p_id}-2026"
                 amt = float(approved_amt or 35000.0)
-                self.execute(ins_sql, (c_num, p_id, pol, amt, amt))
+                self.execute(ins_sql, (c_num, p_id, actual_bill_id, pol, amt, amt))
                 updated = True
 
         if p_id:
@@ -1086,6 +1119,8 @@ class InsurancePreauthAgentService:
                        COALESCE(c.insurance_provider, pi.insurance_provider, 'Star Health & Allied Insurance') as insurance_provider,
                        COALESCE(c.policy_number, pi.policy_number, 'STAR-POL-' || dai.patient_id::text) as policy_number,
                        COALESCE(pi.coverage_limit, 500000.00) as coverage_limit,
+                       COALESCE(pi.status, 'Active') as policy_status,
+                       pi.coverage_end_date,
                        c.claim_id, c.claim_number, c.claim_status, c.approved_amount
                 FROM dim_admission_inputs dai
                 LEFT JOIN bills b ON b.admission_id = dai.admission_id
@@ -1103,8 +1138,22 @@ class InsurancePreauthAgentService:
                 name = f"{first_n} {last_n}".strip() or f"Patient {p_id}"
                 w_name = r.get("ward_name") or "General Ward"
                 b_num = r.get("bed_number") or "BED-001"
-                primary_diag = r.get("primary_diagnosis") or r.get("reason_for_admission") or "Clinical Inpatient Care"
+                primary_diag = (r.get("primary_diagnosis") or "").strip()
                 doc_name = r.get("attending_doctor") or "Dr. Priya Patel"
+                pol_stat_val = str(r.get("policy_status") or "Active").strip()
+                cov_end_val = r.get("coverage_end_date")
+                if cov_end_val:
+                    try:
+                        if isinstance(cov_end_val, str):
+                            end_d = datetime.date.fromisoformat(cov_end_val.split("T")[0])
+                        elif isinstance(cov_end_val, datetime.date):
+                            end_d = cov_end_val
+                        else:
+                            end_d = None
+                        if end_d and end_d < datetime.date.today():
+                            pol_stat_val = "Expired"
+                    except Exception:
+                        pass
                 case_data = {
                     "admission_id": r.get("admission_id"),
                     "admission_number": r.get("admission_number"),
@@ -1119,7 +1168,7 @@ class InsurancePreauthAgentService:
                     "admission_date": str(r.get("admission_date") or datetime.date.today()),
                     "reason_for_admission": r.get("reason_for_admission") or primary_diag,
                     "primary_diagnosis": primary_diag,
-                    "procedure_name": primary_diag,
+                    "procedure_name": primary_diag or r.get("reason_for_admission") or "Inpatient Care",
                     "lead_surgeon": doc_name,
                     "attending_doctor": doc_name,
                     "department": r.get("doctor_specialization") or w_name,
@@ -1130,6 +1179,8 @@ class InsurancePreauthAgentService:
                     "estimated_cost": float(r.get("estimated_cost") or 35000.0),
                     "insurance_provider": r.get("insurance_provider") or "Star Health & Allied Insurance",
                     "policy_number": r.get("policy_number") or f"STAR-POL-{p_id}",
+                    "policy_status": pol_stat_val,
+                    "coverage_end_date": str(cov_end_val or ""),
                     "coverage_limit": float(r.get("coverage_limit") or 500000.0),
                     "claim_id": r.get("claim_id"),
                     "claim_reference": r.get("claim_number"),
@@ -1211,8 +1262,15 @@ class InsurancePreauthAgentService:
 
         # Live Diagnoses
         diag_rows = self.query("SELECT diagnosis_name, diagnosis_code, diagnosis_type FROM diagnoses WHERE patient_id = %s ORDER BY is_primary DESC LIMIT 3;", (p_id,))
-        diag_str = ", ".join([d["diagnosis_name"] for d in diag_rows]) if diag_rows else case_data.get("reason_for_admission", "Clinical Inpatient Care")
-        diag_code = diag_rows[0]["diagnosis_code"] if diag_rows else "A41.9 / I20.0"
+        if diag_rows:
+            diag_str = ", ".join([d["diagnosis_name"] for d in diag_rows])
+            diag_code = diag_rows[0]["diagnosis_code"]
+        elif case_data.get("primary_diagnosis") and len(str(case_data.get("primary_diagnosis")).strip()) >= 3 and str(case_data.get("primary_diagnosis")).strip().lower() not in ["specialized inpatient care", "documentation incomplete", "clinical inpatient care"]:
+            diag_str = str(case_data.get("primary_diagnosis")).strip()
+            diag_code = "A41.9 / I20.0"
+        else:
+            diag_str = "Documentation Incomplete"
+            diag_code = "UNKNOWN"
 
         # Live Bill Items
         bill_items_rows = self.query("SELECT description, quantity, unit_price, net_amount FROM bill_items WHERE bill_id = %s ORDER BY bill_item_id ASC LIMIT 10;", (bill_id,))
@@ -1239,7 +1297,8 @@ class InsurancePreauthAgentService:
         vitals_info = vitals_rows[0] if vitals_rows else {}
 
         # 3. Build Clinical & Financial Prompt
-        system_prompt = (
+        dynamic_inst = self._get_dynamic_instructions()
+        base_system = dynamic_inst.get("system") or (
             "You are the Hospital Insurance Preauth Agent (AG-07 / காப்பீட்டு முன்அனுமதி முகவர்). "
             "Your duty is to autonomously assemble a complete, structured Preauth Submission Dossier for TPA/Insurance review. "
             "You must generate bilingual clinical justifications in English and Tamil (தமிழ்). "
@@ -1247,6 +1306,14 @@ class InsurancePreauthAgentService:
             "Calculate checklist verification, medical necessity justification, itemized billing summary, and denial risk breakdown. "
             "Output MUST be valid JSON matching the requested structure."
         )
+        rules = dynamic_inst.get("rules", "")
+        safety = dynamic_inst.get("safety", "")
+
+        system_prompt = base_system
+        if rules:
+            system_prompt += f"\nRules & Formatting: {rules}"
+        if safety:
+            system_prompt += f"\nSafety & Governance: {safety}"
 
         user_content = {
             "patient_code": case_data.get("patient_code"),
@@ -1355,17 +1422,67 @@ class InsurancePreauthAgentService:
 
         # Attach 17-criteria statutory rules audit and calibrated 4-tier risk levels
         try:
+            # Enforce dynamic checklist verification
+            dyn_checklist = self.verify_checklist(case_data, diag_str, vitals_info)
+            generated_dossier["checklist_verification"] = dyn_checklist
+            case_data["checklist"] = {k: v["status"] == "Verified" for k, v in dyn_checklist.items()}
+
             rules_audit = self.audit_17_criteria(case_data)
             if "denial_risk_assessment" in generated_dossier:
                 dra = generated_dossier["denial_risk_assessment"]
-                score = int(dra.get("risk_score") or dra.get("risk_pct") or rules_audit["rules_score"])
+                score = max(int(dra.get("risk_score") or dra.get("risk_pct") or 0), rules_audit["rules_score"])
                 dra["risk_score"] = score
                 dra["risk_pct"] = score
                 dra["risk_level"] = self.classify_risk_level(score)
                 dra["rules_audit"] = rules_audit
                 dra["architecture"] = "Two-Stage: 17-Criteria Rules Engine + ML Predictor"
-                if "risk_reasons" not in dra or not dra["risk_reasons"]:
-                    dra["risk_reasons"] = rules_audit["violations"] if rules_audit["violations"] else [dra.get("explanation", "All 17 statutory and policy criteria verified")]
+                all_reasons = list(rules_audit["violations"]) if rules_audit["violations"] else []
+                if dra.get("explanation") and dra.get("explanation") not in all_reasons:
+                    all_reasons.append(dra.get("explanation"))
+                dra["risk_reasons"] = all_reasons if all_reasons else ["All 17 statutory and policy criteria verified"]
+
+            # Dynamically set stage and dossier_status based on audit and checklist
+            failed_docs = [k for k, v in dyn_checklist.items() if v["status"] != "Verified"]
+            is_policy_failed = (
+                dyn_checklist.get("policy_id", {}).get("status") == "Failed" or
+                rules_audit.get("checks", {}).get("policy_validity", {}).get("status") == "FAIL" or
+                rules_audit.get("checks", {}).get("coverage", {}).get("status") == "FAIL"
+            )
+            missing_medical_docs = [k for k in failed_docs if k != "policy_id"]
+
+            if is_policy_failed:
+                case_data["stage"] = "REJECTED_SHORTFALL"
+                case_data["dossier_status"] = f"Policy Gap ({rules_audit['violations'][0] if rules_audit['violations'] else 'Policy Expired/Inactive'})"
+            elif missing_medical_docs:
+                missing_labels = [k.replace('_', ' ').title() for k in missing_medical_docs]
+                case_data["stage"] = "PENDING_INFO"
+                case_data["dossier_status"] = f"Pending Documents ({len(missing_medical_docs)} missing: {', '.join(missing_labels)})"
+            elif rules_audit["failed_count"] > 0:
+                case_data["stage"] = "REJECTED_SHORTFALL"
+                case_data["dossier_status"] = f"Policy Gap ({rules_audit['violations'][0]})"
+            elif case_data.get("stage") == "APPROVED" or str(case_data.get("claim_status")).lower() == "approved":
+                case_data["stage"] = "APPROVED"
+                case_data["dossier_status"] = "Approved · Cashless Sanction Active"
+            elif case_data.get("stage") == "SUBMITTED_TPA" or "submitted" in str(case_data.get("claim_status")).lower():
+                case_data["stage"] = "SUBMITTED_TPA"
+                case_data["dossier_status"] = "Under TPA Review"
+            else:
+                case_data["stage"] = "DOSSIER_READY"
+                case_data["dossier_status"] = "Dossier Ready · 4/4 Verified"
+            generated_dossier["stage"] = case_data["stage"]
+
+            # Attach financial estimate with explicit patient copay calculation
+            est_cost_val = float(case_data.get("estimated_cost") or 0.0)
+            cov_lim_val = float(case_data.get("coverage_limit") or 500000.0)
+            appr_amt_val = float(case_data.get("approved_amount") or 0.0)
+            copay_calc = max(0.0, est_cost_val - cov_lim_val)
+            generated_dossier["financial_estimate"] = {
+                "estimated_cost": est_cost_val,
+                "coverage_limit": cov_lim_val,
+                "approved_amount": appr_amt_val,
+                "estimated_patient_copay": copay_calc,
+                "coverage_headroom": max(0.0, cov_lim_val - est_cost_val)
+            }
         except Exception as e_aud:
             logger.warning(f"Notice attaching rules audit to dossier: {e_aud}")
 
@@ -1375,9 +1492,7 @@ class InsurancePreauthAgentService:
                 self.execute("""
                     INSERT INTO agent_action_logs (patient_id, action_name, intent, input_data, output_data, status, created_at)
                     VALUES (%s, 'PREAUTH_DOSSIER_GENERATED', 'PREAUTH_DOSSIER', %s, %s, 'SUCCESS', NOW());
-                """, (p_id, json.dumps({"patient_code": case_data.get("patient_code")}), json.dumps({"dossier_id": generated_dossier.get("dossier_id"), "status": "DOSSIER_READY"})))
-                case_data["stage"] = "DOSSIER_READY"
-                case_data["dossier_status"] = "Dossier Ready · 4/4 Verified"
+                """, (p_id, json.dumps({"patient_code": case_data.get("patient_code")}), json.dumps({"dossier_id": generated_dossier.get("dossier_id"), "status": case_data.get("stage", "DOSSIER_READY")})))
             except Exception as e_log:
                 logger.warning(f"Could not log agent action: {e_log}")
 
@@ -1391,6 +1506,57 @@ class InsurancePreauthAgentService:
             "inference_source": inference_source,
             "case_data": case_data,
             "dossier": generated_dossier
+        }
+
+    def verify_checklist(self, case_data: Dict[str, Any], diag_str: Optional[str] = None, vitals_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Dynamically verifies the 4 mandatory preauth checklist requirements against actual EMR & policy data.
+        """
+        diag = str(diag_str if diag_str is not None else (case_data.get("primary_diagnosis") or "")).strip()
+        doc = str(case_data.get("attending_doctor") or "").strip()
+        pol_no = str(case_data.get("policy_number") or "").strip()
+        pol_stat = str(case_data.get("policy_status") or "").lower()
+        prov = str(case_data.get("insurance_provider") or "Star Health & Allied Insurance")
+        est_cost = float(case_data.get("estimated_cost") or 0.0)
+        c_status = str(case_data.get("claim_status") or "").lower()
+        rej_reason = str(case_data.get("rejection_reason") or "").lower()
+        chk_input = case_data.get("checklist") or {}
+
+        # 1. Doctor advice
+        has_doc = bool(doc and doc.lower() not in ["unknown", "none", "n/a", "", "null"] and chk_input.get("doctor_advice", True))
+        if not has_doc or "doctor advice missing" in rej_reason or "prescription missing" in rej_reason:
+            doc_advice = {"status": "Missing", "detail": "Attending doctor admission advice missing from EMR"}
+        else:
+            doc_advice = {"status": "Verified", "detail": f"Signed by {doc}"}
+
+        # 2. Cost estimate
+        has_cost = bool(est_cost > 0 and chk_input.get("cost_estimate", True))
+        if not has_cost:
+            cost_est = {"status": "Missing", "detail": "Provisional bill estimate missing"}
+        else:
+            cost_est = {"status": "Verified", "detail": f"Provisional ₹{est_cost:,.0f} estimate attached"}
+
+        # 3. Policy ID & Validity
+        is_pol_valid = bool(pol_no and pol_no not in ["N/A", "INACTIVE", "EXPIRED", ""] and "inactive" not in pol_stat and "expired" not in pol_stat and chk_input.get("policy_id", True))
+        if not is_pol_valid:
+            pol_detail = f"Policy {case_data.get('policy_status', 'Inactive')} ({pol_no or 'Invalid'})"
+            pol_id = {"status": "Failed", "detail": pol_detail}
+        else:
+            pol_id = {"status": "Verified", "detail": f"Active {prov} ({pol_no})"}
+
+        # 4. Operative / Clinical Investigation Report
+        has_diag = bool(len(diag) >= 3 and "incomplete" not in diag.lower() and chk_input.get("operative_report", True))
+        missing_docs = "missing" in c_status or "missing" in rej_reason or "query" in c_status or "additional" in c_status
+        if not has_diag or missing_docs:
+            op_report = {"status": "Missing", "detail": "Clinical operative report / diagnostic investigations pending"}
+        else:
+            op_report = {"status": "Verified", "detail": "Clinical intake assessment & diagnostic reports attached"}
+
+        return {
+            "doctor_advice": doc_advice,
+            "cost_estimate": cost_est,
+            "policy_id": pol_id,
+            "operative_report": op_report
         }
 
     def _fallback_preauth_dossier(
@@ -1582,12 +1748,14 @@ class InsurancePreauthAgentService:
             },
             "preauth_request": preauth_request,
             "itemized_estimate": items,
-            "checklist_verification": {
-                "doctor_advice": {"status": "Verified", "detail": f"Admitting Advice signed by {doc}"},
-                "cost_estimate": {"status": "Verified", "detail": f"Provisional estimate ₹{est:,.0f} generated & approved"},
-                "policy_id": {"status": "Verified", "detail": f"Active {prov} ({pol}) with sum insured ₹{cov_limit:,.0f}"},
-                "operative_report": {"status": "Verified", "detail": "Clinical intake workup and diagnostic reports attached"}
+            "financial_estimate": {
+                "estimated_cost": est,
+                "coverage_limit": cov_limit,
+                "approved_amount": float(case_data.get("approved_amount") or 0.0),
+                "estimated_patient_copay": max(0.0, est - cov_limit),
+                "coverage_headroom": max(0.0, cov_limit - est)
             },
+            "checklist_verification": self.verify_checklist(case_data, condition, vitals_info),
             "denial_risk_assessment": {
                 "risk_pct": denial_risk_pct,
                 "risk_level": risk_level,
@@ -1649,10 +1817,12 @@ class InsurancePreauthAgentService:
                         %s, %s, %s, %s, %s, CURRENT_DATE, %s, 0.00, 0.00, 0.00, %s, 'Submitted · awaiting insurer'
                     ) RETURNING claim_id;
                 """
+                b_rows = self.query("SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1;", (patient_id,))
+                actual_bill_id = b_rows[0]["bill_id"] if b_rows else 101
                 res = self.execute(insert_claim_sql, (
                     submission_ref,
                     patient_id,
-                    101,
+                    actual_bill_id,
                     provider,
                     policy_number,
                     claimed_amount,

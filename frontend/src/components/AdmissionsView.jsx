@@ -73,9 +73,14 @@ export default function AdmissionsView({
         });
         setWardOptions([...new Set(wList)]);
 
-        // Filter out any patient who is in the discharge API
+        // Filter out any patient who is discharged (either in discharge API or discharge_status === 'discharged')
         const rawAdmissions = admRes?.data || [];
-        const actualAdmittedRaw = rawAdmissions.filter(r => !dischargedTracker.has(r));
+        const actualAdmittedRaw = rawAdmissions.filter(r => {
+          if (!r) return false;
+          const st = String(r.discharge_status || r.admission_status || r.status || '').trim().toLowerCase();
+          if (st === 'discharged') return false;
+          return !dischargedTracker.has(r);
+        });
 
         const list = actualAdmittedRaw.map(r => {
           const p = parseAdmissionLlmRecord(r);

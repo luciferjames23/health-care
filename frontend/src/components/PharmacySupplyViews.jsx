@@ -182,13 +182,14 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
 
   const handleDispense = async (rx, e) => {
     if (e) e.stopPropagation();
-    const rxNo = rx.prescription_number || rx.rx_number || rx.id;
+    const itemKey = rx.prescription_item_id || rx.item_id || rx.id;
+    const dispenseTarget = rx.prescription_item_id ? `RXI-${rx.prescription_item_id}` : (rx.prescription_number || rx.rx_number || rx.id);
     try {
-      setActionLoading(rxNo);
-      await apiService.dispensePrescription(rxNo);
+      setActionLoading(itemKey);
+      await apiService.dispensePrescription(dispenseTarget);
       await fetchPrescriptions();
     } catch (err) {
-      alert(`Failed to dispense prescription: ${err.message}`);
+      alert(`Failed to dispense medication: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -524,14 +525,14 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
                       {rxStatus.toLowerCase() !== 'dispensed' ? (
                         <button
                           type="button"
-                          disabled={actionLoading === rxNo}
+                          disabled={actionLoading === (rx.prescription_item_id || rx.item_id || uniqueKey)}
                           onClick={(e) => handleDispense(rx, e)}
                           style={{
                             padding: '4px 10px', fontSize: '11px', fontWeight: 600, borderRadius: '4px',
                             border: 'none', background: '#0f766e', color: '#fff', cursor: 'pointer'
                           }}
                         >
-                          {actionLoading === rxNo ? 'Dispensing...' : 'Dispense'}
+                          {actionLoading === (rx.prescription_item_id || rx.item_id || uniqueKey) ? 'Dispensing...' : 'Dispense'}
                         </button>
                       ) : (
                         <span style={{ color: '#16a34a', fontSize: '11px', fontWeight: 600 }}>✓ Done</span>

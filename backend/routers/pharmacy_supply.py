@@ -49,7 +49,7 @@ def get_prescriptions(
             params.append(admission_id)
 
         if status and isinstance(status, str) and status != 'All':
-            where_clauses.append("LOWER(p.status) = LOWER(%s)")
+            where_clauses.append("LOWER(COALESCE(pi.status, p.status, 'Prescribed')) = LOWER(%s)")
             params.append(status)
 
         if search and isinstance(search, str) and search.strip():
@@ -128,10 +128,10 @@ def get_prescriptions(
         # Aggregate counts and stats
         cur.execute(f"""
             SELECT 
-                COUNT(DISTINCT p.prescription_id) as total,
-                COUNT(DISTINCT CASE WHEN LOWER(p.status) = 'dispensed' THEN p.prescription_id END) as dispensed,
-                COUNT(DISTINCT CASE WHEN LOWER(p.status) != 'dispensed' THEN p.prescription_id END) as active,
-                COUNT(pi.prescription_item_id) as total_items
+                COUNT(pi.prescription_item_id) as total_items,
+                COUNT(DISTINCT p.prescription_id) as total_prescriptions,
+                COUNT(CASE WHEN LOWER(COALESCE(pi.status, p.status, 'Prescribed')) = 'dispensed' THEN 1 END) as dispensed,
+                COUNT(CASE WHEN LOWER(COALESCE(pi.status, p.status, 'Prescribed')) != 'dispensed' THEN 1 END) as active
             FROM prescriptions p
             LEFT JOIN patients pat ON p.patient_id = pat.id
             LEFT JOIN doctors d ON p.doctor_id = d.id
@@ -140,12 +140,13 @@ def get_prescriptions(
             {where_sql};
         """, tuple(params))
         stat_row = cur.fetchone() or {}
-        total = stat_row.get('total') or 0
+        total = stat_row.get('total_items') or stat_row.get('total_prescriptions') or 0
 
         query = f"""
             SELECT 
                 p.prescription_id as id,
                 'RX-2026-' || p.prescription_id::text as rx_number,
+                pi.prescription_item_id,
                 p.patient_id,
                 p.visit_id,
                 p.admission_id,
@@ -156,7 +157,7 @@ def get_prescriptions(
                 COALESCE(pat.patient_code, 'PAT-' || p.patient_id) as patient_code,
                 d.display_name as doctor,
                 p.prescription_date as date,
-                COALESCE(p.status, 'Prescribed') as status,
+                COALESCE(pi.status, p.status, 'Prescribed') as status,
                 m.medication_name as drug,
                 m.generic_name as generic,
                 m.brand_name as brand,
@@ -176,7 +177,7 @@ def get_prescriptions(
             LEFT JOIN prescription_items pi ON p.prescription_id = pi.prescription_id
             LEFT JOIN medications m ON pi.medication_id = m.medication_id
             {where_sql}
-            ORDER BY p.prescription_date DESC, p.prescription_id DESC
+            ORDER BY p.prescription_date DESC, p.prescription_id DESC, pi.prescription_item_id ASC
             LIMIT %s OFFSET %s;
         """
         cur.execute(query, tuple(params + [limit, offset]))
@@ -195,7 +196,9 @@ def get_prescriptions(
                 checks.append(f"Instructions: {r['instructions']}")
 
             formatted.append({
-                "id": r['rx_number'],
+                "id": f"RXI-{r['prescription_item_id']}" if r.get('prescription_item_id') else r['rx_number'],
+                "prescription_item_id": r.get('prescription_item_id'),
+                "item_id": r.get('prescription_item_id'),
                 "rx_number": r['rx_number'],
                 "prescription_number": r['rx_number'],
                 "prescriptionNumber": r['rx_number'],
@@ -255,10 +258,10 @@ def get_prescriptions(
             })
 
         stats = {
-            "total_prescriptions": stat_row.get('total') or len(formatted),
+            "total_prescriptions": stat_row.get('total_prescriptions') or len(formatted),
             "active": stat_row.get('active') or 0,
             "dispensed": stat_row.get('dispensed') or 0,
-            "total_items": stat_row.get('total_items') or 0
+            "total_items": stat_row.get('total_items') or len(formatted)
         }
 
         return {"success": True, "total": total, "count": len(formatted), "stats": stats, "data": formatted}
@@ -267,66 +270,148 @@ def get_prescriptions(
     finally:
         conn.close()
 
-@router.patch("/prescriptions/{rx_id}/dispense", summary="Dispense Prescription")
+@router.patch("/prescriptions/{rx_id}/dispense", summary="Dispense Prescription or Specific Item")
 def dispense_prescription(rx_id: str):
     conn = db_connector.get_connection()
     try:
-        cur = conn.cursor()
-        clean_id = rx_id.replace('RX-2026-', '').lstrip('0')
-        numeric_id = int(clean_id) if clean_id.isdigit() else 0
+        cur = db_connector.get_dict_cursor(conn)
+        raw_str = str(rx_id).strip()
         
-        # 1. Update prescription status
-        cur.execute("""
-            UPDATE prescriptions 
-            SET status = 'Dispensed' 
-            WHERE prescription_id::text = %s OR ('RX-2026-' || LPAD(prescription_id::text, 4, '0')) = %s
-            RETURNING patient_id;
-        """, (clean_id, rx_id))
-        res_row = cur.fetchone()
-        patient_id = res_row[0] if res_row else None
-
-        # 2. Synchronize linked pharmacy_sales record to Paid / Dispensed & link active admission/bill
-        if patient_id:
+        # Check if rx_id refers to a specific prescription item or an entire prescription
+        is_item = False
+        target_item_id = None
+        target_rx_id = None
+        
+        if raw_str.upper().startswith("RXI-"):
+            is_item = True
+            target_item_id = int("".join(c for c in raw_str if c.isdigit()))
+        elif raw_str.upper().startswith("RX-2026-") or raw_str.upper().startswith("RX-"):
+            digits = "".join(c for c in raw_str if c.isdigit())
+            target_rx_id = int(digits) if digits else 0
+        elif raw_str.isdigit():
+            num = int(raw_str)
+            # Check if num exists as a prescription_item_id
+            cur.execute("SELECT prescription_id FROM prescription_items WHERE prescription_item_id = %s", (num,))
+            i_row = cur.fetchone()
+            if i_row:
+                is_item = True
+                target_item_id = num
+            else:
+                target_rx_id = num
+        
+        if is_item and target_item_id:
+            # 1. Update ONLY the specific prescription item
             cur.execute("""
-                UPDATE pharmacy_sales ps
-                SET 
-                    payment_status = 'Paid',
-                    admission_id = COALESCE(ps.admission_id, adm.admission_id),
-                    bill_id = COALESCE(ps.bill_id, b.bill_id)
-                FROM dim_admission_inputs adm
-                JOIN patients p ON adm.patient_number = p.patient_code
-                LEFT JOIN bills b ON adm.admission_id = b.admission_id
-                WHERE (ps.prescription_id = %s OR ps.prescription_id::text = %s)
-                  AND p.id = %s
-                  AND adm.discharge_status != 'Discharged';
-            """, (numeric_id, clean_id, patient_id))
-
-        cur.execute("""
-            UPDATE pharmacy_sales 
-            SET payment_status = 'Paid' 
-            WHERE prescription_id = %s OR prescription_id::text = %s;
-        """, (numeric_id, clean_id))
-
-        # 3. Synchronize eMAR record
-        if patient_id:
+                UPDATE prescription_items 
+                SET status = 'Dispensed' 
+                WHERE prescription_item_id = %s
+                RETURNING prescription_id, medication_id;
+            """, (target_item_id,))
+            i_res = cur.fetchone()
+            if not i_res:
+                raise HTTPException(status_code=404, detail=f"Prescription item {target_item_id} not found")
+            
+            p_id, med_id = i_res['prescription_id'], i_res['medication_id']
+            
+            # Check if all items in this prescription are now dispensed
             cur.execute("""
-                SELECT m.medication_name, p.first_name || ' ' || COALESCE(p.last_name, '') as full_name
-                FROM prescription_items pi
-                JOIN medications m ON pi.medication_id = m.medication_id
-                JOIN patients p ON p.id = %s
-                WHERE pi.prescription_id = %s;
-            """, (patient_id, numeric_id))
-            med_row = cur.fetchone()
-            if med_row:
-                med_name, full_name = med_row[0], med_row[1]
+                SELECT 
+                    COUNT(*) as total_items,
+                    COUNT(CASE WHEN LOWER(status) = 'dispensed' THEN 1 END) as dispensed_items
+                FROM prescription_items 
+                WHERE prescription_id = %s;
+            """, (p_id,))
+            cnt = cur.fetchone()
+            
+            if cnt and cnt['total_items'] == cnt['dispensed_items']:
+                cur.execute("UPDATE prescriptions SET status = 'Dispensed' WHERE prescription_id = %s RETURNING patient_id;", (p_id,))
+            else:
+                cur.execute("UPDATE prescriptions SET status = 'Partially Dispensed' WHERE prescription_id = %s RETURNING patient_id;", (p_id,))
+            
+            p_row = cur.fetchone()
+            patient_id = p_row['patient_id'] if p_row else None
+            
+            # Synchronize eMAR record for this specific medication
+            if patient_id and med_id:
                 cur.execute("""
-                    UPDATE emar_records
-                    SET status = 'Given', stage = 'Completed', administered_by = 'Staff Nurse Sneha Rao, RN', signed_at = TO_CHAR(NOW(), 'HH12:MI AM')
-                    WHERE LOWER(patient_name) = LOWER(%s) AND LOWER(medication_name) = LOWER(%s);
-                """, (full_name, med_name))
+                    SELECT m.medication_name, pat.first_name || ' ' || COALESCE(pat.last_name, '') as full_name
+                    FROM medications m
+                    CROSS JOIN patients pat
+                    WHERE m.medication_id = %s AND pat.id = %s;
+                """, (med_id, patient_id))
+                med_row = cur.fetchone()
+                if med_row:
+                    med_name, full_name = med_row['medication_name'], med_row['full_name']
+                    cur.execute("""
+                        UPDATE emar_records
+                        SET status = 'Given', stage = 'Completed', administered_by = 'Staff Nurse Sneha Rao, RN', signed_at = TO_CHAR(NOW(), 'HH12:MI AM')
+                        WHERE LOWER(patient_name) = LOWER(%s) AND LOWER(medication_name) = LOWER(%s);
+                    """, (full_name, med_name))
+            
+            conn.commit()
+            return {"success": True, "message": f"Prescription item {target_item_id} dispensed successfully"}
+        
+        else:
+            # 2. Whole prescription dispense
+            clean_id = str(target_rx_id) if target_rx_id else rx_id.replace('RX-2026-', '').lstrip('0')
+            numeric_id = int(clean_id) if clean_id.isdigit() else 0
+            
+            cur.execute("""
+                UPDATE prescription_items 
+                SET status = 'Dispensed' 
+                WHERE prescription_id = %s;
+            """, (numeric_id,))
+            
+            cur.execute("""
+                UPDATE prescriptions 
+                SET status = 'Dispensed' 
+                WHERE prescription_id = %s OR ('RX-2026-' || LPAD(prescription_id::text, 4, '0')) = %s
+                RETURNING patient_id;
+            """, (numeric_id, rx_id))
+            res_row = cur.fetchone()
+            patient_id = res_row['patient_id'] if res_row else None
 
-        conn.commit()
-        return {"success": True, "message": f"Prescription {rx_id} dispensed successfully"}
+            # Synchronize linked pharmacy_sales record to Paid / Dispensed & link active admission/bill
+            if patient_id:
+                cur.execute("""
+                    UPDATE pharmacy_sales ps
+                    SET 
+                        payment_status = 'Paid',
+                        admission_id = COALESCE(ps.admission_id, adm.admission_id),
+                        bill_id = COALESCE(ps.bill_id, b.bill_id)
+                    FROM dim_admission_inputs adm
+                    JOIN patients p ON adm.patient_number = p.patient_code
+                    LEFT JOIN bills b ON adm.admission_id = b.admission_id
+                    WHERE (ps.prescription_id = %s OR ps.prescription_id::text = %s)
+                      AND p.id = %s
+                      AND adm.discharge_status != 'Discharged';
+                """, (numeric_id, clean_id, patient_id))
+
+            cur.execute("""
+                UPDATE pharmacy_sales 
+                SET payment_status = 'Paid' 
+                WHERE prescription_id = %s OR prescription_id::text = %s;
+            """, (numeric_id, clean_id))
+
+            # Synchronize eMAR records
+            if patient_id:
+                cur.execute("""
+                    SELECT m.medication_name, pat.first_name || ' ' || COALESCE(pat.last_name, '') as full_name
+                    FROM prescription_items pi
+                    JOIN medications m ON pi.medication_id = m.medication_id
+                    JOIN patients pat ON pat.id = %s
+                    WHERE pi.prescription_id = %s;
+                """, (patient_id, numeric_id))
+                for med_row in cur.fetchall():
+                    med_name, full_name = med_row['medication_name'], med_row['full_name']
+                    cur.execute("""
+                        UPDATE emar_records
+                        SET status = 'Given', stage = 'Completed', administered_by = 'Staff Nurse Sneha Rao, RN', signed_at = TO_CHAR(NOW(), 'HH12:MI AM')
+                        WHERE LOWER(patient_name) = LOWER(%s) AND LOWER(medication_name) = LOWER(%s);
+                    """, (full_name, med_name))
+
+            conn.commit()
+            return {"success": True, "message": f"Prescription {rx_id} dispensed successfully"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))

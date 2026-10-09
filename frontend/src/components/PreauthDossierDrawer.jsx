@@ -747,79 +747,102 @@ export default function PreauthDossierDrawer({
                     </div>
                   </div>
 
-                  {/* 4-Point Document Checklist (✓) */}
-                  <div 
-                    style={{
-                      padding: '16px',
-                      borderRadius: '10px',
-                      backgroundColor: '#ffffff',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <FileText style={{ width: '15px', height: '15px', color: '#2563eb' }} />
-                        Document Readiness Checklist (4/4 Complete)
-                      </h4>
-                      <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', backgroundColor: '#ecfdf5', color: '#047857' }}>
-                        100% Ready
-                      </span>
-                    </div>
+                  {/* 4-Point Document Checklist (Dynamic Status from EMR / Insurance Audit) */}
+                  {(() => {
+                    const items = [
+                      {
+                        title: 'Doctor Advice & Indication',
+                        status: checklist.doctor_advice?.status || 'Verified',
+                        detail: checklist.doctor_advice?.detail || 'Admitting advice signed by attending physician'
+                      },
+                      {
+                        title: 'Cost Estimate Breakdown',
+                        status: checklist.cost_estimate?.status || 'Verified',
+                        detail: checklist.cost_estimate?.detail || 'Provisional tariff estimate attached'
+                      },
+                      {
+                        title: 'Active Policy ID & Eligibility',
+                        status: checklist.policy_id?.status || 'Verified',
+                        detail: checklist.policy_id?.detail || 'Active insurance coverage confirmed'
+                      },
+                      {
+                        title: 'Operative / Clinical Report',
+                        status: checklist.operative_report?.status || 'Verified',
+                        detail: checklist.operative_report?.detail || 'Clinical intake assessment & investigation reports attached'
+                      }
+                    ];
+                    const verifiedCount = items.filter(it => it.status === 'Verified').length;
+                    const isAllVerified = verifiedCount === 4;
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                          <Check style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
+                    return (
+                      <div 
+                        style={{
+                          padding: '16px',
+                          borderRadius: '10px',
+                          backgroundColor: '#ffffff',
+                          border: isAllVerified ? '1px solid #e2e8f0' : '1px solid #fecaca',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '12px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <FileText style={{ width: '15px', height: '15px', color: isAllVerified ? '#2563eb' : '#dc2626' }} />
+                            Document Readiness Checklist ({verifiedCount}/4 Complete)
+                          </h4>
+                          <span style={{ 
+                            fontSize: '11px', 
+                            fontWeight: 700, 
+                            padding: '2px 8px', 
+                            borderRadius: '4px', 
+                            backgroundColor: isAllVerified ? '#ecfdf5' : verifiedCount >= 2 ? '#fffbeb' : '#fef2f2', 
+                            color: isAllVerified ? '#047857' : verifiedCount >= 2 ? '#b45309' : '#b91c1c' 
+                          }}>
+                            {isAllVerified ? '100% Ready' : `${verifiedCount}/4 Verified`}
+                          </span>
                         </div>
-                        <div>
-                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#14532d' }}>Doctor Advice & Indication</div>
-                          <div style={{ fontSize: '11px', color: '#166534', marginTop: '2px' }}>
-                            {checklist.doctor_advice?.detail || 'Admitting advice signed by Dr. Priya Patel'}
-                          </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          {items.map((it, idx) => {
+                            const isVerified = it.status === 'Verified';
+                            const isMissing = it.status === 'Missing';
+                            const borderCol = isVerified ? '#bbf7d0' : isMissing ? '#fde68a' : '#fecaca';
+                            const bgCol = isVerified ? '#f0fdf4' : isMissing ? '#fffbeb' : '#fef2f2';
+                            const titleCol = isVerified ? '#14532d' : isMissing ? '#92400e' : '#991b1b';
+                            const textCol = isVerified ? '#166534' : isMissing ? '#b45309' : '#b91c1c';
+                            const iconBg = isVerified ? '#16a34a' : isMissing ? '#d97706' : '#dc2626';
+
+                            return (
+                              <div key={idx} style={{ padding: '10px 12px', borderRadius: '8px', border: `1px solid ${borderCol}`, backgroundColor: bgCol, display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: iconBg, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
+                                  {isVerified ? (
+                                    <Check style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
+                                  ) : isMissing ? (
+                                    <ShieldAlert style={{ width: '12px', height: '12px', strokeWidth: 2.5 }} />
+                                  ) : (
+                                    <X style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
+                                  )}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ fontSize: '12px', fontWeight: 700, color: titleCol }}>{it.title}</div>
+                                    <span style={{ fontSize: '9.5px', fontWeight: 700, textTransform: 'uppercase', color: titleCol }}>
+                                      {it.status}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: textCol, marginTop: '2px', wordBreak: 'break-word' }}>
+                                    {it.detail}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-
-                      <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                          <Check style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#14532d' }}>Cost Estimate Breakdown</div>
-                          <div style={{ fontSize: '11px', color: '#166534', marginTop: '2px' }}>
-                            {checklist.cost_estimate?.detail || 'Provisional estimate attached'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                          <Check style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#14532d' }}>Active Policy ID & Eligibility</div>
-                          <div style={{ fontSize: '11px', color: '#166534', marginTop: '2px' }}>
-                            {checklist.policy_id?.detail || 'Active Star Health Insurance coverage confirmed'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                          <Check style={{ width: '13px', height: '13px', strokeWidth: 3 }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '12px', fontWeight: 700, color: '#14532d' }}>Operative / Cath Lab Report</div>
-                          <div style={{ fontSize: '11px', color: '#166534', marginTop: '2px' }}>
-                            {checklist.operative_report?.detail || 'Clinical intake assessment & investigation reports attached'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {/* Denial-Risk Badge & Two-Stage Risk Analysis (17-Criteria Rules Engine + ML Model) */}
                   {(() => {

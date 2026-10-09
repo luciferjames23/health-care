@@ -27,6 +27,24 @@ class NursingHandoverAgentService:
         self.model = model or os.getenv("NURSING_AGENT_MODEL") or DEFAULT_MODEL
         self.db = PostgresConnector()
 
+    def _get_dynamic_instructions(self) -> Dict[str, Any]:
+        """Loads dynamic prompt directives and rules from PostgreSQL agent_configurations."""
+        try:
+            conn = self.db.get_connection()
+            cur = self.db.get_dict_cursor(conn)
+            cur.execute("SELECT instructions FROM agent_configurations WHERE agent_id = 'AG-18';")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row.get("instructions"):
+                inst = row["instructions"]
+                if isinstance(inst, str):
+                    return json.loads(inst)
+                return inst
+        except Exception as e:
+            logger.debug(f"Could not load dynamic instructions for AG-18: {e}")
+        return {}
+
     def get_agent_profile(self) -> Dict[str, Any]:
         """Returns AG-18 prototype specification, metadata, tools, and benchmarks."""
         stats = self.get_ward_handover_stats()
@@ -311,14 +329,23 @@ class NursingHandoverAgentService:
         Executes Groq LPU inference using openai/gpt-oss-120b.
         Grounded in Meridian Medication Safety protocols v4.0 and SBAR clinical framework.
         """
-        system_prompt = (
+        dynamic_inst = self._get_dynamic_instructions()
+        base_system = dynamic_inst.get("system") or (
             "You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்).\n"
             "You operate with clinical summarisation precision for registered nurses during ward shift changes.\n"
             "Clinical Governance SOPs in effect:\n"
             "- Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics).\n"
             "- Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check).\n"
-            "- Standard SBAR Structure: Situation, Background, Assessment, Recommendation.\n\n"
-            "Generate a structured, professional, concise clinical handover draft.\n"
+            "- Standard SBAR Structure: Situation, Background, Assessment, Recommendation."
+        )
+        rules = dynamic_inst.get("rules", "")
+        safety = dynamic_inst.get("safety", "")
+
+        system_prompt = (
+            f"{base_system}\n"
+            + (f"Rules: {rules}\n" if rules else "")
+            + (f"Safety: {safety}\n" if safety else "")
+            + "Generate a structured, professional, concise clinical handover draft.\n"
             "Respond ONLY with a valid JSON object containing exactly these keys:\n"
             "{\n"
             '  "situation": "Concise situation line: Patient name, age/gender, bed, primary diagnosis, attending doctor, hospital day, ward.",\n'

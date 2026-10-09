@@ -334,7 +334,18 @@ class DatabricksConnector:
     ) -> dict:
         """Query rows from PostgreSQL with dynamic WHERE clauses, sorting, and pagination."""
         real_table = self.resolve_table_name(table_name)
+        if not isinstance(offset, int):
+            try:
+                offset = int(offset)
+            except Exception:
+                offset = 0
         offset = max(0, offset)
+
+        if limit is not None and not isinstance(limit, int):
+            try:
+                limit = int(limit)
+            except Exception:
+                limit = None
 
         cache_key = f"gold:{real_table}:{str(filters)}:{limit}:{offset}:{sort_by}:{sort_order}"
         cached = self.get_cached_result(cache_key)

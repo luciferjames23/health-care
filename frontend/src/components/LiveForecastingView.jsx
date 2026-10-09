@@ -84,14 +84,14 @@ export default function LiveForecastingView() {
   };
 
   const dailyForecast = (data?.daily_forecast || []).map(day => {
-    const adjustedCensus = Math.min(summary.total_beds, Math.max(160, day.predicted_census + surgeAdjustment));
+    const adjustedCensus = Math.min(summary.total_beds, Math.max(0, day.predicted_census + surgeAdjustment));
     const adjustedOcc = Number(((adjustedCensus / summary.total_beds) * 100).toFixed(1));
     const risk = adjustedOcc > 85 ? 'Capacity Warning' : adjustedOcc > 75 ? 'High Demand' : 'Optimal';
     return {
       ...day,
       predicted_census: adjustedCensus,
       predicted_occupancy_pct: adjustedOcc,
-      available_headroom: summary.total_beds - adjustedCensus,
+      available_headroom: Math.max(0, summary.total_beds - adjustedCensus),
       risk_status: risk
     };
   });

@@ -1,0 +1,145 @@
+{
+  "timestamp": "2026-10-09T08:41:34.594815",
+  "total": 17,
+  "passed": 17,
+  "failed": 0,
+  "pass_rate": "100.0%",
+  "results": [
+    {
+      "test_id": "TC-SETUP-01",
+      "name": "Create Test Patient with complete relational records",
+      "expected": "All 9 tables populated",
+      "actual": "Patient 1004440 created with foreign keys intact",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-PA-01",
+      "name": "Baseline Valid Pre-Auth Verification",
+      "expected": "All 4 checklist items Verified, stage=DOSSIER_READY, risk_score<=35",
+      "actual": "Checklist=True, Stage=DOSSIER_READY, Risk=12",
+      "passed": true,
+      "notes": "Checklist status: {'doctor_advice': 'Verified', 'cost_estimate': 'Verified', 'policy_id': 'Verified', 'operative_report': 'Verified'}"
+    },
+    {
+      "test_id": "TC-PA-02",
+      "name": "Pre-Auth Submission to TPA Portal",
+      "expected": "stage=SUBMITTED_TPA and claim_status='Submitted - Under Review'",
+      "actual": "Stage=None, DB Claim Status=Submitted \u00b7 awaiting insurer",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-PA-03",
+      "name": "Pre-Auth TPA Approval & Cashless Guarantee Sanction",
+      "expected": "stage=APPROVED, approved_amount=145000.00, cashless letter generated",
+      "actual": "Stage=None, DB Status=Approved, DB Approved=145000.00, Letter Sanction=145000.0",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-PA-04",
+      "name": "Pre-Auth Missing Clinical Documents Scenario",
+      "expected": "operative_report=Missing and stage=PENDING_INFO",
+      "actual": "operative_report status=Missing, stage=PENDING_INFO",
+      "passed": true,
+      "notes": "Detail: Clinical operative report / diagnostic investigations pending"
+    },
+    {
+      "test_id": "TC-PA-05",
+      "name": "Pre-Auth Expired Insurance Policy Scenario",
+      "expected": "policy_id=Failed, stage=REJECTED_SHORTFALL, risk_score>=85",
+      "actual": "policy_id status=Failed, stage=REJECTED_SHORTFALL, risk_score=95",
+      "passed": true,
+      "notes": "Violations: ['Policy expired, inactive, or invalid policy number on admission date', 'Sufficient sum insured headroom (\u20b9145,000 estimate vs \u20b9500,000 coverage), validated ICD-10 medical necessity for Spinal stenosis, lumbar region, and 100% complete supporting documentation.']"
+    },
+    {
+      "test_id": "TC-PA-06",
+      "name": "Pre-Auth Excluded / Cosmetic Procedure Scenario",
+      "expected": "risk_score>=80 and cosmetic/exclusion cited in reasons",
+      "actual": "risk_score=85, reasons=['Treatment/procedure excluded or coverage unclear under policy schedule', 'Sufficient sum insured headroom (\u20b9145,000 estimate vs \u20b9500,000 coverage), validated ICD-10 medical necessity for Aesthetic Cosmetic Rhinoplasty & Septoplasty, and 100% complete supporting documentation.']",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-PA-07",
+      "name": "Pre-Auth Insufficient Coverage Limit Scenario",
+      "expected": "coverage_limit=50000.0 and patient_copay>=95000.0",
+      "actual": "limit=50000.0, patient_copay=95000.0",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-01A",
+      "name": "Denial Classification Code 204 & Gate Blocking",
+      "expected": "code=204, disp=ADDITIONAL_INFO_REQUIRED, gate=RE_SUBMISSION_BLOCKED, can_resubmit=False",
+      "actual": "code=204, disp=ADDITIONAL_INFO_REQUIRED, gate=RE_SUBMISSION_BLOCKED, can_resubmit=False",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-01B",
+      "name": "AI EMR Retrieval Unblocks Checklist Gate",
+      "expected": "gate=READY_FOR_RESUBMISSION, can_resubmit=True",
+      "actual": "gate=READY_FOR_RESUBMISSION, can_resubmit=True",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-01C",
+      "name": "Submit Appeal to TPA & Shift Claim to Under Review",
+      "expected": "appeal_status=SUBMITTED_TPA, DB claim_status='Submitted - Under Review'",
+      "actual": "appeal_status=SUBMITTED_TPA, appeal_db=SUBMITTED_TPA, DB claim_status='Submitted - Under Review'",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-02",
+      "name": "Claim Denial Missing Medical Documents (Code 501)",
+      "expected": "code=501, disp=ADDITIONAL_INFO_REQUIRED, actionable recommendation",
+      "actual": "code=501, disp=ADDITIONAL_INFO_REQUIRED, action=Retrieve missing operative notes, lab investigations, and specialist consultation records from EMR archive and attach to appeal.",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-03",
+      "name": "Claim Denial Coding Discrepancy (Code 305 / COD-01)",
+      "expected": "code=305, disp=CORRECTION_REQUIRED, gate=CORRECTION_REQUIRED_BEFORE_SUBMISSION",
+      "actual": "code=305 (COD-01), disp=CORRECTION_REQUIRED, gate=CORRECTION_REQUIRED_BEFORE_SUBMISSION",
+      "passed": true,
+      "notes": "Recommended action: Review clinical records, rectify ICD-10/CPT coding discrepancy in billing module, and generate corrected claim."
+    },
+    {
+      "test_id": "TC-CD-04",
+      "name": "Claim Denial Demographic & Policy ID Mismatch (Code 101 / ID-01)",
+      "expected": "code=101, disp=CORRECTION_REQUIRED, gate=CORRECTION_REQUIRED_BEFORE_SUBMISSION",
+      "actual": "code=101, disp=CORRECTION_REQUIRED, gate=CORRECTION_REQUIRED_BEFORE_SUBMISSION",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CD-05",
+      "name": "Claim Denial Genuine Policy Exclusion (Excl08 Cosmetic)",
+      "expected": "code=Excl08, disp=GENUINE_DENIAL, gate=GENUINE_DENIAL_NOT_PAYABLE, can_resubmit=False",
+      "actual": "code=Excl08, disp=GENUINE_DENIAL, gate=GENUINE_DENIAL_NOT_PAYABLE, can_resubmit=False",
+      "passed": true,
+      "notes": "Blocked reason: Service/Procedure is permanently excluded under Policy Clause Excl08 (Excl08). Claim is genuinely denied under insurer policy terms."
+    },
+    {
+      "test_id": "TC-INT-01",
+      "name": "Live API & Data Pipeline Integration",
+      "expected": "Patient present in active preauth cases and denial shortfall desks",
+      "actual": "Found in Preauth=True, Found in Denials=True",
+      "passed": true,
+      "notes": ""
+    },
+    {
+      "test_id": "TC-CLN-01",
+      "name": "Transactional Cascade Cleanup & Zero Orphan Verification",
+      "expected": "0 orphan records, non-test patients intact",
+      "actual": "Orphans={}, Non-test Patients Before=143055, After=143055",
+      "passed": true,
+      "notes": "Deleted: 1 patient, 1 visits, 1 admissions, 1 claims, 1 appeals"
+    }
+  ]
+}

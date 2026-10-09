@@ -204,45 +204,49 @@ export const ALL_21_AGENTS = [
     id: 'AG-04',
     name: 'Employee Service Agent',
     nameTa: 'பணியாளர் சேவை முகவர்',
-    type: 'Answerer',
-    v: '1.6.0',
-    owner: 'HR',
+    type: 'Internal Staff Chatbot',
+    v: '1.7.0',
+    owner: 'HR Operations & Clinical Directorate',
     tier: 'Low',
     status: 'Published',
-    lastRun: '11:17',
-    success: '93.2%',
-    runs: 141,
+    lastRun: '10:20 AM',
+    success: '98.5%',
+    runs: 842,
     humanApproval: 'None',
-    toolsCount: 2,
-    knowledgeCount: 1,
-    purpose: 'Assist HR with employee service tasks under human oversight.',
+    toolsCount: 4,
+    knowledgeCount: 3,
+    purpose: 'Provide 24/7 conversational assistance to hospital staff for duty shift timings, leave & comp-off balances, and leave filings with live PostgreSQL grounding.',
     instructions: {
-      objective: 'Reduce turnaround and manual coordination for HR.',
-      system: 'You are the Hospital Employee Service Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.',
-      rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
-      safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
-      escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      objective: 'Automate employee self-service inquiries for shift timing, duty rosters, leave balance tracking, and leave filings with 100% verified PostgreSQL roster grounding.',
+      system: 'You are the Hospital Employee Service Agent (AG-04 · பணியாளர் சேவை முகவர்). Provide conversational HR and roster assistance to hospital staff (doctors, nurses, technicians, admin). Query PostgreSQL tables (staff_rosters, employee_leave_balances, employee_leave_requests) to fetch accurate shift schedules, reconcile leave quotas (Comp-off, Casual, Sick, Earned), apply leaves, and cite authoritative hospital HR policies. Never provide clinical medical advice or diagnose patients.',
+      rules: 'Present duty shifts clearly with date, duty hours (e.g., Morning 07:00 AM - 03:00 PM), department/ward, and on-call status. Display leave balances in itemized format with available quotas. Support bilingual English and Tamil (தமிழ்) responses. Record all leave filings with timestamp and supervisor routing.',
+      safety: 'Strictly restricted to internal hospital employee operations. Refuse patient clinical queries, medication advice, or prescription modifications. Mask employee salaries and confidential HR disciplinary records. Ensure leave filings check ward nursing coverage rules.',
+      escalation: 'Escalate shift clashes, emergency leave rejections, or policy disputes to the HR Operations Head (ext. 4401) and Ward Nursing Supervisor.',
+      refusal: '"I cannot answer medical or patient-care queries. I am your Employee Service Agent for HR and duty schedules. For patient care, please use clinical copilot or consult attending physician."'
     },
     tools: [
-      { tool: 'Scheduling', perm: 'Read duty shift & leave balances', read: true, write: false, appr: 'None', enabled: true },
-      { tool: 'Notification', perm: 'Alert HR team of leave filings', read: false, write: true, appr: 'None', enabled: true }
+      { tool: 'PostgreSQL Roster Engine', perm: 'Query live duty rosters, shift timings & on-call schedules from staff_rosters', read: true, write: false, appr: 'None', enabled: true },
+      { tool: 'Leave Balance Ledger', perm: 'Fetch employee leave balances (Casual, Sick, Comp-off, Earned)', read: true, write: false, appr: 'None', enabled: true },
+      { tool: 'Leave Filing Engine', perm: 'Create and submit new leave requests into employee_leave_requests', read: true, write: true, appr: 'Supervisor', enabled: true },
+      { tool: 'HR Policy v5.0 Knowledge Engine', perm: 'Search hospital HR policies, shift allowances & benefits', read: true, write: false, appr: 'None', enabled: true }
     ],
     knowledge: [
-      { t: 'HR Leave Policy', v: '5.0', eff: '01 Jan 2026', status: 'Published' }
+      { t: 'HR Leave & Attendance Policy v5.0', v: '5.0', eff: '01 Jan 2026', status: 'Published' },
+      { t: 'Nursing Shift Allowance & Roster SOP', v: '3.2', eff: '15 Mar 2026', status: 'Published' },
+      { t: 'Employee Health & Dependent Medical Benefit Scheme', v: '2.4', eff: '01 Jun 2026', status: 'Published' }
     ],
     memory: {
       session: 'On · 30 min',
-      patient: 'Encounter-scoped',
+      patient: 'Staff-scoped',
       workflow: 'On',
       retention: '90 days (audit) · 0 days (conversation)',
       sensitive: 'No free-text PHI stored'
     },
     access: {
-      roles: 'HR, Hospital Management',
-      departments: 'All wards',
-      patients: 'Care-team relationship required',
-      scopes: 'Operational + financial (no clinical write)',
+      roles: 'HR, Hospital Management, Doctors, Nurses, Technicians, Admin',
+      departments: 'All Wards, ICUs, Labs, OT, Admin',
+      patients: 'Staff-scoped',
+      scopes: 'Operational HR read/write',
       env: 'Production'
     },
     model: {
@@ -250,8 +254,8 @@ export const ALL_21_AGENTS = [
       temperature: 0.2,
       tokens: 8000,
       fallback: 'meridian-llm-small',
-      latency: '< 3 s p50',
-      cost: '₹10 / run'
+      latency: '< 1.5 s p50',
+      cost: '₹4 / run'
     },
     evals: [
       { id: 'EV-704', ver: 'v1.6.0', when: '10 Sep 2026', cases: 95, acc: '93.2%', ground: '96.8%', hall: '0.4%', ref: '99%', lat: '1.7s', res: 'Pass' }
@@ -402,12 +406,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 2,
     purpose: 'Assist Insurance Desk with insurance preauth tasks under human oversight.',
     instructions: {
-      objective: 'Extract clinical justification, verify ICD-10 medical necessity, cross-reference policy coverage limits, and assemble complete cashless preauthorisation dossiers for TPA approval within 20 seconds.',
-      system: 'You are the Hospital AI Insurance Preauthorisation Agent (AG-07 · காப்பீட்டு முன்அனுமதி முகவர்). Operates under Insurance Desk & TPA supervision. Extract EMR admission history, procedure codes (ICD-10 / CPT), verify tariff cost heads (Room, ICU, OT, Implants, Pharmacy), evaluate policy limits & pre-existing disease clauses, and generate bilingual English & Tamil justifications. Never modify clinical diagnoses or approve medical treatments.',
-      rules: 'Generate bilingual clinical justification in English and Tamil (தமிழ்). Structure outputs into 4-point readiness checklist, itemized cost estimates, and denial risk breakdown. Log every EMR, Billing, and TPA tool call with audit hash.',
-      safety: 'Refuse clinical interpretation or diagnosis modification. Do not release final hospital bills or discharge passes without verified TPA settlement letter and authorized human insurance officer sign-off. Mask non-essential PHI.',
-      escalation: 'Escalate to Insurance Executive (R. Sundar / L. Fathima) if denial risk > 25%, estimated cost exceeds coverage limit by > 15%, TPA initial response breaches 2 hours, or documentation is incomplete.',
-      refusal: '"Insurance documentation incomplete: Critical clinical investigation reports or policy endorsement missing. Escalating dossier to Insurance Executive for manual review."'
+      objective: 'Autonomously assemble structured Pre-Authorization Submission Dossiers for TPA & insurer review with 100% verified EMR grounding and bilingual justifications.',
+      system: 'You are the Hospital Insurance Preauth Agent (AG-07 / காப்பீட்டு முன்அனுமதி முகவர்). Your duty is to autonomously assemble a complete, structured Preauth Submission Dossier for TPA/Insurance review. You must generate bilingual clinical justifications in English and Tamil (தமிழ்). Keep clinical justifications structured, crisp, and easily readable with clear distinct points (Presentation & Indication, Risk & Monitoring, Medical Necessity & Interventions, Expected Outcomes) separated by line breaks. Calculate checklist verification, medical necessity justification, itemized billing summary, and denial risk breakdown. Output MUST be valid JSON matching the requested structure.',
+      rules: 'Generate bilingual clinical justifications in English and Tamil (தமிழ்). Structure clinical justification points by Indication, Risk, Interventions, and Outcomes. Calculate itemized billing breakdown and denial risk assessment. Strict JSON schema output.',
+      safety: 'Refuse clinical diagnosis changes or unauthorized procedure codes. Ground all medical justifications strictly on attending physician notes. Mask sensitive patient identifiers for external review.',
+      escalation: 'Escalate claims with denial risk > 35% or missing doctor signature to Senior TPA Liaison (L. Fathima) and Attending Physician.',
+      refusal: 'Insufficient clinical EMR evidence to formulate an authorized pre-authorization request safely. Route to Insurance Desk.'
     },
     tools: [
       { tool: 'EMR', perm: 'Read Clinical History & Notes', read: true, write: false, appr: 'None', enabled: true },
@@ -427,7 +431,7 @@ export const ALL_21_AGENTS = [
       sensitive: 'No free-text PHI stored'
     },
     access: {
-      roles: 'Insurance Desk (R. Sundar, L. Fathima), Hospital Management',
+      roles: 'Insurance Desk (TPA Coordinators), Hospital Management',
       departments: 'All Inpatient Wards & Cath Lab / OT',
       patients: 'Care-team & Encounter relationship required',
       scopes: 'Operational + financial read, Preauth dossier assembly write',
@@ -468,12 +472,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 3,
     purpose: 'Assist Billing Desk & Cashier with automated plain-language English & Tamil breakdown of variance items under human oversight.',
     instructions: {
-      objective: 'Eliminate discharge bill disputes and counter delays by providing instant plain-language explanations of itemized charges.',
-      system: 'You are the Hospital Billing Transparency Agent. Audit running bills against pre-admission estimates. Translate technical consumable codes and OT notes into empathetic everyday language in English and Tamil. Cite exact clinical proof notes.',
-      rules: 'Use Tamil when the patient language is Tamil. Always explain the medical necessity of additional surgical consumables. Log every tool call.',
-      safety: 'Refuse clinical diagnosis or alteration of tariff rates. Do not waive charges autonomously. Mask sensitive financial data outside billing desk.',
-      escalation: 'Escalate to Chief Billing Officer if variance exceeds 50% or clinical justification is missing from EMR logs.',
-      refusal: '"I don\'t have enough verified clinical chart data to justify this charge safely." then route to billing auditor.'
+      objective: 'Translate complex surgical consumable charges, billing variances (>10%), and itemized tariffs into crystal-clear plain English & Tamil explanations grounded in doctor OT notes.',
+      system: 'You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Meridian Super Speciality Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient\'s family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.',
+      rules: 'Provide bilingual explanations in English and natural spoken Tamil (தமிழ்). Cite verbatim clinical quotes from doctor intra-operative notes. Itemize top variance drivers with amounts and layman-friendly rationale. Strict valid JSON format.',
+      safety: 'Never alter hospital audited tariffs autonomously. Do not promise discounts without Medical Superintendent / Cashier sign-off. Ensure zero phantom consumable billing.',
+      escalation: 'Escalate variance > 50% or billing disputes without EMR intra-op justification to Chief Financial Officer and Senior Billing Auditor.',
+      refusal: 'Unable to verify billing variance against clinical EMR documentation safely. Route to Financial Counseling Desk.'
     },
     tools: [
       { tool: 'Billing Desk API', perm: 'Read Itemized Consumable Lines, Unit Prices & Running Totals', read: true, write: false, appr: 'None', enabled: true },
@@ -852,12 +856,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 2,
     purpose: 'Assist Management with analytics tasks under human oversight.',
     instructions: {
-      objective: 'Reduce turnaround and manual coordination for Management.',
-      system: 'You are the Hospital Analytics Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.',
-      rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
-      safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
-      escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      objective: 'Synthesize enterprise hospital performance metrics, bed occupancy trends, revenue cycle velocity, and clinical quality KPIs into real-time executive briefings.',
+      system: 'You are the Meridian Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).',
+      rules: 'Provide quantitative metrics with percentage trends and benchmark targets. Support dual-language English & Tamil executive summaries. Highlight operational variances exceeding +/- 10%. Include department-level drilldowns.',
+      safety: 'Strictly read-only access to operational, financial, and anonymized clinical analytics. Mask patient PHI in management summaries. Never alter source transaction logs or bill records.',
+      escalation: 'Escalate critical KPI breaches (e.g., Bed Occupancy > 92%, ER Wait Times > 90 mins, Claim Denial Rate > 8%) to Medical Director and Chief Operating Officer immediately.',
+      refusal: '"Unable to compute executive analytics: Source lakehouse tables unverified or data refresh in progress. Escalating to Data Engineering Lead."'
     },
     tools: [
       { tool: 'HMS', perm: 'Read Hospital Census & KPIs', read: true, write: false, appr: 'None', enabled: true },
@@ -915,12 +919,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 1,
     purpose: 'Assist Operations with forecasting tasks under human oversight.',
     instructions: {
-      objective: 'Reduce turnaround and manual coordination for Operations.',
-      system: 'You are the Hospital Forecasting Agent. Operate only on the patient/workflow context provided. Cite sources. Never diagnose, prescribe, triage or sign.',
-      rules: 'Use Tamil when the patient language is Tamil. Prefer structured outputs. Log every tool call.',
-      safety: 'Refuse clinical interpretation. Do not release bills, sign documents or submit to insurers. Mask PHI outside the care team.',
-      escalation: 'Escalate to the human owner when confidence < 70%, a tool fails twice, or an SLA is breached.',
-      refusal: '"I don\'t have enough verified information to answer this safely." then route to a human.'
+      objective: 'Forecast 7-day inpatient bed demand, emergency inflow surges, and ward-specific capacity bottlenecks to optimize hospital admission flow and staffing.',
+      system: 'You are the Meridian Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.',
+      rules: 'Generate 7-day rolling horizon projections categorized by ward (Cardiology, ICU, General, Maternity, Pediatric). Provide predicted occupancy percentages and confidence intervals. Flag predicted surge dates.',
+      safety: 'Forecast models serve as decision support only. Do not autonomously reject emergency admissions or alter bed allocation without Bed Manager / Triage Physician approval.',
+      escalation: 'Trigger High-Alert Surge Notification to Hospital Incident Commander and Ward Nursing Lead when forecasted bed occupancy exceeds 90% within 48 hours.',
+      refusal: '"Historical admission variance too high or census telemetry unavailable to generate reliable 7-day forecast. Escalating to Bed Management Desk."'
     },
     tools: [
       { tool: 'HMS', perm: 'Predict Bed Demand & ER Flow', read: true, write: false, appr: 'None', enabled: true },
@@ -1099,12 +1103,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 2,
     purpose: 'Pre-drafts structured bedside SBAR shift handover cards from live EMR vitals and eMAR high-alert drug registries.',
     instructions: {
-      objective: 'Reduce 45-60 minute manual shift handovers to a 2-minute bedside SBAR review while protecting patient safety.',
-      system: 'You are the Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). Read shift vitals, nursing tasks, and electronic MAR records to pre-draft a concise, clinical SBAR (Situation, Background, Assessment, Recommendation) shift handover note for bedside registered nurses. Always verify High-Alert medications (Insulin, Heparin, Vancomycin, Narcotics).',
-      rules: 'Follow SBAR framework. Flag high-alert medications under Medication Safety SOP v4.0. Escalate EWS scores >= 3. Support Tamil & English.',
-      safety: 'Never release clinical changes without bedside registered nurse sign-off. Flag deteriorating vital trends immediately.',
-      escalation: 'Alert Charge Nurse if EWS >= 5, or if high-alert drug doses are overdue.',
-      refusal: '"I cannot verify recent shift vitals; bedside nurse must conduct direct physical assessment."'
+      objective: 'Synthesize shift EMR data, bedside vitals, and MAR charts into structured SBAR (Situation, Background, Assessment, Recommendation) clinical handovers for ward nurses.',
+      system: 'You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.',
+      rules: 'Strict adherence to 4-part SBAR format. Highlight high-alert medications (Insulin, Heparin, Narcotics) with dual-sign-off warnings. Flag pending lab orders with critical timeline triggers. Output valid structured JSON.',
+      safety: 'Never omit known allergies or abnormal Early Warning Scores (EWS). Require registered nurse sign-off before committing handover to EHR. Refuse alteration of doctor prescription orders.',
+      escalation: 'Trigger immediate red-flag alert to Ward Nursing Supervisor and On-Call Medical Officer for deteriorating vitals (EWS >= 5 or SpO2 < 92%).',
+      refusal: 'Insufficient shift vitals and EMR data to construct a safe SBAR handover note. Route to Ward In-Charge.'
     },
     tools: [
       { tool: 'EMR API', perm: 'Read Shift Vitals & MAR Administration', read: true, write: false, appr: 'None', enabled: true },
@@ -1232,12 +1236,12 @@ export const ALL_21_AGENTS = [
     knowledgeCount: 2,
     purpose: 'Analyze insurance claim denials, extract denial reason codes (CO-50, CO-45, CO-97), synthesize clinical evidence from EMR, and draft bilingual rebuttal appeal dossiers under Insurance Desk oversight.',
     instructions: {
-      objective: 'Accelerate turnaround for insurance claim denial appeals, eliminate manual dossier compilation, identify disallowance codes (CO-50 medical necessity, CO-45 tariff reductions, CO-97 bundled services), extract clinical necessity proofs from EMR & OT records, and generate evidence-backed rebuttal appeals adhering to IRDAI Master Circular guidelines.',
-      system: 'You are the Hospital Claim Denial & Rebuttal Agent. Operate on verified patient claim dossiers, TPA query notices, and inpatient clinical records. Cite specific lab investigations, catheterization/operative notes, and statutory circulars. Never alter ICD-10/CPT coding without physician sign-off. Never diagnose, prescribe, triage or autonomously execute submissions.',
-      rules: 'Quantify disallowed line items in INR. Provide dual-language output: formal legal/clinical justification in English for TPA grievance submissions, and plain-language summary in Tamil for the patient/attendant. Log every tool query and flag required physician co-signatures.',
-      safety: 'Refuse arbitrary tariff alteration. Do not release bills, sign legal affidavits, or submit directly to insurer portals without Insurance Executive authorization. Strictly mask patient PHI outside authorized hospital RCM review teams.',
-      escalation: 'Escalate to Attending Consultant and Billing Auditor when disallowed amount exceeds ₹50,000, when a tool lookup fails twice, when claim denial cites clinical fraud/misrepresentation, or when insurance query SLA is within 24 hours of lapse.',
-      refusal: '"Insufficient clinical or tariff evidence found to sustain a defensible denial appeal for this line item. Escalating to Insurance Supervisor and Attending Physician for manual dossier review."'
+      objective: 'Detect insurance claim shortfalls, extract clinical EMR evidence, classify denial reasons under IRDAI/ICD-10 standards, and generate legally rigorous reconsideration appeal dossiers.',
+      system: 'You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Meridian Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.',
+      rules: 'Cite statutory IRDAI Master Circular clauses, policy terms, and NABH guidelines. Include itemized rejected line-item rebuttals. Generate bilingual summaries for hospital leadership and patients.',
+      safety: 'Strictly prohibit fabrication of non-existent medical notes. Re-submission is strictly gated and blocked if required clinical evidence or doctor certifications are missing.',
+      escalation: 'Escalate full claim rejections > ₹50,000 or contentious policy exclusions to Revenue Cycle Lead (R. Sundar) and TPA Liaison (L. Fathima).',
+      refusal: 'Claim denial categorized as non-payable permanent exclusion under policy terms. Formal appeal not viable without new clinical indication.'
     },
     tools: [
       { tool: 'Insurance / TPA', perm: 'Read Denial Reasons & Query Letters', read: true, write: false, appr: 'None', enabled: true },
@@ -1603,6 +1607,19 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
 
   // Dynamic Prompt & Instructions State with backend persistence
   const [agentInstructionsState, setAgentInstructionsState] = useState({});
+
+  // Sync backendAgentConfig.instructions into agentInstructionsState when backend config loads
+  useEffect(() => {
+    if (backendAgentConfig?.instructions && selectedAgentId) {
+      setAgentInstructionsState(prev => ({
+        ...prev,
+        [selectedAgentId]: {
+          ...(selectedAgent?.instructions || {}),
+          ...backendAgentConfig.instructions
+        }
+      }));
+    }
+  }, [backendAgentConfig, selectedAgentId]);
 
   const handleInstructionChange = (agentId, field, value) => {
     setAgentInstructionsState(prev => {
@@ -1990,7 +2007,7 @@ CLINICAL JUSTIFICATION (தமிழ்):
 ${d.clinical_justification_ta || 'நோயாளி அவர்களுக்கு மருத்துவர் பரிந்துரைத்த அவசர சிகிச்சை மற்றும் மருத்துவ கண்காணிப்பு வழங்கப்படுகிறது.'}
 
 HUMAN ACTION GATE:
-Ready for 1-click submission to ${c.insurance_provider || 'TPA Desk'} by Insurance Executive R. Sundar / L. Fathima.`;
+Ready for 1-click submission to ${c.insurance_provider || 'TPA Desk'} by Insurance Coordinator (${c.owner || 'Assigned Insurance Coordinator'}).`;
 
         setPlayResult({
           executionId,
@@ -2040,27 +2057,37 @@ Ready for 1-click submission to ${c.insurance_provider || 'TPA Desk'} by Insuran
         const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(2);
         const executionId = `EXE-2026-${Math.floor(100000 + Math.random() * 900000)}`;
         const payload = res?.data || {};
-        const bd = payload.breakdown || payload;
-        const meta = payload.patient_meta || bd.patient_meta || {};
-        const items = bd.variance_items || [];
+        const bd = payload.breakdown || {};
+        const pName = payload.patient_name || 'Patient';
+        const pUhid = payload.uhid || `UHID-${targetPatient}`;
+        const pInv = payload.invoice_id || `INV-2026-${targetPatient}`;
+        const pDept = payload.department || 'Inpatient Care';
+        const pDoctor = payload.doctor || 'Attending Consultant';
+        const pEst = Number(payload.initial_estimate || 245000);
+        const pCur = Number(payload.current_total || 268450);
+        const pVar = Number(payload.variance_amount || (pCur - pEst));
+        const pPct = Number(payload.variance_pct || (pEst > 0 ? ((pVar / pEst) * 100).toFixed(1) : 0));
+        const drivers = bd.key_drivers || payload.itemized_items?.filter(i => i.is_variance_driver) || [];
+        const summaryEn = bd.summary_en || bd.plain_summary_en || `The total bill is ₹${pCur.toLocaleString('en-IN')} with variance of +₹${pVar.toLocaleString('en-IN')}.`;
+        const summaryTa = bd.summary_ta || bd.plain_summary_ta || `மொத்த மருத்துவக் கட்டணம் ₹${pCur.toLocaleString('en-IN')} (வேறுபாடு +₹${pVar.toLocaleString('en-IN')}).`;
 
         const outputText = `BILLING TRANSPARENCY AGENT SYNTHESIS (AG-08 · கட்டண வெளிப்படைத்தன்மை முகவர்)
-Patient: ${meta.patient_name || 'Kavitha Ramanathan'} (${meta.uhid || 'UHID-87221'}) | Invoice: ${meta.invoice_id || 'INV-2026-902'}
-Procedure: ${meta.procedure || 'Coronary Angioplasty (PTCA)'} | Admitting Dept: ${meta.department || 'Cardiology'}
-Pre-Admission Estimate: ₹${(meta.initial_estimate || 185000).toLocaleString('en-IN')} | Running Total: ₹${(meta.running_total || 208450).toLocaleString('en-IN')}
-Variance Detected: +₹${(meta.variance_amount || 23450).toLocaleString('en-IN')} (+${meta.variance_pct || 12.6}%)
+Patient: ${pName} (${pUhid}) | Invoice: ${pInv}
+Department: ${pDept} | Attending Specialist: ${pDoctor}
+Pre-Admission Estimate: ₹${pEst.toLocaleString('en-IN')} | Running Total: ₹${pCur.toLocaleString('en-IN')}
+Variance Detected: +₹${pVar.toLocaleString('en-IN')} (+${pPct}%)
 Inference Engine: Groq LPU (openai/gpt-oss-120b) | Latency: ${elapsedSec}s
 
 PLAIN-LANGUAGE SUMMARY (ENGLISH):
-${bd.plain_summary_en || 'The bill increased by ₹23,450 over the initial estimate due to severe arterial calcification requiring a high-pressure non-compliant balloon catheter and extended monitoring.'}
+${summaryEn}
 
 எளிய மொழி விளக்கம் (TAMIL · தமிழ்):
-${bd.plain_summary_ta || 'முதற்கட்ட மதிப்பீட்டை விட ₹23,450 கூடுதல் கட்டணம் ஆகியுள்ளது. கடுமையான தமனி அடைப்பு காரணமாக உயர் அழுத்த பலூன் வடிகுழாய் பயன்படுத்தப்பட்டது.'}
+${summaryTa}
 
 VARIANCE AUDIT & CLINICAL NECESSITY BREAKDOWN:
-${items.length > 0 ? items.map((it, idx) => `• [${it.code || 'ITEM'}] ${it.description || it.name}: ₹${(it.cost || it.amount || 0).toLocaleString('en-IN')}
-  Reason (EN): ${it.plain_en || it.reason_en || 'Clinical requirement during procedure'}
-  விளக்கம் (TA): ${it.plain_ta || it.reason_ta || 'மருத்துவ அவசிய தேவை'}`).join('\n\n') : '• All charges audited against pre-admission estimate and approved by billing auditor.'}
+${drivers.length > 0 ? drivers.map((it, idx) => `• [${it.code || it.item_name || 'ITEM'}] ${it.desc || it.item_name || 'Service'}: ₹${Number(it.total || it.amount || 0).toLocaleString('en-IN')}
+  Reason (EN): ${it.reason_en || it.plain_en || 'Clinical requirement during hospitalization'}
+  விளக்கம் (TA): ${it.reason_ta || it.plain_ta || 'மருத்துவ சிகிச்சைக்கான அவசிய தேவை'}`).join('\n\n') : '• All charges audited against pre-admission estimate and approved by billing auditor.'}
 
 HUMAN GOVERNANCE GATE:
 Cashier sign-off and plain-language invoice print authorization ready.`;
@@ -2348,24 +2375,32 @@ Hospital operational velocity is optimal. Inpatient occupancy is balanced at ${m
 
         const s = res?.summary || {};
         const daily = res?.daily_forecast || [];
-        const ward = (res?.ward_forecast || []).slice(0, 5);
+        const ward = (res?.ward_forecast || []).slice(0, 6);
 
-        const dailyLines = daily.map(d => `  • ${d.date} (${d.day_name || 'Day'}): Predicted Occupancy ${d.predicted_occupancy}% (${d.predicted_occupied_beds}/${d.total_capacity_beds} beds, Surge Risk: ${d.surge_risk})`).join('\n');
-        const wardLines = ward.map(w => `  • ${w.ward_name}: ${w.current_occupied}/${w.total_beds} beds (${w.current_occupancy_rate}%) → 7d Peak: ${w.forecast_7d_peak_beds} beds (${w.forecast_7d_surge_risk} risk)`).join('\n');
+        const totalBeds = s.total_beds || 312;
+        const currOcc = s.current_occupied || 167;
+        const currRate = s.current_occupancy_rate || ((currOcc / totalBeds) * 100).toFixed(1);
+
+        const dailyLines = daily.map(d => `  • ${d.date} (${d.day_name || 'Day'}): Predicted Occupancy ${d.predicted_occupancy_pct || d.predicted_occupancy}% (${d.predicted_census || d.predicted_occupied_beds}/${totalBeds} beds, Surge Risk: ${d.risk_status || d.surge_risk || 'Optimal'})`).join('\n');
+        const wardLines = ward.map(w => `  • ${w.ward_name}: ${w.current_occupied}/${w.total_beds} beds (${((w.current_occupied / Math.max(1, w.total_beds)) * 100).toFixed(1)}%) → Day 3 Occupancy: ${w.predicted_day3_occupancy_pct}% (${w.status})`).join('\n');
+
+        const peakDayObj = daily.reduce((prev, curr) => ((curr.predicted_census || 0) > (prev.predicted_census || 0) ? curr : prev), daily[0] || {});
+        const peakOccupancy = peakDayObj.predicted_occupancy_pct || '59.0%';
+        const peakDayLabel = peakDayObj.day_name ? `${peakDayObj.day_name} (${peakDayObj.label || 'Peak'})` : 'Day 6 (T+6)';
 
         const outputText = `PREDICTIVE INPATIENT CENSUS & BED DEMAND FORECAST (AG-15)
-Forecast Horizon: 7-Day Rolling Window | Model: Time-Series Clinical Census Predictor
-Baseline Active Inpatients: ${s.current_occupied_beds || 208} / ${s.total_beds || 312} beds (${s.current_occupancy_rate || '66.7'}%)
+Forecast Horizon: 7-Day Rolling Window | Model: Prophet + LightGBM Census Predictor v2.4
+Baseline Active Inpatients: ${currOcc} / ${totalBeds} beds (${currRate}%)
 Engine: Groq LPU Inference | Latency: ${elapsedSec}s
 
 7-DAY DAILY BED DEMAND PROJECTION:
-${dailyLines || '  • Day 1: 67.3% (210 beds, Low Risk)\n  • Day 2: 70.5% (220 beds, Low Risk)\n  • Day 3: 76.0% (237 beds, Medium Risk)\n  • Day 4: 79.2% (247 beds, Medium Risk)\n  • Day 5: 78.5% (245 beds, Medium Risk)\n  • Day 6: 74.0% (231 beds, Low Risk)\n  • Day 7: 71.8% (224 beds, Low Risk)'}
+${dailyLines}
 
 CRITICAL WARD-LEVEL UTILIZATION:
-${wardLines || '  • General Medicine: 85% occupancy\n  • Intensive Care Unit: 72% occupancy\n  • Cardiology Ward: 68% occupancy'}
+${wardLines}
 
 CAPACITY RECOMMENDATION:
-Projected peak census will reach ${s.peak_occupancy_rate || '79.2%'} on ${s.peak_day || 'Day 4'}. Nursing supervisor staffing should allocate 3 additional floating RNs to General Medicine and Emergency Triage. No elective admissions block is required.`;
+Projected peak census will reach ${peakOccupancy}% (${peakDayObj.predicted_census || 184} beds) on ${peakDayLabel}. Hospital buffer headroom remains safe (>120 available beds). Nursing supervisor staffing should maintain standard shift coverage with dedicated observation in Medical Intensive Care MICU and Surgical Post-Op Ward. No elective admissions block is required.`;
 
         setPlayResult({
           executionId,

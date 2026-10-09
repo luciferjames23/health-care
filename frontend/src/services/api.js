@@ -1935,6 +1935,22 @@ export const apiService = {
     return data;
   },
 
+  async getPatientBillingSummary(patientIdentifier) {
+    const id = encodeURIComponent(String(patientIdentifier || '87221').trim());
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/patient/${id}/summary`);
+    if (!res.ok) throw new Error(`Error fetching patient billing summary ${res.status}`);
+    return await res.json();
+  },
+
+  async askBillingQuestion(payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/query`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Error querying billing question ${res.status}`);
+    return await res.json();
+  },
+
   // =========================================================================
   // PHARMACY & SUPPLY CHAIN DOMAIN (PostgreSQL Live Database)
   // =========================================================================
