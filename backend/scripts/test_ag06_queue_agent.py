@@ -203,9 +203,9 @@ class TestAG06ComprehensiveQueueSuite(unittest.TestCase):
         print(f"   [PASS] TC-AG06-010: Valid check-in created token #{checkin_res['token_number']}.")
 
         # TC-AG06-011: Duplicate check-in
-        with self.assertRaises(queue_service.DuplicateCheckInError):
-            queue_service.patient_check_in(appt_valid)
-        print("   [PASS] TC-AG06-011: Duplicate check-in correctly rejected.")
+        dup_res = queue_service.patient_check_in(appt_valid)
+        self.assertTrue(dup_res.get("is_duplicate"))
+        print("   [PASS] TC-AG06-011: Duplicate check-in correctly handled idempotently.")
 
         # TC-AG06-012: Cancelled appointment check-in
         with self.assertRaises(queue_service.AppointmentNotEligibleError):

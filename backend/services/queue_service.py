@@ -541,6 +541,13 @@ def call_next_patient(queue_session_id: int, called_by_user_id: Optional[int] = 
             WHERE id = %s;
         """, (entry_id,))
 
+        if appointment_id:
+            cur.execute("""
+                UPDATE appointments
+                SET status = 'CHECKED_IN', updated_at = NOW()
+                WHERE id = %s AND status NOT IN ('COMPLETED', 'CANCELLED');
+            """, (appointment_id,))
+
         # Audit
         _log_audit(cur, user_id=called_by_user_id, action='PATIENT_CALLED',
                    entity_type='queue_entries', entity_id=entry_id,
@@ -1281,7 +1288,7 @@ def _update_entry_status(
                 {timestamp_col} = NOW(),
                 updated_at = NOW()
             WHERE id = %s AND queue_status IN ({placeholders})
-            RETURNING id, queue_session_id, patient_id, token_number;
+            RETURNING id, queue_session_id, patient_id, token_number, appointment_id;
         """, [to_status, queue_entry_id] + list(from_statuses))
         row = cur.fetchone()
         if not row:
@@ -1290,7 +1297,34 @@ def _update_entry_status(
                 f"entry not found or not in {from_statuses}.",
                 "INVALID_STATUS_TRANSITION"
             )
-        entry_id, session_id, patient_id, token_number = row
+        entry_id, session_id, patient_id, token_number, appointment_id = row
+
+        # Synchronize linked appointment status in PostgreSQL
+        if appointment_id:
+            if to_status == 'COMPLETED':
+                cur.execute("""
+                    UPDATE appointments
+                    SET status = 'COMPLETED', updated_at = NOW()
+                    WHERE id = %s;
+                """, (appointment_id,))
+            elif to_status == 'IN_CONSULTATION':
+                cur.execute("""
+                    UPDATE appointments
+                    SET status = 'CHECKED_IN', updated_at = NOW()
+                    WHERE id = %s AND status NOT IN ('COMPLETED', 'CANCELLED');
+                """, (appointment_id,))
+            elif to_status == 'CANCELLED':
+                cur.execute("""
+                    UPDATE appointments
+                    SET status = 'CANCELLED', updated_at = NOW()
+                    WHERE id = %s;
+                """, (appointment_id,))
+            elif to_status == 'NO_SHOW':
+                cur.execute("""
+                    UPDATE appointments
+                    SET status = 'NO_SHOW', updated_at = NOW()
+                    WHERE id = %s;
+                """, (appointment_id,))
 
         _log_audit(cur, user_id=user_id, action=audit_action,
                    entity_type='queue_entries', entity_id=entry_id,

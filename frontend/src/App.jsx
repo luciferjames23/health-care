@@ -787,9 +787,12 @@ export default function App() {
               />
             )}
             {activePage === 'todays-queue' && (
-              <TodaysQueueView
-                onNavigate={(p, pat) => handleNavigate(p, pat)}
+              <AppointmentManagement
+                initialTab="queue"
+                doctorName={role === 'Doctor' ? auth?.name : null}
+                userRole={role}
                 onSelectPatient={handleSelectPatient}
+                onNavigate={(p, pat) => handleNavigate(p, pat)}
               />
             )}
             {activePage === 'patient-chat' && <PatientChat />}
@@ -801,7 +804,26 @@ export default function App() {
                 userRole={role}
               />
             )}
-            {activePage === 'schedules' && <DoctorSchedules />}
+            {activePage === 'schedules' && (
+              role === 'Doctor' ? (
+                <div style={{ padding: '48px 24px', textAlign: 'center', maxWidth: '600px', margin: '40px auto', background: '#fff', borderRadius: '12px', border: '1px solid #e0e0e0', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                  <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔒</div>
+                  <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 600, color: '#d93025' }}>Access Restricted</h3>
+                  <p style={{ margin: '0 0 20px 0', color: '#5f6368', fontSize: '14px', lineHeight: 1.5 }}>
+                    Consultant Schedules management is restricted to Administrative roles.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActivePage('appointments')}
+                    style={{ padding: '8px 16px', borderRadius: '6px', background: '#1a73e8', color: '#fff', border: 'none', fontWeight: 500, cursor: 'pointer' }}
+                  >
+                    Return to Appointments
+                  </button>
+                </div>
+              ) : (
+                <DoctorSchedules />
+              )
+            )}
             {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'surgery' && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

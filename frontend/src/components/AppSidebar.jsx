@@ -238,6 +238,12 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
         if (item.id === 'feedback' && !isAdmin) {
           return false;
         }
+        if (item.id === 'todays-queue') {
+          return false;
+        }
+        if (item.id === 'schedules' && userRole === 'Doctor') {
+          return false;
+        }
         return isPageAllowed(userRole, item.id);
       });
       return {

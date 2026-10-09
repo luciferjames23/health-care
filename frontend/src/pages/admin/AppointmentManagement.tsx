@@ -18,6 +18,7 @@ import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 import TablePagination from '../../components/TablePagination';
 
 import { useAuth } from '../../context/AuthContext';
+import TodaysQueueView from '../doctor/TodaysQueueView';
 
 const btnBase: React.CSSProperties = {
   height: '30px',
@@ -107,6 +108,7 @@ function getStatusBadge(status: string) {
 interface AppointmentManagementProps {
   doctorName?: string | null;
   userRole?: string;
+  initialTab?: 'list' | 'queue';
   onSelectPatient?: (patient: any) => void;
   onNavigate?: (page: string, patient?: any) => void;
 }
@@ -114,9 +116,11 @@ interface AppointmentManagementProps {
 const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
   userRole = 'Hospital Management',
+  initialTab = 'list',
   onSelectPatient,
   onNavigate
 }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'list' | 'queue'>(initialTab);
   const { user: authUser } = useAuth();
   const user = authUser || (() => {
     try {
@@ -383,13 +387,57 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         </div>
       </div>
 
-      {toast && (
-        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', padding: '8px 12px', color: '#047857', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <CheckCircle size={15} /> {toast}
-        </div>
-      )}
+      {/* Module Sub-Navigation Tabs: [Appointment List] [Today's Queue] */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #eef0f1', paddingBottom: '10px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('list')}
+          style={{
+            height: '32px',
+            padding: '0 16px',
+            borderRadius: '6px',
+            fontSize: '12.5px',
+            fontWeight: activeSubTab === 'list' ? 600 : 500,
+            cursor: 'pointer',
+            border: activeSubTab === 'list' ? '1px solid oklch(0.82 0.08 185)' : '1px solid #e3e6e8',
+            background: activeSubTab === 'list' ? 'oklch(0.95 0.04 185)' : '#fff',
+            color: activeSubTab === 'list' ? 'oklch(0.35 0.1 185)' : '#52585e',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Calendar size={14} /> Appointment List
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('queue')}
+          style={{
+            height: '32px',
+            padding: '0 16px',
+            borderRadius: '6px',
+            fontSize: '12.5px',
+            fontWeight: activeSubTab === 'queue' ? 600 : 500,
+            cursor: 'pointer',
+            border: activeSubTab === 'queue' ? '1px solid oklch(0.82 0.08 185)' : '1px solid #e3e6e8',
+            background: activeSubTab === 'queue' ? 'oklch(0.95 0.04 185)' : '#fff',
+            color: activeSubTab === 'queue' ? 'oklch(0.35 0.1 185)' : '#52585e',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          <Clock size={14} /> Today's Queue
+        </button>
+      </div>
 
-      {/* Filter and Search Bar Card */}
+      {activeSubTab === 'queue' ? (
+        <TodaysQueueView onNavigate={onNavigate} onSelectPatient={onSelectPatient} />
+      ) : (
+        <>
+          {/* Filter and Search Bar Card */}
       <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 14px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
           {/* Search */}
@@ -775,6 +823,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
           label="appointments"
         />
       </div>
+        </>
+      )}
     </div>
   );
 };
