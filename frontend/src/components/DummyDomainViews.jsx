@@ -3861,8 +3861,8 @@ export function BillingView({ onOpenDrawer, onOpenModal }) {
   };
 
   const handleBillClick = (row) => {
-    // Open AG-08 drawer for fast plain language review
-    handleOpenTransparency(row.patient_id || row.uhid || '87221');
+    // Use invoice_id (bill number) as the identifier — patient_id may collide with other patients
+    handleOpenTransparency(row.invoice_id || row.bill_number || row.uhid || '87221');
   };
 
   const displayRows = (billingCases && billingCases.length > 0) ? billingCases : [
@@ -4001,7 +4001,7 @@ export function BillingView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                   <button
                     type="button"
-                    onClick={(e) => handleOpenTransparency(row.patient_id || row.uhid, e)}
+                    onClick={(e) => handleOpenTransparency(row.invoice_id || row.bill_number || row.uhid, e)}
                     style={{
                       padding: '5px 12px',
                       fontSize: '11px',

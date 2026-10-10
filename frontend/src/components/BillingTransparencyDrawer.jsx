@@ -6,7 +6,56 @@ import {
   Printer, ArrowUpRight, Clock, Stethoscope, RefreshCw, Languages, ChevronRight, HelpCircle, Download
 } from 'lucide-react';
 
-export default function BillingTransparencyDrawer({ isOpen, onClose, patientId = '87221', onApproved }) {
+function formatTime12(timeStr) {
+  if (!timeStr) return "10:30 AM";
+  const s = String(timeStr).trim();
+
+  // If format is purely 24-hr time like "14:22" or "14:22:00"
+  if (/^(\d{1,2}):(\d{2})(?::\d{2})?$/.test(s)) {
+    const match = s.match(/^(\d{1,2}):(\d{2})/);
+    let h = parseInt(match[1], 10);
+    const m = match[2];
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+  }
+
+  // If already in 12-hr format (e.g. contains AM/PM)
+  if (/\b(AM|PM)\b/i.test(s)) {
+    // Strip redundant leading raw microsecond timestamps if present
+    return s.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+/, '');
+  }
+
+  // Handle strings with both date and time (e.g. "2026-10-08 17:21:34.424794 14:35:10 IST" or "2026-10-08 14:35:10")
+  try {
+    const dateMatch = s.match(/\d{4}-\d{2}-\d{2}/);
+    const timeMatches = [...s.matchAll(/(\d{1,2}):(\d{2})(?::(\d{2}))?/g)];
+
+    if (timeMatches.length > 0) {
+      const lastTime = timeMatches[timeMatches.length - 1];
+      let h = parseInt(lastTime[1], 10);
+      const m = lastTime[2];
+      const ampm = h >= 12 ? "PM" : "AM";
+      h = h % 12 || 12;
+      const formattedTime = `${String(h).padStart(2, '0')}:${m} ${ampm} IST`;
+
+      if (dateMatch) {
+        const d = new Date(dateMatch[0]);
+        const formattedDate = !isNaN(d.getTime())
+          ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-')
+          : dateMatch[0];
+        return `${formattedDate} ${formattedTime}`;
+      }
+      return formattedTime;
+    }
+  } catch (e) {
+    // fallback
+  }
+
+  return s;
+}
+
+export default function BillingTransparencyDrawer({ isOpen, onClose, patientId = '87221', patientIdentifier, onApproved }) {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [language, setLanguage] = useState('en'); // Default initial language to English
@@ -17,18 +66,24 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
   const [isApproving, setIsApproving] = useState(false);
   const [showPrintInvoice, setShowPrintInvoice] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && patientId) {
-      loadBreakdown(patientId);
-      setLanguage('en'); // Reset to English on open
-    }
-  }, [isOpen, patientId]);
+  const activePatientId = patientIdentifier || patientId || '87221';
 
-  const loadBreakdown = async (id) => {
+  useEffect(() => {
+    if (isOpen && activePatientId) {
+      setData(null);
+      loadBreakdown(activePatientId);
+      setLanguage('en'); // Reset to English on open
+    } else if (!isOpen) {
+      setData(null);
+    }
+  }, [isOpen, activePatientId]);
+
+  const loadBreakdown = async (id, force = false) => {
     try {
       setLoading(true);
+      if (force) setData(null);
       setApprovedStatus(null);
-      const res = await apiService.getBillingBreakdown(id);
+      const res = await apiService.getBillingBreakdown(id, force);
       if (res && res.data) {
         setData(res.data);
       }
@@ -39,11 +94,16 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
     }
   };
 
-  const handleInvestigateNecessity = async (itemCode = 'MAT-CATH-NC') => {
+  const handleInvestigateNecessity = async (itemCode) => {
     try {
       setNecessityLoading(true);
       setShowNecessityDrawer(true);
-      const res = await apiService.getClinicalNecessityProof(patientId, itemCode);
+      const targetCode = itemCode || 
+        data?.breakdown?.key_drivers?.[0]?.item_code || 
+        data?.itemized_items?.find(it => it.is_variance_driver)?.code || 
+        data?.itemized_items?.[0]?.code || 
+        'SRV-CARE';
+      const res = await apiService.getClinicalNecessityProof(activePatientId, targetCode);
       if (res && res.data) {
         setNecessityData(res.data);
       }
@@ -79,6 +139,15 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
     if (!data) return;
     const breakdown = data.breakdown || {};
     const items = data.itemized_items || [];
+    const statusStr = String(data.claim_status || '').toLowerCase();
+    const isPending = data.is_claim_pending || ['pending', 'review', 'awaiting', 'submitted', 'missing', 'in process'].some(w => statusStr.includes(w));
+    const isRejected = ['rejected', 'denied'].some(w => statusStr.includes(w));
+    const isApproved = !isPending && !isRejected && (data.is_claim_approved || ['approved', 'settled', 'cashless', 'active'].some(w => statusStr.includes(w)));
+    const claimedAmt = Number(data.insurance_claimed_amount || data.current_total || 0);
+    const approvedAmt = isPending ? 0 : Number(data.insurance_approved_amount || 0);
+    const copayAmt = Number(data.patient_copay_amount || (approvedAmt > 0 ? (data.current_total - approvedAmt) : (data.estimated_copay || Math.round(data.current_total * 0.2))));
+    const paidAmt = Number(data.patient_paid_amount || 0);
+    const dueAmt = Number(data.patient_outstanding_balance ?? 0);
 
     const printHtml = `
       <!DOCTYPE html>
@@ -165,13 +234,63 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
             padding: 8px 10px;
             border-bottom: 1px solid #e2e8f0;
           }
+          .insurance-print-box {
+            margin-top: 14px;
+            background: #f0fdf4 !important;
+            border: 1.5px solid #86efac;
+            border-radius: 8px;
+            padding: 12px 16px;
+            page-break-inside: avoid;
+          }
+          .insurance-print-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px dashed #86efac;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+          }
+          .insurance-print-title {
+            color: #166534;
+            font-weight: 800;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+          }
+          .insurance-print-badge {
+            background: #dcfce7;
+            color: #15803d;
+            border: 1px solid #86efac;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+          }
+          .insurance-print-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px 14px;
+          }
+          .insurance-print-label {
+            font-size: 9.5px;
+            color: #4b5563;
+            text-transform: uppercase;
+            font-weight: 600;
+          }
+          .insurance-print-val {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-top: 1px;
+          }
           .totals-wrap {
             display: flex;
             justify-content: flex-end;
             margin-top: 14px;
           }
           .totals-box {
-            width: 300px;
+            width: 320px;
             font-size: 12px;
           }
           .totals-row {
@@ -200,24 +319,24 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
             color: #dc2626;
           }
           .ai-box {
-            margin-top: 18px;
+            margin-top: 14px;
             background: #fff7ed !important;
             border: 1.5px solid #fed7aa;
             border-radius: 8px;
-            padding: 14px 16px;
+            padding: 12px 16px;
             page-break-inside: avoid;
           }
           .ai-title {
             color: #9a3412;
             font-weight: 800;
-            font-size: 12px;
+            font-size: 11.5px;
             text-transform: uppercase;
             margin-bottom: 6px;
           }
           .ai-text {
-            font-size: 11.5px;
+            font-size: 11px;
             color: #1e293b;
-            line-height: 1.55;
+            line-height: 1.5;
             margin-bottom: 6px;
           }
           .ai-proof {
@@ -230,8 +349,8 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
           .footer {
             display: flex;
             justify-content: space-between;
-            margin-top: 35px;
-            padding-top: 16px;
+            margin-top: 30px;
+            padding-top: 14px;
             border-top: 1px solid #e2e8f0;
             font-size: 11px;
             color: #64748b;
@@ -263,9 +382,9 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
             <div style="color: #64748b; font-size: 11px;">${data.department}</div>
           </div>
           <div>
-            <div class="grid-label">Insurance / TPA Coverage</div>
-            <div class="grid-val" style="color: #059669;">${data.insurance_provider || 'Self-Pay / Direct'}</div>
-            <div style="color: #64748b; font-size: 11px;">Approved: ₹${Number(data.insurance_approved_amount || data.tpa_approved || 0).toLocaleString()}</div>
+            <div class="grid-label">Primary Payer / Coverage</div>
+            <div class="grid-val" style="color: ${data.has_insurance ? (isPending ? '#d97706' : '#059669') : '#0f172a'};">${data.insurance_provider || 'Self-Pay / Direct'}</div>
+            <div style="color: #64748b; font-size: 11px;">${data.has_insurance ? (isPending ? `Pre-Auth: ₹${claimedAmt.toLocaleString()} (Pending)` : `Approved: ₹${approvedAmt.toLocaleString()}`) : 'Self Settlement'}</div>
           </div>
         </div>
 
@@ -290,6 +409,57 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
           </tbody>
         </table>
 
+        <!-- Insurance & TPA Pre-Authorization Clearance Details -->
+        ${(data.has_insurance || (data.insurance_provider && data.insurance_provider !== 'None' && !data.insurance_provider.toLowerCase().includes('self-pay'))) ? `
+          <div class="insurance-print-box">
+            <div class="insurance-print-header">
+              <div class="insurance-print-title">🛡️ Insurance & TPA Pre-Authorization Clearance (மருத்துவக் காப்பீடு அங்கீகாரம்)</div>
+              <div class="insurance-print-badge" style="background: ${isPending ? '#fef3c7' : isRejected ? '#fee2e2' : '#dcfce7'}; color: ${isPending ? '#92400e' : isRejected ? '#991b1b' : '#15803d'}; border-color: ${isPending ? '#fde68a' : isRejected ? '#fecdd3' : '#86efac'};">
+                ${isPending ? '⏳ Pending Review' : isRejected ? '✕ Claim Rejected' : '✓ Cashless Approved'}
+              </div>
+            </div>
+            <div class="insurance-print-grid">
+              <div>
+                <div class="insurance-print-label">Insurance Provider</div>
+                <div class="insurance-print-val">${data.insurance_provider || breakdown.insurance_provider}</div>
+              </div>
+              <div>
+                <div class="insurance-print-label">Policy / Member ID</div>
+                <div class="insurance-print-val">${data.policy_number || breakdown.policy_number || '—'}</div>
+              </div>
+              <div>
+                <div class="insurance-print-label">Pre-Auth / Claim Ref</div>
+                <div class="insurance-print-val">${data.claim_number || breakdown.claim_number || ('CLM-' + data.invoice_id.replace('MER-BIL-', ''))}</div>
+              </div>
+              <div>
+                <div class="insurance-print-label">Sanctioned Policy Limit</div>
+                <div class="insurance-print-val">₹${Number(data.coverage_limit || breakdown.coverage_limit || 500000).toLocaleString()}</div>
+              </div>
+              <div>
+                <div class="insurance-print-label">${isPending ? 'Pre-Auth Requested' : 'TPA Approved Coverage'}</div>
+                <div class="insurance-print-val" style="color: ${isPending ? '#d97706' : '#059669'}; font-weight: 800;">
+                  ${isPending ? `₹${claimedAmt.toLocaleString()} (Pending)` : `₹${approvedAmt.toLocaleString()}`}
+                </div>
+              </div>
+              <div>
+                <div class="insurance-print-label">${isPending ? 'Est. Patient Co-Pay (20%)' : 'Patient Co-Pay & Non-Payables'}</div>
+                <div class="insurance-print-val" style="color: #b45309; font-weight: 800;">
+                  ₹${copayAmt.toLocaleString()}
+                </div>
+              </div>
+            </div>
+            ${isPending ? `
+              <div style="margin-top: 8px; font-size: 10px; color: #92400e; border-top: 1px dashed #fde68a; padding-top: 5px;">
+                Note: Pre-authorization is currently under review by ${data.insurance_provider}. Once approved, the cashless coverage will be credited directly.
+              </div>
+            ` : ''}
+          </div>
+        ` : `
+          <div style="margin-top: 10px; padding: 8px 12px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; font-size: 11px; color: #64748b;">
+            <strong>Payment Mode:</strong> Direct Patient Settlement / Self-Pay (No cashless TPA policy linked).
+          </div>
+        `}
+
         <div class="totals-wrap">
           <div class="totals-box">
             <div class="totals-row">
@@ -300,13 +470,21 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
               <span>Gross Bill Amount:</span>
               <span>₹${Number(data.current_total || 0).toLocaleString()}</span>
             </div>
-            <div class="totals-row" style="color: #059669;">
-              <span>Insurance Settled Share:</span>
-              <span>-₹${Number(data.insurance_approved_amount || data.tpa_approved || 0).toLocaleString()}</span>
-            </div>
+            ${(data.has_insurance && approvedAmt > 0) ? `
+              <div class="totals-row" style="color: #059669; font-weight: 600;">
+                <span>Insurance / TPA Settled:</span>
+                <span>-₹${approvedAmt.toLocaleString()}</span>
+              </div>
+            ` : ''}
+            ${(paidAmt > 0) ? `
+              <div class="totals-row" style="color: #0284c7;">
+                <span>Patient Advance / Paid:</span>
+                <span>-₹${paidAmt.toLocaleString()}</span>
+              </div>
+            ` : ''}
             <div class="due-row">
-              <span>Patient Due / Co-Pay:</span>
-              <span>₹${Number(data.patient_outstanding_balance ?? data.patient_share ?? 0).toLocaleString()}</span>
+              <span>${isPending ? 'Unsettled Amount Due:' : 'Patient Due / Co-Pay:'}</span>
+              <span>₹${dueAmt.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -429,22 +607,61 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '8px',
-              cursor: 'pointer',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <X size={18} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {data?.is_cached && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#34d399',
+                background: 'rgba(52, 211, 153, 0.15)',
+                border: '1px solid rgba(52, 211, 153, 0.3)',
+                padding: '4px 8px',
+                borderRadius: '6px'
+              }} title="Retrieved instantly from saved explanation without hitting the AI model">
+                ⚡ Saved Explanation
+              </span>
+            )}
+            <button
+              onClick={() => loadBreakdown(activePatientId, true)}
+              disabled={loading}
+              title="Regenerate explanation using AI model"
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '8px',
+                padding: '6px 10px',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '11.5px',
+                fontWeight: 500
+              }}
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              Re-Explain
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px',
+                cursor: 'pointer',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}
@@ -467,15 +684,20 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                     <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
                       UHID: <span style={{ fontWeight: 600, color: '#334155' }}>{data.uhid}</span> · Inv: <span style={{ fontWeight: 600 }}>{data.invoice_id}</span>
                     </div>
-                    <div style={{ fontSize: '12px', color: '#0284c7', marginTop: '4px', fontWeight: 500 }}>
-                      👨‍⚕️ {data.doctor} ({data.department})
+                    <div style={{ fontSize: '12px', color: '#0284c7', marginTop: '4px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>👨‍⚕️ {data.doctor} ({data.department})</span>
+                      {data.is_opd && (
+                        <span style={{ fontSize: '10.5px', padding: '1px 6px', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontWeight: 600 }}>
+                          OPD Consultation
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {/* Variance Badge */}
                   <div style={{
-                    backgroundColor: data.flag_level === 'HIGH' ? '#ffedd5' : data.flag_level === 'MODERATE' ? '#fef3c7' : '#dcfce7',
-                    border: `1px solid ${data.flag_level === 'HIGH' ? '#fdba74' : data.flag_level === 'MODERATE' ? '#fde68a' : '#86efac'}`,
+                    backgroundColor: data.variance_amount > 0 ? (data.flag_level === 'HIGH' ? '#ffedd5' : '#fef3c7') : '#dcfce7',
+                    border: `1px solid ${data.variance_amount > 0 ? (data.flag_level === 'HIGH' ? '#fdba74' : '#fde68a') : '#86efac'}`,
                     borderRadius: '8px',
                     padding: '8px 12px',
                     textAlign: 'right'
@@ -483,17 +705,17 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                     <div style={{
                       fontSize: '11px',
                       fontWeight: 700,
-                      color: data.flag_level === 'HIGH' ? '#c2410c' : data.flag_level === 'MODERATE' ? '#92400e' : '#15803d',
+                      color: data.variance_amount > 0 ? (data.flag_level === 'HIGH' ? '#c2410c' : '#92400e') : '#15803d',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '4px',
                       justifyContent: 'flex-end'
                     }}>
-                      <AlertTriangle size={14} />
-                      {data.flag_level === 'HIGH' ? 'Estimate Variance > 10%' : 'Variance Flag'}
+                      {data.variance_amount > 0 ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+                      {data.variance_amount > 0 ? (data.flag_level === 'HIGH' ? 'Estimate Variance > 10%' : 'Variance Flag') : 'Aligned with Tariff (0% Variance)'}
                     </div>
-                    <div style={{ fontSize: '15px', fontWeight: 800, color: data.flag_level === 'HIGH' ? '#ea580c' : '#b45309', marginTop: '2px' }}>
-                      +₹{Number(data.variance_amount || 0).toLocaleString()} (+{data.variance_pct}%)
+                    <div style={{ fontSize: '15px', fontWeight: 800, color: data.variance_amount > 0 ? (data.flag_level === 'HIGH' ? '#ea580c' : '#b45309') : '#15803d', marginTop: '2px' }}>
+                      {data.variance_amount > 0 ? `+₹${Number(data.variance_amount || 0).toLocaleString()} (+${data.variance_pct}%)` : '₹0 (0%)'}
                     </div>
                   </div>
                 </div>
@@ -507,7 +729,9 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                   borderTop: '1px solid #f1f5f9'
                 }}>
                   <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '11px', color: '#64748b' }}>Initial Estimate</div>
+                    <div style={{ fontSize: '11px', color: '#64748b' }}>
+                      {data.is_opd ? 'Consultation Tariff' : 'Initial Estimate'}
+                    </div>
                     <div style={{ fontSize: '15px', fontWeight: 700, color: '#334155', marginTop: '2px' }}>
                       ₹{Number(data.initial_estimate || 0).toLocaleString()}
                     </div>
@@ -518,14 +742,203 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                       ₹{Number(data.current_total || 0).toLocaleString()}
                     </div>
                   </div>
-                  <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: '10px 12px', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '11px', color: '#9a3412', fontWeight: 600 }}>Unexplained Variance</div>
-                    <div style={{ fontSize: '15px', fontWeight: 800, color: '#ea580c', marginTop: '2px' }}>
+                  <div style={{ background: data.variance_amount > 0 ? '#fff7ed' : '#f0fdf4', border: `1px solid ${data.variance_amount > 0 ? '#fed7aa' : '#bbf7d0'}`, padding: '10px 12px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '11px', color: data.variance_amount > 0 ? '#9a3412' : '#166534', fontWeight: 600 }}>Unexplained Variance</div>
+                    <div style={{ fontSize: '15px', fontWeight: 800, color: data.variance_amount > 0 ? '#ea580c' : '#15803d', marginTop: '2px' }}>
                       ₹{Number(data.variance_amount || 0).toLocaleString()}
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* OPD Direct Settlement Info (No Cashless Claim Applicable) */}
+              {data.is_opd && (
+                <div style={{
+                  background: '#f8fafc',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  padding: '12px 16px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: '#0284c7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#ffffff'
+                    }}>
+                      <CheckCircle2 size={18} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                        Outpatient (OPD) Consultation · Direct Settlement
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#64748b' }}>
+                        Cashless TPA insurance is not applicable for outpatient visits. Settled directly by patient.
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      background: '#f0fdf4',
+                      color: '#15803d',
+                      border: '1px solid #86efac'
+                    }}>
+                      ● Paid &amp; Settled (₹0 Due)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Insurance & TPA Pre-Auth Coverage Card (Inpatient with Active Insurance Only) */}
+              {!data.is_opd && data.has_insurance && data.insurance_provider && data.insurance_provider !== 'Self-Pay' && data.insurance_provider !== 'None' && (() => {
+                const statusStr = String(data.claim_status || '').toLowerCase();
+                const isPending = data.is_claim_pending || ['pending', 'review', 'awaiting', 'submitted', 'missing', 'in process'].some(w => statusStr.includes(w));
+                const isRejected = ['rejected', 'denied'].some(w => statusStr.includes(w));
+                const isApproved = !isPending && !isRejected && (data.is_claim_approved || ['approved', 'settled', 'cashless', 'active'].some(w => statusStr.includes(w)));
+                
+                const claimedAmt = Number(data.insurance_claimed_amount || data.current_total || 0);
+                const approvedAmt = isPending ? 0 : Number(data.insurance_approved_amount || 0);
+                const copayAmt = Number(data.patient_copay_amount || (approvedAmt > 0 ? (data.current_total - approvedAmt) : (data.estimated_copay || Math.round(data.current_total * 0.2))));
+                const paidAmt = Number(data.patient_paid_amount || 0);
+                const dueAmt = Number(data.patient_outstanding_balance ?? 0);
+
+                return (
+                  <div style={{
+                    background: isPending 
+                      ? 'linear-gradient(135deg, #fffdfa 0%, #fef3c7 100%)' 
+                      : isRejected 
+                      ? 'linear-gradient(135deg, #fff5f5 0%, #fee2e2 100%)' 
+                      : 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)',
+                    borderRadius: '12px',
+                    border: `1px solid ${isPending ? '#fde68a' : isRejected ? '#fca5a5' : '#a7f3d0'}`,
+                    padding: '14px 18px',
+                    boxShadow: isPending ? '0 2px 8px rgba(245, 158, 11, 0.08)' : '0 2px 8px rgba(16, 185, 129, 0.06)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '8px',
+                          background: isPending ? '#d97706' : isRejected ? '#dc2626' : '#059669',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#ffffff',
+                          boxShadow: isPending ? '0 2px 6px rgba(217, 119, 6, 0.25)' : '0 2px 6px rgba(5, 150, 105, 0.25)'
+                        }}>
+                          <ShieldCheck size={20} />
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13.5px', fontWeight: 700, color: isPending ? '#92400e' : isRejected ? '#991b1b' : '#065f46' }}>
+                              {data.insurance_provider}
+                            </span>
+                            <span style={{
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: isPending ? '#fef3c7' : isRejected ? '#fee2e2' : '#dcfce7',
+                              color: isPending ? '#92400e' : isRejected ? '#991b1b' : '#15803d',
+                              border: `1px solid ${isPending ? '#fde68a' : isRejected ? '#fecdd3' : '#bbf7d0'}`
+                            }}>
+                              {isPending ? '⏳ Pending Review' : isRejected ? '✕ Claim Rejected' : `● ${data.claim_status || 'Pre-Auth Approved'}`}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11.5px', color: isPending ? '#b45309' : '#047857', marginTop: '2px' }}>
+                            Policy: <strong style={{ fontFamily: 'monospace' }}>{data.policy_number || `POL-${data.patient_id}`}</strong>
+                            {data.claim_number && (
+                              <> · Claim/Pre-Auth: <strong style={{ fontFamily: 'monospace' }}>{data.claim_number}</strong></>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '11px', color: isPending ? '#92400e' : '#047857', fontWeight: 600 }}>
+                          {isPending ? 'Pre-Auth Requested' : 'TPA Approved Share'}
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: isPending ? '#d97706' : '#047857', marginTop: '1px' }}>
+                          ₹{Number(isPending ? claimedAmt : approvedAmt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '10px',
+                      marginTop: '12px',
+                      paddingTop: '10px',
+                      borderTop: `1px solid ${isPending ? '#fde68a' : '#d1fae5'}`,
+                      fontSize: '11.5px'
+                    }}>
+                      <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: '6px', border: `1px solid ${isPending ? '#fde68a' : '#bbf7d0'}` }}>
+                        <span style={{ color: '#64748b' }}>
+                          {isPending ? 'Pre-Auth Requested:' : 'Insurer Approved:'}
+                        </span>
+                        <div style={{ fontWeight: 700, color: isPending ? '#d97706' : '#059669', fontSize: '13px', marginTop: '2px' }}>
+                          {isPending ? `₹${claimedAmt.toLocaleString()} (Pending)` : `₹${approvedAmt.toLocaleString()}`}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: '6px', border: `1px solid ${isPending ? '#fde68a' : '#bbf7d0'}` }}>
+                        <span style={{ color: '#64748b' }}>
+                          {isPending ? 'Est. Patient Co-Pay (20%):' : 'Patient Co-Pay & Non-Payables:'}
+                        </span>
+                        <div style={{ fontWeight: 700, color: '#b45309', fontSize: '13px', marginTop: '2px' }}>
+                          ₹{copayAmt.toLocaleString()}
+                        </div>
+                        {paidAmt > 0 && (
+                          <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                            Advance Paid: ₹{paidAmt.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: '6px', border: `1px solid ${isPending ? '#fde68a' : '#bbf7d0'}` }}>
+                        <span style={{ color: '#64748b' }}>Annual Policy Limit:</span>
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginTop: '2px' }}>
+                          ₹{Number(data.coverage_limit || 500000).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isPending && (
+                      <div style={{
+                        marginTop: '10px',
+                        padding: '6px 10px',
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        color: '#92400e',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <span>ℹ️</span>
+                        <span>
+                          Claim is currently <strong>Under Review</strong> with {data.insurance_provider}. Once sanctioned, the approved cashless amount will deduct from the total bill, leaving only the co-pay / non-payables balance.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Bilingual Plain-Language Breakdown Card */}
               <div style={{
@@ -623,17 +1036,31 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {breakdown.key_drivers.map((drv, idx) => (
-                          <div key={idx} style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
-                            padding: '10px 12px',
-                            background: '#f8fafc',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px'
-                          }}>
+                          <div 
+                            key={idx} 
+                            onClick={() => handleInvestigateNecessity(drv.item_code)}
+                            title="Click to view verified clinical proof and audit logs"
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              padding: '10px 12px',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.borderColor = '#0284c7'}
+                            onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                          >
                             <div>
-                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{drv.item_name}</div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {drv.item_name}
+                                <span style={{ fontSize: '10px', color: '#0284c7', background: '#e0f2fe', padding: '1px 6px', borderRadius: '4px' }}>
+                                  🔍 Audit
+                                </span>
+                              </div>
                               <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>
                                 {language === 'en' ? drv.reason_en : drv.reason_ta}
                               </div>
@@ -661,7 +1088,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                           <ShieldCheck size={16} />
                           Clinical Verification Audit (Intra-Operative & Ward Logs)
                         </div>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>{breakdown.clinical_proof.timestamp}</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>{formatTime12(breakdown.clinical_proof.timestamp)}</span>
                       </div>
                       <div style={{ fontSize: '12px', color: '#1e3a8a', fontStyle: 'italic', marginTop: '6px', lineHeight: '1.5' }}>
                         "{breakdown.clinical_proof.verbatim_quote}"
@@ -684,7 +1111,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                     gap: '10px'
                   }}>
                     <button
-                      onClick={() => handleInvestigateNecessity('MAT-CATH-NC')}
+                      onClick={() => handleInvestigateNecessity()}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -705,7 +1132,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
-                        onClick={() => loadBreakdown(patientId)}
+                        onClick={() => loadBreakdown(activePatientId)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -769,7 +1196,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                         <th style={{ padding: '8px 10px', textAlign: 'left' }}>Category</th>
                         <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
                         <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Variance Flag</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Variance Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -786,16 +1213,46 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                           </td>
                           <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                             {it.is_variance_driver ? (
-                              <span style={{ fontSize: '10px', fontWeight: 700, background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚠️ Variance Item
-                              </span>
+                              <button
+                                onClick={() => handleInvestigateNecessity(it.code)}
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  background: '#fef3c7',
+                                  border: '1px solid #fde68a',
+                                  color: '#b45309',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                ⚠️ Variance +₹{Number(it.variance_amount != null ? it.variance_amount : 0).toLocaleString()}
+                              </button>
                             ) : (
-                              <span style={{ fontSize: '10px', color: '#16a34a', fontWeight: 600 }}>✓ Planned</span>
+                              <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600 }}>
+                                ✓ Planned
+                              </span>
                             )}
                           </td>
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 700 }}>
+                        <td colSpan={3} style={{ padding: '10px', color: '#0f172a', textAlign: 'left' }}>
+                          Total Invoiced ({data.itemized_items.length} Itemized Services & Consumables)
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', color: '#0f172a', fontSize: '13px' }}>
+                          ₹{Number(data.current_total || data.itemized_items.reduce((s, it) => s + (Number(it.total) || 0), 0)).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'center', fontSize: '11px', color: (data.variance_amount || 0) > 0 ? '#ea580c' : '#16a34a' }}>
+                          {(data.variance_amount || 0) > 0 ? `+₹${Number(data.variance_amount).toLocaleString()} (+${data.variance_pct}%)` : '✓ Within Estimate'}
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
@@ -852,9 +1309,12 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
               ) : necessityData ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
-                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Contested Item</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Audited / Contested Line Item</div>
                     <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
                       {necessityData.item_name}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>
+                      Code: {necessityData.item_code} · Log: {necessityData.log_id}
                     </div>
                     <div style={{ fontSize: '13px', fontWeight: 800, color: '#ea580c', marginTop: '4px' }}>
                       Amount: ₹{Number(necessityData.charge_amount || 0).toLocaleString()}
@@ -863,25 +1323,25 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
 
                   <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '14px' }}>
                     <div style={{ fontSize: '11px', color: '#1e40af', fontWeight: 700, textTransform: 'uppercase' }}>
-                      Clinical Indication
+                      Clinical Indication & EMR Authorization
                     </div>
                     <div style={{ fontSize: '13px', color: '#1e3a8a', marginTop: '4px', fontWeight: 500, lineHeight: '1.5' }}>
                       {necessityData.clinical_indication}
                     </div>
                     <div style={{ fontSize: '11px', color: '#3b82f6', marginTop: '8px' }}>
-                      ✍️ Signed by: <strong>{necessityData.doctor_signed}</strong> at {necessityData.timestamp}
+                      ✍️ Signed by: <strong>{necessityData.doctor_signed}</strong> at {formatTime12(necessityData.timestamp)}
                     </div>
                   </div>
 
                   <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '10px' }}>
-                      ⏱️ Intra-Operative Timeline
+                      ⏱️ Clinical Care Timeline & Progress
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {necessityData.audit_trail && necessityData.audit_trail.map((st, i) => (
                         <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                           <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700, color: '#0284c7', background: '#e0f2fe', padding: '2px 6px', borderRadius: '4px' }}>
-                            {st.time}
+                            {formatTime12(st.time)}
                           </span>
                           <div>
                             <div style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>{st.step}</div>
@@ -1025,7 +1485,7 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '18px', fontWeight: 800, color: '#0284c7' }}>{data.invoice_id}</div>
-                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Date: {new Date().toLocaleDateString('en-IN')}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Date: ${new Date().toLocaleDateString('en-IN')}</div>
                   </div>
                 </div>
 
@@ -1050,8 +1510,8 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ color: '#64748b', fontSize: '11px' }}>PAYMENT / TPA STATUS</div>
-                    <div style={{ fontWeight: 700, color: '#059669' }}>Star Health & Allied Insurance</div>
-                    <div style={{ color: '#64748b' }}>Pre-Auth: ₹2,20,000</div>
+                    <div style={{ fontWeight: 700, color: '#059669' }}>{data.insurance_provider || 'Self-Pay / Direct'}</div>
+                    <div style={{ color: '#64748b' }}>Pre-Auth: ₹{Number(data.insurance_approved_amount || 0).toLocaleString()}</div>
                   </div>
                 </div>
 
@@ -1097,11 +1557,11 @@ export default function BillingTransparencyDrawer({ isOpen, onClose, patientId =
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', color: '#059669' }}>
                       <span>Insurance Approved Share:</span>
-                      <span>-₹2,20,000</span>
+                      <span>-₹{Number(data.insurance_approved_amount || 0).toLocaleString()}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontWeight: 800, fontSize: '14px', color: '#dc2626', borderTop: '1px solid #cbd5e1', marginTop: '4px' }}>
                       <span>Patient Co-Pay Balance:</span>
-                      <span>₹48,450</span>
+                      <span>₹{Number(data.patient_outstanding_balance ?? data.patient_amount ?? 0).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>

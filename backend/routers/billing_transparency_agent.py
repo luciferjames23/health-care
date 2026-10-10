@@ -19,6 +19,7 @@ class BreakdownRequest(BaseModel):
     patient_id: Optional[Union[str, int]] = Field(None, description="Patient ID, UHID, Invoice ID or Name")
     model_name: Optional[str] = Field(default="openai/gpt-oss-120b", description="LLM model identifier")
     api_key: Optional[str] = Field(default=None, description="Optional Groq API key override")
+    force_refresh: Optional[bool] = Field(default=False, description="Bypass cache and force re-generation from model")
 
 
 class ApproveExplanationRequest(BaseModel):
@@ -79,13 +80,16 @@ def list_billing_cases(
 
 
 @router.get("/breakdown/{patient_identifier}", summary="Get Bilingual Plain-Language Breakdown (English + Tamil)")
-def get_plain_language_breakdown(patient_identifier: str):
+def get_plain_language_breakdown(
+    patient_identifier: str,
+    force_refresh: bool = Query(default=False, description="Force re-generation from LLM, bypassing cache")
+):
     """
     Executes Groq LLM (openai/gpt-oss-120b) synthesis to convert technical line items & OT notes
-    into plain-language English and Tamil explanations.
+    into plain-language English and Tamil explanations. Cached after first generation.
     """
     try:
-        result = billing_service.generate_plain_language_breakdown(patient_identifier)
+        result = billing_service.generate_plain_language_breakdown(patient_identifier, force_refresh=force_refresh)
         return {
             "status": "success",
             "data": result
@@ -103,7 +107,8 @@ def generate_plain_language_breakdown_post(req: BreakdownRequest = Body(...)):
         result = billing_service.generate_plain_language_breakdown(
             str(target),
             custom_model=req.model_name,
-            custom_api_key=req.api_key
+            custom_api_key=req.api_key,
+            force_refresh=bool(req.force_refresh)
         )
         return {
             "status": "success",

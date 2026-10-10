@@ -190,6 +190,13 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
     setDebouncedSearch("");
   }, [activeTab]);
 
+  // Ensure removed billing filters reset to All
+  useEffect(() => {
+    if (activeTab === "billing" && ["Provisional", "Disputed", "Void requested", "Voided", "Released", "Paid"].includes(activeFilter)) {
+      setActiveFilter("All");
+    }
+  }, [activeTab, activeFilter]);
+
   // Live Data States
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
@@ -768,7 +775,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
     return [
       { k: "Total invoices", v: totalCount.toLocaleString(), col: "", filter: "All" },
-      { k: "Settled / Cleared", v: settledCount.toLocaleString(), col: PALETTE.success, filter: "Settled" },
+      { k: "Settled", v: settledCount.toLocaleString(), col: PALETTE.success, filter: "Settled" },
       { k: "Pending settlement", v: provCount.toLocaleString(), col: PALETTE.warning, filter: "Pending" },
       { k: "Insurance share", v: inr(insShare), col: "", filter: "All" },
       { k: "Patient share", v: inr(patShare), col: PALETTE.primary, filter: "All" }
@@ -1117,7 +1124,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
           {/* Filter Pills */}
           {(activeTab === "billing"
-            ? ["All", "Provisional", "Released", "Part-paid", "Disputed", "Paid", "Settled", "Pending", "Void requested", "Voided"]
+            ? ["All", "Pending", "Part-paid", "Settled"]
             : activeTab === "insurance"
             ? ["All", "Submitted · awaiting insurer", "Missing Documents", "Pending Review", "Approved", "Rejected"]
             : activeTab === "claims"
@@ -1170,52 +1177,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       {/* ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "billing" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {/* AG-08 Embedded Billing Transparency Agent Banner */}
-          <div
-            style={{
-              background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
-              border: "1px solid #fdba74",
-              borderRadius: "10px",
-              padding: "12px 18px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "12px",
-              boxShadow: "0 2px 8px rgba(234, 88, 12, 0.08)"
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <div
-                style={{
-                  width: "38px",
-                  height: "38px",
-                  borderRadius: "8px",
-                  background: "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#ffffff",
-                  fontWeight: 800,
-                  fontSize: "18px",
-                  boxShadow: "0 4px 12px rgba(234, 88, 12, 0.25)"
-                }}
-              >
-                ✨
-              </div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontWeight: 800, fontSize: "14px", color: "#9a3412" }}>
-                    AG-08 · Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்)
-                  </span>
-                </div>
-                <div style={{ fontSize: "12px", color: "#7c2d12", marginTop: "2px" }}>
-                  Audits accumulating charges vs initial estimates and generates instant bilingual (English & தமிழ்) explanations.
-                </div>
-              </div>
-            </div>
-          </div>
-
           <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", overflow: "auto" }}>
             {/* Table Header */}
             <div
@@ -1294,34 +1255,57 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                 >
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{b.inv}</span>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
-                      cursor: onSelectPatient ? "pointer" : "default",
-                      textDecoration: onSelectPatient ? "underline" : "none"
-                    }}
-                    title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
-                    onClick={(e) => {
-                      if (onSelectPatient) {
-                        e.stopPropagation();
-                        onSelectPatient({
-                          patient_id: b.patient_id,
-                          id: b.patient_id,
-                          patient_code: b.uhid || b.patient_code || b.patient_number,
-                          patient_number: b.uhid || b.patient_code || b.patient_number,
-                          patient_name: b.patient,
-                          first_name: b.patient ? b.patient.split(" ")[0] : "",
-                          last_name: b.patient ? b.patient.split(" ").slice(1).join(" ") : "",
-                          admission_id: b.admission_id
-                        });
-                      }
-                    }}
-                  >
-                    {b.patient}
-                  </span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
-                    {b.adm}
+                  <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden" }}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "9.5px",
+                        fontWeight: 700,
+                        padding: "1px 5px",
+                        borderRadius: "3px",
+                        flexShrink: 0,
+                        background: (b.is_inpatient ?? (b.patient_type_code === "IP" || Boolean(b.admission_id))) ? "#f3e8ff" : "#e0f2fe",
+                        color: (b.is_inpatient ?? (b.patient_type_code === "IP" || Boolean(b.admission_id))) ? "#7e22ce" : "#0284c7",
+                        border: `1px solid ${(b.is_inpatient ?? (b.patient_type_code === "IP" || Boolean(b.admission_id))) ? "#e9d5ff" : "#bae6fd"}`
+                      }}
+                      title={(b.is_inpatient ?? (b.patient_type_code === "IP" || Boolean(b.admission_id))) ? "Inpatient (IP)" : "Outpatient (OP)"}
+                    >
+                      {(b.is_inpatient ?? (b.patient_type_code === "IP" || Boolean(b.admission_id))) ? "IP" : "OP"}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                        cursor: onSelectPatient ? "pointer" : "default",
+                        textDecoration: onSelectPatient ? "underline" : "none",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}
+                      title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                      onClick={(e) => {
+                        if (onSelectPatient) {
+                          e.stopPropagation();
+                          onSelectPatient({
+                            patient_id: b.patient_id,
+                            id: b.patient_id,
+                            patient_code: b.uhid || b.patient_code || b.patient_number,
+                            patient_number: b.uhid || b.patient_code || b.patient_number,
+                            patient_name: b.patient,
+                            first_name: b.patient ? b.patient.split(" ")[0] : "",
+                            last_name: b.patient ? b.patient.split(" ").slice(1).join(" ") : "",
+                            admission_id: b.admission_id
+                          });
+                        }
+                      }}
+                    >
+                      {b.patient}
+                    </span>
+                  </div>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={b.adm}>
+                    {(b.adm && !b.adm.includes("0000000")) ? b.adm : "OPD (Outpatient)"}
                   </span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{inr(est)}</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
@@ -1354,7 +1338,8 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setAg08PatientId(String(b.patient_id || b.uhid || "87221"));
+                        // Pass bill_number / invoice_id to resolve exact patient bill without ID collision
+                        setAg08PatientId(String(b.bill_number || b.inv || b.uhid || b.patient_code || b.patient_id || "87221"));
                         setAg08DrawerOpen(true);
                       }}
                       style={{
@@ -1520,35 +1505,55 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.claim}>
                   {p.claim}
                 </span>
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
-                    cursor: onSelectPatient ? "pointer" : "default",
-                    textDecoration: onSelectPatient ? "underline" : "none",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}
-                  title={onSelectPatient ? "Click to view Patient 360 record" : (p.patient || p.patient_name)}
-                  onClick={(e) => {
-                    if (onSelectPatient) {
-                      e.stopPropagation();
-                      onSelectPatient({
-                        patient_id: p.patient_id,
-                        id: p.patient_id,
-                        patient_code: p.patient_code || p.patient_number || p.uhid,
-                        patient_number: p.patient_code || p.patient_number || p.uhid,
-                        patient_name: p.patient || p.patient_name,
-                        first_name: (p.patient || p.patient_name || "").split(" ")[0],
-                        last_name: (p.patient || p.patient_name || "").split(" ").slice(1).join(" "),
-                        admission_id: p.admission_id
-                      });
-                    }
-                  }}
-                >
-                  {p.patient || p.patient_name}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden" }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "9.5px",
+                      fontWeight: 700,
+                      padding: "1px 5px",
+                      borderRadius: "3px",
+                      flexShrink: 0,
+                      background: (p.is_inpatient ?? (p.patient_type_code === "IP" || Boolean(p.admission_id))) ? "#f3e8ff" : "#e0f2fe",
+                      color: (p.is_inpatient ?? (p.patient_type_code === "IP" || Boolean(p.admission_id))) ? "#7e22ce" : "#0284c7",
+                      border: `1px solid ${(p.is_inpatient ?? (p.patient_type_code === "IP" || Boolean(p.admission_id))) ? "#e9d5ff" : "#bae6fd"}`
+                    }}
+                    title={(p.is_inpatient ?? (p.patient_type_code === "IP" || Boolean(p.admission_id))) ? "Inpatient (IP)" : "Outpatient (OP)"}
+                  >
+                    {(p.is_inpatient ?? (p.patient_type_code === "IP" || Boolean(p.admission_id))) ? "IP" : "OP"}
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                      cursor: onSelectPatient ? "pointer" : "default",
+                      textDecoration: onSelectPatient ? "underline" : "none",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={onSelectPatient ? "Click to view Patient 360 record" : (p.patient || p.patient_name)}
+                    onClick={(e) => {
+                      if (onSelectPatient) {
+                        e.stopPropagation();
+                        onSelectPatient({
+                          patient_id: p.patient_id,
+                          id: p.patient_id,
+                          patient_code: p.patient_code || p.patient_number || p.uhid,
+                          patient_number: p.patient_code || p.patient_number || p.uhid,
+                          patient_name: p.patient || p.patient_name,
+                          first_name: (p.patient || p.patient_name || "").split(" ")[0],
+                          last_name: (p.patient || p.patient_name || "").split(" ").slice(1).join(" "),
+                          admission_id: p.admission_id
+                        });
+                      }
+                    }}
+                  >
+                    {p.patient || p.patient_name}
+                  </span>
+                </div>
                 <span
                   style={{
                     color: PALETTE.text2,
@@ -1954,32 +1959,55 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                 >
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>{cl.claim}</span>
-                  <span
-                    style={{
-                      fontWeight: 600,
-                      color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
-                      cursor: onSelectPatient ? "pointer" : "default",
-                      textDecoration: onSelectPatient ? "underline" : "none"
-                    }}
-                    title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
-                    onClick={(e) => {
-                      if (onSelectPatient) {
-                        e.stopPropagation();
-                        onSelectPatient({
-                          patient_id: cl.patient_id,
-                          id: cl.patient_id,
-                          patient_code: cl.patient_code || cl.uhid,
-                          patient_number: cl.patient_code || cl.uhid,
-                          patient_name: cl.patient,
-                          first_name: (cl.patient || "").split(" ")[0],
-                          last_name: (cl.patient || "").split(" ").slice(1).join(" "),
-                          admission_id: cl.admission_id
-                        });
-                      }
-                    }}
-                  >
-                    {cl.patient}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden" }}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "9.5px",
+                        fontWeight: 700,
+                        padding: "1px 5px",
+                        borderRadius: "3px",
+                        flexShrink: 0,
+                        background: (cl.is_inpatient ?? (cl.patient_type_code === "IP" || Boolean(cl.admission_id))) ? "#f3e8ff" : "#e0f2fe",
+                        color: (cl.is_inpatient ?? (cl.patient_type_code === "IP" || Boolean(cl.admission_id))) ? "#7e22ce" : "#0284c7",
+                        border: `1px solid ${(cl.is_inpatient ?? (cl.patient_type_code === "IP" || Boolean(cl.admission_id))) ? "#e9d5ff" : "#bae6fd"}`
+                      }}
+                      title={(cl.is_inpatient ?? (cl.patient_type_code === "IP" || Boolean(cl.admission_id))) ? "Inpatient (IP)" : "Outpatient (OP)"}
+                    >
+                      {(cl.is_inpatient ?? (cl.patient_type_code === "IP" || Boolean(cl.admission_id))) ? "IP" : "OP"}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
+                        cursor: onSelectPatient ? "pointer" : "default",
+                        textDecoration: onSelectPatient ? "underline" : "none",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}
+                      title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
+                      onClick={(e) => {
+                        if (onSelectPatient) {
+                          e.stopPropagation();
+                          onSelectPatient({
+                            patient_id: cl.patient_id,
+                            id: cl.patient_id,
+                            patient_code: cl.patient_code || cl.uhid,
+                            patient_number: cl.patient_code || cl.uhid,
+                            patient_name: cl.patient,
+                            first_name: (cl.patient || "").split(" ")[0],
+                            last_name: (cl.patient || "").split(" ").slice(1).join(" "),
+                            admission_id: cl.admission_id
+                          });
+                        }
+                      }}
+                    >
+                      {cl.patient}
+                    </span>
+                  </div>
                   <span style={{ color: PALETTE.text2 }}>{cl.tpa} · Direct TPA</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
                     {cl.policy}
@@ -2477,13 +2505,25 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
               <div>
                 <div style={{ fontSize: "18px", fontWeight: 600, lineHeight: 1.2, color: PALETTE.text }}>
-                  {drawerData.type === "bill" && `${drawerData.data.patient_name || drawerData.data.patient} · ${inr(drawerData.data.net_amount || drawerData.data.total)}`}
-                  {drawerData.type === "preauth" && `${drawerData.data.patient} · Inpatient Treatment`}
-                  {drawerData.type === "claim" && `Claim ${drawerData.data.claim} · ${drawerData.data.patient}`}
+                  {drawerData.type === "bill" && (() => {
+                    const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                    const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                    return `${drawerData.data.patient_name || drawerData.data.patient} · ${careLabel} · ${inr(drawerData.data.net_amount || drawerData.data.total)}`;
+                  })()}
+                  {drawerData.type === "preauth" && (() => {
+                    const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                    const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                    return `${drawerData.data.patient} · ${careLabel}`;
+                  })()}
+                  {drawerData.type === "claim" && (() => {
+                    const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                    const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                    return `Claim ${drawerData.data.claim} · ${drawerData.data.patient} · ${careLabel}`;
+                  })()}
                   {drawerData.type === "tax" && `${drawerData.data.category} · HSN ${drawerData.data.hsn}`}
                 </div>
                 <div style={{ color: PALETTE.muted, fontSize: "12px", marginTop: "2px" }}>
-                  {drawerData.type === "bill" && `${drawerData.data.bill_number} · ${drawerData.data.admission_number || "OPD"}`}
+                  {drawerData.type === "bill" && `${drawerData.data.bill_number} · ${(drawerData.data.admission_number && !drawerData.data.admission_number.includes("0000000")) ? drawerData.data.admission_number : "OPD"} · ${drawerData.data.insurance_provider || drawerData.data.insurer || "Self-Pay"}`}
                   {drawerData.type === "preauth" && `${drawerData.data.claim} · ${drawerData.data.tpa} · ${drawerData.data.policy}`}
                   {drawerData.type === "claim" && `${drawerData.data.tpa} · Policy ${drawerData.data.policy}`}
                   {drawerData.type === "tax" && `GST Rule · Standard Hospital Tariff Schedule`}
@@ -2521,9 +2561,129 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     : drawerData.data.status
                 }
               />
-              {drawerData.type === "preauth" && (
-                <StatusPill status={`Denial Risk: ${drawerData.data.risk_level || 'Low Risk'}`} />
-              )}
+              {drawerData.type === "bill" && (() => {
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 0);
+                return (
+                  <>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        background: isIp ? "#f3e8ff" : "#e0f2fe",
+                        color: isIp ? "#7e22ce" : "#0284c7",
+                        border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                      }}
+                    >
+                      ● {careLabel}
+                    </span>
+                    {covLimit > 0 && (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "2px 8px",
+                          borderRadius: "12px",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          background: "#f0fdf4",
+                          color: "#166534",
+                          border: "1px solid #bbf7d0"
+                        }}
+                      >
+                        Sum Insured: {inr(covLimit)}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+              {drawerData.type === "preauth" && (() => {
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 500000);
+                return (
+                  <>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        background: isIp ? "#f3e8ff" : "#e0f2fe",
+                        color: isIp ? "#7e22ce" : "#0284c7",
+                        border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                      }}
+                    >
+                      ● {careLabel}
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        background: "#f0fdf4",
+                        color: "#166534",
+                        border: "1px solid #bbf7d0"
+                      }}
+                    >
+                      Sum Insured: {inr(covLimit)}
+                    </span>
+                    <StatusPill status={`Denial Risk: ${drawerData.data.risk_level || 'Low Risk'}`} />
+                  </>
+                );
+              })()}
+              {drawerData.type === "claim" && (() => {
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 500000);
+                return (
+                  <>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        background: isIp ? "#f3e8ff" : "#e0f2fe",
+                        color: isIp ? "#7e22ce" : "#0284c7",
+                        border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                      }}
+                    >
+                      ● {careLabel}
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        background: "#f0fdf4",
+                        color: "#166534",
+                        border: "1px solid #bbf7d0"
+                      }}
+                    >
+                      Sum Insured: {inr(covLimit)}
+                    </span>
+                  </>
+                );
+              })()}
               {drawerData.type === "bill" && drawerData.data.tax_amount > 0 && (
                 <StatusPill status="Tax Inclusive" />
               )}
@@ -2541,76 +2701,319 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 borderRadius: "6px"
               }}
             >
-              {drawerData.type === "bill" && (
-                <>
-                  <span style={{ color: PALETTE.muted }}>Estimated:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
-                    {inr(drawerData.data.gross_amount)}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Actual:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
-                    {inr(drawerData.data.net_amount || drawerData.data.total)}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Variance:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.warning }}>
-                    +{inr(Math.max(0, (drawerData.data.net_amount || 0) - (drawerData.data.gross_amount || 0)))} (+12%)
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Insurance:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
-                    {inr(drawerData.data.insurance_amount || drawerData.data.tpa)}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Patient Share:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
-                    {inr(drawerData.data.patient_amount || drawerData.data.patientShare)}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Paid to Date:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 600 }}>
-                    {inr(drawerData.data.status === "Settled" || drawerData.data.status === "Paid" 
-                      ? (drawerData.data.patient_amount || drawerData.data.patientShare || drawerData.data.net_amount) 
-                      : (drawerData.data.paid_amount || 0))}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Balance Due:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: (drawerData.data.status === "Settled" || drawerData.data.status === "Paid") ? PALETTE.muted : PALETTE.critical, fontWeight: 600 }}>
-                    {inr(drawerData.data.status === "Settled" || drawerData.data.status === "Paid"
-                      ? 0
-                      : Math.max(0, (drawerData.data.patient_amount || drawerData.data.patientShare || 0) - (drawerData.data.paid_amount || 0)))}
-                  </span>
-                </>
-              )}
+              {drawerData.type === "bill" && (() => {
+                const est = Number(drawerData.data.gross_amount ?? drawerData.data.total ?? 0);
+                const act = Number(drawerData.data.net_amount ?? drawerData.data.total ?? 0);
+                const diff = act - est;
+                const diffPct = est > 0 ? Math.round((diff / est) * 100) : 0;
+                const billStatus = String(drawerData.data.bill_status || drawerData.data.status || "").toLowerCase();
+                const isSettled = billStatus === "settled" || billStatus === "paid";
+                const patShare = Number(drawerData.data.patient_amount ?? drawerData.data.patientShare ?? act);
+                const paidAmount = isSettled ? patShare : Number(drawerData.data.paid_amount || 0);
+                const balDue = isSettled ? 0 : (drawerData.data.balance_due !== undefined ? Number(drawerData.data.balance_due) : Math.max(0, patShare - paidAmount));
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 0);
+                const insProvider = drawerData.data.insurance_provider || drawerData.data.insurer || (drawerData.data.tpa > 0 ? "Direct Insurance / TPA" : "Self-Pay");
+                const polNum = drawerData.data.policy_number || (drawerData.data.claims?.[0]?.policy_number) || (insProvider !== "Self-Pay" ? "POL-DIRECT" : "—");
+                const polPlan = drawerData.data.policy_type || "Comprehensive Health Cover";
+                const insCovered = Number(drawerData.data.insurance_amount || drawerData.data.tpa || 0);
+                const availCov = covLimit > 0 ? Number(drawerData.data.available_coverage ?? Math.max(0, covLimit - insCovered)) : 0;
 
-              {drawerData.type === "preauth" && (
-                <>
-                  <span style={{ color: PALETTE.muted }}>Requested:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.finalClaimed)}</span>
-                  <span style={{ color: PALETTE.muted }}>Approved:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(drawerData.data.approved)}</span>
-                  <span style={{ color: PALETTE.muted }}>Patient Liability:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
-                    {inr(Math.max(0, drawerData.data.finalClaimed - drawerData.data.approved))}
-                  </span>
-                  <span style={{ color: PALETTE.muted }}>Completeness:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>100%</span>
-                  <span style={{ color: PALETTE.muted }}>Human Owner:</span>
-                  <span>{drawerData.data.owner || (loggedUserName ? `${loggedUserName} (TPA Coordinator)` : "R. Sundar (Insurance Coordinator)")}</span>
-                  <span style={{ color: PALETTE.muted }}>Submitted:</span>
-                  <span>{drawerData.data.claim_date || "Today"}</span>
-                </>
-              )}
+                return (
+                  <>
+                    <span style={{ color: PALETTE.muted }}>Patient Type:</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          background: isIp ? "#f3e8ff" : "#e0f2fe",
+                          color: isIp ? "#7e22ce" : "#0284c7",
+                          border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                        }}
+                      >
+                        {isIp ? "IP" : "OP"}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>{careLabel}</span>
+                    </span>
 
-              {drawerData.type === "claim" && (
-                <>
-                  <span style={{ color: PALETTE.muted }}>Claim Number:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.claim}</span>
-                  <span style={{ color: PALETTE.muted }}>Claimed Amount:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.finalClaimed)}</span>
-                  <span style={{ color: PALETTE.muted }}>Approved Amount:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(drawerData.data.approved)}</span>
-                  <span style={{ color: PALETTE.muted }}>Settled / Paid:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>{inr(drawerData.data.settled)}</span>
-                  <span style={{ color: PALETTE.muted }}>Turnaround Time:</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.turnaround}</span>
-                </>
-              )}
+                    {isIp && drawerData.data.admission_number && !drawerData.data.admission_number.includes("0000000") && (
+                      <>
+                        <span style={{ color: PALETTE.muted }}>Admission Ref:</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                          {drawerData.data.admission_number}
+                        </span>
+                      </>
+                    )}
+
+                    <span style={{ color: PALETTE.muted }}>Estimated:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                      {inr(est)}
+                    </span>
+                    <span style={{ color: PALETTE.muted }}>Actual:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                      {inr(act)}
+                    </span>
+                    <span style={{ color: PALETTE.muted }}>Variance:</span>
+                    <span style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      color: diff > 0 ? PALETTE.warning : (diff < 0 ? PALETTE.success : PALETTE.text2)
+                    }}>
+                      {diff > 0 ? `+${inr(diff)} (+${diffPct}%)` : (diff < 0 ? `-${inr(Math.abs(diff))} (-${Math.abs(diffPct)}%)` : `${inr(0)} (0%)`)}
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Insurance / Payer:</span>
+                    <span style={{ fontWeight: 600, color: PALETTE.primaryText }}>
+                      {insProvider}
+                    </span>
+
+                    {insProvider !== "Self-Pay" && (
+                      <>
+                        <span style={{ color: PALETTE.muted }}>Policy Number:</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                          {polNum}
+                        </span>
+
+                        {covLimit > 0 && (
+                          <>
+                            <span style={{ color: PALETTE.muted }}>Policy Coverage (Sum Insured):</span>
+                            <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700, color: PALETTE.primaryText }}>
+                              {inr(covLimit)}
+                            </span>
+
+                            <span style={{ color: PALETTE.muted }}>Available Coverage Balance:</span>
+                            <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 600 }}>
+                              {inr(availCov)}
+                            </span>
+
+                            <span style={{ color: PALETTE.muted }}>Policy Plan:</span>
+                            <span>{polPlan}</span>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    <span style={{ color: PALETTE.muted }}>Insurance Covered:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                      {inr(insCovered)}
+                    </span>
+                    <span style={{ color: PALETTE.muted }}>Patient Share:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                      {inr(patShare)}
+                    </span>
+                    <span style={{ color: PALETTE.muted }}>Paid to Date:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 600 }}>
+                      {inr(paidAmount)}
+                    </span>
+                    <span style={{ color: PALETTE.muted }}>Balance Due:</span>
+                    <span style={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      color: balDue > 0 ? PALETTE.critical : PALETTE.muted,
+                      fontWeight: 600
+                    }}>
+                      {inr(balDue)}
+                    </span>
+                  </>
+                );
+              })()}
+
+              {drawerData.type === "preauth" && (() => {
+                const reqAmt = Number(drawerData.data.requested ?? drawerData.data.finalClaimed ?? drawerData.data.claimed_amount ?? 0);
+                const appAmt = Number(drawerData.data.approved ?? 0);
+                const rejAmt = Number(drawerData.data.rejected ?? 0);
+                const patLiability = Math.max(0, reqAmt - appAmt);
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 500000);
+                const statusStr = String(drawerData.data.status || drawerData.data.claim_status || "");
+                const isUnderReviewOrPending = appAmt === 0 && (/review|pending|submitted|awaiting|query/i.test(statusStr) || rejAmt === 0);
+                // Available coverage balance: only sanctioned/approved claims consume sum insured.
+                // When under review, balance remains full covLimit, with reqAmt on authorization hold.
+                const availCov = Number(drawerData.data.available_coverage ?? (appAmt > 0 ? Math.max(0, covLimit - appAmt) : covLimit));
+                const projectedBal = Number(drawerData.data.projected_balance ?? Math.max(0, covLimit - reqAmt));
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+
+                return (
+                  <>
+                    <span style={{ color: PALETTE.muted }}>Patient Type:</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          background: isIp ? "#f3e8ff" : "#e0f2fe",
+                          color: isIp ? "#7e22ce" : "#0284c7",
+                          border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                        }}
+                      >
+                        {isIp ? "IP" : "OP"}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>{careLabel}</span>
+                    </span>
+
+                    {isIp && drawerData.data.admission_number && (
+                      <>
+                        <span style={{ color: PALETTE.muted }}>Admission Ref:</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                          {drawerData.data.admission_number}
+                        </span>
+                      </>
+                    )}
+
+                    <span style={{ color: PALETTE.muted }}>Policy Coverage (Sum Insured):</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700, color: PALETTE.primaryText }}>
+                      {inr(covLimit)}
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Available Coverage Balance:</span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 700, fontSize: "13px" }}>
+                          {inr(availCov)}
+                        </span>
+                        {isUnderReviewOrPending && reqAmt > 0 && (
+                          <span style={{
+                            fontSize: "10.5px",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            background: "#fef3c7",
+                            color: "#92400e",
+                            border: "1px solid #fde68a",
+                            fontWeight: 600
+                          }}>
+                            Hold: {inr(reqAmt)} under review
+                          </span>
+                        )}
+                      </div>
+                      {isUnderReviewOrPending && reqAmt > 0 && (
+                        <div style={{ fontSize: "11px", color: PALETTE.muted, marginTop: "2px" }}>
+                          Projected balance if approved: <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600, color: PALETTE.text }}>{inr(projectedBal)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <span style={{ color: PALETTE.muted }}>Policy Plan:</span>
+                    <span>{drawerData.data.policy_type || "Comprehensive Health Cover"}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Requested:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(reqAmt)}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Approved:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(appAmt)}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Patient Liability:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                      {inr(patLiability)}
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Completeness:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>
+                      {drawerData.data.completeness != null ? `${drawerData.data.completeness}%` : "100%"}
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Human Owner:</span>
+                    <span>{drawerData.data.owner || (loggedUserName ? `${loggedUserName} (TPA Coordinator)` : "R. Sundar (Insurance Coordinator)")}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Submitted:</span>
+                    <span>{drawerData.data.claim_date || "Today"}</span>
+                  </>
+                );
+              })()}
+
+              {drawerData.type === "claim" && (() => {
+                const covLimit = Number(drawerData.data.coverage_limit ?? drawerData.data.sum_insured ?? drawerData.data.sumInsured ?? 500000);
+                const reqAmt = Number(drawerData.data.finalClaimed ?? drawerData.data.claimed_amount ?? 0);
+                const appAmt = Number(drawerData.data.approved ?? 0);
+                const rejAmt = Number(drawerData.data.rejected ?? 0);
+                const statusStr = String(drawerData.data.status || drawerData.data.claim_status || "");
+                const isUnderReviewOrPending = appAmt === 0 && (/review|pending|submitted|awaiting|query/i.test(statusStr) || rejAmt === 0);
+                const availCov = Number(drawerData.data.available_coverage ?? (appAmt > 0 ? Math.max(0, covLimit - appAmt) : covLimit));
+                const projectedBal = Number(drawerData.data.projected_balance ?? Math.max(0, covLimit - reqAmt));
+                const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
+                const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
+
+                return (
+                  <>
+                    <span style={{ color: PALETTE.muted }}>Patient Type:</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          background: isIp ? "#f3e8ff" : "#e0f2fe",
+                          color: isIp ? "#7e22ce" : "#0284c7",
+                          border: `1px solid ${isIp ? "#e9d5ff" : "#bae6fd"}`
+                        }}
+                      >
+                        {isIp ? "IP" : "OP"}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>{careLabel}</span>
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Claim Number:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.claim}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Policy Coverage (Sum Insured):</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700, color: PALETTE.primaryText }}>
+                      {inr(covLimit)}
+                    </span>
+
+                    <span style={{ color: PALETTE.muted }}>Available Coverage Balance:</span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success, fontWeight: 700, fontSize: "13px" }}>
+                          {inr(availCov)}
+                        </span>
+                        {isUnderReviewOrPending && reqAmt > 0 && (
+                          <span style={{
+                            fontSize: "10.5px",
+                            padding: "1px 6px",
+                            borderRadius: "4px",
+                            background: "#fef3c7",
+                            color: "#92400e",
+                            border: "1px solid #fde68a",
+                            fontWeight: 600
+                          }}>
+                            Hold: {inr(reqAmt)} under review
+                          </span>
+                        )}
+                      </div>
+                      {isUnderReviewOrPending && reqAmt > 0 && (
+                        <div style={{ fontSize: "11px", color: PALETTE.muted, marginTop: "2px" }}>
+                          Projected balance if approved: <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600, color: PALETTE.text }}>{inr(projectedBal)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <span style={{ color: PALETTE.muted }}>Policy Plan:</span>
+                    <span>{drawerData.data.policy_type || "Comprehensive Health Cover"}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Claimed Amount:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(reqAmt)}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Approved Amount:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(drawerData.data.approved)}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Settled / Paid:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>{inr(drawerData.data.settled)}</span>
+
+                    <span style={{ color: PALETTE.muted }}>Turnaround Time:</span>
+                    <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{drawerData.data.turnaround}</span>
+                  </>
+                );
+              })()}
 
               {drawerData.type === "tax" && (
                 <>
@@ -2630,73 +3033,217 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               )}
             </div>
 
-            {/* AI Generated Section Box (Matching Prototype's Purple Box) */}
-            {(drawerData.type === "bill" || drawerData.type === "preauth") && (
-              <div
-                style={{
-                  border: `1px solid ${PALETTE.aiBorder}`,
-                  borderRadius: "8px",
-                  padding: "12px",
-                  background: PALETTE.aiTint
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: PALETTE.ai }} />
-                  <span style={{ fontWeight: 600, fontSize: "12px", color: PALETTE.aiText }}>
-                    {drawerData.type === "bill"
-                      ? "AI GENERATED · plain-language explanation · Billing Transparency Agent"
-                      : "AI GENERATED · Denial-risk indicators · Preauthorisation Assembly Agent"}
+            {/* Insurance Policy Coverage Details Breakdown (Surgery, Surgical Equipment, Pharmacy, Diagnostics, Room Rent, Co-Pay) */}
+            {Boolean(drawerData.data.coverage_limit || drawerData.data.sum_insured || drawerData.data.sumInsured || drawerData.data.tpa || drawerData.data.insurance_provider) && (
+              <div style={{
+                borderTop: `1px solid ${PALETTE.borderLight}`,
+                paddingTop: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: 700, fontSize: "12.5px", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>🛡️</span> Insurance Cover Details · Benefit Schedule
+                  </div>
+                  <span style={{
+                    fontSize: "10.5px",
+                    fontWeight: 600,
+                    color: "#0369a1",
+                    background: "#e0f2fe",
+                    padding: "2px 7px",
+                    borderRadius: "4px",
+                    border: "1px solid #bae6fd"
+                  }}>
+                    {drawerData.data.policy_type || "Super Surplus Floater Gold"}
                   </span>
                 </div>
-                <div style={{ lineHeight: 1.5, fontSize: "12.5px", color: PALETTE.text2 }}>
-                  {drawerData.type === "bill" ? (
-                    drawerData.data.patient_id === 122516 ? (
-                      "The bill is ₹23,450 above the estimate: a second balloon was needed before the stent (₹15,950, consumables) and one extra ward night on the doctor's advice (₹7,500). The stent is priced at the government-capped rate. Star Health approved ₹1,95,000; the remaining is under enhancement."
-                    ) : (
-                      `Charges follow Tariff FY26-27 v1.3. Actual of ${inr(drawerData.data.net_amount || drawerData.data.total)} is aligned with the counselled inpatient package. Approved insurance share of ${inr(drawerData.data.insurance_amount || drawerData.data.tpa)} is reconciled with TPA cashless sanction.`
-                    )
-                  ) : (
-                    "All required clinical documentation (Doctor Referral, Admission Sheet, Diagnostic Reports, ID Card) are collected and verified. Denial risk is scored at 14% (within safe automated boundary < 25%). Submission draft prepared for executive sign-off."
-                  )}
-                </div>
-                <div style={{ marginTop: "6px", fontSize: "11px", color: PALETTE.muted }}>
-                  Tariff FY26-27 v1.3 · confidence 95% · the billing executive remains responsible for the final response
+
+                <div style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "7px",
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "8px",
+                  padding: "10px"
+                }}>
+                  {/* 1. Surgery & OT Coverage */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "6px", borderBottom: "1px solid #edf2f7" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>🏥</span> Surgeries &amp; Operating Theatre (OT)
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Inpatient Surgeries, Daycare Procedures, Surgeon &amp; Anesthesia Charges
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: "4px" }}>
+                        100% Covered
+                      </span>
+                      <div style={{ fontSize: "10.5px", fontFamily: "ui-monospace, monospace", color: "#475569", marginTop: "2px" }}>
+                        Up to {inr(drawerData.data.coverage_limit || drawerData.data.sum_insured || drawerData.data.sumInsured || 1000000)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Surgical Equipment & Implants Coverage */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "6px", borderBottom: "1px solid #edf2f7" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>⚙️</span> Surgical Equipment, Implants &amp; Consumables
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Surgical Implants, OT Consumables, Laparoscopic Kits &amp; Medical Devices
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#0369a1", background: "#e0f2fe", padding: "1px 6px", borderRadius: "4px" }}>
+                        Covered (Tariff)
+                      </span>
+                      <div style={{ fontSize: "10.5px", fontFamily: "ui-monospace, monospace", color: "#475569", marginTop: "2px" }}>
+                        Up to ₹2.50 L / Actuals
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Pharmacy & Formulations */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "6px", borderBottom: "1px solid #edf2f7" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>💊</span> Pharmacy &amp; Formulations
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Inpatient Medications, IV Infusions, Post-Op Antibiotics &amp; Formulary
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: "4px" }}>
+                        100% Cashless
+                      </span>
+                      <div style={{ fontSize: "10.5px", color: "#475569", marginTop: "2px" }}>
+                        Hospital Formulary
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Diagnostics & Pathology */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "6px", borderBottom: "1px solid #edf2f7" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>🔬</span> Diagnostics &amp; Lab Investigations
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Pre-op Workup, Clinical Pathology, Biochemistry, Radiology &amp; Imaging
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: "4px" }}>
+                        100% Covered
+                      </span>
+                      <div style={{ fontSize: "10.5px", color: "#475569", marginTop: "2px" }}>
+                        Hospital Tariff Schedule
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 5. Room Rent & ICU Boarding */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", paddingBottom: "6px", borderBottom: "1px solid #edf2f7" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>🛏️</span> Room Rent &amp; ICU Boarding
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Single Private / Twin Sharing / ICU (No Pro-Rata Room Rent Capping)
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#7e22ce", background: "#f3e8ff", padding: "1px 6px", borderRadius: "4px" }}>
+                        No Pro-Rata Cap
+                      </span>
+                      <div style={{ fontSize: "10.5px", color: "#475569", marginTop: "2px" }}>
+                        Single Private / ICU
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 6. Co-Payment Terms */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "#1e293b", display: "flex", alignItems: "center", gap: "5px" }}>
+                        <span>🛡️</span> Co-Payment &amp; Deductibles
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                        Patient Out-of-Pocket Liability for approved clinical line items
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "8px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "1px 6px", borderRadius: "4px" }}>
+                        0% Co-Payment
+                      </span>
+                      <div style={{ fontSize: "10.5px", color: "#475569", marginTop: "2px" }}>
+                        Nil Deductible
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Bill Line Items Section */}
-            {drawerData.type === "bill" && (
+            {/* Bill / Claimed Line Items Section */}
+            {(drawerData.type === "bill" || drawerData.type === "preauth" || drawerData.type === "claim") && (
               <div style={{ borderTop: `1px solid ${PALETTE.borderLight}`, paddingTop: "10px" }}>
-                <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "8px" }}>
-                  Line items · estimate → actual
+                <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>
+                    {drawerData.type === "preauth"
+                      ? "Services & Items Under Preauthorisation"
+                      : (drawerData.type === "claim" ? "Claimed Line Items & Charges" : "Line items · estimate → actual")}
+                  </span>
+                  {drawerData.data.items?.length > 0 && (
+                    <span style={{ fontSize: "11px", color: PALETTE.muted }}>{drawerData.data.items.length} item{drawerData.data.items.length === 1 ? "" : "s"}</span>
+                  )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
-                  {(drawerData.data.pharmacy_items || []).slice(0, 4).map((pi, idx) => (
-                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
-                      <span>{pi.item_name} ({pi.quantity || 1} units)</span>
-                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(pi.net_amount)}</span>
-                    </div>
-                  ))}
-                  {(drawerData.data.lab_items || []).slice(0, 3).map((li, idx) => (
-                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
-                      <span>{li.item_name}</span>
-                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(li.net_amount)}</span>
-                    </div>
-                  ))}
-                  {(!drawerData.data.pharmacy_items?.length && !drawerData.data.lab_items?.length) && (
+                  {drawerData.data.items && drawerData.data.items.length > 0 ? (
+                    drawerData.data.items.map((it, idx) => (
+                      <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #f8fafc" }}>
+                        <div>
+                          <div style={{ color: PALETTE.text, fontWeight: 500 }}>
+                            {it.description || it.service_name || it.item_name || "Clinical Service"}
+                            {it.quantity && it.quantity > 1 ? ` (${it.quantity} units)` : ""}
+                          </div>
+                          {it.service_category && (
+                            <div style={{ fontSize: "10.5px", color: PALETTE.muted, marginTop: "1px" }}>
+                              Category: {it.service_category}
+                            </div>
+                          )}
+                        </div>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
+                          {inr(it.net_amount ?? it.gross_amount ?? ((it.unit_price || 0) * (it.quantity || 1)))}
+                        </span>
+                      </div>
+                    ))
+                  ) : (drawerData.data.pharmacy_items?.length || drawerData.data.lab_items?.length) ? (
+                    <>
+                      {(drawerData.data.pharmacy_items || []).slice(0, 4).map((pi, idx) => (
+                        <div key={`pharm-${idx}`} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
+                          <span>{pi.item_name} ({pi.quantity || 1} units)</span>
+                          <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(pi.net_amount)}</span>
+                        </div>
+                      ))}
+                      {(drawerData.data.lab_items || []).slice(0, 3).map((li, idx) => (
+                        <div key={`lab-${idx}`} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f8fafc" }}>
+                          <span>{li.item_name}</span>
+                          <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(li.net_amount)}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                        <span>Room Rent · Twin Sharing (3 days)</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹18,000 → ₹18,000</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                        <span>Clinical Consultation & Rounds</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹4,500 → ₹4,500</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                        <span>Pharmacy Formulations & IV Infusions</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>₹12,400 → ₹14,200 · extra antibiotics</span>
+                        <span>Clinical Service / Procedure Assessment</span>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.requested || drawerData.data.net_amount || drawerData.data.total)}</span>
                       </div>
                     </>
                   )}
@@ -2714,10 +3261,12 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   <span>Healthcare Services (SAC 9993)</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", color: PALETTE.success }}>EXEMPT</span>
                   <span>Pharmacy Formulations GST (5% / 12%)</span>
-                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>{inr(drawerData.data.tax_amount || 320)}</span>
+                  <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
+                    {Number(drawerData.data.tax_amount) > 0 ? inr(drawerData.data.tax_amount) : "₹0 (EXEMPT)"}
+                  </span>
                   <span style={{ fontWeight: 600, color: PALETTE.text }}>Total Tax Collected</span>
                   <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600, color: PALETTE.text }}>
-                    {inr(drawerData.data.tax_amount || 320)}
+                    {inr(drawerData.data.tax_amount || 0)}
                   </span>
                 </div>
               </div>
@@ -2761,66 +3310,98 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 </button>
               )}
 
-              {drawerData.type === "bill" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPaymentModal(drawerData.data);
-                      setPayAmount(String(drawerData.data.patient_amount || drawerData.data.patientShare || 0));
-                    }}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
-                      borderRadius: "6px",
-                      border: "0",
-                      background: PALETTE.primary,
-                      color: "#fff",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Record Payment (Co-pay / Settlement)
-                  </button>
+              {drawerData.type === "bill" && (() => {
+                const billStatus = String(drawerData.data.bill_status || drawerData.data.status || "").toLowerCase();
+                const isSettled = billStatus === "settled" || billStatus === "paid";
+                const est = Number(drawerData.data.gross_amount ?? drawerData.data.total ?? 0);
+                const act = Number(drawerData.data.net_amount ?? drawerData.data.total ?? 0);
+                const diff = act - est;
+                const patShare = Number(drawerData.data.patient_amount ?? drawerData.data.patientShare ?? act);
+                const paidAmount = isSettled ? patShare : Number(drawerData.data.paid_amount || 0);
+                const balDue = isSettled ? 0 : (drawerData.data.balance_due !== undefined ? Number(drawerData.data.balance_due) : Math.max(0, patShare - paidAmount));
 
-                  <button
-                    type="button"
-                    onClick={() => handleIssueGatePass(drawerData.data.bill_id)}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
-                      borderRadius: "6px",
-                      border: `1px solid ${PALETTE.border}`,
-                      background: "#fff",
-                      color: PALETTE.text,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Issue Financial Clearance Gate Pass
-                  </button>
+                return (
+                  <>
+                    {isSettled ? (
+                      <div
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          background: "#f0fdf4",
+                          border: "1px solid #86efac",
+                          color: "#166534",
+                          fontSize: "12.5px",
+                          fontWeight: 600,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px"
+                        }}
+                      >
+                        <span>✓</span> Bill Fully Settled &amp; Reconciled (Balance Due: ₹0)
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentModal(drawerData.data);
+                          setPayAmount(String(balDue > 0 ? balDue : patShare));
+                        }}
+                        style={{
+                          height: "34px",
+                          padding: "0 12px",
+                          borderRadius: "6px",
+                          border: "0",
+                          background: PALETTE.primary,
+                          color: "#fff",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          textAlign: "left"
+                        }}
+                      >
+                        Record Payment (Co-pay / Settlement)
+                      </button>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleResolveBillAdjustment(drawerData.data.bill_id, drawerData.data.patient_amount || drawerData.data.patientShare || 0)}
-                    style={{
-                      height: "34px",
-                      padding: "0 12px",
-                      borderRadius: "6px",
-                      border: `1px solid ${PALETTE.border}`,
-                      background: "#fff",
-                      color: PALETTE.text2,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                      textAlign: "left"
-                    }}
-                  >
-                    Resolve: honour quoted rate (goodwill adjustment)
-                  </button>
-                </>
-              )}
+                    <button
+                      type="button"
+                      onClick={() => handleIssueGatePass(drawerData.data.bill_id)}
+                      style={{
+                        height: "34px",
+                        padding: "0 12px",
+                        borderRadius: "6px",
+                        border: `1px solid ${PALETTE.border}`,
+                        background: "#fff",
+                        color: PALETTE.text,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left"
+                      }}
+                    >
+                      Issue Financial Clearance Gate Pass
+                    </button>
+
+                    {diff > 0 && !isSettled && (
+                      <button
+                        type="button"
+                        onClick={() => handleResolveBillAdjustment(drawerData.data.bill_id, diff)}
+                        style={{
+                          height: "34px",
+                          padding: "0 12px",
+                          borderRadius: "6px",
+                          border: `1px solid ${PALETTE.border}`,
+                          background: "#fff",
+                          color: PALETTE.text2,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                          textAlign: "left"
+                        }}
+                      >
+                        Resolve: honour quoted rate (goodwill adjustment)
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
 
               {drawerData.type === "preauth" && (
                 <>

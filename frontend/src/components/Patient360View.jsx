@@ -719,15 +719,32 @@ export default function Patient360View({
 
     // Dynamic database billing information
     const hasLiveBillData = Boolean(liveBill?.gross_amount || billing.bill_gross_amount || raw.gross_amount || raw.bill_gross_amount || d.bill_amount);
-    const billGrossAmount = hasLiveBillData
+    const rawBillGross = hasLiveBillData
       ? Number(liveBill?.gross_amount ?? billing.bill_gross_amount ?? raw.gross_amount ?? raw.bill_gross_amount ?? d.bill_amount ?? 0)
       : (isOP ? 800 : isER ? 2500 : 0);
-    const rawBillNet = hasLiveBillData
-      ? Number(liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? billGrossAmount)
-      : billGrossAmount;
-    const billNetAmount = Number(rawBillNet);
     const discountAmount = Number(liveBill?.discount_amount ?? billing.bill_discount_amount ?? 0);
     const taxAmount = Number(liveBill?.tax_amount ?? billing.bill_tax_amount ?? 0);
+    const rawBillNet = hasLiveBillData
+      ? Number(liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? rawBillGross)
+      : rawBillGross;
+
+    // Sum all itemized subsections (Hospital Bed Care + Pharmacy Sales + Lab Investigations)
+    const itemsTotal = (liveBill?.items && liveBill.items.length > 0)
+      ? liveBill.items.reduce((acc, it) => acc + Number(it.net_amount || it.gross_amount || 0), 0)
+      : 0;
+    const pharmTotal = (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
+      ? liveBill.pharmacy_items.reduce((acc, it) => acc + Number(it.net_amount || (it.quantity * it.unit_price) || 0), 0)
+      : 0;
+    const labTotal = (liveBill?.lab_items && liveBill.lab_items.length > 0)
+      ? liveBill.lab_items.reduce((acc, it) => acc + Number(it.unit_price || it.net_amount || 0), 0)
+      : 0;
+
+    const combinedItemizedTotal = itemsTotal + pharmTotal + labTotal;
+    const billGrossAmount = combinedItemizedTotal > 0 ? Math.max(rawBillGross, combinedItemizedTotal) : rawBillGross;
+    const billNetAmount = combinedItemizedTotal > 0
+      ? Math.max(rawBillNet, combinedItemizedTotal - discountAmount + taxAmount)
+      : Number(rawBillNet);
+    const estimateAmount = Number(liveBill?.estimated_amount || liveBill?.initial_estimate || billGrossAmount || billNetAmount);
     
     // Check if liveBill has an approved insurance claim or approved cashless guarantee
     const claimsList = liveBill?.claims || [];
@@ -1126,6 +1143,7 @@ export default function Patient360View({
       billNumber,
       billGrossAmount,
       billNetAmount,
+      estimateAmount,
       discountAmount,
       taxAmount,
       insuranceAmount,
@@ -3804,7 +3822,7 @@ export default function Patient360View({
               rows={[
                 [
                   p.billNumber,
-                  `₹${Math.round(p.billNetAmount * 0.9).toLocaleString('en-IN')}`,
+                  `₹${Number(p.estimateAmount ?? p.billGrossAmount ?? p.billNetAmount).toLocaleString('en-IN')}`,
                   `₹${p.billNetAmount.toLocaleString('en-IN')}`,
                   `₹${(p.isCleared ? (p.insuranceAmount > 0 ? p.insuranceAmount : p.billNetAmount) : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
                   `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`,
@@ -3905,7 +3923,7 @@ export default function Patient360View({
               rows={
                 (liveBill?.lab_items && liveBill.lab_items.length > 0)
                   ? liveBill.lab_items.map(li => [
-                      li.item_name || 'Diagnostic Investigation',
+                      (li.item_name && li.item_name !== 'Diagnostic Test' ? li.item_name : (li.test_parameter || 'Diagnostic Investigation')),
                       li.test_category || 'LIS / Hematology',
                       li.ordered_date ? new Date(li.ordered_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
                       li.test_parameter ? `${li.test_parameter}: ${li.result_value || 'Normal'} ${li.unit || ''}`.trim() : (li.result_value || 'Verified'),
@@ -4684,7 +4702,7 @@ export default function Patient360View({
       <BillingTransparencyDrawer
         isOpen={billingDrawerOpen}
         onClose={() => setBillingDrawerOpen(false)}
-        patientId={String(p?.patient_id || p?.admission_id || p?.uhid || '87221')}
+        patientId={String(p?.bill_number || p?.invoice_id || p?.patient_code || p?.uhid || p?.patient_id || p?.admission_id || '87221')}
         onApproved={() => {
           setBillingDrawerOpen(false);
         }}

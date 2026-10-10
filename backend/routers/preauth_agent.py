@@ -73,6 +73,17 @@ def list_preauth_cases(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/dossier")
+def get_dossier_by_query(patient_id: Optional[str] = Query(None, description="Patient ID or Code"), patient_identifier: Optional[str] = Query(None)):
+    """Fetches preauth dossier preview via query param without modifying stage."""
+    try:
+        target = patient_id or patient_identifier or "87264"
+        return preauth_service.generate_preauth_dossier(target, record_action=False)
+    except Exception as e:
+        logger.error(f"Error generating preauth dossier for query {patient_id or patient_identifier}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/dossier/{patient_identifier}")
 def get_or_generate_dossier(patient_identifier: str):
     """Fetches preauth dossier preview for a patient WITHOUT modifying stage."""

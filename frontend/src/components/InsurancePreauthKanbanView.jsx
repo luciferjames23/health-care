@@ -848,8 +848,9 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
   // Helper to render individual Kanban Card
   function renderKanbanCard(item, columnNumber) {
     const isProcessing = processingId === item.patient_id;
-    const est = item.estimated_cost || 25000;
+    const est = item.requested_amount || item.estimated_cost || item.claimed_amount || 25000;
     const cov = item.coverage_limit || 500000;
+    const avail = item.available_coverage != null ? item.available_coverage : cov;
     const riskScore = item.denial_risk?.risk_score ?? item.denial_risk?.risk_pct ?? 12;
     const riskLevel = item.denial_risk?.risk_level || (riskScore <= 30 ? 'Low Risk' : riskScore <= 60 ? 'Medium Risk' : riskScore <= 80 ? 'High Risk' : 'Critical Risk');
     const reasonsList = item.denial_risk?.risk_reasons || (item.denial_risk?.explanation ? [item.denial_risk.explanation] : ['All 17 statutory and policy criteria verified']);
@@ -965,12 +966,27 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           )}
         </div>
 
-        {/* Patient Name & UHID */}
+        {/* Patient Name & UHID + Care Setting Badge */}
         <div>
-          <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', lineHeight: 1.2 }}>
-            {item.patient_name}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+            <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', lineHeight: 1.2 }}>
+              {item.patient_name}
+            </div>
+            <span style={{
+              fontSize: '9.5px',
+              fontWeight: 700,
+              padding: '1px 5px',
+              borderRadius: '3px',
+              background: (item.is_inpatient || item.patient_type_code === 'IP' || item.patient_type === 'Inpatient (IP)' || item.admission_id) ? '#f3e8ff' : '#e0f2fe',
+              color: (item.is_inpatient || item.patient_type_code === 'IP' || item.patient_type === 'Inpatient (IP)' || item.admission_id) ? '#7e22ce' : '#0284c7',
+              border: `1px solid ${(item.is_inpatient || item.patient_type_code === 'IP' || item.patient_type === 'Inpatient (IP)' || item.admission_id) ? '#e9d5ff' : '#bae6fd'}`,
+              letterSpacing: '0.3px',
+              flexShrink: 0
+            }}>
+              {(item.is_inpatient || item.patient_type_code === 'IP' || item.patient_type === 'Inpatient (IP)' || item.admission_id) ? 'IP' : 'OP'}
+            </span>
           </div>
-          <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '1px', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px', fontFamily: 'monospace' }}>
             {item.patient_code || `MER-PAT-${item.patient_id}`} · {item.gender || 'Patient'}
           </div>
         </div>
@@ -990,12 +1006,14 @@ export default function InsurancePreauthKanbanView({ onOpenPatient, onNavigate }
           <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
             <span style={{ fontWeight: 600, color: '#0f172a' }}>{item.insurance_provider ? item.insurance_provider.split(' ')[0] : 'Star Health'}</span>
             <span style={{ fontFamily: 'monospace', fontWeight: 600, color: columnNumber === 4 ? '#b91c1c' : '#0284c7' }}>
-              {columnNumber === 4 ? `Cut: -₹${Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}` : `Est: ₹${est.toLocaleString('en-IN')}`}
+              {columnNumber === 4 ? `Cut: -₹${Math.round(item.rejected_amount || item.disputed_amount || 0).toLocaleString('en-IN')}` : `Req: ₹${est.toLocaleString('en-IN')}`}
             </span>
           </div>
           <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
             <span>Policy: {item.policy_number || 'ACTIVE-POL'}</span>
-            <span>Limit: ₹{(cov / 100000).toFixed(1)}L</span>
+            <span title={`Available Coverage: ₹${Number(avail).toLocaleString('en-IN')}`}>
+              Avail: ₹{Math.round(avail).toLocaleString('en-IN')}
+            </span>
           </div>
         </div>
 

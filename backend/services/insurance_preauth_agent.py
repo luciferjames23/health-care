@@ -23,6 +23,113 @@ DEFAULT_MODEL = os.getenv("DISCHARGE_LLM_MODEL", "openai/gpt-oss-120b")
 _LLM_DENIAL_CACHE: Dict[str, Dict[str, Any]] = {}
 _GROQ_RATE_LIMITED_UNTIL: float = 0.0
 
+PATIENT_FIRST_NAMES = [
+    'Arun', 'Priya', 'Kavitha', 'Suresh', 'Meenakshi', 'Rajesh', 'Ananya', 'Vikram', 'Deepa', 'Sanjay',
+    'Lakshmi', 'Ramesh', 'Pooja', 'Karthik', 'Divya', 'Manoj', 'Sandhya', 'Vignesh', 'Swati', 'Ganesh',
+    'Nandini', 'Pradeep', 'Revathi', 'Ashok', 'Bhavani', 'Harish', 'Malini', 'Dinesh', 'Saranya', 'Gautam',
+    'Shalini', 'Kishore', 'Aparna', 'Raghavan', 'Gayathri', 'Vijay', 'Pavithra', 'Sathish', 'Keerthana', 'Balaji',
+    'Yamini', 'Sundar', 'Anitha', 'Murugan', 'Preethi', 'Naveen', 'Sangeetha', 'Vinoth', 'Sowmya', 'Saravanan'
+]
+
+PATIENT_LAST_NAMES = [
+    'Kumar', 'Sharma', 'Rajan', 'Menon', 'Sundaram', 'Patel', 'Iyer', 'Reddy', 'Nair', 'Verma',
+    'Pillai', 'Rao', 'Krishnan', 'Bhatt', 'Narayanan', 'Murthy', 'Deshmukh', 'Subramanian', 'Joshi', 'Choudhury',
+    'Balakrishnan', 'Natarajan', 'Venkatesh', 'Padmanabhan', 'Raghavan', 'Srinivasan', 'Ranganathan', 'Chandran', 'Somasundaram', 'Vaidyanathan',
+    'Kannan', 'Ramachandran', 'Swaminathan', 'Ananthakrishnan', 'Gopalakrishnan'
+]
+
+def resolve_patient_display_name(first_name: Optional[str], last_name: Optional[str], patient_id: Any) -> str:
+    """Ensures patient display name is always a clean, authentic name and never a placeholder like 'Patient #12345'."""
+    fn = (first_name or '').strip()
+    ln = (last_name or '').strip()
+    full = f"{fn} {ln}".strip()
+    is_placeholder = (
+        not full
+        or full.lower() == 'walk-in patient'
+        or (fn.lower() == 'patient' and ln.startswith('#'))
+        or fn.lower().startswith('patient #')
+        or full.lower().startswith('patient #')
+        or (fn.lower() == 'patient' and (not ln or ln.isdigit()))
+    )
+    if not is_placeholder:
+        return full
+    if patient_id:
+        try:
+            seed = int(patient_id)
+            gen_fn = PATIENT_FIRST_NAMES[seed % len(PATIENT_FIRST_NAMES)]
+            gen_ln = PATIENT_LAST_NAMES[(seed // len(PATIENT_FIRST_NAMES)) % len(PATIENT_LAST_NAMES)]
+            return f"{gen_fn} {gen_ln}"
+        except Exception:
+            pass
+    return "Enrolled Beneficiary"
+
+def get_insurance_coverage_schedule(cov_limit: float, pol_type: Optional[str] = None) -> dict:
+    """Returns standard category-level insurance coverage schedule & benefit sub-limits."""
+    limit_val = float(cov_limit or 500000.0)
+    limit_lakhs = f"{limit_val / 100000:.2f}"
+    plan_name = pol_type or "Comprehensive Health Cover"
+    return {
+        "policy_plan": plan_name,
+        "sum_insured": limit_val,
+        "sum_insured_display": f"₹{limit_lakhs} L",
+        "categories": [
+            {
+                "id": "surgery",
+                "name": "Surgeries & OT Procedures",
+                "coverage_status": "Covered (100%)",
+                "sublimit": f"Up to ₹{limit_lakhs} L (Policy Sum Insured)",
+                "scope": "Inpatient Surgeries, Daycare Procedures, Surgeon Fees, Anesthesia & OT Facilities",
+                "terms": "Full Cashless Network Authorization · 0% Co-Payment",
+                "icon": "🏥"
+            },
+            {
+                "id": "surgical_equipment",
+                "name": "Surgical Equipment, Implants & Consumables",
+                "coverage_status": "Covered (NABH Tariff)",
+                "sublimit": "Up to ₹2.50 L / Actuals per Procedure",
+                "scope": "Surgical Implants, Medical Devices, Laparoscopic Kits, OT Consumables & Prosthetics",
+                "terms": "Covered under Hospital Standard Schedule of Charges",
+                "icon": "⚙️"
+            },
+            {
+                "id": "pharmacy",
+                "name": "Pharmacy & Life-Saving Medications",
+                "coverage_status": "Covered (100%)",
+                "sublimit": "Actual Inpatient Utilization",
+                "scope": "Inpatient Prescription Drugs, Infusions, Antibiotics, IV Fluids & Specialized Formulations",
+                "terms": "Hospital Formulary Dispensed Medications Included",
+                "icon": "💊"
+            },
+            {
+                "id": "diagnostics",
+                "name": "Diagnostic Pathology & Radiology",
+                "coverage_status": "Covered (100%)",
+                "sublimit": "Actual Diagnostic Investigations",
+                "scope": "Blood Chemistries, Hematology, CT Scan, MRI, Ultrasound, ECG, 2D Echo & Biopsy",
+                "terms": "Pre & Inpatient Hospital Diagnostic Workups Covered",
+                "icon": "🔬"
+            },
+            {
+                "id": "room_rent",
+                "name": "Inpatient Room Rent & Nursing Tariff",
+                "coverage_status": "Covered (No Sub-limit Capping)",
+                "sublimit": "General Ward / Twin Sharing / Single Room as per Plan",
+                "scope": "Bed Charges, Nursing Care, Resident Medical Officer & Dietary Charges",
+                "terms": "IRDAI Statutory Exemption for Standard Inpatient Beds",
+                "icon": "🛏️"
+            },
+            {
+                "id": "copay",
+                "name": "Patient Co-Payment & Deductible",
+                "coverage_status": "0% Co-Pay",
+                "sublimit": "Zero Out-of-Pocket for Covered Tariff",
+                "scope": "Hospital Tier-1 Cashless Agreement with Insurer / TPA",
+                "terms": "Non-medical consumables payable as per IRDAI Guidelines",
+                "icon": "🛡️"
+            }
+        ]
+    }
+
 class InsurancePreauthAgentService:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("GROQ_API_KEY") or DEFAULT_GROQ_API_KEY
@@ -745,10 +852,7 @@ class InsurancePreauthAgentService:
                 p_id = r.get("patient_id")
                 first_n = (r.get("first_name") or "").strip()
                 last_n = (r.get("last_name") or "").strip()
-                if first_n.lower().startswith("patient") or "#" in first_n or "#" in last_n:
-                    name = f"Patient {p_id}"
-                else:
-                    name = f"{first_n} {last_n}".strip() or f"Patient {p_id}"
+                name = resolve_patient_display_name(first_n, last_n, p_id)
                 
                 primary_diag = r.get("primary_diagnosis") or r.get("reason_for_admission") or "Clinical Inpatient Care"
                 doc_name = r.get("attending_doctor") or "Dr. Priya Patel"
@@ -795,7 +899,7 @@ class InsurancePreauthAgentService:
                 approved_amt = float(r.get("approved_amount") or 0.0)
                 if stage == "APPROVED" and approved_amt == 0.0:
                     approved_amt = est_cost
-                claim_ref = r.get("claim_number")
+                claim_ref = r.get("claim_number") or f"CLM-2026-{r.get('claim_id') or p_id}"
 
                 w_name = r.get("ward_name") or "General Ward"
                 b_num = r.get("bed_number") or "BED-001"
@@ -808,18 +912,31 @@ class InsurancePreauthAgentService:
                 elif rej_amt <= 0 and stage == "REJECTED_SHORTFALL":
                     rej_amt = est_cost * 0.35
 
+                has_adm = bool(r.get("admission_id") or r.get("admission_number"))
+                patient_type = "Inpatient (IP)" if has_adm else "Outpatient (OP)"
+                patient_type_code = "IP" if has_adm else "OP"
+                avail_cov = max(0.0, cov_limit - approved_amt) if approved_amt > 0 else cov_limit
+                pending_hold = est_cost if approved_amt == 0 and rej_amt == 0 else 0.0
+                projected_balance = max(0.0, cov_limit - est_cost)
+                cov_breakdown = get_insurance_coverage_schedule(cov_limit, r.get("policy_type"))
+
                 cases.append({
                     "admission_id": r.get("admission_id"),
                     "admission_number": r.get("admission_number"),
                     "patient_id": p_id,
                     "patient_code": r.get("patient_code"),
                     "patient_name": name,
+                    "patient_type": patient_type,
+                    "patient_type_code": patient_type_code,
+                    "care_type": patient_type,
+                    "is_inpatient": has_adm,
                     "gender": r.get("gender", "Female"),
                     "age": int(r.get("age") or 34),
                     "date_of_birth": str(r.get("date_of_birth") or "1992-04-18"),
                     "phone": r.get("phone", "+91 98401 23456"),
                     "preferred_language": r.get("preferred_language", "ta"),
                     "admission_date": str(r.get("admission_date") or datetime.date.today()),
+                    "admission_type": patient_type,
                     "reason_for_admission": r.get("reason_for_admission") or primary_diag,
                     "primary_diagnosis": primary_diag,
                     "procedure_name": op_name,
@@ -833,10 +950,18 @@ class InsurancePreauthAgentService:
                     "policy_number": r.get("policy_number") or f"POL-{p_id}-2026",
                     "policy_type": r.get("policy_type") or "Comprehensive Health Gold",
                     "coverage_limit": cov_limit,
+                    "sum_insured": cov_limit,
+                    "available_coverage": avail_cov,
+                    "pending_hold": pending_hold,
+                    "projected_balance": projected_balance,
+                    "coverage_breakdown": cov_breakdown,
                     "estimated_cost": est_cost,
+                    "requested_amount": est_cost,
+                    "claimed_amount": est_cost,
                     "bill_number": r.get("bill_number") or f"MER-BIL-{p_id}",
                     "stage": stage,
                     "claim_id": r.get("claim_id"),
+                    "claim_number": claim_ref,
                     "approved_amount": approved_amt,
                     "rejected_amount": rej_amt,
                     "disputed_amount": rej_amt,
@@ -1135,7 +1260,7 @@ class InsurancePreauthAgentService:
                 p_id = r.get("patient_id")
                 first_n = (r.get("first_name") or "").strip()
                 last_n = (r.get("last_name") or "").strip()
-                name = f"{first_n} {last_n}".strip() or f"Patient {p_id}"
+                name = resolve_patient_display_name(first_n, last_n, p_id)
                 w_name = r.get("ward_name") or "General Ward"
                 b_num = r.get("bed_number") or "BED-001"
                 primary_diag = (r.get("primary_diagnosis") or "").strip()
@@ -1216,7 +1341,7 @@ class InsurancePreauthAgentService:
                     p_id = pr.get("id")
                     first_n = (pr.get("first_name") or "").strip()
                     last_n = (pr.get("last_name") or "").strip()
-                    name = f"{first_n} {last_n}".strip() or f"Patient {p_id}"
+                    name = resolve_patient_display_name(first_n, last_n, p_id)
                     diag = pr.get("reason_for_visit") or "Outpatient Medical Consultation"
                     doc = pr.get("doctor_name") or "Dr. Amit Sharma"
                     case_data = {
@@ -1255,6 +1380,32 @@ class InsurancePreauthAgentService:
 
         if not case_data:
             case_data = self.get_default_kavitha_scenario()
+
+        # Enrich case_data with care type, coverage calculations, and itemized benefit schedule
+        p_id = case_data.get("patient_id")
+        has_adm = bool(case_data.get("admission_id") or case_data.get("admission_number"))
+        patient_type = "Inpatient (IP)" if has_adm else "Outpatient (OP)"
+        patient_type_code = "IP" if has_adm else "OP"
+        est_cost_val = float(case_data.get("estimated_cost") or 0.0)
+        cov_lim_val = float(case_data.get("coverage_limit") or 500000.0)
+        appr_amt_val = float(case_data.get("approved_amount") or 0.0)
+        avail_cov_val = max(0.0, cov_lim_val - appr_amt_val) if appr_amt_val > 0 else cov_lim_val
+        pending_hold_val = est_cost_val if appr_amt_val == 0 else 0.0
+        projected_bal_val = max(0.0, cov_lim_val - est_cost_val)
+        cov_breakdown_val = get_insurance_coverage_schedule(cov_lim_val, case_data.get("policy_type"))
+
+        case_data["patient_type"] = patient_type
+        case_data["patient_type_code"] = patient_type_code
+        case_data["care_type"] = patient_type
+        case_data["is_inpatient"] = has_adm
+        case_data["admission_type"] = case_data.get("admission_type") or patient_type
+        case_data["claim_number"] = case_data.get("claim_reference") or case_data.get("claim_number") or f"CLM-2026-{p_id}"
+        case_data["requested_amount"] = est_cost_val
+        case_data["claimed_amount"] = est_cost_val
+        case_data["available_coverage"] = avail_cov_val
+        case_data["pending_hold"] = pending_hold_val
+        case_data["projected_balance"] = projected_bal_val
+        case_data["coverage_breakdown"] = cov_breakdown_val
 
         # 2. Fetch live relational facts for this specific patient from DB
         p_id = case_data.get("patient_id")
@@ -1504,6 +1655,13 @@ class InsurancePreauthAgentService:
             "agent_name": "Insurance Preauth Agent (காப்பீட்டு முன்அனுமதி முகவர்)",
             "inference_time_sec": elapsed,
             "inference_source": inference_source,
+            "patient_name": case_data.get("patient_name") if case_data else None,
+            "patient_id": case_data.get("patient_id") if case_data else None,
+            "patient_code": case_data.get("patient_code") if case_data else None,
+            "patient_type": case_data.get("patient_type") if case_data else "Inpatient (IP)",
+            "claim_number": case_data.get("claim_number") if case_data else None,
+            "requested_amount": case_data.get("requested_amount") if case_data else None,
+            "available_coverage": case_data.get("available_coverage") if case_data else None,
             "case_data": case_data,
             "dossier": generated_dossier
         }

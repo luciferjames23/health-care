@@ -2031,6 +2031,45 @@ def update_dim_generated_discharge_summary(
     actual_sid = matched.get("summary_id")
     update_dict = {k: v for k, v in payload.dict().items() if v is not None}
 
+    # If approving or signing off, ensure discharge_date is set to the current doctor approval timestamp
+    approval_val = str(update_dict.get("approval_status") or "").strip().lower()
+    if approval_val in ("approved", "signed off", "signed", "discharged", "completed"):
+        import datetime
+        import dateutil.parser
+        now_dt = datetime.datetime.now()
+        
+        # If discharge_date was passed in update_dict, parse it; otherwise use now_dt
+        if "discharge_date" in update_dict and update_dict["discharge_date"]:
+            try:
+                update_dict["discharge_date"] = dateutil.parser.parse(str(update_dict["discharge_date"]))
+            except Exception:
+                update_dict["discharge_date"] = now_dt
+        else:
+            update_dict["discharge_date"] = now_dt
+
+        target_aid = matched.get("admission_id") or update_dict.get("admission_id")
+        target_pid = matched.get("patient_id") or update_dict.get("patient_id")
+
+        # Update admissions & dim_admission_inputs tables with the doctor approval timestamp
+        try:
+            now_str = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+            if target_aid:
+                db_connector.execute_custom_query(
+                    f"UPDATE admissions SET discharge_status = 'Discharged', discharge_date = '{now_str}' WHERE admission_id = {target_aid}"
+                )
+                db_connector.execute_custom_query(
+                    f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = {target_aid}"
+                )
+            elif target_pid:
+                db_connector.execute_custom_query(
+                    f"UPDATE admissions SET discharge_status = 'Discharged', discharge_date = '{now_str}' WHERE patient_id = {target_pid}"
+                )
+                db_connector.execute_custom_query(
+                    f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE patient_id = {target_pid}"
+                )
+        except Exception as e_adm:
+            print(f"[WARN] Failed to sync admissions on gold discharge approval: {e_adm}")
+
     if not update_dict:
         return {
             "status": "no_change",

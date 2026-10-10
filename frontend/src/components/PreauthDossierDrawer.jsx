@@ -536,7 +536,21 @@ export default function PreauthDossierDrawer({
                     }}>
                       <div>
                         <span style={{ color: '#64748b', display: 'block', fontSize: '10.5px' }}>Patient Name & UHID:</span>
-                        <strong style={{ color: '#0f172a' }}>{caseInfo.patient_name || 'Sarah Connor'}</strong> ({caseInfo.patient_code || 'P1000106'})
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            fontSize: '9.5px',
+                            fontWeight: 700,
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            background: (caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#f3e8ff' : '#e0f2fe',
+                            color: (caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#7e22ce' : '#0284c7',
+                            border: `1px solid ${(caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#e9d5ff' : '#bae6fd'}`
+                          }}>
+                            {(caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? 'Inpatient (IP)' : 'Outpatient (OP)'}
+                          </span>
+                          <strong style={{ color: '#0f172a' }}>{caseInfo.patient_name || 'Sarah Connor'}</strong>
+                          <span style={{ fontSize: '10.5px', color: '#64748b' }}>({caseInfo.patient_code || 'P1000106'})</span>
+                        </div>
                       </div>
                       <div>
                         <span style={{ color: '#64748b', display: 'block', fontSize: '10.5px' }}>Age / Gender / Contact:</span>
@@ -547,8 +561,12 @@ export default function PreauthDossierDrawer({
                         <strong style={{ color: '#0f172a' }}>{caseInfo.policy_number || 'STAR-POL-1004421'}</strong> (SI: ₹{(caseInfo.coverage_limit || 500000).toLocaleString('en-IN')})
                       </div>
                       <div>
-                        <span style={{ color: '#64748b', display: 'block', fontSize: '10.5px' }}>Admitted Ward / Bed:</span>
-                        <strong style={{ color: '#4338ca' }}>{caseInfo.ward_bed || 'General Medical Ward A / GMA-102'}</strong>
+                        <span style={{ color: '#64748b', display: 'block', fontSize: '10.5px' }}>Available Balance / Ward:</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, color: '#059669' }}>₹{(caseInfo.available_coverage != null ? caseInfo.available_coverage : (caseInfo.coverage_limit || 500000)).toLocaleString('en-IN')}</span>
+                          <span style={{ color: '#94a3b8' }}>•</span>
+                          <strong style={{ color: '#4338ca' }}>{caseInfo.ward_bed || 'General Medical Ward A / GMA-102'}</strong>
+                        </div>
                       </div>
                       <div>
                         <span style={{ color: '#64748b', display: 'block', fontSize: '10.5px' }}>Attending Specialist:</span>
@@ -681,7 +699,18 @@ export default function PreauthDossierDrawer({
                           {caseInfo.patient_name ? caseInfo.patient_name.charAt(0) : 'P'}
                         </div>
                         <div>
-                          <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: (caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#f3e8ff' : '#e0f2fe',
+                              color: (caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#7e22ce' : '#0284c7',
+                              border: `1px solid ${(caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? '#e9d5ff' : '#bae6fd'}`
+                            }}>
+                              {(caseInfo.is_inpatient || caseInfo.patient_type_code === 'IP' || caseInfo.admission_id) ? 'Inpatient (IP)' : 'Outpatient (OP)'}
+                            </span>
                             {caseInfo.patient_name || 'Sarah Connor'}
                             <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 500, color: '#64748b', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
                               {caseInfo.patient_code || 'P1000106'}
@@ -719,7 +748,7 @@ export default function PreauthDossierDrawer({
                     <div 
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '1fr 1fr 1.2fr',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
                         gap: '10px',
                         paddingTop: '10px',
                         borderTop: '1px solid #f1f5f9',
@@ -739,11 +768,96 @@ export default function PreauthDossierDrawer({
                         </strong>
                       </div>
                       <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }}>
-                        <span style={{ color: '#1e40af', fontSize: '11px', display: 'block', marginBottom: '2px' }}>Est. Bill Amount</span>
+                        <span style={{ color: '#1e40af', fontSize: '11px', display: 'block', marginBottom: '2px' }}>Requested Authorization</span>
                         <strong style={{ color: '#1d4ed8', fontSize: '14px' }}>
-                          ₹{(caseInfo.estimated_cost || 35000).toLocaleString('en-IN')}
+                          ₹{(caseInfo.requested_amount || caseInfo.estimated_cost || 35000).toLocaleString('en-IN')}
                         </strong>
                       </div>
+                      <div style={{ padding: '8px 10px', borderRadius: '6px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <span style={{ color: '#166534', fontSize: '11px' }}>Available Coverage</span>
+                          {(() => {
+                            const st = String(caseInfo.claim_status || '').toLowerCase();
+                            const isReview = st.includes('review') || st.includes('pending') || st.includes('submitted') || st.includes('awaiting');
+                            return isReview ? (
+                              <span style={{ fontSize: '9.5px', fontWeight: 700, padding: '1px 5px', borderRadius: '3px', background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }}>
+                                Hold under review
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
+                        <strong style={{ color: '#15803d', fontSize: '14px' }}>
+                          ₹{(caseInfo.available_coverage != null ? caseInfo.available_coverage : (caseInfo.coverage_limit || 500000)).toLocaleString('en-IN')}
+                        </strong>
+                        {(() => {
+                          const reqAmt = Number(caseInfo.requested_amount || caseInfo.estimated_cost || 0);
+                          const covLim = Number(caseInfo.coverage_limit || 500000);
+                          const proj = Math.max(0, covLim - reqAmt);
+                          const st = String(caseInfo.claim_status || '').toLowerCase();
+                          const isReview = st.includes('review') || st.includes('pending') || st.includes('submitted') || st.includes('awaiting');
+                          return isReview && reqAmt > 0 ? (
+                            <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                              Hold: ₹{reqAmt.toLocaleString('en-IN')} · Proj. post-approval: ₹{proj.toLocaleString('en-IN')}
+                            </div>
+                          ) : null;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Insurance Cover Details · Benefit Schedule Card */}
+                  <div style={{
+                    padding: '16px',
+                    borderRadius: '10px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ fontSize: '12.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Shield style={{ width: '15px', height: '15px', color: '#059669' }} />
+                        Insurance Cover Details · Benefit Schedule
+                      </h4>
+                      <span style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0' }}>
+                        Policy Sum Insured: ₹{((caseInfo.coverage_limit || 500000) / 100000).toFixed(2)} L
+                      </span>
+                    </div>
+
+                    <div style={{ borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden', fontSize: '11.5px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead style={{ backgroundColor: '#f8fafc', color: '#475569', fontSize: '10.5px', borderBottom: '1px solid #e2e8f0' }}>
+                          <tr>
+                            <th style={{ padding: '7px 10px' }}>Category</th>
+                            <th style={{ padding: '7px 10px' }}>Coverage Scope</th>
+                            <th style={{ padding: '7px 10px' }}>Status</th>
+                            <th style={{ padding: '7px 10px', textAlign: 'right' }}>Sub-Limit / Terms</th>
+                          </tr>
+                        </thead>
+                        <tbody style={{ color: '#334155' }}>
+                          {(caseInfo.coverage_breakdown?.categories || [
+                            { name: 'Surgeries & OT Procedures', scope: 'Inpatient Surgeries, Daycare, Surgeon Fees & OT Facilities', coverage_status: 'Covered (100%)', sublimit: `Up to ₹${((caseInfo.coverage_limit || 500000) / 100000).toFixed(2)} L (Sum Insured)` },
+                            { name: 'Surgical Equipment & Implants', scope: 'Implants, Laparoscopic Kits, OT Consumables & Prosthetics', coverage_status: 'Covered (NABH Tariff)', sublimit: 'Up to ₹2.50 L / Actuals' },
+                            { name: 'Pharmacy & Medications', scope: 'Inpatient Prescription Drugs, Infusions & Formulations', coverage_status: 'Covered (100%)', sublimit: 'Actual Utilization' },
+                            { name: 'Diagnostic Tests & Radiology', scope: 'Pathology, CT, MRI, Ultrasound, ECG & Biomarkers', coverage_status: 'Covered (100%)', sublimit: 'Actual Diagnostic Tariff' },
+                            { name: 'Inpatient Room Rent & Nursing', scope: 'General Ward / ICU Beds, Nursing & Medical Officer', coverage_status: 'Covered', sublimit: 'No Capping on Standard Beds' },
+                            { name: 'Patient Co-Payment & Deductible', scope: 'Hospital Cashless Agreement with Insurer', coverage_status: '0% Co-Pay', sublimit: 'Zero Out-of-Pocket for Covered Tariff' }
+                          ]).map((cat, cIdx) => (
+                            <tr key={cIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0f172a' }}>{cat.name}</td>
+                              <td style={{ padding: '7px 10px', color: '#64748b', fontSize: '11px' }}>{cat.scope}</td>
+                              <td style={{ padding: '7px 10px' }}>
+                                <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '3px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                                  {cat.coverage_status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#334155' }}>{cat.sublimit}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
@@ -1027,7 +1141,7 @@ export default function PreauthDossierDrawer({
                     const pDiag = caseInfo.primary_diagnosis || s7.diagnosis || 'Acute Inpatient Care';
                     const pIns = caseInfo.insurance_provider || s2.insurance_company || 'Star Health & Allied Insurance';
                     const pPol = caseInfo.policy_number || s2.policy_number || 'STAR-POL-7728194';
-                    const pEst = caseInfo.estimated_cost || 35000;
+                    const pEst = Number(caseInfo.requested_amount || caseInfo.estimated_cost || caseInfo.claimed_amount || 35000);
                     const pWard = caseInfo.ward_bed || s6.ward_room || 'General Medical Ward A / GMA-102';
 
                     const sections = [

@@ -559,7 +559,15 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
       changedFields.admission_reason = updatedCaseHistory;
     }
 
-    if (overrideStatus) {
+    const isApproving = overrideStatus === 'Approved' || (changedFields.approval_status === 'Approved' && originalForm.approval_status !== 'Approved');
+    if (isApproving) {
+      const approvedDateTime = formatClinicalDateTime(new Date());
+      changedFields.approval_status = 'Approved';
+      changedFields.discharge_date = approvedDateTime;
+      if (form.attending_physician) {
+        changedFields.approved_by = form.attending_physician;
+      }
+    } else if (overrideStatus) {
       changedFields.approval_status = overrideStatus;
       if (form.attending_physician) {
         changedFields.approved_by = form.attending_physician;
@@ -579,7 +587,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
     try {
       await apiService.updateDischargeSummary(summaryId, changedFields);
-      setSuccessMsg(`✓ Updated successfully for ${summaryId}`);
+      setSuccessMsg(isApproving ? `✓ Clinically Approved & Certified at ${changedFields.discharge_date}` : `✓ Updated successfully for ${summaryId}`);
       setIsEditing(false);
 
       const updatedForm = { ...form, ...changedFields };
@@ -617,7 +625,9 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
   }
   sex = sex || '—';
   const admissionDisplayDate = formatClinicalDate(form.admission_date);
-  const printDocDate = form.discharge_date || formatClinicalDateTime(summaryData.discharge_date || form.admission_date, summaryData.dischargeTime || summaryData.dischargedAt);
+  const printDocDate = form.approval_status === 'Approved'
+    ? (form.discharge_date || formatClinicalDateTime(new Date()))
+    : (form.discharge_date ? `Draft (${form.discharge_date}) - Pending Doctor Approval` : 'Pending Clinical Approval');
   const cleanFollowup = formatClinicalAdvice(stripTamil(form.followup_instructions));
   const cleanDiagText = formatClinicalDiagnoses(form.discharge_diagnosis);
   const medIntro = getMedicationIntro(form.discharge_medications);
@@ -986,7 +996,16 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     <div style={{ fontSize: '11px', color: '#64748b' }}>Primary Consultant / Attending Physician:</div>
                     <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{form.attending_physician || 'Attending Physician'}</div>
                     <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                      Discharge Date: {form.discharge_date || formatClinicalDateTime(summaryData.discharge_date, summaryData.dischargeTime || summaryData.dischargedAt)}
+                      {form.approval_status === 'Approved' ? (
+                        <span>Discharge Date: <strong style={{ color: '#0f172a' }}>{form.discharge_date || formatClinicalDateTime(new Date())}</strong></span>
+                      ) : (
+                        <span>
+                          Discharge Date: <span style={{ color: '#d97706', fontWeight: 600 }}>Pending Doctor Approval</span>
+                          {form.discharge_date && (
+                            <span style={{ color: '#94a3b8', fontSize: '10.5px', marginLeft: '6px' }}>(Drafted: {form.discharge_date})</span>
+                          )}
+                        </span>
+                      )}
                     </div>
                   </div>
 

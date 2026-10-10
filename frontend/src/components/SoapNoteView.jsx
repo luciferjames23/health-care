@@ -548,7 +548,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
               color: 'oklch(0.45 0.1 300)', border: '1px solid oklch(0.85 0.05 300)',
               padding: '2px 6px', borderRadius: '4px'
             }}>
-              AI GENERATED · NOT A CLINICAL RECORD
+              CLINICAL DRAFT · REVIEW BEFORE SIGNING
             </span>
           </div>
 

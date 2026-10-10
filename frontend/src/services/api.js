@@ -526,11 +526,11 @@ export const apiService = {
   },
 
   async getExecutiveAnalytics(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   async getLiveAnalytics(options = {}) {
-    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, options);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/live-analytics`, { forceFresh: true, cacheTtlMs: 0, ...options });
   },
 
   async getLiveForecasting(options = {}) {
@@ -1899,9 +1899,10 @@ export const apiService = {
     return await res.json();
   },
 
-  async getBillingBreakdown(patientIdentifier) {
+  async getBillingBreakdown(patientIdentifier, force = false) {
     const id = encodeURIComponent(String(patientIdentifier || '87221').trim());
-    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/breakdown/${id}`);
+    const qs = force ? '?force_refresh=true' : '';
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/billing-transparency/breakdown/${id}${qs}`);
     if (!res.ok) throw new Error(`Error fetching billing breakdown ${res.status}`);
     return await res.json();
   },

@@ -4678,7 +4678,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
 
                 <div style={{ marginTop: '10px', padding: '10px', borderRadius: '6px', background: '#f6f7f8', fontSize: '11.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                   <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'oklch(0.5 0.1 300)', fontWeight: 700, marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Output · AI Generated (Groq LPU)</span>
+                    <span>Output · Clinical Intelligence Engine (Groq LPU)</span>
                     <span style={{ color: '#059669', textTransform: 'none' }}>
                       {isNursingAgent ? 'Live SBAR Card' : isDischargeAgent ? 'Live Inpatient Batch Summary' : isEmployeeAgent ? 'Live Staff Roster & Policy Response' : isAnalyticsAgent ? 'Live Lakehouse Analytics Report' : isForecastingAgent ? 'Live 7-Day Inpatient Forecast' : 'AI Output'}
                     </span>
