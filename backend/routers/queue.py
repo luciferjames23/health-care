@@ -809,9 +809,11 @@ def get_my_queue_today(
     If doctor_id query param is provided (or if user is Admin), uses that doctor_id.
     Otherwise resolves doctor_id from user JWT / DB context.
     """
-    target_doctor_id = doctor_id
-    if not target_doctor_id:
+    user_role = str(user.get("role") or "").upper()
+    if user_role == "DOCTOR":
         target_doctor_id = resolve_doctor_id(user)
+    else:
+        target_doctor_id = doctor_id if doctor_id else resolve_doctor_id(user)
 
     # Fallback for Admin or unassigned users: pick doctor with appointments today or first active doctor
     if not target_doctor_id:

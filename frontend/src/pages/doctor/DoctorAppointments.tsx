@@ -100,17 +100,6 @@ const DoctorAppointments: React.FC = () => {
             <h2>My Appointments</h2>
             <p>Appointments for {user?.name}{user?.department ? ` — ${user?.department}` : ''}</p>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={loadAppointments}
-              disabled={loading}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
-              Refresh
-            </button>
-          </div>
         </div>
       </div>
 

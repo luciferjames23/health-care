@@ -1588,7 +1588,7 @@ def get_appointments(
     sort_by: Optional[str] = Query('appointment_date'),
     sort_order: Optional[str] = Query('desc'),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=10000),
     current_user: dict = Depends(get_current_user)
 ):
     """
