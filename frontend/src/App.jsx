@@ -16,6 +16,7 @@ import HospitalAssistantView from './components/HospitalAssistantView';
 import MobileSimulatorModal from './components/MobileSimulatorModal';
 import ResultsCriticalValuesView from './components/ResultsCriticalValuesView';
 import DiagnosticsView from './components/DiagnosticsView';
+import DiagnosticCoordinationView from './components/DiagnosticCoordinationView';
 import RadiologyView from './components/RadiologyView';
 import { FinancialRevenueView } from './components/FinancialRevenueView';
 import DetailDrawer from './components/DetailDrawer';
@@ -23,6 +24,12 @@ import AlertsDrawer from './components/AlertsDrawer';
 import MasterModal from './components/MasterModal';
 import XrayOrdersView from './components/XrayOrdersView';
 import PatientPortalView from './components/PatientPortalView';
+
+const AG10_ALLOWED_ROLES = new Set([
+  'doctor', 'nurse', 'laboratory', 'pathologist', 'radiologist',
+  'admin', 'system admin', 'hospital management', 'ai administrator',
+  'it administrator', 'auditor',
+]);
 
 // Databricks Gold Layer Views
 import BedDemandView from './components/BedDemandView';
@@ -411,7 +418,7 @@ export default function App() {
 
       {/* Main App Layout: Sidebar + Workspace View */}
       <div style={{ display: 'flex', flex: 1, minWidth: 0 }}>
-        {role !== 'Patient' && activePage !== 'portal' && activePage !== 'patient-portal' && activePage !== 'create-full-details' && activePage !== 'create-full' && activePage !== '/create-full/details' && (
+        {activePage !== 'create-full-details' && activePage !== 'create-full' && activePage !== '/create-full/details' && (
           <AppSidebar
             activePage={activePage}
             setActivePage={(page) => handleNavigate(page)}
@@ -759,6 +766,30 @@ export default function App() {
                 onSelectPatient={handleSelectPatient}
               />
             )}
+            {activePage === 'diagnostic-coordination' && (
+              AG10_ALLOWED_ROLES.has(String(role || '').trim().toLowerCase())
+                ? (
+                  <DiagnosticCoordinationView
+                    onSelectPatient={handleSelectPatient}
+                    userRole={role}
+                    currentUser={auth}
+                    canOpenRadiology={isRadiologist}
+                    onOpenRadiologyStudy={(studyId) => {
+                      setRequestedRadiologyStudy(studyId);
+                      handleNavigate('radiology');
+                    }}
+                    onOpenRadiologyOrders={() => handleNavigate('radiology')}
+                  />
+                )
+                : (
+                  <section role="alert" style={{ maxWidth: '620px', margin: '40px auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '36px 28px', textAlign: 'center' }}>
+                    <h2 style={{ fontSize: 19, fontWeight: 700, color: '#15181b', margin: '0 0 12px' }}>No access</h2>
+                    <p style={{ fontSize: 13, color: '#52585e', lineHeight: 1.55, margin: 0 }}>
+                      Diagnostic coordination includes radiology data and requires a verified Radiologist account or an existing account with radiology access.
+                    </p>
+                  </section>
+                )
+            )}
             {activePage === 'radiology' && (
               <RadiologyView
                 requestedStudyId={requestedRadiologyStudy}
@@ -863,7 +894,7 @@ export default function App() {
             {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'lab' && <LabDashboardView onOpenDrawer={setDrawer} />}
-            {activePage === 'lab-workqueue' && <LabWorkQueueView onOpenDrawer={setDrawer} />}
+            {activePage === 'lab-workqueue' && <LabWorkQueueView onOpenDrawer={setDrawer} userRole={role} />}
             {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
               <FinancialRevenueView
                 initialTab={activePage}
@@ -928,7 +959,7 @@ export default function App() {
               'assistant', 'beds', 'tables', 'explorer', 'sql', 'analytics', 'settings',
               'ai-command', 'agents', 'preauth-desk', 'discharge-agent', 'approvals', 'orchestrator', 'runs', 'knowledge',
               'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
-              'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
+              'criticalvalues', 'diagnostics', 'radiology', 'xray-orders', 'diagnostic-coordination',
               'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
               'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'ot',
               'bloodbank', 'deathmlc', 'sbar', 'lab', 'lab-workqueue', 'billing', 'insurance', 'claims', 'finance', 'tax',

@@ -3,6 +3,7 @@ import { apiService, matchesDoctor } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import TablePagination from './TablePagination';
 import BillingTransparencyDrawer from './BillingTransparencyDrawer';
+import { labCollectionEventsApi } from '../services/labCollectionEventsApi';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -3578,21 +3579,27 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 8. LAB DASHBOARD & LIS (lab)
 // -----------------------------------------------------------------------------
-function useLabOrders() {
+function useLabOrders({ page = 1, pageSize = 333, search = '', status = 'All', priority = 'All' } = {}) {
   const [orders, setOrders] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [allOrdersTotal, setAllOrdersTotal] = useState(0);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
     let active = true;
     setLoading(true);
-    apiService.getPatientLabOrders({ limit: 333 }, { forceRefresh: true })
-      .then(response => { if (active) { setOrders(response?.data || []); setError(''); } })
+    apiService.getPatientLabOrders({
+      limit: pageSize, offset: (page - 1) * pageSize, search,
+      status, priority,
+    }, { forceRefresh: true })
+      .then(response => { if (active) { setOrders(response?.data || []); setTotal(Number(response?.total) || 0); setAllOrdersTotal(Number(response?.all_orders_total ?? response?.total) || 0); setSummary(response?.summary || null); setError(''); } })
       .catch(err => { if (active) setError(err.message || 'Unable to load laboratory orders.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [refreshKey]);
-  return { orders, loading, error, refresh: () => setRefreshKey(value => value + 1) };
+  }, [refreshKey, page, pageSize, search, status, priority]);
+  return { orders, total, allOrdersTotal, summary, loading, error, refresh: () => setRefreshKey(value => value + 1) };
 }
 
 function labResultText(order) {
@@ -3688,19 +3695,52 @@ function openLabOrder(order, onOpenDrawer) {
 }
 
 export function LabDashboardView({ onOpenDrawer }) {
-  const { orders, loading, error } = useLabOrders();
-  const controls = useLabListControls(orders);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [priorityFilter, setPriorityFilter] = useState('All');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [availablePriorities, setAvailablePriorities] = useState(['Routine', 'Urgent', 'Emergency', 'STAT']);
+  const [availableStatuses, setAvailableStatuses] = useState(['Pending', 'Completed']);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      apiService.getLabOrderPriorities({ forceRefresh: true }),
+      apiService.getLabOrderStatuses({ forceRefresh: true }),
+    ]).then(([priorityResponse, statusResponse]) => {
+      if (!active) return;
+      if (Array.isArray(priorityResponse?.priorities)) setAvailablePriorities(priorityResponse.priorities);
+      if (Array.isArray(statusResponse?.statuses)) setAvailableStatuses(statusResponse.statuses);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const { orders, total, allOrdersTotal, summary, loading, error } = useLabOrders({
+    page, pageSize, search: search.trim(), status: statusFilter, priority: priorityFilter,
+  });
+  const controls = {
+    search, setSearch: value => { setSearch(value); setPage(1); },
+    statusFilter, setStatusFilter: value => { setStatusFilter(value); setPage(1); },
+    priorityFilter, setPriorityFilter: value => { setPriorityFilter(value); setPage(1); },
+    page, setPage, pageSize, setPageSize: value => { setPageSize(value); setPage(1); },
+    filtered: orders, pageRows: orders,
+    statuses: [...new Set([...availableStatuses, ...orders.map(order => order.status).filter(Boolean)])],
+    priorities: [...new Set([...availablePriorities, ...orders.map(order => order.priority).filter(Boolean)])],
+  };
   if (loading && !orders.length) {
     return <ModuleLoadingScreen title="Loading Lab Dashboard..." subtitle="Retrieving live laboratory workload and result summaries..." badgeText="Live Lab Sync" layout="table" statCount={4} tableRows={6} tableColumns={5} />;
   }
-  const pending = orders.filter(order => String(order.status).toLowerCase() === 'pending').length;
-  const completed = orders.filter(order => String(order.status).toLowerCase() === 'completed').length;
-  const critical = orders.reduce((sum, order) => sum + (order.results || []).filter(result => result.is_abnormal).length, 0);
-  const tat = orders.map(order => Number(order.turnaround_minutes)).filter(value => Number.isFinite(value) && value >= 0);
-  const averageTat = tat.length ? `${Math.round(tat.reduce((sum, value) => sum + value, 0) / tat.length)} mins` : 'N/A';
+  const pending = summary?.pending ?? 0;
+  const completed = summary?.completed ?? 0;
+  const critical = summary?.critical ?? 0;
+  const averageTat = summary?.average_tat_minutes != null ? `${Math.round(summary.average_tat_minutes)} mins` : 'N/A';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Header title="Laboratory Information System (LIS) Dashboard" subtitle="Laboratory workload, critical values, and turnaround overview" count={orders.length} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+        <Header title="Laboratory Information System (LIS) Dashboard" subtitle="Laboratory workload, critical values, and turnaround overview" count={allOrdersTotal} />
+        {(search.trim() || statusFilter !== 'All' || priorityFilter !== 'All') && <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600 }}>
+          {total.toLocaleString('en-IN')} orders match current filters
+        </div>}
+      </div>
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         <StatCard label="Pending Orders" value={loading ? 'N/A' : pending} sub="Awaiting lab processing" color="#d97706" />
         <StatCard label="Completed Orders" value={loading ? 'N/A' : completed} sub="From the authoritative lab API" color="#059669" />
@@ -3712,36 +3752,66 @@ export function LabDashboardView({ onOpenDrawer }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
           <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
             <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
-            <th style={{ padding: '10px 14px' }}>Test</th><th style={{ padding: '10px 14px' }}>Status</th>
+            <th style={{ padding: '10px 14px' }}>Test</th><th style={{ padding: '10px 14px' }}>Priority</th><th style={{ padding: '10px 14px' }}>Status</th>
             <th style={{ padding: '10px 14px' }}>Result Summary</th>
           </tr></thead>
           <tbody>
-            {!loading && error && <tr><td colSpan={5} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
-            {!error && !controls.filtered.length && <tr><td colSpan={5} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
+            {!loading && error && <tr><td colSpan={6} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
+            {!error && !controls.filtered.length && <tr><td colSpan={6} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{total ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
             {!error && controls.pageRows.map(order => {
               const demo = (order.results || []).some(result => result.result_source === 'DEMO_GENERATED');
               return <tr key={order.lab_order_id} onClick={() => openLabOrder(order, onOpenDrawer)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
                 <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#334155')}>{order.priority || 'Routine'}</span></td>
                 <td style={{ padding: '10px 14px' }}>{order.status}</td>
                 <td style={{ padding: '10px 14px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
               </tr>;
             })}
           </tbody>
         </table>
-        {!loading && !error && <TablePagination total={controls.filtered.length} page={controls.page} pageSize={controls.pageSize}
+        {!loading && !error && <TablePagination total={total} page={controls.page} pageSize={controls.pageSize}
           onPageChange={controls.setPage} onPageSizeChange={controls.setPageSize} label="orders" />}
       </div>
     </div>
   );
 }
 
-export function LabWorkQueueView({ onOpenDrawer }) {
-  const { orders, loading, error, refresh } = useLabOrders();
+export function LabWorkQueueView({ onOpenDrawer, userRole }) {
+  const { orders, loading, error, refresh } = useLabOrders({ pageSize: 333 });
   const [processingId, setProcessingId] = useState(null);
   const [actionErrors, setActionErrors] = useState({});
+  const [generatedOrderIds, setGeneratedOrderIds] = useState(() => new Set());
+  const [collectionStateByOrder, setCollectionStateByOrder] = useState({});
+  const [collectionChoiceByOrder, setCollectionChoiceByOrder] = useState({});
+  const [collectionLoading, setCollectionLoading] = useState(true);
+  const [collectionSavingId, setCollectionSavingId] = useState(null);
+  const [collectionErrors, setCollectionErrors] = useState({});
+  const isLaboratory = String(userRole || '').trim().toLowerCase() === 'laboratory';
   const controls = useLabListControls(orders, true);
+  useEffect(() => {
+    let active = true;
+    const orderIds = orders.map(order => order.lab_order_id).filter(Boolean);
+    if (!orderIds.length) {
+      setCollectionStateByOrder({});
+      setCollectionLoading(false);
+      return () => { active = false; };
+    }
+    setCollectionLoading(true);
+    labCollectionEventsApi.getLatestForOrders(orderIds)
+      .then(response => {
+        if (active) setCollectionStateByOrder(Object.fromEntries((response.data || []).map(item => [item.lab_order_id, item.latest_event])));
+      })
+      .catch(err => {
+        if (active) {
+          setCollectionStateByOrder({});
+          setCollectionErrors(current => ({ ...current, _load: err.message || 'Unable to load collection events.' }));
+        }
+      })
+      .finally(() => { if (active) setCollectionLoading(false); });
+    return () => { active = false; };
+  }, [orders]);
   if (loading && !orders.length) {
     return <ModuleLoadingScreen title="Loading Lab Work Queue..." subtitle="Retrieving laboratory orders and recorded results..." badgeText="Live Lab Sync" layout="table" statCount={4} tableRows={7} tableColumns={11} />;
   }
@@ -3750,11 +3820,41 @@ export function LabWorkQueueView({ onOpenDrawer }) {
     setActionErrors(current => ({ ...current, [order.lab_order_id]: '' }));
     try {
       await apiService.generateDemoLabResult(order.lab_order_id);
+      setGeneratedOrderIds(current => new Set(current).add(order.lab_order_id));
       refresh();
     } catch (err) {
       setActionErrors(current => ({ ...current, [order.lab_order_id]: err.message || 'Unable to generate a demo result.' }));
     } finally {
       setProcessingId(null);
+    }
+  };
+  const generateCriticalQa = async (order) => {
+    setProcessingId(order.lab_order_id);
+    setActionErrors(current => ({ ...current, [order.lab_order_id]: '' }));
+    try {
+      await apiService.generateCriticalQaLabResult(order.lab_order_id);
+      setGeneratedOrderIds(current => new Set(current).add(order.lab_order_id));
+      refresh();
+    } catch (err) {
+      setActionErrors(current => ({ ...current, [order.lab_order_id]: err.message || 'Unable to generate the critical QA result.' }));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+  const recordCollectionEvent = async (order) => {
+    const orderId = order.lab_order_id;
+    setCollectionSavingId(orderId);
+    setCollectionErrors(current => ({ ...current, [orderId]: '' }));
+    try {
+      const response = await labCollectionEventsApi.create(orderId, {
+        collection_state: collectionChoiceByOrder[orderId] || 'COLLECTED',
+        source_type: 'MANUAL_LAB_ENTRY',
+      });
+      setCollectionStateByOrder(current => ({ ...current, [orderId]: response.event }));
+    } catch (err) {
+      setCollectionErrors(current => ({ ...current, [orderId]: err.message || 'Unable to record collection event.' }));
+    } finally {
+      setCollectionSavingId(null);
     }
   };
   return (
@@ -3771,15 +3871,18 @@ export function LabWorkQueueView({ onOpenDrawer }) {
             <th style={{ padding: '10px 14px' }}>Visit / Encounter</th><th style={{ padding: '10px 14px' }}>Test</th>
             <th style={{ padding: '10px 14px' }}>Priority</th><th style={{ padding: '10px 14px' }}>Status</th>
             <th style={{ padding: '10px 14px' }}>Ordering Doctor</th><th style={{ padding: '10px 14px' }}>Ordered Date / Time</th>
-            <th style={{ padding: '10px 14px' }}>Source</th><th style={{ padding: '10px 14px' }}>Result</th><th style={{ padding: '10px 14px' }}>Action</th>
+            <th style={{ padding: '10px 14px' }}>Source</th><th style={{ padding: '10px 14px' }}>Result</th><th style={{ padding: '10px 14px' }}>Specimen Collection</th><th style={{ padding: '10px 14px' }}>Action</th>
           </tr></thead>
           <tbody>
-            {!loading && error && <tr><td colSpan={11} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
-            {!error && !controls.filtered.length && <tr><td colSpan={11} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
+            {!loading && error && <tr><td colSpan={12} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
+            {!error && !controls.filtered.length && <tr><td colSpan={12} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{orders.length ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
             {!error && controls.pageRows.map(order => {
               const results = order.results || [];
               const demo = results.some(result => result.result_source === 'DEMO_GENERATED');
               const completed = String(order.status).toLowerCase() === 'completed';
+              const hasAnyResult = results.length > 0 || generatedOrderIds.has(order.lab_order_id);
+              const canGenerate = !hasAnyResult && !completed;
+              const canGenerateCriticalQa = isLaboratory && order.critical_qa_eligible === true;
               return <tr key={order.lab_order_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
                 <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
@@ -3791,14 +3894,46 @@ export function LabWorkQueueView({ onOpenDrawer }) {
                 <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{order.ordered_date || 'N/A'}</td>
                 <td style={{ padding: '10px 14px' }}>{order.source || 'N/A'}</td>
                 <td style={{ padding: '10px 14px', minWidth: '220px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
+                <td style={{ padding: '10px 14px', minWidth: '235px' }}>
+                  {collectionErrors._load ? 'Data unavailable' : collectionLoading ? 'Loading…' : collectionStateByOrder[order.lab_order_id] ? (
+                    <div style={{ display: 'grid', gap: 4, fontSize: '11px' }}>
+                      <strong>{collectionStateByOrder[order.lab_order_id].collection_state.replaceAll('_', ' ')}</strong>
+                      <span>{collectionStateByOrder[order.lab_order_id].recorded_at || ''}</span>
+                    </div>
+                  ) : 'Collection not recorded'}
+                  {isLaboratory && <div style={{ display: 'flex', gap: 5, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select aria-label={`Collection state for order ${order.lab_order_id}`} value={collectionChoiceByOrder[order.lab_order_id] || 'COLLECTED'}
+                      onChange={event => setCollectionChoiceByOrder(current => ({ ...current, [order.lab_order_id]: event.target.value }))}
+                      style={{ maxWidth: 145, height: 30, border: '1px solid #cbd5e1', borderRadius: 5, background: '#fff', fontSize: 11 }}>
+                      <option value="COLLECTED">Collected</option>
+                      <option value="NOT_COLLECTED">Not collected</option>
+                      <option value="UNABLE_TO_COLLECT">Unable to collect</option>
+                    </select>
+                    <button type="button" disabled={collectionSavingId === order.lab_order_id}
+                      onClick={() => recordCollectionEvent(order)}
+                      style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 5, background: '#fff', cursor: 'pointer', fontSize: 11 }}>
+                      {collectionSavingId === order.lab_order_id ? 'Saving…' : 'Record event'}
+                    </button>
+                  </div>}
+                  {collectionErrors._load && <div role="alert" style={{ color: '#991b1b', fontSize: 10 }}>{collectionErrors._load}</div>}
+                  {collectionErrors[order.lab_order_id] && <div role="alert" style={{ color: '#991b1b', fontSize: 10 }}>{collectionErrors[order.lab_order_id]}</div>}
+                </td>
                 <td style={{ padding: '10px 14px', minWidth: '175px' }}>
-                  {!completed && results.length === 0 ? <button type="button" disabled={processingId === order.lab_order_id}
-                    onClick={() => generate(order)}
-                    style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
-                    {processingId === order.lab_order_id ? 'Generating...' : 'Generate Demo Result'}
-                  </button> : <button type="button" onClick={() => openLabOrder(order, onOpenDrawer)}
+                  {canGenerate ? <>
+                    <button type="button" disabled={processingId === order.lab_order_id}
+                      onClick={() => generate(order)}
+                      style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
+                      {processingId === order.lab_order_id ? 'Generating...' : 'Generate Demo Result'}
+                    </button>
+                    {canGenerateCriticalQa && <button type="button"
+                      disabled={processingId === order.lab_order_id}
+                      onClick={() => generateCriticalQa(order)}
+                      style={{ display: 'block', marginTop: 6, padding: '6px 9px', border: '1px solid #b45309', borderRadius: '5px', background: '#fffbeb', color: '#92400e', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
+                      {processingId === order.lab_order_id ? 'Generating QA result...' : 'Generate Critical QA Result'}
+                    </button>}
+                  </> : <button type="button" onClick={() => openLabOrder(order, onOpenDrawer)}
                     style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: 'pointer' }}>
-                    {results.length ? 'View Result' : 'View Order'}
+                    {hasAnyResult ? 'View Result' : 'View Order'}
                   </button>}
                   {actionErrors[order.lab_order_id] && <div role="alert" style={{ color: '#991b1b', fontSize: '11px', marginTop: '5px' }}>{actionErrors[order.lab_order_id]}</div>}
                 </td>

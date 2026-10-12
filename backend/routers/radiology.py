@@ -13,8 +13,6 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Body, Dep
 from api.auth_helper import require_radiologist, require_radiologist_or_doctor
 from radiology_ai import config
 from radiology_ai import db as radiology_db
-from radiology_ai.services.densenet_service import load_densenet_model
-from radiology_ai.services.inference_service import InferenceError, run_full_analysis
 from radiology_ai.services.orthanc_service import (
     OrthancError,
     ensure_localized_series,
@@ -38,7 +36,6 @@ from radiology_ai.services.study_store import (
 )
 from radiology_ai.services.worklist_service import compute_counts, sort_worklist, to_worklist_item, enrich_study_detail
 from radiology_ai.db import get_patient_mapping_by_original_ids, update_study_report_in_db
-from radiology_ai.services.yolo_service import load_yolo_model
 from radiology_ai.schemas.inference import (
     AnalyzeResponse,
     HealthResponse,
@@ -52,12 +49,33 @@ from radiology_ai.schemas.inference import (
 )
 
 logger = logging.getLogger("meridian.radiology.integration")
+
+# Keep persisted read APIs importable when the optional model runtime is not
+# installed. Only inference and model startup need torch/torchvision/ultralytics.
+_MODEL_DEPENDENCIES_ERROR = None
+try:
+    import torch
+    from radiology_ai.services.densenet_service import load_densenet_model
+    from radiology_ai.services.inference_service import InferenceError, run_full_analysis
+    from radiology_ai.services.yolo_service import load_yolo_model
+except Exception as exc:
+    torch = None
+    load_densenet_model = None
+    load_yolo_model = None
+    run_full_analysis = None
+    _MODEL_DEPENDENCIES_ERROR = exc
+
+    class InferenceError(Exception):
+        """Fallback used only to keep inference routes importable."""
+
+    logger.info("Radiology inference unavailable; persisted read APIs remain enabled: %s", exc)
+
 router = APIRouter(prefix="/api/radiology", tags=["Radiology AI"])
 pacs_router = APIRouter(prefix="/api/pacs", tags=["Radiology Demo PACS"], dependencies=[Depends(require_radiologist)])
 # Scan-viewing endpoints are open to Doctors AND Radiologists; no router-level guard here.
 scans_router = APIRouter(prefix="/api/radiology", tags=["Radiology Scans"])
 
-_state = {"device": "cuda" if __import__("torch").cuda.is_available() else "cpu", "densenet_model": None, "yolo_model": None}
+_state = {"device": "cuda" if torch is not None and torch.cuda.is_available() else "cpu", "densenet_model": None, "yolo_model": None}
 _initialized = False
 
 
@@ -67,6 +85,9 @@ def initialize_radiology() -> None:
     if _initialized:
         return
     _initialized = True
+    if _MODEL_DEPENDENCIES_ERROR is not None:
+        logger.info("Radiology model initialization skipped because optional inference dependencies are unavailable: %s", _MODEL_DEPENDENCIES_ERROR)
+        return
     logger.info("Starting integrated Meridian Radiology AI backend. Device: %s", _state["device"])
     try:
         _state["densenet_model"] = load_densenet_model(device=_state["device"])
@@ -93,6 +114,8 @@ def shutdown_radiology() -> None:
 
 def _require_models() -> None:
     initialize_radiology()
+    if _MODEL_DEPENDENCIES_ERROR is not None:
+        raise HTTPException(status_code=503, detail="AI inference dependencies are not available. Persisted Radiology data remains available.")
     if _state["densenet_model"] is None or _state["yolo_model"] is None:
         raise HTTPException(status_code=503, detail="AI models are not available. Please contact support.")
 

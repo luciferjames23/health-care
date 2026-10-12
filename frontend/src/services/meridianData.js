@@ -59,7 +59,7 @@ export const ROLE_PAGE_ACCESS = {
   'Auditor': null, // Full platform access
   'Doctor': [
     // 8 Core Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'radiology', 'discharge-agent', 'followup-agent',
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'diagnostic-coordination', 'radiology', 'discharge-agent', 'followup-agent',
     // Operational & Clinical
     'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc', 'feedback',
     // Pharmacy & Supply Chain
@@ -73,7 +73,7 @@ export const ROLE_PAGE_ACCESS = {
   ],
   'Nurse': [
     // Core Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'discharge-agent', 'followup-agent',
+    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'diagnostic-coordination', 'discharge-agent', 'followup-agent',
     // Operational & Clinical
     'emergency', 'nursing', 'medications', 'bloodbank', 'sbar', 'soap', 'patient360', 'deathmlc', 'surgery', 'feedback',
     // Pharmacy & Supply Chain
@@ -134,7 +134,7 @@ export const ROLE_PAGE_ACCESS = {
   'Radiologist': null, // Full platform access; sidepanel modules are fixed and data/access differ at view level
   'Laboratory': [
     // Core Data Pages (preserved)
-    'command', 'patients', 'criticalvalues', 'diagnostics',
+    'command', 'patients', 'criticalvalues', 'diagnostics', 'diagnostic-coordination',
     // Operational & Platform
     'lab', 'lab-workqueue', 'bloodbank', 'patient360', 'exceptions', 'knowledge', 'trainer', 'assistant',
     // People & Admin
@@ -142,7 +142,7 @@ export const ROLE_PAGE_ACCESS = {
   ],
   'Pathologist': [
     // Core Data Pages (preserved)
-    'command', 'patients', 'criticalvalues', 'diagnostics',
+    'command', 'patients', 'criticalvalues', 'diagnostics', 'diagnostic-coordination',
     // Operational & Platform
     'lab', 'lab-workqueue', 'clinical', 'patient360', 'knowledge', 'trainer', 'assistant',
     // People & Admin

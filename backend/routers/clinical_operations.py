@@ -12,12 +12,13 @@ FastAPI Router for Clinical Operations & Front-Office Modules:
 - OT Scheduling & Slots
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import psycopg2.extras
 from db.postgres_connector import PostgresConnector
-from api.auth_helper import get_current_user
+from api.auth_helper import decode_token, get_current_user, security
 from services.lab_demo_result_service import generate_demo_result
 from services.vital_signs_service import record_vital_observation
 
@@ -27,6 +28,213 @@ router = APIRouter(
 )
 
 db_connector = PostgresConnector()
+
+_LAB_ALL_RECORD_ROLES = {
+    "doctor", "nurse", "laboratory", "pathologist", "radiologist",
+    "admin", "system admin", "hospital management", "ai administrator",
+    "it administrator", "auditor",
+}
+_LAB_PATIENT_VIEW_ROLES = _LAB_ALL_RECORD_ROLES | {
+    "front office", "billing", "insurance", "pharmacy",
+}
+
+
+def require_authenticated_lab_reader(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    patient_id: Optional[int] = None,
+    admission_id: Optional[int] = None,
+    visit_id: Optional[int] = None,
+) -> dict:
+    """Apply the current Lab dashboard and Patient 360 role boundaries.
+
+    Shared development fallback tokens are not accepted here. Patient accounts
+    use the patient-scoped portal API and must not access this unscoped
+    clinical-operations endpoint. Roles allowed to open the existing Lab
+    dashboards may read the unfiltered list. Other existing Patient 360 roles
+    may read only when the request includes a patient, admission, or visit
+    filter. This mirrors current frontend page access without changing callers.
+    """
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Authentication required.", headers={"WWW-Authenticate": "Bearer"})
+
+    token = credentials.credentials
+    dev_tokens = {"demo-session-token", "demo_session_token", "demo-token", "dev-token"}
+    if token in dev_tokens or decode_token(token) is None:
+        raise HTTPException(status_code=401, detail="A valid access token is required.", headers={"WWW-Authenticate": "Bearer"})
+
+    user = get_current_user(credentials)
+    role = str(user.get("role") or "").strip().lower()
+    if role in _LAB_ALL_RECORD_ROLES:
+        return user
+    if role in _LAB_PATIENT_VIEW_ROLES and any(value is not None for value in (patient_id, admission_id, visit_id)):
+        return user
+    raise HTTPException(status_code=403, detail="This role is not authorized for the requested laboratory order view.")
+
+
+class LabCollectionEventCreate(BaseModel):
+    collection_state: Literal["COLLECTED", "NOT_COLLECTED", "UNABLE_TO_COLLECT"]
+    source_type: Literal["MANUAL_LAB_ENTRY"] = "MANUAL_LAB_ENTRY"
+
+    class Config:
+        extra = "forbid"
+
+
+def require_laboratory_collection_writer(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    payload = decode_token(credentials.credentials) if credentials and credentials.credentials else None
+    if not payload or not payload.get("user_id") or str(payload.get("auth_method", "")).lower() not in {"password", "account_selection"}:
+        raise HTTPException(status_code=401, detail="A verified Laboratory session is required.", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        conn = db_connector.get_connection()
+        try:
+            cur = db_connector.get_dict_cursor(conn)
+            cur.execute("""
+                SELECT u.id AS user_id, u.is_active, r.name AS role,
+                       COALESCE(d.display_name, u.staff_name, u.username) AS name
+                FROM users u JOIN roles r ON r.id=u.role_id
+                LEFT JOIN doctors d ON d.user_id=u.id
+                WHERE u.id=%s
+            """, (payload["user_id"],))
+            user = cur.fetchone()
+        finally:
+            conn.close()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to verify Laboratory access.") from exc
+    if not user or not user.get("is_active"):
+        raise HTTPException(status_code=403, detail="No access. Account not found or inactive.")
+    if str(user.get("role") or "").strip().lower() != "laboratory":
+        raise HTTPException(status_code=403, detail="Only Laboratory users may record specimen collection events.")
+    return {"user_id": int(user["user_id"]), "role": user["role"], "name": user.get("name") or str(user["user_id"])}
+
+
+def _serialize_lab_collection_event(event):
+    if not event:
+        return None
+    return {
+        "event_id": event["event_id"],
+        "lab_order_id": event["lab_order_id"],
+        "patient_id": event.get("patient_id"),
+        "collection_state": event["collection_state"],
+        "recorded_at": event["recorded_at"],
+        "actor_user_id": event["actor_user_id"],
+        "actor_role": event["actor_role"],
+        "actor_name": event["actor_name"],
+        "source_type": event["source_type"],
+    }
+
+
+@router.post("/labs/{lab_order_id}/collection-events", status_code=201, summary="Append Lab specimen collection event")
+def create_lab_collection_event(
+    lab_order_id: int,
+    body: LabCollectionEventCreate,
+    user: dict = Depends(require_laboratory_collection_writer),
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        cur.execute("SELECT lab_order_id, patient_id FROM lab_orders WHERE lab_order_id=%s", (lab_order_id,))
+        order = cur.fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Laboratory order not found.")
+        cur.execute("""
+            INSERT INTO lab_specimen_collection_events (
+                lab_order_id, patient_id, collection_state, actor_user_id, actor_role, actor_name, source_type
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING event_id, lab_order_id, patient_id, collection_state, recorded_at,
+                      actor_user_id, actor_role, actor_name, source_type
+        """, (lab_order_id, order["patient_id"], body.collection_state, user["user_id"], user["role"], user["name"], body.source_type))
+        event = cur.fetchone()
+        conn.commit()
+        return {"event": _serialize_lab_collection_event(event)}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=503, detail="Unable to record specimen collection event.") from exc
+    finally:
+        conn.close()
+
+
+@router.get("/labs/{lab_order_id}/collection-events/latest", summary="Get latest Lab specimen collection event")
+def get_latest_lab_collection_event(
+    lab_order_id: int,
+    _user: dict = Depends(require_authenticated_lab_reader),
+):
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        cur.execute("SELECT lab_order_id, patient_id FROM lab_orders WHERE lab_order_id=%s", (lab_order_id,))
+        order = cur.fetchone()
+        if not order:
+            raise HTTPException(status_code=404, detail="Laboratory order not found.")
+        cur.execute("""
+            SELECT event_id, lab_order_id, collection_state, recorded_at,
+                   actor_user_id, actor_role, actor_name, source_type
+            FROM lab_specimen_collection_events
+            WHERE lab_order_id=%s
+            ORDER BY recorded_at DESC, event_id DESC
+            LIMIT 1
+        """, (lab_order_id,))
+        event = cur.fetchone()
+        serialized = _serialize_lab_collection_event(event)
+        if serialized:
+            serialized["patient_id"] = order["patient_id"]
+        return {"lab_order_id": lab_order_id, "patient_id": order["patient_id"], "latest_event": serialized}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Specimen collection data is unavailable.") from exc
+    finally:
+        conn.close()
+
+
+@router.get("/labs/collection-events/latest", summary="Get latest Lab collection events for orders")
+def get_latest_lab_collection_events(
+    lab_order_ids: List[int] = Query(..., min_length=1, max_length=200),
+    _user: dict = Depends(require_authenticated_lab_reader),
+):
+    unique_ids = list(dict.fromkeys(lab_order_ids))
+    if len(unique_ids) != len(lab_order_ids):
+        raise HTTPException(status_code=422, detail="Duplicate laboratory order IDs are not allowed.")
+    conn = db_connector.get_connection()
+    try:
+        cur = db_connector.get_dict_cursor(conn)
+        cur.execute("""
+            SELECT o.lab_order_id, o.patient_id, e.event_id, e.collection_state, e.recorded_at,
+                   e.actor_user_id, e.actor_role, e.actor_name, e.source_type
+            FROM lab_orders o
+            LEFT JOIN LATERAL (
+                SELECT event_id, collection_state, recorded_at,
+                       actor_user_id, actor_role, actor_name, source_type
+                FROM lab_specimen_collection_events
+                WHERE lab_order_id=o.lab_order_id
+                ORDER BY recorded_at DESC, event_id DESC
+                LIMIT 1
+            ) e ON TRUE
+            WHERE o.lab_order_id = ANY(%s)
+            ORDER BY o.lab_order_id
+        """, (unique_ids,))
+        rows = cur.fetchall()
+        if len(rows) != len(unique_ids):
+            raise HTTPException(status_code=404, detail="One or more laboratory orders were not found or accessible.")
+        result = []
+        for row in rows:
+            event = None if row.get("event_id") is None else {
+                "event_id": row["event_id"], "lab_order_id": row["lab_order_id"], "patient_id": row["patient_id"],
+                "collection_state": row["collection_state"], "recorded_at": row["recorded_at"],
+                "actor_user_id": row["actor_user_id"], "actor_role": row["actor_role"],
+                "actor_name": row["actor_name"], "source_type": row["source_type"],
+            }
+            result.append({"lab_order_id": row["lab_order_id"], "patient_id": row["patient_id"], "latest_event": event})
+        return {"data": result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Specimen collection data is unavailable.") from exc
+    finally:
+        conn.close()
 
 # ---------------------------------------------------------------------------
 # 1. EMERGENCY & TRAUMA BOARD
@@ -1505,12 +1713,36 @@ def get_lab_orders(
     admission_id: Optional[int] = None,
     visit_id: Optional[int] = None,
     search: Optional[str] = None,
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    available_priorities: bool = False,
+    available_statuses: bool = False,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    _user: dict = Depends(require_authenticated_lab_reader),
 ):
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
+        # Keep pagination bounded so a caller cannot accidentally fetch every
+        # historical order in one response. The total/aggregate counts below
+        # still describe the full matching database set.
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        if available_priorities:
+            cur.execute("""
+                SELECT DISTINCT COALESCE(NULLIF(BTRIM(priority), ''), 'Routine') AS priority
+                FROM lab_orders
+                ORDER BY priority
+            """)
+            return {"success": True, "priorities": [row['priority'] for row in cur.fetchall()]}
+        if available_statuses:
+            cur.execute("""
+                SELECT DISTINCT COALESCE(NULLIF(BTRIM(status), ''), 'Completed') AS status
+                FROM lab_orders
+                ORDER BY status
+            """)
+            return {"success": True, "statuses": [row['status'] for row in cur.fetchall()]}
         where_clauses = ["1=1"]
         params = []
 
@@ -1523,17 +1755,35 @@ def get_lab_orders(
         if visit_id is not None:
             where_clauses.append("lo.visit_id = %s")
             params.append(visit_id)
+        if status and status.strip() and status.strip().lower() != "all":
+            where_clauses.append("LOWER(COALESCE(lo.status, 'completed')) = %s")
+            params.append(status.strip().lower())
+        if priority and priority.strip() and priority.strip().lower() != "all":
+            where_clauses.append("LOWER(COALESCE(lo.priority, 'routine')) = %s")
+            params.append(priority.strip().lower())
         if search and search.strip():
             s = f"%{search.strip().lower()}%"
             where_clauses.append("""(
                 LOWER(lt.test_code) LIKE %s OR 
                 LOWER(lt.test_name) LIKE %s OR 
                 LOWER(lt.test_category) LIKE %s OR
-                LOWER(COALESCE(doc.display_name, '')) LIKE %s
+                LOWER(COALESCE(doc.display_name, '')) LIKE %s OR
+                LOWER(COALESCE(p.patient_code, '')) LIKE %s OR
+                LOWER(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) LIKE %s OR
+                CAST(lo.lab_order_id AS TEXT) LIKE %s OR
+                CAST(lo.visit_id AS TEXT) LIKE %s OR
+                CAST(lo.admission_id AS TEXT) LIKE %s OR
+                LOWER(COALESCE(lo.status, 'completed')) LIKE %s OR
+                LOWER(COALESCE(lo.priority, 'routine')) LIKE %s OR
+                LOWER(COALESCE(lo.source, '')) LIKE %s
             )""")
-            params.extend([s, s, s, s])
+            params.extend([s] * 12)
 
         where_sql = " AND ".join(where_clauses)
+
+        # Same unfiltered all-orders count used by the executive KPI.
+        cur.execute("SELECT COUNT(*) AS total FROM lab_orders")
+        all_orders_total = int((cur.fetchone() or {}).get('total') or 0)
 
         cur.execute(f"""
             SELECT COUNT(*) as total 
@@ -1543,6 +1793,26 @@ def get_lab_orders(
             WHERE {where_sql};
         """, tuple(params))
         total_count = cur.fetchone().get('total', 0)
+
+        cur.execute(f"""
+            SELECT
+                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE LOWER(COALESCE(lo.status, 'completed')) = 'pending') AS pending_count,
+                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE LOWER(COALESCE(lo.status, 'completed')) = 'completed') AS completed_count,
+                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE COALESCE(lr.has_abnormal, FALSE)) AS critical_count,
+                AVG(EXTRACT(EPOCH FROM (lr.first_result_date - lo.ordered_date)) / 60.0)
+                    FILTER (WHERE lr.first_result_date IS NOT NULL AND lo.ordered_date IS NOT NULL) AS average_tat_minutes
+            FROM lab_orders lo
+            LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN doctors doc ON lo.doctor_id = doc.id
+            LEFT JOIN (
+                SELECT lab_order_id, BOOL_OR(abnormal_flag) AS has_abnormal,
+                       MIN(result_date) AS first_result_date
+                FROM lab_results
+                GROUP BY lab_order_id
+            ) lr ON lr.lab_order_id = lo.lab_order_id
+            WHERE {where_sql};
+        """, tuple(params))
+        aggregate_row = cur.fetchone() or {}
 
         query = f"""
             SELECT 
@@ -1566,6 +1836,16 @@ def get_lab_orders(
                 lt.test_category,
                 lt.sample_type,
                 lt.standard_charge,
+                (SELECT COUNT(*) = 1
+                   FROM lab_critical_rules qa_rule
+                  WHERE qa_rule.test_identifier=lt.test_code
+                    AND qa_rule.approval_status='APPROVED'
+                    AND qa_rule.is_active
+                    AND qa_rule.effective_from <= CURRENT_TIMESTAMP
+                    AND (qa_rule.effective_to IS NULL OR CURRENT_TIMESTAMP < qa_rule.effective_to)
+                    AND qa_rule.source_provenance ILIKE '%%synthetic QA%%'
+                    AND LEFT(qa_rule.parameter_name,5)='AG10_'
+                    AND LEFT(qa_rule.test_identifier,5)='AG10-') AS critical_qa_eligible,
                 doc.display_name as doctor_name,
                 p.patient_code,
                 CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) as patient_name
@@ -1635,6 +1915,7 @@ def get_lab_orders(
                 "test_name": o['test_name'] or 'Comprehensive Diagnostic Panel',
                 "category": o['test_category'] or 'Biochemistry',
                 "sample_type": o['sample_type'] or 'Serum',
+                "critical_qa_eligible": bool(o.get('critical_qa_eligible')),
                 "charge": float(o['standard_charge'] or 0),
                 "priority": o['priority'] or 'Routine',
                 "source": o.get('source'),
@@ -1651,8 +1932,15 @@ def get_lab_orders(
 
         return {
             "success": True,
+            "all_orders_total": all_orders_total,
             "total": total_count,
             "count": len(formatted),
+            "summary": {
+                "pending": int(aggregate_row.get('pending_count') or 0),
+                "completed": int(aggregate_row.get('completed_count') or 0),
+                "critical": int(aggregate_row.get('critical_count') or 0),
+                "average_tat_minutes": float(aggregate_row['average_tat_minutes']) if aggregate_row.get('average_tat_minutes') is not None else None,
+            },
             "data": formatted
         }
     except Exception as e:

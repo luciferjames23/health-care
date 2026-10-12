@@ -93,9 +93,15 @@ def _confirmation_error(cur, action):
     elif action["action_type"] == "LAB_ORDER":
         if not action.get("name") and not action.get("code"):
             return "A laboratory test name or code is required before confirmation."
+        if (str(action.get("name") or "").casefold() == "blood test (specific test required)"
+                and not action.get("code")):
+            return "Select a specific active laboratory test from the catalog before confirmation."
+        from services.soap_lab_order_service import resolve_lab_test
+        if not resolve_lab_test(cur, action):
+            return "Select a specific active laboratory test from the catalog before confirmation."
     elif action["action_type"] == "IMAGING_ORDER":
-        if action.get("name", "").casefold() != "chest x-ray":
-            return "Select a supported chest X-ray examination before confirmation."
+        if str(action.get("name") or "").casefold() != "chest x-ray":
+            return "This examination is not supported by the existing SOAP imaging order workflow."
         if action.get("projection") not in {"PA", "AP"}:
             return "Select a supported chest X-ray projection before confirmation."
         if len(str(action.get("clinical_indication") or "").strip()) < 3:
@@ -115,6 +121,14 @@ def _confirmation_error(cur, action):
     elif not action.get("name"):
         return "A clinical action name is required before confirmation."
     return None
+
+
+def _add_confirmation_state(cur, action):
+    """Attach read-only review guidance without changing the persisted action."""
+    reason = _confirmation_error(cur, action)
+    action["confirmation_block_reason"] = reason
+    action["can_confirm"] = reason is None
+    return action
 
 
 def detect_actions(note_id, token_user):
@@ -165,6 +179,7 @@ def detect_actions(note_id, token_user):
             all_actions = [_row(cur, record) for record in cur.fetchall()]
             for action in all_actions:
                 action["stale"] = action.get("transcript_fingerprint") != fingerprint
+                _add_confirmation_state(cur, action)
         conn.commit()
         return {"soap_note_id": note_id, "transcript_fingerprint": fingerprint, "actions": all_actions}
     except Exception:
@@ -185,6 +200,7 @@ def list_actions(note_id, token_user):
             fingerprint = _fingerprint(note.get("raw_transcript"))
             for action in actions:
                 action["stale"] = action.get("transcript_fingerprint") != fingerprint
+                _add_confirmation_state(cur, action)
         return {"soap_note_id": note_id, "transcript_fingerprint": fingerprint, "actions": actions}
     finally:
         conn.close()
@@ -216,8 +232,9 @@ def patch_action(action_id, patch, token_user):
             cur.execute("UPDATE soap_clinical_actions SET " + assignments + " WHERE action_id=%s RETURNING " + ACTION_COLUMNS,
                         (*values, str(action_id)))
             updated = _row(cur, cur.fetchone())
+            updated["stale"] = False
+            _add_confirmation_state(cur, updated)
         conn.commit()
-        updated["stale"] = False
         return updated
     except Exception:
         conn.rollback()

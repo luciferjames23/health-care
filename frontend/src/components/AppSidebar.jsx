@@ -39,6 +39,7 @@ export const NAV_GROUPS = [
       { id: 'lab-workqueue', label: 'Lab Work Queue' },
       { id: 'criticalvalues', label: 'Results & Critical Values' },
       { id: 'diagnostics', label: 'Diagnostics' },
+      { id: 'diagnostic-coordination', label: 'AG-10 Diagnostic Tracker' },
       { id: 'radiology', label: 'Radiology' },
     ]
   },

@@ -2232,6 +2232,8 @@ export const apiService = {
     if (params.admission_id) query.append('admission_id', params.admission_id);
     if (params.visit_id) query.append('visit_id', params.visit_id);
     if (params.search) query.append('search', params.search);
+    if (params.status && params.status !== 'All') query.append('status', params.status);
+    if (params.priority && params.priority !== 'All') query.append('priority', params.priority);
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs?${query.toString()}`, {
@@ -2240,8 +2242,31 @@ export const apiService = {
     });
   },
 
+  async getLabOrderPriorities(options = {}) {
+    const query = new URLSearchParams({ available_priorities: 'true' });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000,
+    });
+  },
+
+  async getLabOrderStatuses(options = {}) {
+    const query = new URLSearchParams({ available_statuses: 'true' });
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs?${query.toString()}`, {
+      ...options,
+      revalidateMs: 2000,
+    });
+  },
+
   async generateDemoLabResult(orderId) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs/${orderId}/generate-demo-result`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async generateCriticalQaLabResult(orderId) {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs/${orderId}/generate-critical-qa-result`, {
       method: 'POST',
       body: JSON.stringify({}),
     });

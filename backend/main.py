@@ -414,6 +414,8 @@ def get_gold_summary():
 
 from routers.imaging_orders import router as imaging_orders_router
 app.include_router(imaging_orders_router)
+from routers.diagnostic_preparation import router as diagnostic_preparation_router
+app.include_router(diagnostic_preparation_router)
 from routers.radiology_clarifications import router as clarification_router
 app.include_router(clarification_router)
 from routers.imaging_history import router as imaging_history_router
@@ -422,6 +424,12 @@ from routers.rag import router as rag_router
 app.include_router(rag_router)
 from routers.ai_trainer import router as ai_trainer_router
 app.include_router(ai_trainer_router)
+from routers.lab_critical_rules import router as lab_critical_rules_router
+app.include_router(lab_critical_rules_router)
+from routers.lab_critical_alerts import router as lab_critical_alerts_router
+app.include_router(lab_critical_alerts_router)
+from routers.lab_critical_qa import router as lab_critical_qa_router
+app.include_router(lab_critical_qa_router)
 from routers.soap_notes import router as soap_notes_router, actions_router as soap_actions_router
 app.include_router(soap_notes_router)
 app.include_router(soap_actions_router)

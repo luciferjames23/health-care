@@ -28,6 +28,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const [clinicalValidation, setClinicalValidation] = useState(null);
   const [clinicalValidationPending, setClinicalValidationPending] = useState(false);
   const [clinicalActions, setClinicalActions] = useState([]);
+  const [actionDetectionMessage, setActionDetectionMessage] = useState('');
   const [selectedActionIds, setSelectedActionIds] = useState([]);
   const [actionDrafts, setActionDrafts] = useState({});
   const [actionOutcomes, setActionOutcomes] = useState({});
@@ -62,19 +63,26 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const handleDetectActions = async () => {
     const noteId = activeNote?.soap_note_id;
     if (!noteId || actionBusy || isSigned || readOnlyHistory) return;
-    setActionBusy(true); setError('');
+    setActionBusy(true); setError(''); setActionDetectionMessage('');
     try {
       const result = await apiService.detectSoapActions(noteId);
-      setClinicalActions(result.actions || []); setSelectedActionIds([]);
+      const actions = result.actions || [];
+      setClinicalActions(actions); setSelectedActionIds([]);
+      if (!actions.length) setActionDetectionMessage('No supported explicit actions were found in the saved transcript.');
     } catch (err) { setError(err.message || 'Clinical action detection failed.'); }
     finally { setActionBusy(false); }
   };
 
   const handlePatchAction = async (actionId) => {
+    const patch = actionDrafts[actionId] || {};
+    const current = clinicalActions.find(action => action.action_id === actionId);
+    const hasChanges = Object.entries(patch).some(([field, value]) => String(value ?? '') !== String(current?.[field] ?? ''));
+    if (!hasChanges) return;
     setActionBusy(true); setError('');
     try {
-      const updated = await apiService.updateSoapAction(actionId, actionDrafts[actionId] || {});
+      const updated = await apiService.updateSoapAction(actionId, patch);
       setClinicalActions(rows => rows.map(row => row.action_id === actionId ? updated : row));
+      if (!updated.can_confirm) setSelectedActionIds(ids => ids.filter(id => id !== actionId));
       setActionDrafts(rows => { const next = { ...rows }; delete next[actionId]; return next; });
     } catch (err) { setError(err.message || 'Unable to save action changes.'); }
     finally { setActionBusy(false); }
@@ -608,7 +616,9 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                 {actionBusy ? 'Working…' : 'Detect actions'}
               </button>
             </div>
-            {!clinicalActions.length && <div style={{ color: '#737b82', marginTop: '6px' }}>Detect actions after reviewing the transcript and SOAP draft.</div>}
+            {!clinicalActions.length && <div role="status" aria-live="polite" style={{ color: '#737b82', marginTop: '6px' }}>
+              {actionDetectionMessage || 'Detect actions after reviewing the transcript and SOAP draft.'}
+            </div>}
             {!!clinicalActions.length && <>
               <div style={{ display: 'flex', gap: '6px', margin: '7px 0' }}>
               <button type="button" onClick={handleConfirmActions} disabled={!selectedActionIds.length || actionBusy || isSigned || readOnlyHistory}>Confirm selected</button>
@@ -619,6 +629,14 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                 {clinicalActions.map(action => {
                   const unresolved = ['DETECTED', 'PENDING_CONFIRMATION'].includes(action.status);
                   const canReview = !isSigned && !readOnlyHistory && !action.stale && unresolved;
+                  const unsupportedImaging = action.action_type === 'IMAGING_ORDER' && !/^chest x-ray$/i.test(action.name || '');
+                  const canEdit = canReview && !unsupportedImaging;
+                  const canSelect = canReview && action.can_confirm !== false;
+                  const draft = actionDrafts[action.action_id] || {};
+                  const hasDetailsChanged = Object.entries(draft).some(([field, value]) => String(value ?? '') !== String(action[field] ?? ''));
+                  const actionStatusLabel = unsupportedImaging && action.confirmation_block_reason
+                    ? 'UNSUPPORTED'
+                    : action.confirmation_block_reason ? 'NEEDS DETAILS' : action.status;
                   const fields = action.action_type === 'CLINICAL_FINDING' && action.finding_type ? ['finding_type', 'value', 'systolic', 'diastolic', 'unit']
                     : action.action_type === 'MEDICATION_ORDER' ? ['name', 'dose', 'unit', 'route', 'frequency', 'duration']
                     : action.action_type === 'LAB_ORDER' ? ['name', 'code', 'priority']
@@ -627,13 +645,13 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                           : action.action_type === 'DIAGNOSIS_CANDIDATE' ? ['name', 'code'] : ['name'];
                   return <div key={action.action_id} style={{ borderTop: '1px solid #edf0f2', paddingTop: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      <input type="checkbox" aria-label={`Select ${action.name}`} checked={selectedActionIds.includes(action.action_id)} disabled={!canReview} onChange={e => setSelectedActionIds(ids => e.target.checked ? [...ids, action.action_id] : ids.filter(id => id !== action.action_id))} />
+                      <input type="checkbox" aria-label={`Select ${action.name}`} checked={selectedActionIds.includes(action.action_id)} disabled={!canSelect} onChange={e => setSelectedActionIds(ids => e.target.checked ? [...ids, action.action_id] : ids.filter(id => id !== action.action_id))} />
                       <strong>{vitalFindingLabels[action.finding_type] || action.name}</strong><span style={{ color: '#737b82' }}>· {action.action_type.replaceAll('_', ' ')}</span>
-                      <span style={{ marginLeft: 'auto', color: action.stale ? '#b45309' : '#737b82' }}>{action.stale ? 'STALE — re-detect' : action.status}</span>
+                      <span style={{ marginLeft: 'auto', color: action.stale || action.confirmation_block_reason ? '#92400e' : '#737b82' }}>{action.stale ? 'STALE — re-detect' : actionStatusLabel}</span>
                     </div>
                     {action.finding_type && <div style={{ fontWeight: 600, margin: '2px 0 3px 22px' }}>{formatVitalFinding(action)}</div>}
                     <div style={{ color: '#737b82', margin: '3px 0' }}>Transcript: {action.source_text}</div>
-                    {canReview && <details>
+                    {canEdit && <details>
                       <summary style={{ cursor: 'pointer' }}>Edit action details</summary>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '5px' }}>
                         {fields.map(field => <label key={field} style={{ display: 'flex', flexDirection: 'column', minWidth: '90px', flex: '1 1 90px' }}>
@@ -642,9 +660,18 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                             <option value="">Select projection</option><option value="PA">PA</option><option value="AP">AP</option>
                           </select> : <input type={['dose', 'value', 'systolic', 'diastolic'].includes(field) ? 'number' : 'text'} value={(actionDrafts[action.action_id] || {})[field] ?? action[field] ?? ''} onChange={e => setActionDrafts(drafts => ({ ...drafts, [action.action_id]: { ...(drafts[action.action_id] || {}), [field]: ['dose', 'value', 'systolic', 'diastolic'].includes(field) && e.target.value !== '' ? Number(e.target.value) : e.target.value } }))} />}
                         </label>)}
-                        <button type="button" onClick={() => handlePatchAction(action.action_id)} disabled={actionBusy}>Save</button>
+                        <button type="button" onClick={() => handlePatchAction(action.action_id)} disabled={actionBusy || !hasDetailsChanged}>Save</button>
                       </div>
                     </details>}
+                    {action.confirmation_block_reason && (
+                      <div role="status" style={{ color: '#92400e', marginTop: '3px' }}>
+                        {unsupportedImaging
+                          ? 'Detected for review only. The existing SOAP imaging workflow supports Chest X-ray PA/AP; this examination cannot be confirmed here.'
+                          : action.action_type === 'LAB_ORDER' && action.name === 'Blood test (specific test required)'
+                            ? 'Select a specific active Lab catalog test before confirmation. No test is inferred from “blood test.”'
+                            : action.confirmation_block_reason}
+                      </div>
+                    )}
                     {canReview && <button type="button" onClick={() => handleRejectAction(action.action_id)} disabled={actionBusy} style={{ marginTop: '4px' }}>Reject</button>}
                     {actionOutcomes[action.action_id] && <div role="alert" style={{ color: '#991b1b', marginTop: '3px' }}>{actionOutcomes[action.action_id]}</div>}
                     {action.error_message && <div role="status" style={{ color: action.status === 'FAILED' ? '#991b1b' : '#92400e', marginTop: '3px' }}>{action.error_message}</div>}

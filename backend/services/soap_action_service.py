@@ -216,17 +216,36 @@ def _extract_orders(text):
     for clause in _ACTION_VERB_RE.finditer(text):
         end = re.search(r"[.!?;\n]", text[clause.end():])
         stop = clause.end() + end.start() if end else len(text)
+        # Dictation commonly chains requests with "also order" without a
+        # sentence break. Keep each suggestion tied to its own spoken clause.
+        next_clause = _ACTION_VERB_RE.search(text, clause.end())
+        if next_clause and next_clause.start() < stop:
+            stop = next_clause.start()
         tail = _ORDER_TAIL_RE.search(text, clause.end(), stop)
         if tail:
             stop = tail.start()
         body = text[clause.end():stop]
+        recognized_lab = False
         for term, display, code in sorted(LAB_TESTS, key=lambda item: len(item[0]), reverse=True):
             match = re.search(r"\b" + re.escape(term) + r"\b", body, re.I)
             if match:
+                recognized_lab = True
                 absolute_start = clause.end() + match.start()
-                absolute_end = clause.end() + match.end()
                 source = _source_text(text, clause.start(), stop)
-                results.append((absolute_start, _action("LAB_ORDER", "CREATE_ORDER", display, source, code=code, priority="STAT" if re.search(r"\bstat\b", source, re.I) else "URGENT" if re.search(r"\burgent\b", source, re.I) else "ROUTINE")))
+                priority = "STAT" if re.search(r"\bstat\b", source, re.I) else "URGENT" if re.search(r"\burgent\b", source, re.I) else "ROUTINE"
+                results.append((absolute_start, _action("LAB_ORDER", "CREATE_ORDER", display, source, code=code, priority=priority)))
+        if not recognized_lab:
+            generic_lab = re.search(r"\b(?:blood|laboratory|lab)\s+tests?\b", body, re.I)
+            if generic_lab:
+                # Preserve the explicit request without guessing a test code.
+                # The clinician can select an active catalog test before
+                # confirmation; confirmation is rejected while it is generic.
+                source = _source_text(text, clause.start(), stop)
+                priority = "STAT" if re.search(r"\bstat\b", source, re.I) else "URGENT" if re.search(r"\burgent\b", source, re.I) else "ROUTINE"
+                results.append((clause.end() + generic_lab.start(), _action(
+                    "LAB_ORDER", "CREATE_ORDER", "Blood test (specific test required)", source,
+                    priority=priority,
+                )))
         ecg = re.search(r"\b(?:ecg|ekg|electrocardiogram)\b", body, re.I)
         if ecg:
             absolute_start = clause.end() + ecg.start()
@@ -243,6 +262,20 @@ def _extract_orders(text):
                 "IMAGING_ORDER", "CREATE_ORDER", "Chest X-ray" if supported else "X-ray",
                 _source_text(text, clause.start(), stop), priority=priority,
                 projection=projection, clinical_indication=_imaging_indication(text, clause.start()) if supported else None,
+            )))
+        ct_exam = re.search(
+            r"\b(?:ct|computed\s+tomography)\s+(?:of\s+)?(?:the\s+)?(?P<region>abdomen(?:\s+(?:and|&)\s+pelvis)?)(?P<contrast>\s+with\s+(?:iv\s+)?contrast)?\b",
+            body,
+            re.I,
+        )
+        if ct_exam:
+            region = re.sub(r"\s+", " ", ct_exam.group("region")).strip().title()
+            contrast = " with contrast" if ct_exam.group("contrast") else ""
+            source = _source_text(text, clause.start(), stop)
+            priority = "URGENT" if re.search(r"\burgent\b", source, re.I) else "ROUTINE" if re.search(r"\broutine\b", source, re.I) else None
+            results.append((clause.end() + ct_exam.start(), _action(
+                "IMAGING_ORDER", "CREATE_ORDER", f"CT {region}{contrast}", source,
+                priority=priority,
             )))
     # Passive clinician requests are also explicit order intent; result verbs
     # are intentionally excluded from this matcher.

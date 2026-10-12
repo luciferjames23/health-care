@@ -44,7 +44,8 @@ ORDER_SELECT = """
 SELECT o.*, COALESCE((SELECT jsonb_agg(jsonb_build_object(
            'study_key',a.study_key,'projection',a.projection,'status',a.status,
            'study_instance_uid',a.study_instance_uid,'study_id',rs.study_id,
-           'review_status',rs.review_status,'analyzed',rs.scan_id IS NOT NULL) ORDER BY a.projection DESC)
+           'review_status',rs.review_status,'reviewed_by',rs.reviewed_by,'reviewed_at',rs.reviewed_at,
+           'analyzed',rs.scan_id IS NOT NULL) ORDER BY a.projection DESC)
            FROM radiology_order_studies a LEFT JOIN radiology_scan rs ON rs.order_study_id=a.study_key
            WHERE a.order_id=o.order_id),'[]'::jsonb) AS studies, p.patient_code, concat_ws(' ',p.first_name,p.last_name) AS patient_name,
        COALESCE(d.display_name,u.staff_name,u.username) AS requested_by_name,

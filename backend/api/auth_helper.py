@@ -131,34 +131,37 @@ def require_doctor_or_admin(user: dict = Depends(get_current_user)) -> dict:
 def require_radiologist_or_doctor(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     """Allow Radiologist OR Doctor (or Admin) roles to view radiology data (read-only access)."""
     # First try a valid signed token
-    payload = decode_token(credentials.credentials) if credentials else None
-    if payload and payload.get("user_id"):
-        try:
-            with db_config.get_db_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT u.id, u.username, r.name, u.is_active,
-                               COALESCE(d.display_name, u.staff_name, u.username),
-                               d.id AS doctor_id
-                        FROM users u JOIN roles r ON r.id=u.role_id
-                        LEFT JOIN doctors d ON d.user_id=u.id WHERE u.id=%s
-                    """, (payload["user_id"],))
-                    row = cur.fetchone()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail="Unable to verify access. Please retry.") from exc
-        if row and row[3]:
-            role = str(row[2]).strip().lower()
-            if role in {"radiologist", "doctor", "admin"}:
-                return {
-                    "user_id": row[0],
-                    "username": row[1],
-                    "role": row[2],
-                    "name": row[4],
-                    "doctor_id": row[5] or payload.get("doctor_id") or row[0]
-                }
-        raise HTTPException(status_code=403, detail="Radiologist or Doctor role is required to view scans.")
-    # Fallback: dev / unauthenticated sessions – allow read-only in local environment
-    return {"user_id": 0, "username": "dev", "role": "DOCTOR", "name": "Development User", "doctor_id": 1}
+    payload = decode_token(credentials.credentials) if credentials and credentials.credentials else None
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please sign in to access Radiology.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        with db_config.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.id, u.username, r.name, u.is_active,
+                           COALESCE(d.display_name, u.staff_name, u.username),
+                           d.id AS doctor_id
+                    FROM users u JOIN roles r ON r.id=u.role_id
+                    LEFT JOIN doctors d ON d.user_id=u.id WHERE u.id=%s
+                """, (payload["user_id"],))
+                row = cur.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to verify access. Please retry.") from exc
+    if row and row[3]:
+        role = str(row[2]).strip().lower()
+        if role in {"radiologist", "doctor", "admin"}:
+            return {
+                "user_id": row[0],
+                "username": row[1],
+                "role": row[2],
+                "name": row[4],
+                "doctor_id": row[5] or payload.get("doctor_id") or row[0]
+            }
+    raise HTTPException(status_code=403, detail="Radiologist or Doctor role is required to view scans.")
 
 
 def require_radiologist(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
