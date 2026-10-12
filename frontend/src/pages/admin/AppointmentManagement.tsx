@@ -152,7 +152,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   const [dateType, setDateType] = useState<'appointment_date' | 'created_at'>('appointment_date');
   const [deptFilter, setDeptFilter] = useState('');
   const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
   const [sourceFilter, setSourceFilter] = useState('');
   const [sortBy, setSortBy] = useState('appointment_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -555,7 +555,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
             style={selectStyle}
           >
-            <option value="">All Status</option>
+            <option value="ACTIVE">⚡ Active & Scheduled (Current)</option>
+            <option value="">All Status (All-Time Historical)</option>
             {['BOOKED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
               <option key={s} value={s}>{s}</option>
             ))}
@@ -707,7 +708,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                     </td>
                     <td style={{ padding: '10px 12px', minWidth: '160px', verticalAlign: 'middle' }}>
                       <div style={{ fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap' }}>{a.doctor_name}</div>
-                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>{a.specialization}</div>
+                      <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>{(a as any).specialization}</div>
                     </td>
                     <td style={{ padding: '10px 12px', minWidth: '130px', color: '#52585e', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{a.department_name}</td>
                     <td style={{ padding: '10px 12px', minWidth: '160px', maxWidth: '200px', verticalAlign: 'middle', color: '#52585e' }}>

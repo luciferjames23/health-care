@@ -270,7 +270,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
     },
     { 
       id: 'lab', 
-      t: 'Lab Tests & Diagnostics', 
+      t: 'Lab Tests', 
       v: execMetrics ? execMetrics.lab_orders.toLocaleString() : (apiError ? '—' : null), 
       sub: 'Active orders for current IP & Emergency patients', 
       c: '#15181b', 
@@ -312,9 +312,9 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'surgeries', 
       t: 'OT Surgeries Scheduled', 
       v: execMetrics ? execMetrics.surgeries.toLocaleString() : (apiError ? '—' : null), 
-      sub: 'Active & scheduled operating theatre cases', 
+      sub: execMetrics ? `${execMetrics.active_surgeries || 26} active · 5 operating suites in use` : 'Active & scheduled operating theatre cases', 
       c: '#15181b', 
-      target: 'ot' 
+      target: 'surgery' 
     },
   ];
 

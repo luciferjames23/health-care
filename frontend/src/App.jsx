@@ -858,7 +858,7 @@ export default function App() {
             )}
             {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'medications' && <MedicationAdminView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
-            {activePage === 'surgery' && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
+            {(activePage === 'surgery' || activePage === 'ot') && <SurgeryOTView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'bloodbank' && <BloodBankView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'deathmlc' && <DeathMlcView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
             {activePage === 'sbar' && <SbarView onOpenDrawer={setDrawer} onOpenModal={setModal} />}
@@ -930,7 +930,7 @@ export default function App() {
               'governance', 'risk', 'evals', 'observability', 'cost', 'incidents', 'trainer',
               'criticalvalues', 'diagnostics', 'radiology', 'xray-orders',
               'ai-desk', 'patient-chat', 'pre-admission', 'doctor-management', 'doctor-portal', 'escalations',
-              'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery',
+              'appointments', 'emergency', 'schedules', 'nursing', 'medications', 'surgery', 'ot',
               'bloodbank', 'deathmlc', 'sbar', 'lab', 'lab-workqueue', 'billing', 'insurance', 'claims', 'finance', 'tax',
               'exceptions', 'audit',
               'prescriptions', 'drugs', 'pharmacy', 'inventory', 'stores', 'procurement', 'vendors', 'cssd',

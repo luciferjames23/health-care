@@ -3545,7 +3545,7 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     if (aid) admMap['adm_' + aid] = a;
   });
 
-  const processedPatientIds = new Set();
+  const processedAdmissionKeys = new Set();
   const cases = [];
 
   // 1. Generated Summaries
@@ -3553,10 +3553,12 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     const parsed = parseDischargeSummaryRecord(c);
     if (!parsed) return;
     const pid = String(parsed.patient_id || parsed.id || ('CASE-' + index));
-    processedPatientIds.add(pid);
-    if (c.admission_id) processedPatientIds.add('adm_' + c.admission_id);
+    const aid = c.admission_id ? String(c.admission_id) : '';
+    const matchKey = aid ? ('adm_' + aid) : ('pid_' + pid);
+    if (processedAdmissionKeys.has(matchKey)) return;
+    processedAdmissionKeys.add(matchKey);
 
-    const adm = admMap[pid] || (c.admission_id && admMap['adm_' + c.admission_id]) || {};
+    const adm = (aid && admMap['adm_' + aid]) || admMap[pid] || {};
     const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
     const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
     const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
@@ -3574,11 +3576,11 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
   rawAdmissions.forEach((adm, index) => {
     const pid = String(adm.patient_id || adm.id || ('ADM-' + index));
     const aid = String(adm.admission_id || '');
-    if (processedPatientIds.has(pid) || (aid && processedPatientIds.has('adm_' + aid))) {
+    const matchKey = aid ? ('adm_' + aid) : ('pid_' + pid);
+    if (processedAdmissionKeys.has(matchKey)) {
       return;
     }
-    processedPatientIds.add(pid);
-    if (aid) processedPatientIds.add('adm_' + aid);
+    processedAdmissionKeys.add(matchKey);
 
     const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
     if (!isDischarged) {

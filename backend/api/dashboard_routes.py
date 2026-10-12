@@ -1627,8 +1627,11 @@ def get_appointments(
             params += [like, like, like, like]
 
         if status_str:
-            conditions.append("a.status = %s")
-            params.append(status_str.upper())
+            if status_str.upper() in ('ACTIVE', 'SCHEDULED'):
+                conditions.append("a.status IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')")
+            else:
+                conditions.append("a.status = %s")
+                params.append(status_str.upper())
 
         if dept_str:
             conditions.append("(LOWER(COALESCE(dept.department_name, d.specialization, '')) = LOWER(%s))")

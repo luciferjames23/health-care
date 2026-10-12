@@ -1193,8 +1193,11 @@ def get_notification_counts(
             unread_escs = cur.fetchone()['count'] or 0
             cur.execute("SELECT COUNT(*) FROM notifications;")
             total_notifs = cur.fetchone()['count'] or 0
+            cur.execute("SELECT COUNT(*) FROM escalations;")
+            total_escs = cur.fetchone()['count'] or 0
 
             unread_leaves = 0
+            total_leaves = 0
             try:
                 cur.execute("""
                     SELECT COUNT(*) FROM employee_leave_requests 
@@ -1202,6 +1205,8 @@ def get_notification_counts(
                       AND status = 'Pending';
                 """)
                 unread_leaves = cur.fetchone()['count'] or 0
+                cur.execute("SELECT COUNT(*) FROM employee_leave_requests;")
+                total_leaves = cur.fetchone()['count'] or 0
             except Exception:
                 pass
         else:
@@ -1241,13 +1246,25 @@ def get_notification_counts(
             elif role == 'Insurance':
                 cur.execute("""
                     SELECT COUNT(*) FROM notifications
-                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER')
+                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED')
                       AND status NOT IN ('READ', 'DELIVERED');
                 """)
                 unread_notifs = cur.fetchone()['count'] or 0
                 cur.execute("""
                     SELECT COUNT(*) FROM notifications
-                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER');
+                    WHERE notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED');
+                """)
+                total_notifs = cur.fetchone()['count'] or 0
+            elif role == 'Nurse':
+                cur.execute("""
+                    SELECT COUNT(*) FROM notifications
+                    WHERE notification_type IN ('ADMISSION_REMINDER')
+                      AND status NOT IN ('READ', 'DELIVERED');
+                """)
+                unread_notifs = cur.fetchone()['count'] or 0
+                cur.execute("""
+                    SELECT COUNT(*) FROM notifications
+                    WHERE notification_type IN ('ADMISSION_REMINDER');
                 """)
                 total_notifs = cur.fetchone()['count'] or 0
 
@@ -1272,6 +1289,7 @@ def get_notification_counts(
 
             # Leave requests scoped strictly to this user/doctor/supervisor
             unread_leaves = 0
+            total_leaves = 0
             if show_leaves:
                 try:
                     name_query = f"%{clean_name}%" if clean_name else "%UNKNOWN_USER_PLACEHOLDER%"
@@ -1282,14 +1300,20 @@ def get_notification_counts(
                           AND (%s IS NOT NULL AND user_id = %s OR staff_name ILIKE %s OR supervisor_name ILIKE %s);
                     """, (u_id, u_id, name_query, name_query))
                     unread_leaves = cur.fetchone()['count'] or 0
+                    cur.execute("""
+                        SELECT COUNT(*) FROM employee_leave_requests 
+                        WHERE (%s IS NOT NULL AND user_id = %s OR staff_name ILIKE %s OR supervisor_name ILIKE %s);
+                    """, (u_id, u_id, name_query, name_query))
+                    total_leaves = cur.fetchone()['count'] or 0
                 except Exception:
                     pass
 
         effective_leaves = unread_leaves if show_leaves else 0
+        effective_total_leaves = total_leaves if show_leaves else 0
 
         return {
             "success": True,
-            "total": total_notifs + effective_leaves,
+            "total": total_notifs + (total_escs if is_admin else 0) + effective_total_leaves,
             "unread_count": unread_notifs + unread_escs + effective_leaves,
             "critical_count": unread_escs,
             "leave_count": effective_leaves
@@ -1418,7 +1442,7 @@ def get_notifications(
     role: Optional[str] = Query(None),
     username: Optional[str] = Query(None),
     user_name: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=2000),
     offset: int = Query(0, ge=0)
 ):
     """
@@ -1502,7 +1526,7 @@ def get_notifications(
                 LEFT JOIN departments dept ON a.department_id = dept.id
                 LEFT JOIN doctors d ON a.doctor_id = d.id
                 ORDER BY n.id DESC
-                LIMIT 200;
+                LIMIT 1500;
             """)
         elif doc_id:
             cur.execute("""
@@ -1529,7 +1553,7 @@ def get_notifications(
                 LEFT JOIN doctors d ON a.doctor_id = d.id
                 WHERE a.doctor_id = %s
                 ORDER BY n.id DESC
-                LIMIT 200;
+                LIMIT 1500;
             """, (doc_id,))
         elif role == 'Doctor' and clean_name:
             cur.execute("""
@@ -1556,7 +1580,7 @@ def get_notifications(
                 LEFT JOIN doctors d ON a.doctor_id = d.id
                 WHERE d.display_name ILIKE %s OR n.message ILIKE %s
                 ORDER BY n.id DESC
-                LIMIT 200;
+                LIMIT 1500;
             """, (f"%{clean_name}%", f"%{clean_name}%"))
         elif role == 'Insurance':
             cur.execute("""
@@ -1583,7 +1607,7 @@ def get_notifications(
                 LEFT JOIN doctors d ON a.doctor_id = d.id
                 WHERE n.notification_type IN ('PREAUTH_SUBMITTED', 'INSURANCE_CLAIM_SUBMITTED', 'ADMISSION_REMINDER', 'APPOINTMENT_CANCELLED')
                 ORDER BY n.id DESC
-                LIMIT 100;
+                LIMIT 1000;
             """)
         else:
             if role == 'Nurse':
@@ -1611,7 +1635,7 @@ def get_notifications(
                     LEFT JOIN doctors d ON a.doctor_id = d.id
                     WHERE n.notification_type IN ('ADMISSION_REMINDER')
                     ORDER BY n.id DESC
-                    LIMIT 100;
+                    LIMIT 1000;
                 """)
             else:
                 cur.execute("SELECT 1 WHERE 1=0;")
@@ -1634,7 +1658,7 @@ def get_notifications(
                 FROM escalations e
                 LEFT JOIN patients p ON e.patient_id = p.id
                 ORDER BY e.id DESC
-                LIMIT 50;
+                LIMIT 500;
             """)
         elif doc_id:
             cur.execute("""
@@ -1654,7 +1678,7 @@ def get_notifications(
                 WHERE e.assigned_to_user_id = %s
                    OR e.patient_id IN (SELECT DISTINCT patient_id FROM appointments WHERE doctor_id = %s)
                 ORDER BY e.id DESC
-                LIMIT 50;
+                LIMIT 500;
             """, (u_id or -1, doc_id))
         elif u_id:
             cur.execute("""
@@ -1673,7 +1697,7 @@ def get_notifications(
                 LEFT JOIN patients p ON e.patient_id = p.id
                 WHERE e.assigned_to_user_id = %s
                 ORDER BY e.id DESC
-                LIMIT 50;
+                LIMIT 500;
             """, (u_id,))
         else:
             cur.execute("SELECT 1 WHERE 1=0;")
@@ -1700,8 +1724,32 @@ def get_notifications(
                 t_str = esc['created_at'].strftime("%I:%M %p") if esc.get('created_at') else "--:--"
                 reason_text = str(esc.get('escalation_reason') or esc.get('patient_question') or '')
 
-                esc_priority = "CRITICAL" if "critical" in reason_text.lower() or "abnormal" in reason_text.lower() or "potassium" in reason_text.lower() else "HIGH"
-                src = "LIS Connector" if "lab" in reason_text.lower() or "potassium" in reason_text.lower() else "Clinical Safety Gateway"
+                reason_lower = reason_text.lower()
+                is_feedback = "feedback" in reason_lower or "recovery" in reason_lower or "complaint" in reason_lower
+                is_followup = "ag-11" in reason_lower or "post-discharge" in reason_lower
+                is_clinical = "critical" in reason_lower or "abnormal" in reason_lower or "potassium" in reason_lower or "fever" in reason_lower or "wound" in reason_lower or "lab" in reason_lower or "insulin" in reason_lower
+
+                if is_clinical:
+                    esc_type = "CLINICAL_ESCALATION"
+                    esc_priority = "CRITICAL" if ("critical" in reason_lower or "potassium" in reason_lower or "abnormal" in reason_lower) else "HIGH"
+                    src = "LIS Connector" if ("lab" in reason_lower or "potassium" in reason_lower) else "Clinical Safety Gateway"
+                    title = f"Clinical safety alert: {reason_text[:60]}"
+                elif is_feedback:
+                    esc_type = "FEEDBACK_ESCALATION"
+                    esc_priority = "HIGH" if "high" in reason_lower else "MEDIUM"
+                    src = "Patient Experience & Grievance Gateway"
+                    title = f"Patient Feedback Alert: {reason_text[:60]}"
+                elif is_followup:
+                    esc_type = "FOLLOWUP_ALERT"
+                    esc_priority = "MEDIUM"
+                    src = "Post-Discharge Follow-up Agent (AG-11)"
+                    title = f"Post-Discharge Alert: {reason_text[:60]}"
+                else:
+                    esc_type = "ESCALATION"
+                    esc_priority = "HIGH"
+                    src = "Clinical Operations Gateway"
+                    title = f"Operational Escalation: {reason_text[:60]}" if reason_text else f"Clinical escalation for {pname}"
+
                 is_unread = esc.get('status', '').upper() in ('OPEN', 'PENDING', 'ESCALATED', 'IN_PROGRESS')
 
                 # Role-scoped escalation filtering: 'high' = Critical + High; 'all' = everything
@@ -1712,10 +1760,10 @@ def get_notifications(
                 formatted.append({
                     "id": f"ESC-{esc['id']:04d}",
                     "raw_id": esc['id'],
-                    "type": "ESCALATION",
+                    "type": esc_type,
                     "priority": esc_priority,
                     "status": "UNREAD" if is_unread else "READ",
-                    "title": f"Clinical safety alert: {reason_text[:60]}" if reason_text else f"Clinical escalation for {pname}",
+                    "title": title,
                     "message": f"{pname} ({esc['patient_code'] or 'IP-Census'}) — {reason_text or 'Physician acknowledgement required'}",
                     "source": src,
                     "patient_id": esc.get('patient_id'),
@@ -1760,6 +1808,12 @@ def get_notifications(
             elif "PREAUTH" in ntype or "INSURANCE" in ntype:
                 nt_priority = "HIGH"
                 src = "Insurance Preauth Agent (AG-07)"
+            elif "FEEDBACK" in ntype:
+                nt_priority = "MEDIUM"
+                src = "Patient Experience & Feedback Agent"
+            elif "FOLLOWUP" in ntype or "CHECKIN" in ntype:
+                nt_priority = "LOW"
+                src = "Post-Discharge Follow-up Agent (AG-11)"
             elif "ADMISSION" in ntype or "DISCHARGE" in ntype:
                 nt_priority = "HIGH"
                 src = "Discharge Orchestration Agent"
@@ -1771,11 +1825,15 @@ def get_notifications(
                 src = "Outpatient Registration"
             else:
                 nt_priority = "LOW"
-                src = "Facilities & Housekeeping"
+                src = "Platform System Service"
 
             # Derive title
             if "PREAUTH" in ntype or "INSURANCE" in ntype:
                 title = f"Preauth dossier submitted: {pname}"
+            elif "FEEDBACK" in ntype:
+                title = f"Post-Discharge Feedback Survey: {pname}"
+            elif "FOLLOWUP" in ntype or "CHECKIN" in ntype:
+                title = f"Post-Discharge Follow-up Check-in: {pname}"
             elif "ADMISSION_REMINDER" in ntype:
                 title = f"Pre-admission clearance reminder: {pname}"
             elif "APPOINTMENT_CONFIRMED" in ntype:
@@ -1840,7 +1898,7 @@ def get_notifications(
                             COALESCE(lr.created_at, NOW()) as created_at
                         FROM employee_leave_requests lr
                         ORDER BY lr.id DESC
-                        LIMIT 100;
+                        LIMIT 200;
                     """)
                 else:
                     name_query = f"%{clean_name}%" if clean_name else "%UNKNOWN_USER_PLACEHOLDER%"

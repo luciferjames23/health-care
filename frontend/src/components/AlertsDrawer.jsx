@@ -32,7 +32,7 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
       if (!silent) setLoading(true);
       // Pass current role and user details for user-scoped filtering
       const res = await apiService.getNotifications({
-        limit: 200,
+        limit: 1000,
         role: role || undefined,
         username: currentUser?.username || undefined,
         user_name: currentUser?.name || undefined
@@ -105,16 +105,67 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
     }
   };
 
-  const leaveCount = notifications.filter(item => {
-    const txt = `${item.title || ''} ${item.message || ''} ${item.type || ''} ${item.source || ''}`.toLowerCase();
-    return txt.includes('leave') || txt.includes('comp-off') || txt.includes('staff') || txt.includes('employee');
-  }).length;
+  const isLeaveNotification = (item) => {
+    const id = String(item.id || '');
+    const type = String(item.type || '').toLowerCase();
+    const src = String(item.source || item.src || '').toLowerCase();
+    const title = String(item.title || '').toLowerCase();
+    return (
+      id.startsWith('LEAVE-') ||
+      type === 'staff leave request' ||
+      type.includes('leave') ||
+      src.includes('employee service') ||
+      title.includes('staff leave') ||
+      title.includes('leave application')
+    );
+  };
+
+  const isFeedbackNotification = (item) => {
+    if (isLeaveNotification(item)) return false;
+    const type = String(item.type || '').toLowerCase();
+    const title = String(item.title || '').toLowerCase();
+    const msg = String(item.message || item.detail || '').toLowerCase();
+    const src = String(item.source || item.src || '').toLowerCase();
+    return (
+      type.includes('feedback') ||
+      title.includes('feedback') ||
+      title.includes('recovery') ||
+      msg.includes('feedback service recovery') ||
+      msg.includes('service recovery') ||
+      src.includes('grievance') ||
+      src.includes('experience') ||
+      type === 'post_discharge_feedback'
+    );
+  };
+
+  const isDischargeNotification = (item) => {
+    if (isLeaveNotification(item) || isFeedbackNotification(item)) return false;
+    const type = String(item.type || '').toLowerCase();
+    const title = String(item.title || '').toLowerCase();
+    const msg = String(item.message || item.detail || '').toLowerCase();
+    const src = String(item.source || item.src || '').toLowerCase();
+    return (
+      type.includes('discharge') ||
+      type.includes('admission') ||
+      type.includes('preauth') ||
+      title.includes('discharge') ||
+      title.includes('admission') ||
+      title.includes('preauth') ||
+      title.includes('pre-admission') ||
+      msg.includes('discharge') ||
+      msg.includes('pre-admission') ||
+      src.includes('discharge') ||
+      src.includes('preauth')
+    );
+  };
+
+  const leaveCount = notifications.filter(isLeaveNotification).length;
+  const feedbackCount = notifications.filter(isFeedbackNotification).length;
+  const dischargeCount = notifications.filter(isDischargeNotification).length;
 
   const filteredList = notifications.filter(item => {
     const itemPriority = (item.priority || item.pri || '').toUpperCase();
     const isItemUnread = item.status === 'UNREAD' || item.unread === true || (item.state || '').toUpperCase() === 'UNREAD';
-    const itemMessage = item.message || item.detail || '';
-    const itemType = item.type || '';
 
     if (filter === 'CRITICAL') {
       return itemPriority === 'CRITICAL' || itemPriority === 'HIGH';
@@ -122,13 +173,14 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
     if (filter === 'UNREAD') {
       return isItemUnread;
     }
+    if (filter === 'FEEDBACK') {
+      return isFeedbackNotification(item);
+    }
     if (filter === 'DISCHARGE') {
-      const txt = `${item.title || ''} ${itemMessage} ${itemType}`.toLowerCase();
-      return txt.includes('discharge') || txt.includes('block') || txt.includes('pending') || txt.includes('admission');
+      return isDischargeNotification(item);
     }
     if (filter === 'LEAVE') {
-      const txt = `${item.title || ''} ${itemMessage} ${itemType} ${item.source || ''}`.toLowerCase();
-      return txt.includes('leave') || txt.includes('comp-off') || txt.includes('staff') || txt.includes('employee');
+      return isLeaveNotification(item);
     }
     return true;
   });
@@ -327,7 +379,8 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
         </div>
 
         {/* Actions / Patient Link */}
-        {(item.patient_id || item.patient_name) && (
+        {/* Actions / Patient or Staff Link */}
+        {(item.patient_id || item.patient_name || item.request_code || isLeaveNotification(item)) && (
           <div style={{
             marginTop: '4px',
             paddingTop: '6px',
@@ -335,40 +388,116 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            fontSize: '11px'
+            fontSize: '11px',
+            flexWrap: 'wrap',
+            gap: '6px'
           }}>
             <span style={{ color: isUnread ? '#475569' : '#64748b' }}>
-              {(item.type === 'Staff Leave Request' || (item.source || '').includes('Employee')) ? 'Staff: ' : 'Patient: '}
+              {isLeaveNotification(item) ? 'Staff: ' : 'Patient: '}
               <strong>{item.patient_name || item.patient_id}</strong>
               {item.patient_code ? ` (${item.patient_code})` : ''}
             </span>
-            {onOpenPatient && item.patient_id && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenPatient({
-                    id: item.patient_id,
-                    name: item.patient_name,
-                    patient_id: item.patient_id,
-                    patient_code: item.patient_code,
-                    uhid: item.patient_code,
-                    mrn: item.patient_code
-                  });
-                }}
-                style={{
-                  color: '#0284c7',
-                  background: 'transparent',
-                  border: 'none',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: 0,
-                  fontSize: '11px'
-                }}
-              >
-                Open Patient 360 →
-              </button>
-            )}
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {isLeaveNotification(item) ? (
+                onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onNavigate('hr-dashboard');
+                    }}
+                    style={{
+                      color: '#0284c7',
+                      background: 'transparent',
+                      border: 'none',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontSize: '11px'
+                    }}
+                  >
+                    View Staff Leave →
+                  </button>
+                )
+              ) : isFeedbackNotification(item) ? (
+                <>
+                  {onNavigate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onNavigate('feedback');
+                      }}
+                      style={{
+                        color: '#0284c7',
+                        background: 'transparent',
+                        border: 'none',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontSize: '11px'
+                      }}
+                    >
+                      Feedback Desk →
+                    </button>
+                  )}
+                  {onOpenPatient && item.patient_id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenPatient({
+                          id: item.patient_id,
+                          name: item.patient_name,
+                          patient_id: item.patient_id,
+                          patient_code: item.patient_code,
+                          uhid: item.patient_code,
+                          mrn: item.patient_code
+                        });
+                      }}
+                      style={{
+                        color: '#64748b',
+                        background: 'transparent',
+                        border: 'none',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontSize: '11px'
+                      }}
+                    >
+                      Patient 360 →
+                    </button>
+                  )}
+                </>
+              ) : onOpenPatient && item.patient_id ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenPatient({
+                      id: item.patient_id,
+                      name: item.patient_name,
+                      patient_id: item.patient_id,
+                      patient_code: item.patient_code,
+                      uhid: item.patient_code,
+                      mrn: item.patient_code
+                    });
+                  }}
+                  style={{
+                    color: '#0284c7',
+                    background: 'transparent',
+                    border: 'none',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: 0,
+                    fontSize: '11px'
+                  }}
+                >
+                  Open Patient 360 →
+                </button>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
@@ -525,7 +654,8 @@ export default function AlertsDrawer({ isOpen, onClose, onNavigate, onOpenPatien
             { id: 'ALL', label: `All (${totalCount})` },
             { id: 'UNREAD', label: `⚡ New / Unread (${unreadCount})` },
             { id: 'CRITICAL', label: `Critical (${criticalCount})` },
-            { id: 'DISCHARGE', label: 'Discharge & Admissions' },
+            { id: 'FEEDBACK', label: `Feedback & Grievances (${feedbackCount})` },
+            { id: 'DISCHARGE', label: `Discharge & Admissions (${dischargeCount})` },
             { id: 'LEAVE', label: `Staff Leaves (${leaveCount})` }
           ].map(tab => (
             <button

@@ -3586,7 +3586,7 @@ function useLabOrders() {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    apiService.getPatientLabOrders({ limit: 100 }, { forceRefresh: true })
+    apiService.getPatientLabOrders({ limit: 333 }, { forceRefresh: true })
       .then(response => { if (active) { setOrders(response?.data || []); setError(''); } })
       .catch(err => { if (active) setError(err.message || 'Unable to load laboratory orders.'); })
       .finally(() => { if (active) setLoading(false); });

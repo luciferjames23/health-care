@@ -421,7 +421,7 @@ export default function DischargeCommandCentre({
       if (w.ward_id) wardMap[String(w.ward_id)] = w.ward_name;
     });
 
-    const processedPatientIds = new Set();
+    const processedAdmissionKeys = new Set();
     const resultCases = [];
 
     // 1. Generated Discharge Summaries (dim_generated_discharge_summaries)
@@ -436,14 +436,14 @@ export default function DischargeCommandCentre({
       if (!parsed) return;
       const pid = String(parsed.patient_id || parsed.id || `CASE-${index}`);
       const aid = c.admission_id ? String(c.admission_id) : '';
+      const matchKey = aid ? `adm_${aid}` : `pid_${pid}`;
 
-      if (processedPatientIds.has(pid) || (aid && processedPatientIds.has(`adm_${aid}`))) {
-        return; // skip duplicate summary record for the same patient/admission
+      if (processedAdmissionKeys.has(matchKey)) {
+        return; // skip duplicate summary record for the same admission
       }
-      processedPatientIds.add(pid);
-      if (aid) processedPatientIds.add(`adm_${aid}`);
+      processedAdmissionKeys.add(matchKey);
 
-      const adm = admMap[pid] || admMap[`adm_${c.admission_id}`] || {};
+      const adm = (aid && admMap[`adm_${aid}`]) || admMap[pid] || {};
       const matchedBed = (c.admission_id && bedByAdmissionId[String(c.admission_id)]) || bedByPatientId[pid];
       const caseId = parsed.summary_id ? `DIS-SUM-${parsed.summary_id}` : `DIS-CASE-${index + 1}`;
 
@@ -457,13 +457,12 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+      const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+      const isDone = isApproved || isDischarged;
 
-      // Rule: In dim_generated_discharge_summaries (52 total):
-      // approval_status = 'Approved' -> Completed (12 cases)
-      // approval_status = 'Pending Approval' -> Ready (40 cases)
-      let category = isApproved ? 'Completed' : 'Ready';
-      let blocker = isApproved ? 'All steps completed' : 'Clear';
-      let initialStatus = isApproved ? 'Completed' : 'Ready';
+      let category = isDone ? 'Completed' : 'Ready';
+      let blocker = isDone ? 'All steps completed' : 'Clear';
+      let initialStatus = isDone ? 'Completed' : 'Ready';
 
       const doctorName = cleanDoctorName((isApproved
         ? (parsed.doctor_name || adm.attending_doctor)
@@ -518,13 +517,13 @@ export default function DischargeCommandCentre({
         dischargeTime: actualDischargeTime || (isApproved ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
         intentAt: c.intent_at || adm.intent_at || '09:00 AM',
         initialEta: dynamicEta,
-        owner: isApproved ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
+        owner: isDone ? (doctorName || 'Dr. Priya Patel (Oncologist)') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
         blocker,
         initialStatus,
-        isCompleted: isApproved,
+        isCompleted: isDone,
         isCleared: isBillCleared,
-        isApproved,
+        isApproved: isDone,
         isVitalsStable: vitalsCheck.isNormal,
         vitalsIssues: vitalsCheck.issues.join(', '),
         hasSummary: true,
@@ -569,11 +568,11 @@ export default function DischargeCommandCentre({
     rawAdmissions.forEach((adm, index) => {
       const pid = String(adm.patient_id || adm.id || '');
       const aid = String(adm.admission_id || '');
-      if (processedPatientIds.has(pid) || (aid && processedPatientIds.has(`adm_${aid}`))) {
+      const matchKey = aid ? `adm_${aid}` : `pid_${pid}`;
+      if (processedAdmissionKeys.has(matchKey)) {
         return; // already added via discharge summary
       }
-      processedPatientIds.add(pid);
-      if (aid) processedPatientIds.add(`adm_${aid}`);
+      processedAdmissionKeys.add(matchKey);
 
       const matchedBed = (aid && bedByAdmissionId[aid]) || bedByPatientId[pid];
       const caseId = `DIS-ADM-${adm.admission_id || adm.id || index + 1}`;
@@ -603,7 +602,15 @@ export default function DischargeCommandCentre({
       let blocker = 'billing → insurance';
       let initialStatus = 'Blocked · billing';
 
-      if (isClaimRejected) {
+      if (isDischarged) {
+        category = 'Completed';
+        blocker = 'All steps completed';
+        initialStatus = 'Completed';
+      } else if (isReadyInDb) {
+        category = 'Ready';
+        blocker = 'Clear';
+        initialStatus = 'Ready';
+      } else if (isClaimRejected) {
         category = 'Blocked';
         blocker = 'insurance appeal';
         initialStatus = 'Blocked · insurance';
@@ -701,9 +708,9 @@ export default function DischargeCommandCentre({
         category,
         blocker,
         initialStatus,
-        isCompleted: false,
+        isCompleted: isDischarged,
         isCleared: isBillCleared,
-        isApproved: false,
+        isApproved: isDischarged,
         isVitalsStable: vitalsCheck.isNormal,
         vitalsIssues: vitalsCheck.issues.join(', '),
         hasSummary: false,
