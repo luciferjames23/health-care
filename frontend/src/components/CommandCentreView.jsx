@@ -251,12 +251,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       c: 'oklch(0.4 0.12 150)', 
       target: 'beds' 
     },
-    // Live Database Cards with Real Operational Data
+    // Live Database Cards with Real Operational Data for Current IP, OP & Emergency Workload
     { 
       id: 'appts', 
       t: 'Appointments Recorded', 
       v: execMetrics ? execMetrics.appointments.toLocaleString() : (apiError ? '—' : null), 
-      sub: 'All scheduled clinical encounters in PostgreSQL', 
+      sub: 'Active scheduled & confirmed outpatient encounters', 
       c: '#15181b', 
       target: 'appointments' 
     },
@@ -272,7 +272,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'lab', 
       t: 'Lab Tests & Diagnostics', 
       v: execMetrics ? execMetrics.lab_orders.toLocaleString() : (apiError ? '—' : null), 
-      sub: 'Validated pathology orders & diagnostic results', 
+      sub: 'Active orders for current IP & Emergency patients', 
       c: '#15181b', 
       target: 'lab' 
     },
@@ -280,7 +280,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'revenue', 
       t: 'Total Invoiced Revenue', 
       v: execMetrics ? (execMetrics.bills.total_revenue >= 10000000 ? `₹${(execMetrics.bills.total_revenue / 10000000).toFixed(2)} Cr` : `₹${execMetrics.bills.total_revenue.toLocaleString()}`) : (apiError ? '—' : null), 
-      sub: execMetrics ? `${execMetrics.bills.count.toLocaleString()} bills · ₹${(execMetrics.bills.total_collected / 100000).toFixed(2)} L collected` : 'Bills generated in Revenue Cycle', 
+      sub: execMetrics ? `${execMetrics.bills.count.toLocaleString()} bills · ₹${(execMetrics.bills.total_collected / 100000).toFixed(2)} L collected` : 'Active invoices & collections', 
       c: 'oklch(0.5 0.1 200)', 
       target: 'finance' 
     },
@@ -288,15 +288,15 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'claims', 
       t: 'Insurance Claims', 
       v: execMetrics ? execMetrics.claims.count.toLocaleString() : (apiError ? '—' : null), 
-      sub: execMetrics ? `₹${(execMetrics.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due` : 'Claims processed with TPAs', 
+      sub: execMetrics ? (execMetrics.claims.approved >= 10000000 ? `₹${(execMetrics.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due` : `₹${(execMetrics.claims.approved / 100000).toFixed(2)} L approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due`) : 'Claims for current active cases', 
       c: '#15181b', 
       target: 'insurance' 
     },
     { 
       id: 'inventory', 
       t: 'Pharmacy Inventory Value', 
-      v: execMetrics ? (execMetrics.inventory.valuation >= 10000000 ? `₹${(execMetrics.inventory.valuation / 10000000).toFixed(2)} Cr` : `₹${execMetrics.inventory.valuation.toLocaleString()}`) : (apiError ? '—' : null), 
-      sub: execMetrics ? `${execMetrics.inventory.count} catalog items · ${execMetrics.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation', 
+      v: execMetrics ? (execMetrics.inventory.valuation >= 10000000 ? `₹${(execMetrics.inventory.valuation / 10000000).toFixed(2)} Cr` : execMetrics.inventory.valuation >= 100000 ? `₹${(execMetrics.inventory.valuation / 100000).toFixed(2)} L` : `₹${execMetrics.inventory.valuation.toLocaleString()}`) : (apiError ? '—' : null), 
+      sub: execMetrics ? `${execMetrics.inventory.count} active prescription sales · ${execMetrics.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation', 
       c: '#15181b', 
       target: 'pharmacy' 
     },
@@ -312,7 +312,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'surgeries', 
       t: 'OT Surgeries Scheduled', 
       v: execMetrics ? execMetrics.surgeries.toLocaleString() : (apiError ? '—' : null), 
-      sub: 'Operating theatre procedures & cases', 
+      sub: 'Active & scheduled operating theatre cases', 
       c: '#15181b', 
       target: 'ot' 
     },
@@ -344,41 +344,12 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      {/* Top breadcrumb & actions */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
-            <span>Clinical Workspace</span> › <span>Executive Dashboard</span>
-          </div>
-          <div style={{ fontSize: '20px', fontWeight: 600 }}>Executive Dashboard</div>
-          <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · Clinical Operational Intelligence
-          </div>
+      {/* Top breadcrumb */}
+      <div>
+        <div style={{ fontSize: '11px', color: '#8a9096', marginBottom: '4px' }}>
+          <span>Clinical Workspace</span> › <span>Executive Dashboard</span>
         </div>
-
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button
-            type="button"
-            onClick={() => onAskAi && onAskAi('Which patients are currently blocked from discharge and why?')}
-            style={{
-              height: '30px', padding: '0 11px', border: '1px solid oklch(0.85 0.05 300)',
-              borderRadius: '6px', background: '#fff', cursor: 'pointer',
-              color: 'oklch(0.45 0.1 300)', fontWeight: 600, fontSize: '12px'
-            }}
-          >
-            Ask: blocked discharges
-          </button>
-          <button
-            type="button"
-            onClick={() => alert('Simulating 15m advance across active agents...')}
-            style={{
-              height: '30px', padding: '0 11px', border: '1px solid #e3e6e8',
-              borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '12px'
-            }}
-          >
-            Run scenario ▶
-          </button>
-        </div>
+        <div style={{ fontSize: '20px', fontWeight: 600 }}>Executive Dashboard</div>
       </div>
 
       {/* API Connection & Health Alert Banner */}

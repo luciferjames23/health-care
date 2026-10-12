@@ -255,15 +255,27 @@ def get_executive_kpis():
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Batch 1: All scalar counts in a single consolidated query
+        # Batch 1: All scalar counts filtered for current active IP, OP, and Emergency workload
         cur.execute("""
             SELECT
-                (SELECT COUNT(*) FROM appointments) as appointments_count,
-                (SELECT COUNT(*) FROM dim_admission_inputs WHERE LOWER(admission_type) = 'emergency') as emergency_count,
-                (SELECT COUNT(*) FROM lab_orders) as lab_count,
+                -- Active scheduled & confirmed outpatient clinical encounters
+                (SELECT COUNT(*) FROM appointments WHERE status IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')) as appointments_count,
+
+                -- Current active emergency admissions (not yet discharged)
+                (SELECT COUNT(*) FROM dim_admission_inputs WHERE LOWER(admission_type) = 'emergency' AND LOWER(COALESCE(discharge_status, '')) != 'discharged') as emergency_count,
+
+                -- Active lab orders & diagnostics for current inpatients and emergency cases
+                (SELECT COUNT(*) FROM lab_orders 
+                 WHERE admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+                    OR patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+                ) as lab_count,
+
                 (SELECT COUNT(*) FROM agent_action_logs) as agent_runs,
                 (SELECT COUNT(*) FROM doctors) as doctors_count,
-                (SELECT COUNT(*) FROM ot_surgeries) as surgeries_count,
+
+                -- Active & scheduled OT surgeries (excluding completed)
+                (SELECT COUNT(*) FROM ot_surgeries WHERE LOWER(status) != 'completed') as surgeries_count,
+
                 (SELECT COUNT(*) FROM wards) as wards_count,
                 (SELECT COUNT(*) FROM rooms) as rooms_count,
                 (SELECT COUNT(*) FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved') as approved_discharges,
@@ -272,37 +284,55 @@ def get_executive_kpis():
         """)
         scalars = cur.fetchone() or {}
 
-        # Batch 2: Bills & Payments financial totals
+        # Batch 2: Bills & Payments for current active IP, OP, and Emergency patients
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
                 COALESCE(SUM(net_amount), 0) as total_revenue, 
-                (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'SUCCESS') as total_collected 
-            FROM bills;
+                (SELECT COALESCE(SUM(p.amount), 0) 
+                 FROM payments p 
+                 WHERE p.payment_status = 'SUCCESS' 
+                   AND p.bill_id IN (
+                       SELECT b2.bill_id FROM bills b2 
+                       WHERE b2.admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+                          OR b2.patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+                   )
+                ) as total_collected 
+            FROM bills
+            WHERE admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+               OR patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged');
         """)
         bills_row = cur.fetchone() or {}
 
-        # Batch 3: Insurance claims & Pharmacy inventory valuation
+        # Batch 3: Insurance claims for current active IP, OP, and Emergency patients
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
                 COALESCE(SUM(claimed_amount), 0) as claimed, 
                 COALESCE(SUM(approved_amount), 0) as approved, 
                 COALESCE(SUM(outstanding_amount), 0) as outstanding 
-            FROM insurance_claims;
+            FROM insurance_claims
+            WHERE patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+               OR bill_id IN (
+                   SELECT b.bill_id FROM bills b 
+                   WHERE b.admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+               );
         """)
         claims_row = cur.fetchone() or {}
 
+        # Batch 4: Pharmacy Dispensing & Value for current active patients
         cur.execute("""
             SELECT 
                 COUNT(*) as count, 
-                COALESCE(SUM(available_quantity * selling_price), 0) as valuation, 
-                COUNT(CASE WHEN available_quantity <= reorder_level THEN 1 END) as low_stock 
-            FROM pharmacy_inventory;
+                COALESCE(SUM(net_amount), 0) as valuation, 
+                (SELECT COUNT(CASE WHEN available_quantity <= reorder_level THEN 1 END) FROM pharmacy_inventory) as low_stock 
+            FROM pharmacy_sales
+            WHERE admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
+               OR patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged');
         """)
         inv_row = cur.fetchone() or {}
 
-        # Batch 4: Live Bed counts
+        # Batch 5: Live Bed counts
         cur.execute("""
             SELECT 
                 COUNT(*) as total_beds,
