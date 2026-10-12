@@ -37,7 +37,16 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
     }
   })();
 
-  const initialDoctorId = currentUser?.doctorId ? Number(currentUser.doctorId) : undefined;
+  const userRole = String(currentUser?.role || authContextUser?.role || '').toUpperCase();
+  const isDoctorRole = userRole === 'DOCTOR' || Boolean(currentUser?.doctorId || currentUser?.doctor_id);
+  const isAdmin = ['ADMIN', 'HOSPITAL MANAGEMENT', 'SYSTEM ADMIN', 'QUALITY'].includes(userRole);
+  const showDoctorDropdown = isAdmin && !isDoctorRole;
+
+  const initialDoctorId = currentUser?.doctorId
+    ? Number(currentUser.doctorId)
+    : currentUser?.doctor_id
+    ? Number(currentUser.doctor_id)
+    : undefined;
 
   const [doctorsList, setDoctorsList] = useState<Doctor[]>([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState<number | undefined>(initialDoctorId);
@@ -60,8 +69,9 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
     setTimeout(() => setActionMsg(null), 5000);
   };
 
-  // Fetch doctors list for doctor selector dropdown
+  // Fetch doctors list for admin doctor selector dropdown ONLY when admin is viewing
   useEffect(() => {
+    if (!showDoctorDropdown) return;
     async function loadDoctors() {
       try {
         const res = await fetchDoctors({ per_page: 50 });
@@ -74,12 +84,12 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
       } catch (err) {}
     }
     loadDoctors();
-  }, []);
+  }, [showDoctorDropdown]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const targetDocId = selectedDoctorId || initialDoctorId;
+      const targetDocId = isDoctorRole ? initialDoctorId : (selectedDoctorId || initialDoctorId);
       const [qRes, apptRes] = await Promise.all([
         fetchDoctorQueueToday(targetDocId),
         fetchAppointments({
@@ -102,7 +112,7 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
     } finally {
       setLoading(false);
     }
-  }, [selectedDoctorId, initialDoctorId, todayYMD]);
+  }, [isDoctorRole, selectedDoctorId, initialDoctorId, todayYMD]);
 
   useEffect(() => {
     loadData();
@@ -256,7 +266,7 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
 
         {/* Doctor Selector Dropdown & Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          {doctorsList.length > 0 && (
+          {showDoctorDropdown && doctorsList.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
               <Stethoscope size={16} style={{ color: '#2563eb' }} />
               <select
@@ -302,19 +312,6 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
               {pausingSession ? 'Processing...' : queueStatus === 'ACTIVE' ? 'Pause Queue' : 'Resume Queue'}
             </button>
           )}
-
-          <button
-            onClick={loadData}
-            disabled={loading}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px',
-              border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600,
-              cursor: 'pointer', fontSize: '13px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-            }}
-          >
-            <RefreshCw size={14} className={loading ? 'spin' : ''} />
-            Refresh Queue
-          </button>
         </div>
       </div>
 

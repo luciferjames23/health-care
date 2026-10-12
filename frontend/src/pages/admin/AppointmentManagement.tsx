@@ -267,14 +267,18 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   // CSV Export feature
+  const [exporting, setExporting] = useState(false);
+
   const exportToCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
     try {
-      // Fetch up to 1000 items matching current filters
+      const targetDocId = isDoctor ? (doctorFilter || doctorUserId) : doctorFilter;
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
-        department: deptFilter || undefined,
-        doctor_id: doctorFilter,
+        department: isDoctor ? undefined : (deptFilter || undefined),
+        doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
         date_from: dateRange.dateFrom,
         date_to: dateRange.dateTo,
@@ -282,18 +286,23 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         sort_by: sortBy,
         sort_order: sortOrder,
         page: 1,
-        per_page: 1000,
+        per_page: 5000,
       });
 
-      if (!res.appointments || res.appointments.length === 0) {
-        showToast('⚠️ No appointments to export');
+      let exportAppts = Array.isArray(res?.appointments) ? res.appointments : [];
+      if (isDoctor && targetDocId) {
+        exportAppts = exportAppts.filter(a => a.doctor_id === targetDocId);
+      }
+
+      if (!exportAppts || exportAppts.length === 0) {
+        showToast('⚠️ No appointments matching current filters to export');
         return;
       }
 
       const headers = [
-        'Appointment ID (Booking ID)',
+        'Booking ID',
         'Patient Name',
-        'Patient ID (Code)',
+        'Patient Code (ID)',
         'Phone',
         'Doctor Name',
         'Department',
@@ -302,38 +311,51 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         'Appointment Time',
         'Duration (Minutes)',
         'Status',
+        'Queue Token',
         'Booking Source',
         'Created Date'
       ];
 
-      const rows = res.appointments.map(a => [
-        `"${a.booking_id || ''}"`,
-        `"${a.patient_name || ''}"`,
-        `"${a.patient_code || ''}"`,
-        `"${a.patient_phone || ''}"`,
-        `"${a.doctor_name || ''}"`,
-        `"${a.department_name || ''}"`,
-        `"${(a.patient_reason || '').replace(/"/g, '""')}"`,
-        `"${a.appointment_date || ''}"`,
-        `"${a.appointment_time || ''}"`,
-        `"${a.duration_minutes || 30}"`,
-        `"${a.status || ''}"`,
-        `"${a.booking_source || ''}"`,
-        `"${a.created_at ? new Date(a.created_at).toISOString().split('T')[0] : ''}"`
+      const escapeCsv = (val: any) => {
+        if (val === null || val === undefined) return '""';
+        const str = String(val).replace(/"/g, '""');
+        return `"${str}"`;
+      };
+
+      const rows = exportAppts.map(a => [
+        escapeCsv(a.booking_id),
+        escapeCsv(a.patient_name),
+        escapeCsv(a.patient_code),
+        escapeCsv(a.patient_phone),
+        escapeCsv(a.doctor_name),
+        escapeCsv(a.department_name),
+        escapeCsv(a.patient_reason),
+        escapeCsv(a.appointment_date),
+        escapeCsv(a.appointment_time),
+        escapeCsv(a.duration_minutes || 30),
+        escapeCsv(a.status),
+        escapeCsv(a.token_number ? `Token #${a.token_number}` : 'Not Checked In'),
+        escapeCsv(formatSourceLabel(a.booking_source)),
+        escapeCsv(a.created_at ? new Date(a.created_at).toISOString().split('T')[0] : '')
       ]);
 
-      const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);
-      link.setAttribute('download', `appointments_${dateRange.dateFrom}_to_${dateRange.dateTo}.csv`);
+      const docScopeName = isDoctor && activeDoctorName ? activeDoctorName.replace(/[^a-zA-Z0-9]/g, '_') : 'all';
+      const dateRangeStr = `${dateRange.dateFrom || 'start'}_to_${dateRange.dateTo || 'end'}`;
+      link.setAttribute('download', `appointments_${docScopeName}_${dateRangeStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      showToast('✓ Appointments exported to CSV successfully');
+      URL.revokeObjectURL(url);
+      showToast(`✓ Exported ${exportAppts.length} matching appointment records to CSV`);
     } catch (e) {
       showToast('❌ Failed to export CSV');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -366,24 +388,6 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               ? `Doctor Scope: ${activeDoctorName} · Showing consultations and procedures scheduled under your care`
               : 'View, filter, sort and manage hospital appointments — database records'}
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button
-            type="button"
-            style={btnSecondary}
-            onClick={exportToCSV}
-          >
-            <Download size={13} /> Export CSV
-          </button>
-          <button
-            type="button"
-            style={btnSecondary}
-            onClick={loadAppointments}
-            disabled={loading}
-          >
-            <RefreshCw size={13} style={{ animation: loading ? 'kpi-spin 0.7s linear infinite' : 'none' }} />
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -571,8 +575,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <option value="DOCTOR">Doctor</option>
           </select>
 
-          {/* Sort By Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          {/* Sort By & Export CSV Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '11px', color: '#8a9096' }}>Sort by:</span>
             <select
               value={sortBy}
@@ -593,6 +597,23 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               title={`Sort ${sortOrder.toUpperCase()}`}
             >
               <ArrowUpDown size={12} /> {sortOrder.toUpperCase()}
+            </button>
+
+            <button
+              type="button"
+              style={{
+                ...btnSecondary,
+                borderColor: '#cbd5e1',
+                background: '#f8fafc',
+                fontWeight: 600,
+                color: '#0f172a'
+              }}
+              onClick={exportToCSV}
+              disabled={exporting}
+              title="Export all matching appointments to CSV"
+            >
+              <Download size={13} style={{ color: '#2563eb' }} />
+              {exporting ? 'Exporting...' : 'Export CSV'}
             </button>
           </div>
         </div>
