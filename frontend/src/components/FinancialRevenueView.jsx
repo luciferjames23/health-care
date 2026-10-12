@@ -254,24 +254,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [ag08DrawerOpen, setAg08DrawerOpen] = useState(false);
   const [ag08PatientId, setAg08PatientId] = useState('87221');
 
-<<<<<<< Updated upstream
-=======
-  // Dedicated check: Preauth Underwriting actions (Submit, Sanction/Approve, Reject/Decline)
-  const isInsuranceDeskExecutive = useMemo(() => {
-    if (!userRole) return true;
-    const roleStr = String(userRole).trim().toLowerCase();
-    return (
-      roleStr.includes('insurance') ||
-      roleStr.includes('tpa') ||
-      roleStr.includes('coordinator') ||
-      roleStr.includes('admin') ||
-      roleStr.includes('management') ||
-      roleStr.includes('billing') ||
-      roleStr.includes('finance')
-    );
-  }, [userRole]);
-
->>>>>>> Stashed changes
   // TPA Claim Rejection / Exclusion Modal State
   const [rejectionModalData, setRejectionModalData] = useState(null);
   // AG-20 Reconsideration Appeal Dossier Drawer State
@@ -557,13 +539,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   };
 
   const handlePreauthStatusChange = async (claimId, newStatus) => {
-<<<<<<< Updated upstream
     if (!isInsuranceDeskExecutive) {
       alert("Permission Denied: Preauthorisation status modification is restricted strictly to the Insurance Desk.");
       return;
     }
-=======
->>>>>>> Stashed changes
     try {
       const res = await financialApi.updatePreauthStatus(claimId, { status: newStatus });
       if (res && res.success) {
@@ -1147,11 +1126,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           {(activeTab === "billing"
             ? ["All", "Pending", "Part-paid", "Settled"]
             : activeTab === "insurance"
-<<<<<<< Updated upstream
             ? ["All", "Submitted · awaiting insurer", "Missing Documents", "Pending Review", "Approved", "Rejected"]
-=======
-            ? ["All", "Pending", "Submitted · awaiting insurer", "Missing Documents", "High Denial Risk", "Approved", "Rejected"]
->>>>>>> Stashed changes
             : activeTab === "claims"
             ? ["All", "Submitted", "Under Review", "Query Raised", "Approved", "Partially Approved", "Rejected"]
             : ["All", "Success", "Pending", "Failed"]
@@ -1530,7 +1505,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.claim}>
                   {p.claim}
                 </span>
-<<<<<<< Updated upstream
                 <div style={{ display: "flex", alignItems: "center", gap: "5px", minWidth: 0, overflow: "hidden" }}>
                   <span
                     style={{
@@ -1587,53 +1561,11 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap"
-=======
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
-                    cursor: onSelectPatient ? "pointer" : "default",
-                    textDecoration: onSelectPatient ? "underline" : "none",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}
-                  title={onSelectPatient ? "Click to view Patient 360 record" : (p.patient || p.patient_name)}
-                  onClick={(e) => {
-                    if (onSelectPatient) {
-                      e.stopPropagation();
-                      onSelectPatient({
-                        patient_id: p.patient_id,
-                        id: p.patient_id,
-                        patient_code: p.patient_code || p.patient_number || p.uhid,
-                        patient_number: p.patient_code || p.patient_number || p.uhid,
-                        patient_name: p.patient || p.patient_name,
-                        first_name: (p.patient || p.patient_name || "").split(" ")[0],
-                        last_name: (p.patient || p.patient_name || "").split(" ").slice(1).join(" "),
-                        admission_id: p.admission_id
-                      });
-                    }
->>>>>>> Stashed changes
                   }}
                   title={p.tpa || p.insurer}
                 >
                   {p.tpa || p.insurer}
                 </span>
-<<<<<<< Updated upstream
-=======
-                <span
-                  style={{
-                    color: PALETTE.text2,
-                    fontSize: "11.5px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}
-                  title={p.tpa || p.insurer}
-                >
-                  {p.tpa || p.insurer}
-                </span>
->>>>>>> Stashed changes
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11.5px" }} title={p.procedure}>
                   {p.procedure}
                 </span>
@@ -1677,15 +1609,9 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap"
                   }}
-<<<<<<< Updated upstream
                   title={p.owner || loggedUserName || "R. Sundar"}
                 >
                   {p.owner || loggedUserName || "R. Sundar"}
-=======
-                  title={p.owner || "L. Fathima"}
-                >
-                  {p.owner || "L. Fathima"}
->>>>>>> Stashed changes
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center" }}>
                   <StatusPill status={p.status} />
@@ -2635,7 +2561,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                     : drawerData.data.status
                 }
               />
-<<<<<<< Updated upstream
               {drawerData.type === "bill" && (() => {
                 const isIp = drawerData.data.is_inpatient ?? (drawerData.data.patient_type_code === "IP" || Boolean(drawerData.data.admission_id));
                 const careLabel = drawerData.data.patient_type || (isIp ? "Inpatient (IP)" : "Outpatient (OP)");
@@ -2759,11 +2684,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   </>
                 );
               })()}
-=======
-              {drawerData.type === "preauth" && (
-                <StatusPill status={`Denial Risk: ${drawerData.data.risk_level || 'Low Risk'}`} />
-              )}
->>>>>>> Stashed changes
               {drawerData.type === "bill" && drawerData.data.tax_amount > 0 && (
                 <StatusPill status="Tax Inclusive" />
               )}
@@ -3574,17 +3494,12 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                           Underwriting Actions Restricted
                         </div>
                         <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px", lineHeight: "1.4" }}>
-<<<<<<< Updated upstream
                           Preauthorisation submission, approval, and rejection are restricted strictly to the <strong>Insurance & TPA Coordinator ({loggedUserName || 'Insurance Desk'})</strong>.
-=======
-                          Preauthorisation submission, approval, and rejection are restricted strictly to the <strong>Insurance & TPA Coordinator (R. Sundar)</strong>.
->>>>>>> Stashed changes
                         </div>
                       </div>
                     </div>
                   ) : (
                     <>
-<<<<<<< Updated upstream
                       {/* Case 1: ALREADY APPROVED */}
                       {/approved|settled/i.test(drawerData.data.status || '') ? (
                         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -3879,99 +3794,6 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                           </button>
                         </div>
                       )}
-=======
-                      {/* Direct Status Selector */}
-                      <div style={{ marginTop: "4px", marginBottom: "8px", background: "#f8fafc", padding: "8px 10px", borderRadius: "6px", border: `1px solid ${PALETTE.borderLight}` }}>
-                        <div style={{ fontSize: "11px", fontWeight: 700, color: PALETTE.muted, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "6px" }}>
-                          Change Preauth Status:
-                        </div>
-                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                          {["Submitted · awaiting insurer", "Pending", "Missing Documents", "Approved", "Rejected"].map(st => (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={() => handlePreauthStatusChange(drawerData.data.claim_id, st)}
-                              style={{
-                                padding: "4px 8px",
-                                fontSize: "11px",
-                                fontWeight: drawerData.data.status === st ? 700 : 500,
-                                borderRadius: "5px",
-                                border: drawerData.data.status === st ? "1px solid #2563eb" : `1px solid ${PALETTE.border}`,
-                                background: drawerData.data.status === st ? "#eff6ff" : "#fff",
-                                color: drawerData.data.status === st ? "#1d4ed8" : PALETTE.text,
-                                cursor: "pointer",
-                                transition: "all 0.15s ease"
-                              }}
-                            >
-                              {st}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePreauthSubmit(drawerData.data.claim_id)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: "0",
-                          background: PALETTE.primary,
-                          color: "#fff",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        🚀 Submit Preauthorisation Packet to TPA Portal
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePreauthApprove(drawerData.data.claim_id, drawerData.data.requested || drawerData.data.finalClaimed || 120000)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: "0",
-                          background: "#059669",
-                          color: "#fff",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        ✓ Sanction & Approve Preauthorisation
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setRejectionModalData(drawerData.data)}
-                        style={{
-                          height: "36px",
-                          padding: "0 14px",
-                          borderRadius: "6px",
-                          border: `1px solid ${PALETTE.critical}`,
-                          background: "#fff",
-                          color: PALETTE.critical,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "8px"
-                        }}
-                      >
-                        ✕ Mark preauthorisation rejected / declined
-                      </button>
->>>>>>> Stashed changes
                     </>
                   )}
                 </>

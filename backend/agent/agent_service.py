@@ -7996,7 +7996,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             ]
 
     elif intent == "REGISTER_PATIENT":
-<<<<<<< Updated upstream
         state["interactive_buttons"] = []
         msg_raw = message_text.strip()
         reg_fields = state.get("registration_fields") or {
@@ -8306,9 +8305,6 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             "tool_called": None,
             "interactive_buttons": state.get("interactive_buttons", [])
         }
-=======
-        return handle_unknown_patient_identification_flow(conversation_code, state, message_text, current_lang, btn_id)
->>>>>>> Stashed changes
 
     elif intent in ["EMERGENCY", "EMERGENCY_GUIDANCE"]:
         log_agent_action(conversation_code, "EMERGENCY_DETECTED", {"trigger_message": message_text})
