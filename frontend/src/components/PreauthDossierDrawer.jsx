@@ -861,6 +861,7 @@ export default function PreauthDossierDrawer({
                     </div>
                   </div>
 
+<<<<<<< Updated upstream
                   {/* 4-Point Document Checklist (Dynamic Status from EMR / Insurance Audit) */}
                   {(() => {
                     const items = [
@@ -887,20 +888,43 @@ export default function PreauthDossierDrawer({
                     ];
                     const verifiedCount = items.filter(it => it.status === 'Verified').length;
                     const isAllVerified = verifiedCount === 4;
+=======
+                  {/* Denial-Risk Badge & Two-Stage Risk Analysis (17-Criteria Rules Engine + ML Model) */}
+                  {(() => {
+                    const score = denialRisk.risk_score ?? denialRisk.risk_pct ?? 12;
+                    const level = denialRisk.risk_level || (score <= 30 ? 'Low Risk' : score <= 60 ? 'Medium Risk' : score <= 80 ? 'High Risk' : 'Critical Risk');
+                    const reasons = denialRisk.risk_reasons || (denialRisk.explanation ? [denialRisk.explanation] : ['All 17 statutory and policy criteria verified; standard inpatient treatment']);
+                    const mitigations = denialRisk.mitigation_actions || (denialRisk.mitigation_notes ? [denialRisk.mitigation_notes] : ['Submit complete pre-authorization packet with itemized tariff']);
+                    const rulesAudit = denialRisk.rules_audit || dossier.rules_audit || {};
+                    const checksMap = rulesAudit.checks || {};
+                    const passedChecks = rulesAudit.passed_count ?? 17;
+
+                    const barColor = score <= 30 ? '#10b981' : score <= 60 ? '#f59e0b' : score <= 80 ? '#f43f5e' : '#dc2626';
+                    const boxBg = score <= 30 ? '#f0fdf4' : score <= 60 ? '#fffbeb' : score <= 80 ? '#fff1f2' : '#fef2f2';
+                    const boxBorder = score <= 30 ? '#bbf7d0' : score <= 60 ? '#fde68a' : score <= 80 ? '#fecdd3' : '#fecaca';
+                    const titleColor = score <= 30 ? '#166534' : score <= 60 ? '#92400e' : score <= 80 ? '#be123c' : '#991b1b';
+>>>>>>> Stashed changes
 
                     return (
                       <div 
                         style={{
                           padding: '16px',
                           borderRadius: '10px',
+<<<<<<< Updated upstream
                           backgroundColor: '#ffffff',
                           border: isAllVerified ? '1px solid #e2e8f0' : '1px solid #fecaca',
                           boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+=======
+                          background: boxBg,
+                          border: `1.5px solid ${boxBorder}`,
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+>>>>>>> Stashed changes
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '12px'
                         }}
                       >
+<<<<<<< Updated upstream
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h4 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <FileText style={{ width: '15px', height: '15px', color: isAllVerified ? '#2563eb' : '#dc2626' }} />
@@ -953,10 +977,136 @@ export default function PreauthDossierDrawer({
                               </div>
                             );
                           })}
+=======
+                        {/* Header: Title + Engine Badges */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <ShieldCheck style={{ width: '22px', height: '22px', color: barColor, flexShrink: 0 }} />
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 800, color: titleColor, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                                Two-Stage Rejection / Cancellation Risk Analysis
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>
+                                Stage 1: Statutory & Policy Rules Engine · Stage 2: Historical ML / LLM Predictor
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#ffffff', color: '#4338ca', border: '1px solid #c7d2fe' }}>
+                              Stage 1: 17 Rules Checked
+                            </span>
+                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#ffffff', color: '#047857', border: '1px solid #a7f3d0' }}>
+                              Stage 2: Groq LPU (openai/gpt-oss-120b)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle: Score Gauge & 4-Tier Scale */}
+                        <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${boxBorder}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                              <span style={{ fontSize: '26px', fontWeight: 900, color: barColor, fontFamily: 'monospace' }}>
+                                {score}/100
+                              </span>
+                              <span style={{ fontSize: '14px', fontWeight: 800, color: titleColor }}>
+                                {level}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 600 }}>
+                              {score <= 30 ? '0–30 Low' : score <= 60 ? '31–60 Medium' : score <= 80 ? '61–80 High' : '81–100 Critical'} (Validated Historical Scale)
+                            </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div style={{ width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', display: 'flex' }}>
+                            <div style={{ width: `${Math.min(100, Math.max(5, score))}%`, backgroundColor: barColor, transition: 'width 0.4s ease' }} />
+                          </div>
+
+                          {/* 4-Tier Threshold Markers */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '30% 30% 20% 20%', fontSize: '9.5px', color: '#64748b', marginTop: '4px', fontWeight: 600, textAlign: 'center' }}>
+                            <span style={{ color: '#059669' }}>0–30 Low</span>
+                            <span style={{ color: '#d97706' }}>31–60 Medium</span>
+                            <span style={{ color: '#e11d48' }}>61–80 High</span>
+                            <span style={{ color: '#991b1b' }}>81–100 Critical</span>
+                          </div>
+                        </div>
+
+                        {/* Bottom: Identified Risk Reasons */}
+                        <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${boxBorder}` }}>
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>
+                            Identified Risk Factors & Underwriting Reasons:
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11.5px', color: '#0f172a', lineHeight: 1.6 }}>
+                            {reasons.map((r, idx) => (
+                              <li key={idx} style={{ fontWeight: 500 }}>{r}</li>
+                            ))}
+                          </ul>
+
+                          {/* Mitigation Strategy */}
+                          <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0', fontSize: '11.5px', color: '#166534' }}>
+                            <strong style={{ color: '#047857' }}>💡 Recommended Action Plan: </strong>
+                            {mitigations.join(' · ')}
+                          </div>
+                        </div>
+
+                        {/* Stage 1: 17 Statutory & Underwriting Rules Breakdown */}
+                        <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${boxBorder}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <CheckCircle style={{ width: '13px', height: '13px', color: '#2563eb' }} />
+                              Stage 1 Rules Engine: 17 Statutory Criteria Audit ({passedChecks}/17 Verified)
+                            </div>
+                            <span style={{ fontSize: '10px', fontWeight: 600, color: passedChecks === 17 ? '#059669' : '#d97706', background: passedChecks === 17 ? '#ecfdf5' : '#fffbeb', padding: '1px 6px', borderRadius: '4px' }}>
+                              {passedChecks === 17 ? 'Zero Violations' : `${17 - passedChecks} Flagged`}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '6px', fontSize: '11px' }}>
+                            {[
+                              { key: 'policy_validity', label: '1. Policy Validity', what: 'Active on admission date' },
+                              { key: 'coverage', label: '2. Coverage', what: 'Treatment/procedure covered' },
+                              { key: 'waiting_period', label: '3. Waiting Period', what: 'Waiting period completed' },
+                              { key: 'pre_existing_disease', label: '4. Pre-existing Disease', what: 'PED declared & covered' },
+                              { key: 'policy_limits', label: '5. Policy Limits', what: 'Sum insured remaining' },
+                              { key: 'admission_type', label: '6. Admission Type', what: 'Elective / emergency rules' },
+                              { key: 'diagnosis', label: '7. Diagnosis', what: 'Diagnosis supports treatment' },
+                              { key: 'procedure', label: '8. Procedure', what: 'Medically justified' },
+                              { key: 'medical_necessity', label: '9. Medical Necessity', what: 'Inpatient justification' },
+                              { key: 'documents', label: '10. Documents', what: 'Required reports available' },
+                              { key: 'patient_identity', label: '11. Patient Identity', what: 'Name/DOB matches policy' },
+                              { key: 'billing', label: '12. Billing Consistency', what: 'Charges consistent' },
+                              { key: 'room_category', label: '13. Room Category', what: 'Eligible room sub-limit' },
+                              { key: 'claim_history', label: '14. Claim History', what: 'Previous claims / patterns' },
+                              { key: 'insurer_tpa_rules', label: '15. Insurer/TPA Rules', what: 'Insurer preauth protocols' },
+                              { key: 'coding', label: '16. Coding (ICD-10)', what: 'ICD-10 codes mapped' },
+                              { key: 'timelines', label: '17. Timelines', what: 'Submitted on time' }
+                            ].map((crit) => {
+                              const chkItem = checksMap[crit.key] || { status: 'PASS', detail: 'Verified' };
+                              const isFail = chkItem.status === 'FAIL';
+                              const isWarn = chkItem.status === 'WARN';
+                              const bg = isFail ? '#fef2f2' : isWarn ? '#fffbeb' : '#f8fafc';
+                              const textCol = isFail ? '#991b1b' : isWarn ? '#92400e' : '#334155';
+                              const badgeCol = isFail ? '#dc2626' : isWarn ? '#d97706' : '#16a34a';
+
+                              return (
+                                <div key={crit.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', borderRadius: '4px', background: bg, border: `1px solid ${isFail ? '#fecaca' : isWarn ? '#fde68a' : '#f1f5f9'}` }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontWeight: 600, color: textCol }}>{crit.label}</span>
+                                    <span style={{ fontSize: '9.5px', color: '#64748b' }}>{chkItem.detail || crit.what}</span>
+                                  </div>
+                                  <span style={{ fontSize: '9.5px', fontWeight: 800, color: badgeCol }}>
+                                    {isFail ? 'FAIL' : isWarn ? 'WARN' : 'PASS'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+>>>>>>> Stashed changes
                         </div>
                       </div>
                     );
                   })()}
+<<<<<<< Updated upstream
 
                   {/* Denial-Risk Badge & Two-Stage Risk Analysis (17-Criteria Rules Engine + ML Model) */}
                   {(() => {
@@ -1113,6 +1263,8 @@ export default function PreauthDossierDrawer({
                       </div>
                     );
                   })()}
+=======
+>>>>>>> Stashed changes
 
                   {/* ================================================================= */}
                   {/* STANDARDIZED INSURANCE PRE-AUTHORIZATION REQUEST (11 SECTIONS)     */}

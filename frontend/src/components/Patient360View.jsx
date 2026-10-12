@@ -3697,7 +3697,11 @@ export default function Patient360View({
                   { k: 'Prescription Status', v: row[5] },
                   { k: 'Order Date & Time', v: matchedRx?.date || matchedRx?.prescribed_date || 'Live Order' },
                   { k: 'Administration Instructions', v: matchedRx?.instructions || 'Administer as directed by consultant' },
+<<<<<<< Updated upstream
                   { k: 'Source', v: matchedRx?.source || 'Electronic Record' },
+=======
+                  { k: 'Source', v: matchedRx?.source || 'Not recorded' },
+>>>>>>> Stashed changes
                   { k: 'SOAP Note / Action', v: `${matchedRx?.source_soap_note_id || 'N/A'} / ${matchedRx?.source_action_id || 'N/A'}` }
                 ]
               });

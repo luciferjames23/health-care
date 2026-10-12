@@ -133,12 +133,15 @@ try:
 except Exception as e:
     print(f"Failed to load claim denial agent router: {e}")
 
+<<<<<<< Updated upstream
 try:
     from routers.ag11_followup_routes import router as ag11_followup_router
     routers_to_mount.append(ag11_followup_router)
 except Exception as e:
     print(f"Failed to load ag11_followup router: {e}")
 
+=======
+>>>>>>> Stashed changes
 app = FastAPI(
     title="Healthcare Clinical Intelligence API",
     description="REST API service querying Healthcare clinical tables and AI clinical models",

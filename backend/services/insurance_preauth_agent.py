@@ -23,6 +23,7 @@ DEFAULT_MODEL = os.getenv("DISCHARGE_LLM_MODEL", "openai/gpt-oss-120b")
 _LLM_DENIAL_CACHE: Dict[str, Dict[str, Any]] = {}
 _GROQ_RATE_LIMITED_UNTIL: float = 0.0
 
+<<<<<<< Updated upstream
 PATIENT_FIRST_NAMES = [
     'Arun', 'Priya', 'Kavitha', 'Suresh', 'Meenakshi', 'Rajesh', 'Ananya', 'Vikram', 'Deepa', 'Sanjay',
     'Lakshmi', 'Ramesh', 'Pooja', 'Karthik', 'Divya', 'Manoj', 'Sandhya', 'Vignesh', 'Swati', 'Ganesh',
@@ -130,6 +131,8 @@ def get_insurance_coverage_schedule(cov_limit: float, pol_type: Optional[str] = 
         ]
     }
 
+=======
+>>>>>>> Stashed changes
 class InsurancePreauthAgentService:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("GROQ_API_KEY") or DEFAULT_GROQ_API_KEY
@@ -177,6 +180,7 @@ class InsurancePreauthAgentService:
             if conn:
                 conn.close()
 
+<<<<<<< Updated upstream
     def _get_dynamic_instructions(self) -> Dict[str, Any]:
         """Loads dynamic prompt directives and rules from PostgreSQL agent_configurations."""
         try:
@@ -195,6 +199,8 @@ class InsurancePreauthAgentService:
             logger.debug(f"Could not load dynamic instructions for AG-07: {e}")
         return {}
 
+=======
+>>>>>>> Stashed changes
     KNOWN_WAITING_PERIOD_CONDITIONS = [
         "cataract", "hernia", "hysterectomy", "knee replacement", "hip replacement",
         "spondylosis", "gallstones", "cholelithiasis", "calculus", "hydrocele",
@@ -230,6 +236,7 @@ class InsurancePreauthAgentService:
         # 1. Policy Validity
         is_pol_valid = bool(pol_no and pol_no != "N/A" and "INACTIVE" not in pol_no.upper() and "EXPIRED" not in pol_no.upper())
         pol_status = str(case.get("policy_status") or case.get("policy") or "").lower()
+<<<<<<< Updated upstream
         chk_pol = chk.get("policy_id")
         cov_end = str(case.get("coverage_end_date") or "").strip()
         if cov_end and cov_end[:10] < str(datetime.date.today()):
@@ -238,6 +245,11 @@ class InsurancePreauthAgentService:
         if chk_pol is False or not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
             violations.append("Policy expired, inactive, or invalid policy number on admission date")
             rule_score += 45
+=======
+        if not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
+            violations.append("Policy expired, inactive, or invalid policy number on admission date")
+            rule_score += 35
+>>>>>>> Stashed changes
             checks["policy_validity"] = {"status": "FAIL", "detail": "Policy expired or inactive"}
         else:
             checks["policy_validity"] = {"status": "PASS", "detail": f"Active ({pol_no})"}
@@ -351,7 +363,11 @@ class InsurancePreauthAgentService:
             checks["medical_necessity"] = {"status": "PASS", "detail": f"Treatment clinically justified (HR {hr}, SpO2 {spo2}%)"}
 
         # 10. Documents
+<<<<<<< Updated upstream
         doc_complete = chk.get("doctor_advice", True) and chk.get("cost_estimate", True) and chk.get("operative_report", True)
+=======
+        doc_complete = chk.get("doctor_advice", True) and chk.get("cost_estimate", True) and chk.get("policy_id", True) and chk.get("operative_report", True)
+>>>>>>> Stashed changes
         docs_val = str(case.get("required_documents") or "").lower()
         if "missing" in c_status.lower() or "missing" in rej_reason or "missing" in docs_val or not doc_complete:
             violations.append("Mandatory documents unavailable: missing clinical report or physician prescription")
@@ -431,6 +447,7 @@ class InsurancePreauthAgentService:
             checks["timelines"] = {"status": "PASS", "detail": "Notification/preauth submitted on time"}
 
         # Calibrate base score strictly to match statutory and underwriting claim status
+<<<<<<< Updated upstream
         if chk_pol is False or not is_pol_valid or "expired" in pol_status or "inactive" in pol_status:
             rule_score = min(100, max(90, rule_score + 50))
         elif non_covered:
@@ -442,6 +459,15 @@ class InsurancePreauthAgentService:
         elif "missing" in c_status.lower() or not doc_complete:
             rule_score = min(85, max(65, rule_score))
         elif ("approved" in c_status.lower() or c_status == "Approved") and not violations:
+=======
+        if "rejected" in c_status.lower():
+            rule_score = min(100, max(85, rule_score))
+        elif "high denial" in c_status.lower() or "denial risk" in rej_reason:
+            rule_score = min(80, max(68, rule_score))
+        elif "missing" in c_status.lower():
+            rule_score = min(78, max(62, rule_score))
+        elif "approved" in c_status.lower() or c_status == "Approved":
+>>>>>>> Stashed changes
             rule_score = min(15, max(5, rule_score))
         else:
             rule_score = min(100, max(8, rule_score))
@@ -551,6 +577,7 @@ class InsurancePreauthAgentService:
                     res_data = json.loads(resp.read().decode("utf-8"))
                     content = json.loads(res_data["choices"][0]["message"]["content"])
                     if "risk_score" in content:
+<<<<<<< Updated upstream
                         predicted_score = max(int(content["risk_score"]), baseline_score)
                     if "risk_reasons" in content and isinstance(content["risk_reasons"], list) and content["risk_reasons"]:
                         merged_reasons = list(violations)
@@ -558,6 +585,11 @@ class InsurancePreauthAgentService:
                             if r not in merged_reasons:
                                 merged_reasons.append(r)
                         predicted_reasons = merged_reasons if merged_reasons else content["risk_reasons"]
+=======
+                        predicted_score = int(content["risk_score"])
+                    if "risk_reasons" in content and isinstance(content["risk_reasons"], list) and content["risk_reasons"]:
+                        predicted_reasons = content["risk_reasons"]
+>>>>>>> Stashed changes
                     if "mitigation_actions" in content and isinstance(content["mitigation_actions"], list) and content["mitigation_actions"]:
                         mitigation_actions = content["mitigation_actions"]
             except Exception as e:
@@ -730,8 +762,13 @@ class InsurancePreauthAgentService:
                         p.phone,
                         p.preferred_language,
                         COALESCE(dai.admission_date::text, c.claim_date::text, CURRENT_DATE::text) as admission_date,
+<<<<<<< Updated upstream
                         COALESCE(dai.reason_for_admission, appt.reason_for_visit, NULL) as reason_for_admission,
                         COALESCE(dai.primary_diagnosis, appt.reason_for_visit, NULL) as primary_diagnosis,
+=======
+                        COALESCE(dai.reason_for_admission, appt.reason_for_visit, 'Specialized Inpatient Care') as reason_for_admission,
+                        COALESCE(dai.primary_diagnosis, appt.reason_for_visit, 'Specialized Inpatient Care') as primary_diagnosis,
+>>>>>>> Stashed changes
                         COALESCE(dai.attending_doctor, NULLIF(TRIM(CONCAT(d.first_name, ' ', d.last_name)), ''), 'Dr. Amit Sharma') as attending_doctor,
                         COALESCE(dai.doctor_specialization, d.specialization, dept.department_name, 'General Medicine') as doctor_specialization,
                         COALESCE(dai.ward_name, 'Outpatient Consultation Desk') as ward_name,
@@ -758,14 +795,23 @@ class InsurancePreauthAgentService:
                         ca.submitted_at as appeal_submitted_at,
                         l.id as log_id,
                         CASE
+<<<<<<< Updated upstream
                             WHEN c.claim_status ILIKE '%%%%reject%%%%' OR c.claim_status ILIKE '%%%%deni%%%%' OR c.claim_status = 'Partially Approved' THEN
+=======
+                            WHEN c.claim_status = 'Rejected' THEN
+>>>>>>> Stashed changes
                                 CASE
                                     WHEN ca.appeal_status = 'SUBMITTED_TPA' THEN 'SUBMITTED_TPA'
                                     WHEN ca.appeal_status IN ('OVERTURNED', 'ACCEPTED') THEN 'APPROVED'
                                     ELSE 'REJECTED_SHORTFALL'
                                 END
+<<<<<<< Updated upstream
                             WHEN c.claim_status ILIKE '%%%%approv%%%%' OR c.claim_status ILIKE '%%%%settled%%%%' THEN 'APPROVED'
                             WHEN c.claim_status ILIKE '%%%%awaiting%%%%' OR c.claim_status ILIKE '%%%%submitted%%%%' OR c.claim_status ILIKE '%%%%review%%%%' THEN 'SUBMITTED_TPA'
+=======
+                            WHEN c.claim_status = 'Approved' THEN 'APPROVED'
+                            WHEN c.claim_status ILIKE '%%%%awaiting%%%%' OR c.claim_status ILIKE '%%%%submitted%%%%' THEN 'SUBMITTED_TPA'
+>>>>>>> Stashed changes
                             ELSE 'DOSSIER_READY'
                         END as computed_stage
                     FROM insurance_claims c
@@ -912,6 +958,7 @@ class InsurancePreauthAgentService:
                 elif rej_amt <= 0 and stage == "REJECTED_SHORTFALL":
                     rej_amt = est_cost * 0.35
 
+<<<<<<< Updated upstream
                 has_adm = bool(r.get("admission_id") or r.get("admission_number"))
                 patient_type = "Inpatient (IP)" if has_adm else "Outpatient (OP)"
                 patient_type_code = "IP" if has_adm else "OP"
@@ -920,6 +967,8 @@ class InsurancePreauthAgentService:
                 projected_balance = max(0.0, cov_limit - est_cost)
                 cov_breakdown = get_insurance_coverage_schedule(cov_limit, r.get("policy_type"))
 
+=======
+>>>>>>> Stashed changes
                 cases.append({
                     "admission_id": r.get("admission_id"),
                     "admission_number": r.get("admission_number"),
@@ -961,7 +1010,10 @@ class InsurancePreauthAgentService:
                     "bill_number": r.get("bill_number") or f"MER-BIL-{p_id}",
                     "stage": stage,
                     "claim_id": r.get("claim_id"),
+<<<<<<< Updated upstream
                     "claim_number": claim_ref,
+=======
+>>>>>>> Stashed changes
                     "approved_amount": approved_amt,
                     "rejected_amount": rej_amt,
                     "disputed_amount": rej_amt,
@@ -969,7 +1021,11 @@ class InsurancePreauthAgentService:
                     "appeal_status": r.get("appeal_status") or "DRAFT_PENDING",
                     "appeal_submitted_at": r.get("appeal_submitted_at"),
                     "dossier_status": (
+<<<<<<< Updated upstream
                         f"Claim Denied · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+=======
+                        f"Shortfall Detected · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+>>>>>>> Stashed changes
                         else ("Under TPA Review" if stage == "SUBMITTED_TPA"
                         else ("Approved" if stage == "APPROVED"
                         else "Dossier Ready · 4/4 Verified"))
@@ -1001,7 +1057,11 @@ class InsurancePreauthAgentService:
                         ]
                     },
                     "dossier_status": (
+<<<<<<< Updated upstream
                         f"Claim Denied · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+=======
+                        f"Shortfall Detected · -₹{rej_amt:,.0f}" if stage == "REJECTED_SHORTFALL"
+>>>>>>> Stashed changes
                         else ("Approved" if stage == "APPROVED"
                         else ("Under TPA Review" if stage == "SUBMITTED_TPA"
                         else "Dossier Ready · 4/4 Verified"))
@@ -1573,6 +1633,7 @@ class InsurancePreauthAgentService:
 
         # Attach 17-criteria statutory rules audit and calibrated 4-tier risk levels
         try:
+<<<<<<< Updated upstream
             # Enforce dynamic checklist verification
             dyn_checklist = self.verify_checklist(case_data, diag_str, vitals_info)
             generated_dossier["checklist_verification"] = dyn_checklist
@@ -1582,11 +1643,18 @@ class InsurancePreauthAgentService:
             if "denial_risk_assessment" in generated_dossier:
                 dra = generated_dossier["denial_risk_assessment"]
                 score = max(int(dra.get("risk_score") or dra.get("risk_pct") or 0), rules_audit["rules_score"])
+=======
+            rules_audit = self.audit_17_criteria(case_data)
+            if "denial_risk_assessment" in generated_dossier:
+                dra = generated_dossier["denial_risk_assessment"]
+                score = int(dra.get("risk_score") or dra.get("risk_pct") or rules_audit["rules_score"])
+>>>>>>> Stashed changes
                 dra["risk_score"] = score
                 dra["risk_pct"] = score
                 dra["risk_level"] = self.classify_risk_level(score)
                 dra["rules_audit"] = rules_audit
                 dra["architecture"] = "Two-Stage: 17-Criteria Rules Engine + ML Predictor"
+<<<<<<< Updated upstream
                 all_reasons = list(rules_audit["violations"]) if rules_audit["violations"] else []
                 if dra.get("explanation") and dra.get("explanation") not in all_reasons:
                     all_reasons.append(dra.get("explanation"))
@@ -1634,6 +1702,10 @@ class InsurancePreauthAgentService:
                 "estimated_patient_copay": copay_calc,
                 "coverage_headroom": max(0.0, cov_lim_val - est_cost_val)
             }
+=======
+                if "risk_reasons" not in dra or not dra["risk_reasons"]:
+                    dra["risk_reasons"] = rules_audit["violations"] if rules_audit["violations"] else [dra.get("explanation", "All 17 statutory and policy criteria verified")]
+>>>>>>> Stashed changes
         except Exception as e_aud:
             logger.warning(f"Notice attaching rules audit to dossier: {e_aud}")
 
@@ -1975,12 +2047,19 @@ class InsurancePreauthAgentService:
                         %s, %s, %s, %s, %s, CURRENT_DATE, %s, 0.00, 0.00, 0.00, %s, 'Submitted · awaiting insurer'
                     ) RETURNING claim_id;
                 """
+<<<<<<< Updated upstream
                 b_rows = self.query("SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1;", (patient_id,))
                 actual_bill_id = b_rows[0]["bill_id"] if b_rows else 101
                 res = self.execute(insert_claim_sql, (
                     submission_ref,
                     patient_id,
                     actual_bill_id,
+=======
+                res = self.execute(insert_claim_sql, (
+                    submission_ref,
+                    patient_id,
+                    101,
+>>>>>>> Stashed changes
                     provider,
                     policy_number,
                     claimed_amount,
