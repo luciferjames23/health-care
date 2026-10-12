@@ -2438,24 +2438,6 @@ export default function Patient360View({
                 </>
               )}
             </button>
-
-            <button
-              type="button"
-              onClick={handleMessagePatient}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                border: '1px solid #e3e6e8',
-                background: '#fff',
-                cursor: 'pointer',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: '#15181b',
-              }}
-            >
-              Message patient
-            </button>
             {p.isOP ? (
               <button
                 type="button"

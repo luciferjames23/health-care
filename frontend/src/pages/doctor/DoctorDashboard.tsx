@@ -44,11 +44,14 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
   })();
   const doctorId = currentUser?.doctorId ? Number(currentUser.doctorId) : undefined;
 
-  const [dateRange, setDateRange] = useState<DateRangeValue>({
-    dateFrom: toYMD(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
-    dateTo: toYMD(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)),
-    preset: 'this_month',
-    displayLabel: 'This Month',
+  const [dateRange, setDateRange] = useState<DateRangeValue>(() => {
+    const calc = calculateDateRange('all_time');
+    return {
+      dateFrom: calc.from,
+      dateTo: calc.to,
+      preset: 'all_time',
+      displayLabel: calc.label,
+    };
   });
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -57,6 +60,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
   const [dailyView, setDailyView] = useState<DailyViewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Interactive View Mode & Detail Modal State
   const [viewMode, setViewMode] = useState<'timeline' | 'table'>('timeline');
@@ -66,21 +70,22 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setApiError(null);
     try {
       const [sum, ana, apptRes, dView, qRes] = await Promise.all([
         fetchDashboardSummary({
-          date_from: dateRange.dateFrom,
-          date_to: dateRange.dateTo,
+          date_from: dateRange.dateFrom || undefined,
+          date_to: dateRange.dateTo || undefined,
           doctor_id: doctorId,
         }),
         fetchDateWiseAnalytics({
-          date_from: dateRange.dateFrom,
-          date_to: dateRange.dateTo,
+          date_from: dateRange.dateFrom || undefined,
+          date_to: dateRange.dateTo || undefined,
           doctor_id: doctorId,
         }),
         fetchAppointments({
-          date_from: dateRange.dateFrom,
-          date_to: dateRange.dateTo,
+          date_from: dateRange.dateFrom || undefined,
+          date_to: dateRange.dateTo || undefined,
           doctor_id: doctorId,
           per_page: 200,
         }),
@@ -90,14 +95,21 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
         }),
         fetchDoctorQueueToday(doctorId),
       ]);
+      if ((sum as any)?.error) {
+        setApiError(String((sum as any).error));
+      } else if (apptRes?.success === false && apptRes?.error) {
+        setApiError(String(apptRes.error));
+      }
       setSummary(sum);
       setAnalytics(ana);
-      setRangeAppointments(apptRes?.appointments || []);
+      setRangeAppointments(Array.isArray(apptRes?.appointments) ? apptRes.appointments : []);
       setDailyView(dView);
       if (qRes?.success && qRes?.data) {
         setDoctorQueue(qRes.data);
       }
       setLastUpdated(new Date());
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to load clinical dashboard data. Please check backend connection.');
     } finally {
       setLoading(false);
     }
@@ -213,6 +225,37 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
         </div>
       </div>
 
+      {/* API Error Notification */}
+      {apiError && (
+        <div
+          style={{
+            padding: '12px 16px',
+            background: '#FEE2E2',
+            border: '1px solid #F87171',
+            borderRadius: 8,
+            color: '#991B1B',
+            marginBottom: 20,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 13,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={18} />
+            <span><strong>Clinical Service Notice:</strong> {apiError}</span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={loadData}
+            style={{ background: '#fff', border: '1px solid #F87171', color: '#991B1B' }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Date Filter Bar */}
       <div
         className="card"
@@ -256,7 +299,11 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
         }}
       >
         <div>
-          📅 Showing data from <strong>{formatFriendlyDate(dateRange.dateFrom)}</strong> to <strong>{formatFriendlyDate(dateRange.dateTo)}</strong>
+          {dateRange.preset === 'all_time' || (!dateRange.dateFrom && !dateRange.dateTo) ? (
+            <span>📅 Showing data for <strong>All Time (Hospital-wide records under your doctor profile)</strong></span>
+          ) : (
+            <span>📅 Showing data from <strong>{formatFriendlyDate(dateRange.dateFrom)}</strong> to <strong>{formatFriendlyDate(dateRange.dateTo)}</strong></span>
+          )}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {summary?.appointments.total ?? 0} appointment(s) in selected range

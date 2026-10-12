@@ -100,10 +100,11 @@ def get_doctor_schedule_for_date(cur, doctor_id, date_obj):
         SELECT start_time, end_time, slot_duration_minutes
         FROM doctor_schedules
         WHERE doctor_id = %s
-          AND day_of_week = %s
-          AND status = 'ACTIVE'
+          AND UPPER(day_of_week) = %s
+          AND UPPER(status) = 'ACTIVE'
           AND effective_from <= %s
-          AND (effective_to IS NULL OR effective_to >= %s);
+          AND (effective_to IS NULL OR effective_to >= %s)
+        ORDER BY start_time ASC;
     """, (doctor_id, day_name, date_obj, date_obj))
     row = cur.fetchone()
     if not row:
@@ -165,14 +166,30 @@ def get_available_slots(doctor_id, date_str):
         except (ValueError, TypeError):
             return []
             
-        schedule = get_doctor_schedule_for_date(cur, doctor_id, date_obj)
-        if not schedule:
+        day_name = date_obj.strftime("%A").upper()
+        cur.execute("""
+            SELECT start_time, end_time, slot_duration_minutes
+            FROM doctor_schedules
+            WHERE doctor_id = %s
+              AND UPPER(day_of_week) = %s
+              AND UPPER(status) = 'ACTIVE'
+              AND effective_from <= %s
+              AND (effective_to IS NULL OR effective_to >= %s)
+            ORDER BY start_time ASC;
+        """, (doctor_id, day_name, date_obj, date_obj))
+        shift_rows = cur.fetchall()
+        if not shift_rows:
             return []
-            
-        # Generate all slot times
-        all_slots = generate_slots(schedule["start_time"], schedule["end_time"], schedule["slot_duration"])
-        all_slots_str = [s.strftime("%H:%M") for s in all_slots]
-        
+
+        # Generate all slot times across shifts without boundary duplicates
+        all_slots_str = []
+        for s_start, s_end, s_dur in shift_rows:
+            shift_slots = generate_slots(s_start, s_end, s_dur)
+            for s in shift_slots:
+                s_str = s.strftime("%H:%M")
+                if s_str not in all_slots_str:
+                    all_slots_str.append(s_str)
+
         # Fetch booked slots
         cur.execute("""
             SELECT appointment_time
@@ -182,7 +199,7 @@ def get_available_slots(doctor_id, date_str):
               AND status NOT IN ('CANCELLED', 'RESCHEDULED');
         """, (doctor_id, date_obj))
         booked_times = {row[0].strftime("%H:%M") for row in cur.fetchall()}
-        
+
         # Filter available slots
         available = [s for s in all_slots_str if s not in booked_times]
         return available
@@ -251,13 +268,30 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
         # Past check
         validate_past_datetime(date_obj, time_obj)
         
-        # 2. Working hours and slots check
-        schedule = get_doctor_schedule_for_date(cur, doctor_id, date_obj)
-        if not schedule:
+        # 2. Working hours and slots check across active shifts
+        day_name = date_obj.strftime("%A").upper()
+        cur.execute("""
+            SELECT start_time, end_time, slot_duration_minutes
+            FROM doctor_schedules
+            WHERE doctor_id = %s
+              AND UPPER(day_of_week) = %s
+              AND UPPER(status) = 'ACTIVE'
+              AND effective_from <= %s
+              AND (effective_to IS NULL OR effective_to >= %s)
+            ORDER BY start_time ASC;
+        """, (doctor_id, day_name, date_obj, date_obj))
+        shift_rows = cur.fetchall()
+        if not shift_rows:
             raise InvalidScheduleError("Doctor is not scheduled to work on this day.", "DOCTOR_NOT_AVAILABLE")
-            
-        valid_slots = generate_slots(schedule["start_time"], schedule["end_time"], schedule["slot_duration"])
-        if time_obj not in valid_slots:
+
+        is_valid_slot = False
+        for s_start, s_end, s_dur in shift_rows:
+            valid_slots = generate_slots(s_start, s_end, s_dur)
+            if time_obj in valid_slots:
+                is_valid_slot = True
+                break
+
+        if not is_valid_slot:
             raise InvalidScheduleError("The requested time does not match a valid appointment slot duration.", "INVALID_APPOINTMENT_SLOT")
             
         # 3. Race condition prevention via row-level locks

@@ -68,7 +68,6 @@ import EscalationPage from './pages/admin/EscalationPage';
 import FeedbackPage from './pages/admin/FeedbackPage';
 import DoctorDashboard from './pages/doctor/DoctorDashboard';
 import TodaysQueueView from './pages/doctor/TodaysQueueView';
-import DoctorSchedules from './pages/admin/DoctorSchedules';
 import PatientChat from './pages/PatientChat';
 import PatientCreateAndManageView from './components/PatientCreateAndManageView';
 
@@ -873,7 +872,7 @@ export default function App() {
                   <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔒</div>
                   <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 600, color: '#d93025' }}>Access Restricted</h3>
                   <p style={{ margin: '0 0 20px 0', color: '#5f6368', fontSize: '14px', lineHeight: 1.5 }}>
-                    Consultant Schedules management is restricted to Administrative roles.
+                    Doctor Shift Schedules management is restricted to Administrative roles.
                   </p>
                   <button
                     type="button"
@@ -884,7 +883,11 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                <DoctorSchedules />
+                <DoctorsView
+                  initialTab="schedules"
+                  onNavigate={(p, pat) => handleNavigate(p, pat)}
+                  userRole={role}
+                />
               )
             )}
             {activePage === 'nursing' && <NursingWorkspaceView onOpenDrawer={setDrawer} onOpenModal={setModal} />}

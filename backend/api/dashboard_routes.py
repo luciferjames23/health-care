@@ -38,6 +38,9 @@ if backend_dir not in sys.path:
 
 import db_config
 import preadmission_service
+import services.patient_service as patient_service
+import utils.cache_service as cache_service
+from utils.phone_utils import normalize_phone
 from api.auth_helper import get_current_user, require_admin, require_doctor_or_admin
 
 router = APIRouter(
@@ -102,13 +105,14 @@ def apply_booking_source_filter(conditions: list, params: list, source_str: Opti
     if s_upper in ("WHATSAPP", "WHATSAPP_TEXT", "WHATSAPP_VOICE", "WHATSAPP_AI", "WHATSAPP_CHAT"):
         conditions.append("(UPPER(a.booking_source) LIKE %s OR LOWER(a.booking_source) LIKE %s)")
         params.extend(["WHATSAPP%", "%whatsapp%"])
-    elif s_upper in ("WEB_PORTAL", "WEB PORTAL", "PORTAL"):
-        conditions.append("(UPPER(a.booking_source) IN ('WEB PORTAL', 'WEB_PORTAL', 'PORTAL') OR LOWER(a.booking_source) LIKE %s)")
+    elif s_upper in ("WEB_PORTAL", "WEB PORTAL", "PORTAL", "HOSPITAL_PORTAL", "HOSPITAL PORTAL"):
+        conditions.append("(UPPER(a.booking_source) IN ('WEB PORTAL', 'WEB_PORTAL', 'PORTAL', 'HOSPITAL PORTAL', 'HOSPITAL_PORTAL') OR LOWER(a.booking_source) LIKE %s)")
         params.append("%portal%")
     elif s_upper in ("PHONE", "CALL"):
         conditions.append("(UPPER(a.booking_source) IN ('PHONE', 'CALL') OR LOWER(a.booking_source) = 'phone')")
-    elif s_upper in ("WALK_IN", "WALK-IN", "WALK IN"):
-        conditions.append("(UPPER(a.booking_source) IN ('WALK-IN', 'WALK_IN', 'WALK IN') OR LOWER(a.booking_source) LIKE 'walk%%')")
+    elif s_upper in ("WALK_IN", "WALK-IN", "WALK IN", "OPD_DESK", "OPD DESK"):
+        conditions.append("(UPPER(a.booking_source) IN ('WALK-IN', 'WALK_IN', 'WALK IN', 'OPD_DESK', 'OPD DESK') OR LOWER(a.booking_source) LIKE %s OR LOWER(a.booking_source) LIKE %s)")
+        params.extend(["walk%", "opd%"])
     elif s_upper in ("ADMIN", "PORTAL_ADMIN"):
         conditions.append("(UPPER(a.booking_source) IN ('ADMIN', 'PORTAL_ADMIN') OR LOWER(a.booking_source) LIKE %s)")
         params.append("%admin%")
@@ -153,9 +157,8 @@ def resolve_target_doctor_id(current_user: dict, requested_doctor_id: Optional[i
                 row = cur.fetchone()
                 if row:
                     return row[0]
-        if requested_doctor_id is not None and isinstance(requested_doctor_id, int):
-            return requested_doctor_id
-        return None
+        # Security: DOCTOR role can NEVER view other doctors. If not matched, restrict to -1.
+        return -1
     else:
         # ADMIN or other management role: respect requested_doctor_id parameter
         if requested_doctor_id is not None and isinstance(requested_doctor_id, int):
@@ -185,40 +188,44 @@ def get_dashboard_summary(
         cur = conn.cursor()
 
         # Sanitize query parameters if passed directly as Query objects
-        d_from_str = date_from if isinstance(date_from, str) else None
-        d_to_str = date_to if isinstance(date_to, str) else None
-        dept_str = department if isinstance(department, str) else None
+        d_from_str = date_from.strip() if isinstance(date_from, str) and date_from.strip() else None
+        d_to_str = date_to.strip() if isinstance(date_to, str) and date_to.strip() else None
+        dept_str = department.strip() if isinstance(department, str) and department.strip() else None
         doc_id_val = doctor_id if isinstance(doctor_id, int) else None
-        source_str = booking_source if isinstance(booking_source, str) else None
+        source_str = booking_source.strip() if isinstance(booking_source, str) and booking_source.strip() else None
 
         today = date.today().isoformat()
-        eff_from = d_from_str if d_from_str else (d_to_str if d_to_str else today)
-        eff_to = d_to_str if d_to_str else (d_from_str if d_from_str else today)
 
         target_doctor_id = resolve_target_doctor_id(current_user, doc_id_val, cur)
 
         # 1. Total patients in system / under doctor
         if target_doctor_id:
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND status != 'CANCELLED';", (target_doctor_id,))
+            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND UPPER(status) != 'CANCELLED';", (target_doctor_id,))
             total_patients = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND appointment_date = %s AND status != 'CANCELLED';", (target_doctor_id, today))
+            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND appointment_date = %s AND UPPER(status) != 'CANCELLED';", (target_doctor_id, today))
             new_patients_today = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND DATE_TRUNC('month', appointment_date) = DATE_TRUNC('month', CURRENT_DATE) AND status != 'CANCELLED';", (target_doctor_id,))
+            cur.execute("SELECT COUNT(DISTINCT patient_id) FROM appointments WHERE doctor_id = %s AND DATE_TRUNC('month', appointment_date) = DATE_TRUNC('month', CURRENT_DATE) AND UPPER(status) != 'CANCELLED';", (target_doctor_id,))
             new_patients_month = cur.fetchone()[0]
             active_doctors = 1
         else:
             cur.execute("SELECT COUNT(*) FROM patients WHERE status = 'ACTIVE';")
             total_patients = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM patients WHERE DATE(created_at AT TIME ZONE 'UTC') = %s;", (today,))
+            cur.execute("SELECT COUNT(*) FROM patients WHERE DATE(created_at) = %s;", (today,))
             new_patients_today = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM patients WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE);")
             new_patients_month = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM doctors WHERE status = 'ACTIVE';")
             active_doctors = cur.fetchone()[0]
 
-        # 2. Appointments in selected date range [eff_from, eff_to]
-        appt_conditions = ["a.appointment_date >= %s", "a.appointment_date <= %s"]
-        appt_params = [eff_from, eff_to]
+        # 2. Appointments in selected date range [d_from_str, d_to_str]
+        appt_conditions = []
+        appt_params = []
+        if d_from_str:
+            appt_conditions.append("a.appointment_date >= %s")
+            appt_params.append(d_from_str)
+        if d_to_str:
+            appt_conditions.append("a.appointment_date <= %s")
+            appt_params.append(d_to_str)
 
         if target_doctor_id:
             appt_conditions.append("a.doctor_id = %s")
@@ -229,17 +236,17 @@ def get_dashboard_summary(
         if source_str:
             apply_booking_source_filter(appt_conditions, appt_params, source_str)
 
-        appt_where = "WHERE " + " AND ".join(appt_conditions)
+        appt_where = ("WHERE " + " AND ".join(appt_conditions)) if appt_conditions else ""
 
         cur.execute(f"""
             SELECT 
                 COUNT(*) as total,
-                COUNT(*) FILTER (WHERE a.status = 'BOOKED') as booked,
-                COUNT(*) FILTER (WHERE a.status = 'CONFIRMED') as confirmed,
-                COUNT(*) FILTER (WHERE a.status = 'COMPLETED') as completed,
-                COUNT(*) FILTER (WHERE a.status = 'CANCELLED') as cancelled,
-                COUNT(*) FILTER (WHERE a.status = 'RESCHEDULED') as rescheduled,
-                COUNT(*) FILTER (WHERE a.status = 'NO_SHOW') as no_show,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'BOOKED') as booked,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED', 'CHECKED_IN')) as confirmed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'COMPLETED') as completed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'CANCELLED') as cancelled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'RESCHEDULED') as rescheduled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('NO_SHOW', 'NO SHOW', 'NOSHOW')) as no_show,
                 COUNT(DISTINCT a.patient_id) as unique_patients
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
@@ -267,73 +274,112 @@ def get_dashboard_summary(
         by_source = {row[0]: row[1] for row in cur.fetchall()}
 
         # 3. New vs Returning Patients for the date range
-        if target_doctor_id:
-            cur.execute("""
-                SELECT COUNT(DISTINCT a.patient_id)
-                FROM appointments a
-                WHERE a.appointment_date >= %s AND a.appointment_date <= %s
-                  AND a.doctor_id = %s
-                  AND EXISTS (
-                      SELECT 1 FROM appointments a2 
-                      WHERE a2.patient_id = a.patient_id 
-                        AND a2.doctor_id = %s
-                        AND a2.appointment_date < %s
-                  );
-            """, (eff_from, eff_to, target_doctor_id, target_doctor_id, eff_from))
-            returning_patients_in_range = cur.fetchone()[0]
-            new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
-        else:
-            cur.execute("""
-                SELECT COUNT(DISTINCT a.patient_id)
-                FROM appointments a
-                WHERE a.appointment_date >= %s AND a.appointment_date <= %s
-                  AND (
-                      EXISTS (
+        if d_from_str and d_to_str:
+            if target_doctor_id:
+                cur.execute("""
+                    SELECT COUNT(DISTINCT a.patient_id)
+                    FROM appointments a
+                    WHERE a.appointment_date >= %s AND a.appointment_date <= %s
+                      AND a.doctor_id = %s
+                      AND EXISTS (
                           SELECT 1 FROM appointments a2 
                           WHERE a2.patient_id = a.patient_id 
+                            AND a2.doctor_id = %s
                             AND a2.appointment_date < %s
-                      )
-                      OR EXISTS (
-                          SELECT 1 FROM patients p
-                          WHERE p.id = a.patient_id
-                            AND DATE(p.created_at AT TIME ZONE 'UTC') < %s
-                      )
-                  );
-            """, (eff_from, eff_to, eff_from, eff_from))
-            returning_patients_in_range = cur.fetchone()[0]
-            new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+                      );
+                """, (d_from_str, d_to_str, target_doctor_id, target_doctor_id, d_from_str))
+                returning_patients_in_range = cur.fetchone()[0]
+                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+            else:
+                cur.execute("""
+                    SELECT COUNT(DISTINCT a.patient_id)
+                    FROM appointments a
+                    WHERE a.appointment_date >= %s AND a.appointment_date <= %s
+                      AND (
+                          EXISTS (
+                              SELECT 1 FROM appointments a2 
+                              WHERE a2.patient_id = a.patient_id 
+                                AND a2.appointment_date < %s
+                          )
+                          OR EXISTS (
+                              SELECT 1 FROM patients p
+                              WHERE p.id = a.patient_id
+                                AND DATE(p.created_at) < %s
+                          )
+                      );
+                """, (d_from_str, d_to_str, d_from_str, d_from_str))
+                returning_patients_in_range = cur.fetchone()[0]
+                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+        else:
+            if target_doctor_id:
+                cur.execute("""
+                    SELECT COUNT(DISTINCT a.patient_id)
+                    FROM appointments a
+                    WHERE a.doctor_id = %s
+                      AND (
+                          SELECT COUNT(*) FROM appointments a2
+                          WHERE a2.patient_id = a.patient_id AND a2.doctor_id = %s
+                      ) > 1;
+                """, (target_doctor_id, target_doctor_id))
+                returning_patients_in_range = cur.fetchone()[0]
+                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) FROM (
+                        SELECT patient_id FROM appointments
+                        GROUP BY patient_id
+                        HAVING COUNT(id) > 1
+                    ) sub;
+                """)
+                returning_patients_in_range = cur.fetchone()[0]
+                new_patients_in_range = max(0, unique_patients_in_range - returning_patients_in_range)
 
         # 4. Admissions / Pre-Admissions in range
-        adm_conditions = ["pa.expected_admission_date >= %s", "pa.expected_admission_date <= %s"]
-        adm_params = [eff_from, eff_to]
+        adm_conditions = []
+        adm_params = []
+        if d_from_str:
+            adm_conditions.append("pa.expected_admission_date >= %s")
+            adm_params.append(d_from_str)
+        if d_to_str:
+            adm_conditions.append("pa.expected_admission_date <= %s")
+            adm_params.append(d_to_str)
         if target_doctor_id:
             adm_conditions.append("pa.doctor_id = %s")
             adm_params.append(target_doctor_id)
         if dept_str:
             adm_conditions.append("LOWER(dept.department_name) = LOWER(%s)")
             adm_params.append(dept_str)
+        adm_where = ("WHERE " + " AND ".join(adm_conditions)) if adm_conditions else ""
         cur.execute(f"""
             SELECT COUNT(*) 
             FROM pre_admissions pa
             LEFT JOIN departments dept ON pa.department_id = dept.id
-            WHERE {' AND '.join(adm_conditions)};
+            {adm_where};
         """, adm_params)
         admissions_in_range = cur.fetchone()[0]
 
         # 5. Escalations
         if target_doctor_id:
-            cur.execute("""
+            esc_conditions = ["a.doctor_id = %s"]
+            esc_params = [target_doctor_id]
+            if d_from_str:
+                esc_conditions.append("DATE(e.created_at) >= %s")
+                esc_params.append(d_from_str)
+            if d_to_str:
+                esc_conditions.append("DATE(e.created_at) <= %s")
+                esc_params.append(d_to_str)
+            cur.execute(f"""
                 SELECT COUNT(DISTINCT e.id)
                 FROM escalations e
                 JOIN appointments a ON e.patient_id = a.patient_id
-                WHERE a.doctor_id = %s AND DATE(e.created_at AT TIME ZONE 'UTC') >= %s AND DATE(e.created_at AT TIME ZONE 'UTC') <= %s;
-            """, (target_doctor_id, eff_from, eff_to))
+                WHERE {' AND '.join(esc_conditions)};
+            """, esc_params)
             escalations_in_range = cur.fetchone()[0]
             cur.execute("""
                 SELECT COUNT(DISTINCT e.id)
                 FROM escalations e
                 JOIN appointments a ON e.patient_id = a.patient_id
-                WHERE a.doctor_id = %s AND e.status = 'OPEN';
+                WHERE a.doctor_id = %s AND UPPER(e.status) = 'OPEN';
             """, (target_doctor_id,))
             open_escalations = cur.fetchone()[0]
             cur.execute("""
@@ -344,12 +390,18 @@ def get_dashboard_summary(
             """, (target_doctor_id,))
             total_escalations = cur.fetchone()[0]
         else:
-            cur.execute("""
-                SELECT COUNT(*) FROM escalations 
-                WHERE DATE(created_at AT TIME ZONE 'UTC') >= %s AND DATE(created_at AT TIME ZONE 'UTC') <= %s;
-            """, (eff_from, eff_to))
+            esc_conditions = []
+            esc_params = []
+            if d_from_str:
+                esc_conditions.append("DATE(created_at) >= %s")
+                esc_params.append(d_from_str)
+            if d_to_str:
+                esc_conditions.append("DATE(created_at) <= %s")
+                esc_params.append(d_to_str)
+            esc_where = ("WHERE " + " AND ".join(esc_conditions)) if esc_conditions else ""
+            cur.execute(f"SELECT COUNT(*) FROM escalations {esc_where};", esc_params)
             escalations_in_range = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM escalations WHERE status = 'OPEN';")
+            cur.execute("SELECT COUNT(*) FROM escalations WHERE UPPER(status) = 'OPEN';")
             open_escalations = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM escalations;")
             total_escalations = cur.fetchone()[0]
@@ -358,12 +410,15 @@ def get_dashboard_summary(
         if target_doctor_id:
             cur.execute("""
                 SELECT COUNT(*) FROM appointments
-                WHERE doctor_id = %s AND appointment_date > CURRENT_DATE AND status NOT IN ('CANCELLED', 'RESCHEDULED');
+                WHERE doctor_id = %s 
+                  AND (appointment_date > CURRENT_DATE OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
+                  AND UPPER(status) NOT IN ('CANCELLED', 'RESCHEDULED', 'COMPLETED');
             """, (target_doctor_id,))
         else:
             cur.execute("""
                 SELECT COUNT(*) FROM appointments
-                WHERE appointment_date > CURRENT_DATE AND status NOT IN ('CANCELLED', 'RESCHEDULED');
+                WHERE (appointment_date > CURRENT_DATE OR (appointment_date = CURRENT_DATE AND appointment_time >= CURRENT_TIME))
+                  AND UPPER(status) NOT IN ('CANCELLED', 'RESCHEDULED', 'COMPLETED');
             """)
         upcoming_appointments = cur.fetchone()[0]
 
@@ -398,8 +453,8 @@ def get_dashboard_summary(
 
         cur.close()
         return {
-            "date_from": eff_from,
-            "date_to": eff_to,
+            "date_from": d_from_str or "",
+            "date_to": d_to_str or "",
             "patients": {
                 "total": total_patients,
                 "new_today": new_patients_today,
@@ -789,64 +844,43 @@ def register_patient(
             age_years = req.age if (req.age and req.age > 0) else 35
             dob = str(date.today() - timedelta(days=int(age_years * 365.25)))
 
-        patient_code = (req.patient_code or "").strip()
-        if not patient_code:
-            cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM patients;")
-            next_id = cur.fetchone()[0]
-            patient_code = f"MER-PAT-{str(next_id).zfill(7)}"
-
-        cur.execute("SELECT 1 FROM patients WHERE patient_code = %s;", (patient_code,))
-        if cur.fetchone():
-            cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM patients;")
-            next_id = cur.fetchone()[0]
-            patient_code = f"MER-PAT-{str(next_id).zfill(7)}"
-
         phone = (req.phone or "").strip()
         if not phone:
             phone = "+91 98400 00000"
         whatsapp = (req.whatsapp_number or "").strip() or phone
 
-        # Check if patient already exists
-        existing_patient = None
-        if phone and phone != "+91 98400 00000":
-            cur.execute("""
-                SELECT id, patient_code FROM patients 
-                WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' 
-                ORDER BY id ASC LIMIT 1;
-            """, (phone, phone))
-            existing_patient = cur.fetchone()
-
-        if not existing_patient and first_name:
-            cur.execute("""
-                SELECT id, patient_code FROM patients 
-                WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
-                  AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
-                  AND date_of_birth = %s 
-                  AND status = 'ACTIVE' 
-                ORDER BY id ASC LIMIT 1;
-            """, (first_name, last_name, dob))
-            existing_patient = cur.fetchone()
+        # Check if identical patient already exists (exact same person: matching name, DOB, and phone).
+        # A phone number match alone NEVER treats a new patient as an existing patient.
+        # Different family members sharing the same phone number are registered as separate patients.
+        existing_patient = patient_service.find_identical_registered_patient(
+            cur, first_name, last_name, dob, phone
+        )
 
         if existing_patient:
             patient_id = existing_patient[0]
             assigned_code = existing_patient[1]
         else:
+            # Allocate canonical atomic patient ID & UHID code
+            new_id, canonical_code = patient_service.get_next_canonical_patient_id(cur)
+            patient_id = new_id
+            assigned_code = canonical_code
+
             cur.execute(
                 """
                 INSERT INTO patients (
-                    patient_code, first_name, last_name, date_of_birth, gender,
+                    id, patient_code, first_name, last_name, date_of_birth, gender,
                     phone, whatsapp_number, email, address, city, state, pincode,
                     emergency_contact_name, emergency_contact_phone, blood_group,
                     preferred_language, status, registration_date, created_at, updated_at
                 ) VALUES (
-                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s,
                     %s, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 ) RETURNING id, patient_code;
                 """,
                 (
-                    patient_code, first_name, last_name, dob, gender,
+                    new_id, assigned_code, first_name, last_name, dob, gender,
                     phone, whatsapp, req.email, req.address or "Chennai Metropolitan Area",
                     req.city or "Chennai", req.state or "Tamil Nadu", req.pincode or "600001",
                     req.emergency_contact_name, req.emergency_contact_phone,
@@ -856,6 +890,12 @@ def register_patient(
             patient_row = cur.fetchone()
             patient_id = patient_row[0]
             assigned_code = patient_row[1]
+
+            # Invalidate cached phone lookups
+            cache_service.invalidate_cache("pat_phone_")
+            norm_ph = normalize_phone(phone)
+            if norm_ph:
+                cache_service.invalidate_cache(f"pat_phone_{norm_ph}")
 
         # Resolve Doctor ID
         resolved_doctor_id = req.doctor_id
@@ -1614,38 +1654,73 @@ def get_appointments(
         d_to_str = date_to if isinstance(date_to, str) else None
         d_type = date_type if isinstance(date_type, str) else 'appointment_date'
 
+        if d_from_str and d_from_str.strip().lower() in {"null", "undefined", ""}:
+            d_from_str = None
+        if d_to_str and d_to_str.strip().lower() in {"null", "undefined", ""}:
+            d_to_str = None
+        if status_str and status_str.strip().lower() in {"all", "all status", "all statuses", "null", "undefined", ""}:
+            status_str = None
+        if source_str and source_str.strip().lower() in {"all", "all sources", "all source", "null", "undefined", ""}:
+            source_str = None
+        if search_str and search_str.strip().lower() in {"null", "undefined", ""}:
+            search_str = None
+
         target_doctor_id = resolve_target_doctor_id(current_user, doc_id_val, cur)
         if target_doctor_id:
             conditions.append("a.doctor_id = %s")
             params.append(target_doctor_id)
 
-        if search_str:
+        if search_str and search_str.strip():
+            s_clean = search_str.strip().lower()
+            s_like = f"%{s_clean}%"
             conditions.append(
-                "(LOWER(COALESCE(p.first_name || ' ' || COALESCE(p.last_name, ''), 'Patient #' || a.patient_id)) LIKE %s OR a.booking_id LIKE %s OR LOWER(COALESCE(d.display_name, '')) LIKE %s OR COALESCE(p.patient_code, 'PAT-' || a.patient_id) LIKE %s)"
+                """(
+                    LOWER(COALESCE(p.first_name || ' ' || COALESCE(p.last_name, ''), 'Patient #' || a.patient_id)) LIKE %s 
+                    OR LOWER(COALESCE(a.booking_id, '')) LIKE %s 
+                    OR LOWER(COALESCE(d.display_name, '')) LIKE %s 
+                    OR LOWER(COALESCE(p.patient_code, 'PAT-' || a.patient_id)) LIKE %s
+                    OR COALESCE(p.phone, '') LIKE %s
+                    OR CAST(a.id AS TEXT) LIKE %s
+                    OR CAST(a.doctor_id AS TEXT) = %s
+                )"""
             )
-            like = f"%{search_str.lower()}%"
-            params += [like, like, like, like]
+            params += [s_like, s_like, s_like, s_like, s_like, s_like, search_str.strip()]
 
+<<<<<<< Updated upstream
         if status_str:
             if status_str.upper() in ('ACTIVE', 'SCHEDULED'):
                 conditions.append("a.status IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')")
             else:
                 conditions.append("a.status = %s")
                 params.append(status_str.upper())
+=======
+        if status_str and status_str.strip():
+            st_clean = status_str.strip().upper()
+            if st_clean == 'CHECKED_IN':
+                conditions.append("(UPPER(a.status) = 'CHECKED_IN' OR UPPER(COALESCE(qe.queue_status, '')) = 'CHECKED_IN')")
+            else:
+                conditions.append("UPPER(a.status) = %s")
+                params.append(st_clean)
+>>>>>>> Stashed changes
 
-        if dept_str:
-            conditions.append("(LOWER(COALESCE(dept.department_name, d.specialization, '')) = LOWER(%s))")
-            params.append(dept_str)
+        if dept_str and dept_str.strip() and dept_str.strip().lower() not in {"all", "all departments", "all department", "null", "undefined"}:
+            s_val = dept_str.strip()
+            if s_val.isdigit():
+                conditions.append("(COALESCE(dept.id, d.department_id, a.department_id) = %s)")
+                params.append(int(s_val))
+            else:
+                conditions.append("(LOWER(COALESCE(dept.department_name, '')) = LOWER(%s) OR LOWER(COALESCE(dept.department_code, '')) = LOWER(%s) OR LOWER(COALESCE(d.specialization, '')) = LOWER(%s))")
+                params.extend([s_val, s_val, s_val])
 
-        if source_str:
+        if source_str and source_str.strip():
             apply_booking_source_filter(conditions, params, source_str)
 
         if d_type == 'created_at':
             if d_from_str:
-                conditions.append("DATE(a.created_at AT TIME ZONE 'UTC') >= %s")
+                conditions.append("DATE(a.created_at) >= %s")
                 params.append(d_from_str)
             if d_to_str:
-                conditions.append("DATE(a.created_at AT TIME ZONE 'UTC') <= %s")
+                conditions.append("DATE(a.created_at) <= %s")
                 params.append(d_to_str)
         else:
             if d_from_str:
@@ -1664,6 +1739,7 @@ def get_appointments(
             LEFT JOIN patients p ON a.patient_id = p.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
             LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
+            LEFT JOIN queue_entries qe ON a.id = qe.appointment_id
             {where};
             """,
             params,
@@ -1673,15 +1749,17 @@ def get_appointments(
         order_dir = "ASC" if str(sort_order).lower() == "asc" else "DESC"
         sort_field = str(sort_by).lower()
         if sort_field == "created_at":
-            order_clause = f"a.created_at {order_dir}"
+            order_clause = f"a.created_at {order_dir} NULLS LAST, a.id {order_dir}"
         elif sort_field in ("patient", "patient_name"):
-            order_clause = f"patient_name {order_dir}"
+            order_clause = f"patient_name {order_dir} NULLS LAST, a.id {order_dir}"
         elif sort_field in ("doctor", "doctor_name"):
-            order_clause = f"COALESCE(d.display_name, '') {order_dir}"
+            order_clause = f"COALESCE(d.display_name, '') {order_dir} NULLS LAST, a.id {order_dir}"
         elif sort_field == "status":
-            order_clause = f"a.status {order_dir}"
+            order_clause = f"a.status {order_dir} NULLS LAST, a.appointment_date DESC, a.id {order_dir}"
+        elif sort_field in ("booking_id", "id"):
+            order_clause = f"COALESCE(a.booking_id, CAST(a.id AS TEXT)) {order_dir} NULLS LAST, a.id {order_dir}"
         else:
-            order_clause = f"a.appointment_date {order_dir}, a.appointment_time {order_dir}"
+            order_clause = f"a.appointment_date {order_dir} NULLS LAST, a.appointment_time {order_dir} NULLS LAST, a.id {order_dir}"
 
         page_num = int(page.default) if hasattr(page, 'default') or 'Query' in type(page).__name__ else int(page or 1)
         per_page_num = int(per_page.default) if hasattr(per_page, 'default') or 'Query' in type(per_page).__name__ else int(per_page or 20)
@@ -1724,16 +1802,16 @@ def get_appointments(
             ORDER BY {order_clause}
             LIMIT %s OFFSET %s;
             """,
-            params + [per_page, offset],
+            params + [per_page_num, offset],
         )
         appointments = rows_to_dicts(cur, cur.fetchall())
         cur.close()
 
         return {
             "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": max(1, (total + per_page - 1) // per_page),
+            "page": page_num,
+            "per_page": per_page_num,
+            "total_pages": max(1, (total + per_page_num - 1) // per_page_num),
             "appointments": appointments,
         }
     except Exception as e:
@@ -1815,6 +1893,7 @@ def get_doctors(
     search: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    appointment_only: Optional[bool] = Query(False),
     current_user: dict = Depends(require_doctor_or_admin)
 ):
     """Returns all doctors with appointment count and schedule availability."""
@@ -1826,20 +1905,34 @@ def get_doctors(
         conditions = []
         params = []
 
-        if search and search.strip():
-            s = f"%{search.strip().lower()}%"
+        search_str = search if isinstance(search, str) else None
+        dept_str = department if isinstance(department, str) else None
+        status_str = status if isinstance(status, str) else None
+        appt_only = bool(appointment_only) if not hasattr(appointment_only, 'default') else False
+
+        if appt_only:
+            conditions.append("(d.department_id IN (1, 2, 3, 4, 5, 6, 7, 8, 12, 17, 18, 19, 20, 21, 22, 23, 24) OR EXISTS (SELECT 1 FROM appointments a_sub WHERE a_sub.doctor_id = d.id))")
+
+        if search_str and search_str.strip():
+            s = f"%{search_str.strip().lower()}%"
             conditions.append(
                 "(LOWER(d.display_name) LIKE %s OR LOWER(d.doctor_code) LIKE %s OR LOWER(d.first_name) LIKE %s OR LOWER(d.last_name) LIKE %s OR LOWER(d.specialization) LIKE %s OR LOWER(d.email) LIKE %s OR LOWER(COALESCE(d.phone, '')) LIKE %s OR LOWER(COALESCE(dept.department_name, '')) LIKE %s)"
             )
             params += [s, s, s, s, s, s, s, s]
 
-        if department and department.strip() and department.strip().lower() not in {"all", "all departments", "all department", "null", "undefined"}:
-            conditions.append("LOWER(COALESCE(dept.department_name, 'General Medicine')) = LOWER(%s)")
-            params.append(department.strip())
+        if dept_str and dept_str.strip() and dept_str.strip().lower() not in {"all", "all departments", "all department", "null", "undefined"}:
+            d_val = dept_str.strip()
+            if d_val.isdigit():
+                conditions.append("d.department_id = %s")
+                params.append(int(d_val))
+            else:
+                conditions.append("(LOWER(COALESCE(dept.department_name, '')) = LOWER(%s) OR (dept.department_name IS NULL AND LOWER(COALESCE(d.specialization, '')) = LOWER(%s)))")
+                params.append(d_val)
+                params.append(d_val)
 
-        if status and status.strip() and status.strip().lower() not in {"all", "all status", "all statuses", "null", "undefined"}:
+        if status_str and status_str.strip() and status_str.strip().lower() not in {"all", "all status", "all statuses", "null", "undefined"}:
             conditions.append("UPPER(d.status) = UPPER(%s)")
-            params.append(status.strip())
+            params.append(status_str.strip())
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -1849,7 +1942,7 @@ def get_doctors(
                    d.specialization, d.qualification, d.experience_years,
                    d.phone, d.email, d.consultation_fee, d.status, d.created_at,
                    d.department_id,
-                   COALESCE(dept.department_name, 'General Medicine') as department_name,
+                   COALESCE(dept.department_name, d.specialization, '') as department_name,
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
                    COUNT(a.id) FILTER (WHERE a.status NOT IN ('CANCELLED', 'RESCHEDULED')) as total_appts
             FROM doctors d
@@ -2330,31 +2423,162 @@ class DoctorScheduleRequest(BaseModel):
     status: Optional[str] = 'ACTIVE'
 
 
-@router.get("/schedules")
-def get_doctor_schedules(doctor_id: Optional[int] = Query(None), current_user: dict = Depends(get_current_user)):
+def validate_schedule_constraints(cur, doctor_id: int, day_of_week: str, start_time: str, end_time: str, slot_duration: int, exclude_schedule_id: Optional[int] = None):
     """
-    Get doctor working schedules. Filterable by doctor_id.
+    Authoritative backend validation for schedule creation and editing:
+    1. Validates doctor exists and is active.
+    2. Validates day of week.
+    3. Validates time values and start < end.
+    4. Concurrency lock on doctor row.
+    5. Rejects exact duplicates.
+    6. Rejects prohibited overlapping shifts (while allowing contiguous adjacent shifts).
+    """
+    day_upper = day_of_week.strip().upper()
+    allowed_days = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
+    if day_upper not in allowed_days:
+        raise HTTPException(status_code=400, detail=f"Invalid day_of_week: '{day_of_week}'. Allowed values: {sorted(list(allowed_days))}")
+
+    # Row-level lock on doctor to serialize concurrent schedule operations
+    cur.execute("SELECT id, display_name, department_id, status FROM doctors WHERE id = %s FOR UPDATE;", (doctor_id,))
+    doc_row = cur.fetchone()
+    if not doc_row:
+        raise HTTPException(status_code=404, detail=f"Doctor ID {doctor_id} not found.")
+    doc_id, doc_name, doc_dept_id, doc_status = doc_row
+    if str(doc_status).upper() != "ACTIVE":
+        raise HTTPException(status_code=400, detail=f"Cannot configure schedule for inactive doctor {doc_name} (Status: {doc_status}).")
+
+    # Time validation
+    try:
+        start_parts = [int(p) for p in start_time.split(":")[:2]]
+        end_parts = [int(p) for p in end_time.split(":")[:2]]
+        if not (0 <= start_parts[0] <= 23 and 0 <= start_parts[1] <= 59 and 0 <= end_parts[0] <= 23 and 0 <= end_parts[1] <= 59):
+            raise ValueError()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid start_time or end_time format. Expected HH:MM in 24-hour format.")
+
+    start_minutes = start_parts[0] * 60 + start_parts[1]
+    end_minutes = end_parts[0] * 60 + end_parts[1]
+
+    if start_minutes >= end_minutes:
+        raise HTTPException(status_code=400, detail=f"Shift End Time ({end_time}) must be strictly later than Shift Start Time ({start_time}).")
+
+    if slot_duration not in {10, 15, 20, 30, 45, 60}:
+        raise HTTPException(status_code=400, detail=f"Slot duration {slot_duration} minutes is invalid. Allowed: 10, 15, 20, 30, 45, 60 minutes.")
+
+    # Check for exact duplicate active schedule
+    dup_query = """
+        SELECT id, TO_CHAR(start_time, 'HH24:MI'), TO_CHAR(end_time, 'HH24:MI'), slot_duration_minutes, status
+        FROM doctor_schedules
+        WHERE doctor_id = %s
+          AND UPPER(day_of_week) = %s
+          AND start_time = %s::time
+          AND end_time = %s::time
+          AND UPPER(status) IN ('ACTIVE', 'ON_LEAVE')
+    """
+    dup_params = [doctor_id, day_upper, start_time, end_time]
+    if exclude_schedule_id:
+        dup_query += " AND id != %s"
+        dup_params.append(exclude_schedule_id)
+
+    cur.execute(dup_query, dup_params)
+    exact_dup = cur.fetchone()
+    if exact_dup:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Duplicate schedule rejected: Dr. {doc_name} already has an active {day_upper} schedule from {exact_dup[1]} to {exact_dup[2]} (slot duration: {exact_dup[3]} min, status: {exact_dup[4]}). Exact duplicates are prohibited."
+        )
+
+    # Check for prohibited overlapping schedule
+    # Two intervals [start1, end1) and [start2, end2) overlap iff start1 < end2 AND end1 > start2
+    # Contiguous / adjacent shifts (start1 == end2 or end1 == start2) DO NOT overlap.
+    overlap_query = """
+        SELECT id, TO_CHAR(start_time, 'HH24:MI'), TO_CHAR(end_time, 'HH24:MI'), UPPER(status)
+        FROM doctor_schedules
+        WHERE doctor_id = %s
+          AND UPPER(day_of_week) = %s
+          AND UPPER(status) IN ('ACTIVE', 'ON_LEAVE')
+          AND (start_time < %s::time AND end_time > %s::time)
+    """
+    overlap_params = [doctor_id, day_upper, end_time, start_time]
+    if exclude_schedule_id:
+        overlap_query += " AND id != %s"
+        overlap_params.append(exclude_schedule_id)
+
+    cur.execute(overlap_query, overlap_params)
+    overlap = cur.fetchone()
+    if overlap:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Overlapping schedule rejected: Dr. {doc_name} already has a {day_upper} shift from {overlap[1]} to {overlap[2]} (Schedule #{overlap[0]}, status: {overlap[3]}). New shift ({start_time} - {end_time}) overlaps with this existing shift. Contiguous adjacent shifts (e.g. ending at {overlap[1]} or starting at {overlap[2]}) are allowed, but overlapping shifts are prohibited."
+        )
+
+    return doc_id, doc_name, day_upper
+
+
+@router.get("/schedules")
+def get_doctor_schedules(
+    doctor_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    day_of_week: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get doctor working schedules. Filterable by doctor_id, search, department, day_of_week.
     """
     conn = None
     try:
         conn = get_conn()
         cur = conn.cursor()
 
+        role = str(current_user.get("role") or "").upper()
+        target_doc_id = resolve_target_doctor_id(current_user, doctor_id, cur)
+
         query = """
             SELECT s.id, s.doctor_id, d.display_name as doctor_name, d.specialization,
-                   dept.department_name, s.day_of_week,
+                   COALESCE(dept.department_name, 'General Medicine') as department_name,
+                   UPPER(s.day_of_week) as day_of_week,
                    TO_CHAR(s.start_time, 'HH24:MI') as start_time,
                    TO_CHAR(s.end_time, 'HH24:MI') as end_time,
-                   s.slot_duration_minutes, s.status, s.created_at
+                   s.slot_duration_minutes, UPPER(s.status) as status, s.created_at
             FROM doctor_schedules s
             JOIN doctors d ON s.doctor_id = d.id
-            JOIN departments dept ON d.department_id = dept.id
+            LEFT JOIN departments dept ON d.department_id = dept.id
+            WHERE UPPER(s.status) IN ('ACTIVE', 'ON_LEAVE')
         """
         params = []
-        if doctor_id:
-            query += " WHERE s.doctor_id = %s"
-            params.append(doctor_id)
-        query += " ORDER BY d.display_name, CASE s.day_of_week WHEN 'MONDAY' THEN 1 WHEN 'TUESDAY' THEN 2 WHEN 'WEDNESDAY' THEN 3 WHEN 'THURSDAY' THEN 4 WHEN 'FRIDAY' THEN 5 WHEN 'SATURDAY' THEN 6 WHEN 'SUNDAY' THEN 7 ELSE 8 END, s.start_time;"
+
+        if role == "DOCTOR":
+            if target_doc_id and target_doc_id > 0:
+                query += " AND s.doctor_id = %s"
+                params.append(target_doc_id)
+            else:
+                query += " AND s.doctor_id = -1"
+        elif target_doc_id:
+            query += " AND s.doctor_id = %s"
+            params.append(target_doc_id)
+
+        if isinstance(department, str) and department.strip() and department.strip().lower() != 'all':
+            query += " AND (LOWER(COALESCE(dept.department_name, d.specialization, '')) = LOWER(%s))"
+            params.append(department.strip())
+
+        if isinstance(day_of_week, str) and day_of_week.strip() and day_of_week.strip().lower() != 'all':
+            query += " AND UPPER(s.day_of_week) = UPPER(%s)"
+            params.append(day_of_week.strip())
+
+        if isinstance(search, str) and search.strip():
+            s_clean = search.strip().lower()
+            s_like = f"%{s_clean}%"
+            query += """ AND (
+                LOWER(COALESCE(d.display_name, '')) LIKE %s
+                OR LOWER(COALESCE(d.first_name || ' ' || COALESCE(d.last_name, ''), '')) LIKE %s
+                OR LOWER(COALESCE(dept.department_name, '')) LIKE %s
+                OR LOWER(s.day_of_week) LIKE %s
+                OR LOWER(COALESCE(d.specialization, '')) LIKE %s
+            )"""
+            params.extend([s_like, s_like, s_like, s_like, s_like])
+
+        query += " ORDER BY d.display_name, CASE UPPER(s.day_of_week) WHEN 'MONDAY' THEN 1 WHEN 'TUESDAY' THEN 2 WHEN 'WEDNESDAY' THEN 3 WHEN 'THURSDAY' THEN 4 WHEN 'FRIDAY' THEN 5 WHEN 'SATURDAY' THEN 6 WHEN 'SUNDAY' THEN 7 ELSE 8 END, s.start_time;"
 
         cur.execute(query, params)
         schedules = rows_to_dicts(cur, cur.fetchall())
@@ -2374,21 +2598,27 @@ def get_doctor_schedules(doctor_id: Optional[int] = Query(None), current_user: d
 def create_doctor_schedule(body: DoctorScheduleRequest, admin_user: dict = Depends(require_admin)):
     """
     Configure a new working schedule slot for a Doctor. Admin only.
+    Concurrency-safe with row locks, prevents duplicate and overlapping schedules.
     """
     conn = None
     try:
         conn = get_conn()
+        conn.autocommit = False
         cur = conn.cursor()
 
-        day_upper = body.day_of_week.upper()
-        allowed_days = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
-        if day_upper not in allowed_days:
-            raise HTTPException(status_code=400, detail=f"Invalid day_of_week. Allowed: {allowed_days}")
+        slot_duration = body.slot_duration_minutes or 30
+        status_val = (body.status or "ACTIVE").strip().upper()
+        if status_val not in {"ACTIVE", "ON_LEAVE"}:
+            status_val = "ACTIVE"
 
-        # Check doctor exists
-        cur.execute("SELECT id FROM doctors WHERE id = %s;", (body.doctor_id,))
-        if not cur.fetchone():
-            raise HTTPException(status_code=404, detail=f"Doctor ID {body.doctor_id} not found.")
+        doc_id, doc_name, day_upper = validate_schedule_constraints(
+            cur=cur,
+            doctor_id=body.doctor_id,
+            day_of_week=body.day_of_week,
+            start_time=body.start_time,
+            end_time=body.end_time,
+            slot_duration=slot_duration
+        )
 
         today_date = date.today().isoformat()
 
@@ -2398,14 +2628,16 @@ def create_doctor_schedule(body: DoctorScheduleRequest, admin_user: dict = Depen
                 slot_duration_minutes, effective_from, status, created_at, updated_at
             ) VALUES (%s, %s, %s::time, %s::time, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id;
-        """, (body.doctor_id, day_upper, body.start_time, body.end_time, body.slot_duration_minutes or 30, today_date, body.status or 'ACTIVE'))
+        """, (body.doctor_id, day_upper, body.start_time, body.end_time, slot_duration, today_date, status_val))
 
         schedule_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
 
-        return {"success": True, "schedule_id": schedule_id, "message": "Doctor schedule configured successfully."}
+        return {"success": True, "schedule_id": schedule_id, "message": f"Doctor schedule #{schedule_id} for Dr. {doc_name} configured successfully."}
     except HTTPException:
+        if conn:
+            conn.rollback()
         raise
     except Exception as e:
         if conn:
@@ -2448,28 +2680,48 @@ def delete_doctor_schedule(schedule_id: int, admin_user: dict = Depends(require_
 def update_doctor_schedule(schedule_id: int, body: DoctorScheduleRequest, admin_user: dict = Depends(require_admin)):
     """
     Update an existing doctor schedule entry (working day, start/end time, slot duration, status). Admin only.
+    Excludes current schedule record from duplicate and overlap checks.
     """
     conn = None
     try:
         conn = get_conn()
+        conn.autocommit = False
         cur = conn.cursor()
 
-        day_upper = body.day_of_week.upper()
-        allowed_days = {"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
-        if day_upper not in allowed_days:
-            raise HTTPException(status_code=400, detail=f"Invalid day_of_week. Allowed: {allowed_days}")
+        cur.execute("SELECT id, doctor_id FROM doctor_schedules WHERE id = %s FOR UPDATE;", (schedule_id,))
+        existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Schedule ID {schedule_id} not found.")
+
+        target_doctor_id = body.doctor_id or existing[1]
+        slot_duration = body.slot_duration_minutes or 30
+        status_val = (body.status or "ACTIVE").strip().upper()
+        if status_val not in {"ACTIVE", "ON_LEAVE"}:
+            status_val = "ACTIVE"
+
+        doc_id, doc_name, day_upper = validate_schedule_constraints(
+            cur=cur,
+            doctor_id=target_doctor_id,
+            day_of_week=body.day_of_week,
+            start_time=body.start_time,
+            end_time=body.end_time,
+            slot_duration=slot_duration,
+            exclude_schedule_id=schedule_id
+        )
 
         cur.execute("""
             UPDATE doctor_schedules
-            SET day_of_week = %s, start_time = %s::time, end_time = %s::time,
+            SET doctor_id = %s, day_of_week = %s, start_time = %s::time, end_time = %s::time,
                 slot_duration_minutes = %s, status = %s, updated_at = CURRENT_TIMESTAMP
             WHERE id = %s;
-        """, (day_upper, body.start_time, body.end_time, body.slot_duration_minutes or 30, body.status or 'ACTIVE', schedule_id))
+        """, (doc_id, day_upper, body.start_time, body.end_time, slot_duration, status_val, schedule_id))
         conn.commit()
         cur.close()
 
-        return {"success": True, "message": "Doctor schedule updated successfully."}
+        return {"success": True, "message": f"Doctor schedule #{schedule_id} updated successfully."}
     except HTTPException:
+        if conn:
+            conn.rollback()
         raise
     except Exception as e:
         if conn:
@@ -2489,18 +2741,51 @@ class ScheduleStatusRequest(BaseModel):
 @router.patch("/schedules/{schedule_id}/status")
 def update_schedule_status(schedule_id: int, body: ScheduleStatusRequest, admin_user: dict = Depends(require_admin)):
     """
-    Update status of a schedule slot (e.g. ACTIVE vs ON_LEAVE / INACTIVE). Admin only.
+    Update status of a schedule slot (e.g. ACTIVE vs ON_LEAVE). Admin only.
+    Validates overlap if re-activating a schedule slot.
     """
     conn = None
     try:
         conn = get_conn()
+        conn.autocommit = False
         cur = conn.cursor()
 
-        cur.execute("UPDATE doctor_schedules SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (body.status.upper(), schedule_id))
+        cur.execute("SELECT id, doctor_id, day_of_week, start_time, end_time, slot_duration_minutes FROM doctor_schedules WHERE id = %s FOR UPDATE;", (schedule_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Schedule ID {schedule_id} not found.")
+
+        new_status = body.status.strip().upper()
+        if new_status not in {"ACTIVE", "ON_LEAVE"}:
+            raise HTTPException(status_code=400, detail="Status must be either 'ACTIVE' or 'ON_LEAVE'.")
+
+        if new_status == "ACTIVE":
+            # Verify re-activating doesn't collide with another active shift
+            cur.execute("""
+                SELECT id, TO_CHAR(start_time, 'HH24:MI'), TO_CHAR(end_time, 'HH24:MI')
+                FROM doctor_schedules
+                WHERE doctor_id = %s
+                  AND UPPER(day_of_week) = %s
+                  AND UPPER(status) = 'ACTIVE'
+                  AND id != %s
+                  AND (start_time < %s AND end_time > %s);
+            """, (row[1], row[2].upper(), schedule_id, row[4], row[3]))
+            overlap = cur.fetchone()
+            if overlap:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot activate schedule: collides with existing active shift #{overlap[0]} ({overlap[1]}-{overlap[2]})."
+                )
+
+        cur.execute("UPDATE doctor_schedules SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (new_status, schedule_id))
         conn.commit()
         cur.close()
 
-        return {"success": True, "message": f"Schedule status updated to {body.status}."}
+        return {"success": True, "message": f"Schedule #{schedule_id} status updated to {new_status}."}
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
     except Exception as e:
         if conn:
             conn.rollback()
@@ -2516,15 +2801,22 @@ def update_schedule_status(schedule_id: int, body: ScheduleStatusRequest, admin_
 # ─── Departments ──────────────────────────────────────────────────────────────
 
 @router.get("/departments")
-def get_departments(current_user: dict = Depends(require_doctor_or_admin)):
+def get_departments(
+    appointment_only: Optional[bool] = Query(False),
+    current_user: dict = Depends(require_doctor_or_admin)
+):
     """Returns all departments with doctor count and appointment stats."""
     conn = None
     try:
         conn = get_conn()
         cur = conn.cursor()
 
+        appt_only = bool(appointment_only) if not hasattr(appointment_only, 'default') else False
+        where_clause = "WHERE (dept.id IN (1, 2, 3, 4, 5, 6, 7, 8, 12, 17, 18, 19, 20, 21, 22, 23, 24) OR EXISTS (SELECT 1 FROM appointments a_sub WHERE a_sub.department_id = dept.id))" if appt_only else ""
+        order_clause = "ORDER BY dept.id" if appt_only else "ORDER BY dept.department_name"
+
         cur.execute(
-            """
+            f"""
             SELECT dept.id, dept.department_code, dept.department_name, dept.description, dept.status,
                    COUNT(DISTINCT d.id) as doctor_count,
                    COUNT(a.id) FILTER (WHERE a.appointment_date = CURRENT_DATE) as today_appts,
@@ -2532,8 +2824,9 @@ def get_departments(current_user: dict = Depends(require_doctor_or_admin)):
             FROM departments dept
             LEFT JOIN doctors d ON dept.id = d.department_id AND UPPER(d.status) = 'ACTIVE'
             LEFT JOIN appointments a ON dept.id = a.department_id
+            {where_clause}
             GROUP BY dept.id, dept.department_code, dept.department_name, dept.description, dept.status
-            ORDER BY dept.department_name;
+            {order_clause};
             """
         )
         departments = rows_to_dicts(cur, cur.fetchall())
@@ -2872,9 +3165,9 @@ def get_daily_view(
                    d.id as doctor_id, d.display_name as doctor_name, d.specialization,
                    dept.id as department_id, dept.department_name
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            JOIN departments dept ON a.department_id = dept.id
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dept ON COALESCE(d.department_id, a.department_id) = dept.id
             LEFT JOIN LATERAL (
                 SELECT slot_duration_minutes
                 FROM doctor_schedules
@@ -2888,13 +3181,13 @@ def get_daily_view(
 
         # Totals
         total = len(appointments)
-        completed = sum(1 for a in appointments if a["status"] == "COMPLETED")
-        booked = sum(1 for a in appointments if a["status"] == "BOOKED")
-        confirmed = sum(1 for a in appointments if a["status"] == "CONFIRMED")
+        completed = sum(1 for a in appointments if str(a.get("status") or "").upper() == "COMPLETED")
+        booked = sum(1 for a in appointments if str(a.get("status") or "").upper() == "BOOKED")
+        confirmed = sum(1 for a in appointments if str(a.get("status") or "").upper() in ("CONFIRMED", "CHECKED_IN"))
         pending = booked + confirmed
-        cancelled = sum(1 for a in appointments if a["status"] == "CANCELLED")
-        rescheduled = sum(1 for a in appointments if a["status"] == "RESCHEDULED")
-        no_show = sum(1 for a in appointments if a["status"] == "NO_SHOW")
+        cancelled = sum(1 for a in appointments if str(a.get("status") or "").upper() == "CANCELLED")
+        rescheduled = sum(1 for a in appointments if str(a.get("status") or "").upper() == "RESCHEDULED")
+        no_show = sum(1 for a in appointments if str(a.get("status") or "").upper() == "NO_SHOW")
 
         # 2. Compute doctor schedule & slot utilization for this day
         cur.execute("SELECT TRIM(TO_CHAR(%s::date, 'DAY'));", (target_date,))
@@ -2921,7 +3214,7 @@ def get_daily_view(
                    EXTRACT(EPOCH FROM (s.end_time - s.start_time)) / 60 as working_minutes
             FROM doctor_schedules s
             JOIN doctors d ON s.doctor_id = d.id
-            JOIN departments dept ON d.department_id = dept.id
+            LEFT JOIN departments dept ON d.department_id = dept.id
             {sched_where}
             ORDER BY d.display_name, s.start_time;
         """, sched_params)
@@ -2936,11 +3229,11 @@ def get_daily_view(
             working_mins = s["working_minutes"] or 0
             total_slots = int(working_mins // slot_dur) if slot_dur > 0 else 0
             
-            doc_booked = sum(1 for a in doc_appts if a["status"] in ("BOOKED", "CONFIRMED"))
-            doc_completed = sum(1 for a in doc_appts if a["status"] == "COMPLETED")
-            doc_cancelled = sum(1 for a in doc_appts if a["status"] == "CANCELLED")
-            doc_rescheduled = sum(1 for a in doc_appts if a["status"] == "RESCHEDULED")
-            doc_no_show = sum(1 for a in doc_appts if a["status"] == "NO_SHOW")
+            doc_booked = sum(1 for a in doc_appts if str(a.get("status") or "").upper() in ("BOOKED", "CONFIRMED", "CHECKED_IN"))
+            doc_completed = sum(1 for a in doc_appts if str(a.get("status") or "").upper() == "COMPLETED")
+            doc_cancelled = sum(1 for a in doc_appts if str(a.get("status") or "").upper() == "CANCELLED")
+            doc_rescheduled = sum(1 for a in doc_appts if str(a.get("status") or "").upper() == "RESCHEDULED")
+            doc_no_show = sum(1 for a in doc_appts if str(a.get("status") or "").upper() == "NO_SHOW")
             
             occupied_slots = doc_booked + doc_completed
             available_slots = max(0, total_slots - occupied_slots)
@@ -3020,13 +3313,20 @@ def get_date_wise_analytics(
         cur = conn.cursor()
 
         today = date.today()
-        d_from_str = date_from if isinstance(date_from, str) else None
-        d_to_str = date_to if isinstance(date_to, str) else None
-        dept_str = department if isinstance(department, str) else None
-        source_str = booking_source if isinstance(booking_source, str) else None
+        d_from_str = date_from.strip() if isinstance(date_from, str) and date_from.strip() else None
+        d_to_str = date_to.strip() if isinstance(date_to, str) and date_to.strip() else None
+        dept_str = department.strip() if isinstance(department, str) and department.strip() else None
+        source_str = booking_source.strip() if isinstance(booking_source, str) and booking_source.strip() else None
 
-        eff_from = d_from_str if d_from_str else (today - timedelta(days=6)).isoformat()
-        eff_to = d_to_str if d_to_str else today.isoformat()
+        if d_from_str and d_to_str:
+            eff_from = d_from_str
+            eff_to = d_to_str
+        elif d_from_str:
+            eff_from = d_from_str
+            eff_to = today.isoformat()
+        else:
+            eff_from = (today - timedelta(days=6)).isoformat()
+            eff_to = today.isoformat()
 
         doc_id_val = doctor_id if isinstance(doctor_id, int) else None
         target_doctor_id = resolve_target_doctor_id(current_user, doc_id_val, cur)
@@ -3051,12 +3351,12 @@ def get_date_wise_analytics(
             SELECT
                 a.appointment_date::text as date,
                 COUNT(*) as total,
-                COUNT(*) FILTER (WHERE a.status = 'BOOKED') as booked,
-                COUNT(*) FILTER (WHERE a.status = 'CONFIRMED') as confirmed,
-                COUNT(*) FILTER (WHERE a.status = 'COMPLETED') as completed,
-                COUNT(*) FILTER (WHERE a.status = 'CANCELLED') as cancelled,
-                COUNT(*) FILTER (WHERE a.status = 'RESCHEDULED') as rescheduled,
-                COUNT(*) FILTER (WHERE a.status = 'NO_SHOW') as no_show
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'BOOKED') as booked,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED', 'CHECKED_IN')) as confirmed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'COMPLETED') as completed,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'CANCELLED') as cancelled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) = 'RESCHEDULED') as rescheduled,
+                COUNT(*) FILTER (WHERE UPPER(a.status) IN ('NO_SHOW', 'NO SHOW', 'NOSHOW')) as no_show
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             {where}
@@ -3122,7 +3422,7 @@ def get_date_wise_analytics(
                 })
 
         # 2. Booking Trend by created_at in range
-        created_cond = ["DATE(a.created_at AT TIME ZONE 'UTC') >= %s", "DATE(a.created_at AT TIME ZONE 'UTC') <= %s"]
+        created_cond = ["DATE(a.created_at) >= %s", "DATE(a.created_at) <= %s"]
         created_params = [eff_from, eff_to]
         if target_doctor_id:
             created_cond.append("a.doctor_id = %s")
@@ -3134,17 +3434,17 @@ def get_date_wise_analytics(
             apply_booking_source_filter(created_cond, created_params, source_str)
 
         cur.execute(f"""
-            SELECT DATE(a.created_at AT TIME ZONE 'UTC')::text as date, COUNT(*) as count
+            SELECT DATE(a.created_at)::text as date, COUNT(*) as count
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             WHERE {' AND '.join(created_cond)}
-            GROUP BY DATE(a.created_at AT TIME ZONE 'UTC')
+            GROUP BY DATE(a.created_at)
             ORDER BY date ASC;
         """, created_params)
         booking_trend = rows_to_dicts(cur, cur.fetchall())
 
         # 3. Cancellation Trend by cancelled_at in range
-        cancel_cond = ["DATE(a.cancelled_at AT TIME ZONE 'UTC') >= %s", "DATE(a.cancelled_at AT TIME ZONE 'UTC') <= %s", "a.status = 'CANCELLED'"]
+        cancel_cond = ["DATE(a.cancelled_at) >= %s", "DATE(a.cancelled_at) <= %s", "UPPER(a.status) = 'CANCELLED'"]
         cancel_params = [eff_from, eff_to]
         if target_doctor_id:
             cancel_cond.append("a.doctor_id = %s")
@@ -3156,17 +3456,17 @@ def get_date_wise_analytics(
             apply_booking_source_filter(cancel_cond, cancel_params, source_str)
 
         cur.execute(f"""
-            SELECT DATE(a.cancelled_at AT TIME ZONE 'UTC')::text as date, COUNT(*) as count
+            SELECT DATE(a.cancelled_at)::text as date, COUNT(*) as count
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             WHERE {' AND '.join(cancel_cond)}
-            GROUP BY DATE(a.cancelled_at AT TIME ZONE 'UTC')
+            GROUP BY DATE(a.cancelled_at)
             ORDER BY date ASC;
         """, cancel_params)
         cancellation_trend = rows_to_dicts(cur, cur.fetchall())
 
         # 4. Reschedule Trend by rescheduled_at in range
-        resched_cond = ["DATE(a.rescheduled_at AT TIME ZONE 'UTC') >= %s", "DATE(a.rescheduled_at AT TIME ZONE 'UTC') <= %s"]
+        resched_cond = ["DATE(a.rescheduled_at) >= %s", "DATE(a.rescheduled_at) <= %s"]
         resched_params = [eff_from, eff_to]
         if target_doctor_id:
             resched_cond.append("a.doctor_id = %s")
@@ -3176,11 +3476,11 @@ def get_date_wise_analytics(
             resched_params.append(dept_str)
 
         cur.execute(f"""
-            SELECT DATE(a.rescheduled_at AT TIME ZONE 'UTC')::text as date, COUNT(*) as count
+            SELECT DATE(a.rescheduled_at)::text as date, COUNT(*) as count
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
             WHERE {' AND '.join(resched_cond)}
-            GROUP BY DATE(a.rescheduled_at AT TIME ZONE 'UTC')
+            GROUP BY DATE(a.rescheduled_at)
             ORDER BY date ASC;
         """, resched_params)
         reschedule_trend = rows_to_dicts(cur, cur.fetchall())
@@ -3190,7 +3490,7 @@ def get_date_wise_analytics(
             SELECT a.appointment_date::text as date, COUNT(*) as count
             FROM appointments a
             LEFT JOIN departments dept ON a.department_id = dept.id
-            {where} AND a.status = 'COMPLETED'
+            {where} AND UPPER(a.status) = 'COMPLETED'
             GROUP BY a.appointment_date
             ORDER BY a.appointment_date ASC;
         """, params)
@@ -3212,10 +3512,10 @@ def get_date_wise_analytics(
             """, (eff_from, eff_to, target_doctor_id, target_doctor_id))
         else:
             cur.execute("""
-                SELECT DATE(created_at AT TIME ZONE 'UTC')::text as date, COUNT(*) as count
+                SELECT DATE(created_at)::text as date, COUNT(*) as count
                 FROM patients
-                WHERE DATE(created_at AT TIME ZONE 'UTC') >= %s AND DATE(created_at AT TIME ZONE 'UTC') <= %s
-                GROUP BY DATE(created_at AT TIME ZONE 'UTC')
+                WHERE DATE(created_at) >= %s AND DATE(created_at) <= %s
+                GROUP BY DATE(created_at)
                 ORDER BY date ASC;
             """, (eff_from, eff_to))
         new_patients_by_date = rows_to_dicts(cur, cur.fetchall())
@@ -3233,12 +3533,12 @@ def get_date_wise_analytics(
         cur.execute(f"""
             SELECT d.id as doctor_id, d.display_name as doctor_name, COALESCE(dept.department_name, 'General Medicine') as department_name,
                    COUNT(a.id) as total,
-                   COUNT(a.id) FILTER (WHERE a.status = 'COMPLETED') as completed,
-                   COUNT(a.id) FILTER (WHERE a.status = 'BOOKED') as booked,
-                   COUNT(a.id) FILTER (WHERE a.status = 'CONFIRMED') as confirmed,
-                   COUNT(a.id) FILTER (WHERE a.status = 'CANCELLED') as cancelled,
-                   COUNT(a.id) FILTER (WHERE a.status = 'RESCHEDULED') as rescheduled,
-                   COUNT(a.id) FILTER (WHERE a.status = 'NO_SHOW') as no_show
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'COMPLETED') as completed,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'BOOKED') as booked,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED', 'CHECKED_IN')) as confirmed,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'CANCELLED') as cancelled,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'RESCHEDULED') as rescheduled,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) IN ('NO_SHOW', 'NO SHOW', 'NOSHOW')) as no_show
             FROM doctors d
             LEFT JOIN departments dept ON d.department_id = dept.id
             LEFT JOIN appointments a ON d.id = a.doctor_id AND {' AND '.join(doc_cond)}
@@ -3259,9 +3559,9 @@ def get_date_wise_analytics(
             SELECT dept.id as department_id, dept.department_name as name,
                    COUNT(a.id) as value,
                    COUNT(a.id) as total,
-                   COUNT(a.id) FILTER (WHERE a.status = 'COMPLETED') as completed,
-                   COUNT(a.id) FILTER (WHERE a.status = 'CONFIRMED' OR a.status = 'BOOKED') as pending,
-                   COUNT(a.id) FILTER (WHERE a.status = 'CANCELLED') as cancelled
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'COMPLETED') as completed,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')) as pending,
+                   COUNT(a.id) FILTER (WHERE UPPER(a.status) = 'CANCELLED') as cancelled
             FROM departments dept
             LEFT JOIN appointments a ON dept.id = a.department_id AND {' AND '.join(dept_cond)}
             WHERE dept.status = 'ACTIVE'
@@ -3566,14 +3866,21 @@ def list_pre_admissions(
     admission_type: Optional[str] = Query(None),
     admission_date: Optional[str] = Query(None),
     patient_id: Optional[int] = Query(None),
+    doctor_id: Optional[int] = Query(None),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Returns pre-admissions with optional filters.
-    Doctors are scoped ONLY to their assigned patients.
+    Doctors are strictly scoped ONLY to pre-admission records assigned to their authenticated doctor identity.
+    Admins can view hospital-wide records across all doctors, or optionally filter by doctor_id.
     """
-    role = current_user.get("role")
-    doctor_id_filter = current_user.get("doctor_id") if role == "DOCTOR" else None
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        doctor_id_filter = resolve_target_doctor_id(current_user, doctor_id, cur)
+    finally:
+        cur.close()
+        conn.close()
 
     results = preadmission_service.get_pre_admissions(
         doctor_id_filter=doctor_id_filter,
@@ -3588,12 +3895,23 @@ def list_pre_admissions(
 
 @router.get("/pre-admissions/{id}")
 def get_pre_admission(id: int, current_user: dict = Depends(get_current_user)):
-    """Returns single pre-admission details."""
-    role = current_user.get("role")
-    doctor_id_filter = current_user.get("doctor_id") if role == "DOCTOR" else None
+    """Returns single pre-admission details with strict doctor ownership check."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        target_doc_id = resolve_target_doctor_id(current_user, None, cur)
+        role = str(current_user.get("role") or "").upper()
+        if role == "DOCTOR":
+            cur.execute("SELECT doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+            row = cur.fetchone()
+            if not row or row[0] != target_doc_id:
+                raise HTTPException(status_code=404, detail="Pre-admission record not found or unauthorized")
+    finally:
+        cur.close()
+        conn.close()
 
     results = preadmission_service.get_pre_admissions(
-        doctor_id_filter=doctor_id_filter,
+        doctor_id_filter=target_doc_id,
         search=None
     )
     matching = [pa for pa in results if pa["id"] == id]
@@ -3672,7 +3990,21 @@ def update_pre_admission_status_endpoint(
     req: PreAdmissionStatusUpdateRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Updates status or document status of a pre-admission record."""
+    """Updates status or document status of a pre-admission record with strict ownership check."""
+    role = str(current_user.get("role") or "").upper()
+    if role == "DOCTOR":
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            target_doc_id = resolve_target_doctor_id(current_user, None, cur)
+            cur.execute("SELECT doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+            pa_row = cur.fetchone()
+            if not pa_row or pa_row[0] != target_doc_id:
+                raise HTTPException(status_code=403, detail="Unauthorized: You cannot modify pre-admissions assigned to another doctor.")
+        finally:
+            cur.close()
+            conn.close()
+
     res = preadmission_service.update_pre_admission_status(
         pre_admission_id=id,
         status=req.status,
@@ -3687,7 +4019,21 @@ def update_pre_admission_status_endpoint(
 
 @router.post("/pre-admissions/{id}/notify")
 def notify_pre_admission_endpoint(id: int, current_user: dict = Depends(get_current_user)):
-    """Triggers outbound WhatsApp pre-admission notification for a record."""
+    """Triggers outbound WhatsApp pre-admission notification for a record with strict doctor ownership check."""
+    role = str(current_user.get("role") or "").upper()
+    if role == "DOCTOR":
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            target_doc_id = resolve_target_doctor_id(current_user, None, cur)
+            cur.execute("SELECT doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+            pa_row = cur.fetchone()
+            if not pa_row or pa_row[0] != target_doc_id:
+                raise HTTPException(status_code=403, detail="Unauthorized: You cannot trigger notifications for another doctor's pre-admissions.")
+        finally:
+            cur.close()
+            conn.close()
+
     res = preadmission_service.dispatch_pre_admission_notification(id)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Notification dispatch failed"))
@@ -3696,7 +4042,21 @@ def notify_pre_admission_endpoint(id: int, current_user: dict = Depends(get_curr
 
 @router.get("/pre-admissions/{id}/conversation")
 def get_pre_admission_conversation_endpoint(id: int, current_user: dict = Depends(get_current_user)):
-    """Fetches patient WhatsApp conversation history for pre-admission follow-up view."""
+    """Fetches patient WhatsApp conversation history for pre-admission follow-up view with strict ownership check."""
+    role = str(current_user.get("role") or "").upper()
+    if role == "DOCTOR":
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            target_doc_id = resolve_target_doctor_id(current_user, None, cur)
+            cur.execute("SELECT doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+            pa_row = cur.fetchone()
+            if not pa_row or pa_row[0] != target_doc_id:
+                raise HTTPException(status_code=403, detail="Unauthorized: You cannot view conversations for another doctor's pre-admissions.")
+        finally:
+            cur.close()
+            conn.close()
+
     res = preadmission_service.get_pre_admission_conversation(id)
     if not res.get("success"):
         raise HTTPException(status_code=404, detail=res.get("error", "Conversation not found"))
@@ -3705,9 +4065,15 @@ def get_pre_admission_conversation_endpoint(id: int, current_user: dict = Depend
 
 @router.get("/patients/{patient_id}/pre-admissions")
 def get_patient_pre_admissions(patient_id: int, current_user: dict = Depends(get_current_user)):
-    """Returns pre-admissions for a specific patient."""
-    role = current_user.get("role")
-    doctor_id_filter = current_user.get("doctor_id") if role == "DOCTOR" else None
+    """Returns pre-admissions for a specific patient scoped to doctor if Doctor role."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        doctor_id_filter = resolve_target_doctor_id(current_user, None, cur)
+    finally:
+        cur.close()
+        conn.close()
+
     results = preadmission_service.get_pre_admissions(
         doctor_id_filter=doctor_id_filter,
         patient_id=patient_id

@@ -57,6 +57,7 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
   const [queueData, setQueueData] = useState<any>(null);
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [checkingInId, setCheckingInId] = useState<number | null>(null);
 
   const todayDateStr = new Date().toLocaleDateString('en-GB', {
@@ -74,12 +75,9 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
     if (!showDoctorDropdown) return;
     async function loadDoctors() {
       try {
-        const res = await fetchDoctors({ per_page: 50 });
+        const res = await fetchDoctors({ status: 'ACTIVE' });
         if (res?.doctors?.length > 0) {
           setDoctorsList(res.doctors);
-          if (!selectedDoctorId) {
-            setSelectedDoctorId(res.doctors[0].id);
-          }
         }
       } catch (err) {}
     }
@@ -100,15 +98,23 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
         })
       ]);
 
-      if (qRes?.success) {
+      if (qRes?.success && qRes?.data) {
         setQueueData(qRes.data);
+        setErrorMsg(null);
+        if (!selectedDoctorId && qRes.data?.doctor_info?.doctor_id) {
+          setSelectedDoctorId(Number(qRes.data.doctor_info.doctor_id));
+        }
+      } else if (qRes && !qRes.success) {
+        setErrorMsg(qRes.error || 'Failed to load queue session data.');
       }
+
       if (apptRes?.appointments) {
         setTodayAppointments(apptRes.appointments);
       }
       setLastUpdated(new Date());
     } catch (err: any) {
       showFeedback('error', 'Failed to refresh queue data.');
+      setErrorMsg('Failed to refresh queue data.');
     } finally {
       setLoading(false);
     }
@@ -232,19 +238,29 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
   const session = queueData?.session;
   const entries: any[] = session?.entries || [];
 
-  const activeDoctorName = docInfo?.doctor_name || currentUser?.name || 'Dr. Immanuel S';
-  const doctorDeptName = docInfo?.department_name || currentUser?.dept || 'General Medicine';
+  const selectedDoctorObj = doctorsList.find(d => d.id === (selectedDoctorId || docInfo?.doctor_id));
+  const activeDoctorName = docInfo?.doctor_name || selectedDoctorObj?.display_name || currentUser?.name || 'Doctor';
+  const doctorDeptName = docInfo?.department_name || selectedDoctorObj?.department_name || currentUser?.dept || 'General Medicine';
   const queueStatus = session?.status || 'NOT STARTED';
 
-  const totalCheckedIn = entries.length;
-  const waitingEntries = entries.filter((e: any) => e.queue_status === 'WAITING' || e.queue_status === 'NEXT');
-  const calledEntry = entries.find((e: any) => e.queue_status === 'CALLED');
-  const inConsultationEntry = entries.find((e: any) => e.queue_status === 'IN_CONSULTATION');
-  const completedEntries = entries.filter((e: any) => e.queue_status === 'COMPLETED');
-  const noShowEntries = entries.filter((e: any) => e.queue_status === 'NO_SHOW');
-  const cancelledEntries = entries.filter((e: any) => e.queue_status === 'CANCELLED');
+  const totalCheckedIn = session?.total_checked_in ?? entries.length;
+  const waitingEntries = entries.filter((e: any) => {
+    const s = String(e.queue_status || '').toUpperCase();
+    return s === 'WAITING' || s === 'NEXT';
+  });
+  const calledEntries = entries.filter((e: any) => String(e.queue_status || '').toUpperCase() === 'CALLED');
+  const inConsultationEntries = entries.filter((e: any) => String(e.queue_status || '').toUpperCase() === 'IN_CONSULTATION');
+  const completedEntries = entries.filter((e: any) => String(e.queue_status || '').toUpperCase() === 'COMPLETED');
+  const noShowEntries = entries.filter((e: any) => String(e.queue_status || '').toUpperCase() === 'NO_SHOW');
+  const cancelledEntries = entries.filter((e: any) => String(e.queue_status || '').toUpperCase() === 'CANCELLED');
 
-  const currentPatient = inConsultationEntry || calledEntry;
+  const waitingCount = session?.waiting_count ?? waitingEntries.length;
+  const calledCount = session?.called_count ?? calledEntries.length;
+  const inConsultationCount = session?.in_consultation_count ?? inConsultationEntries.length;
+  const completedCount = session?.completed_count ?? completedEntries.length;
+  const noShowCount = session?.no_show_count ?? noShowEntries.length;
+
+  const currentPatient = inConsultationEntries[0] || calledEntries[0] || null;
   const nextPatient = waitingEntries.length > 0 ? waitingEntries[0] : null;
 
   return (
@@ -315,6 +331,18 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
         </div>
       </div>
 
+      {/* ── ERROR STATE NOTIFICATION ── */}
+      {errorMsg && (
+        <div style={{
+          padding: '12px 18px', borderRadius: '8px', marginBottom: '20px',
+          background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b',
+          fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px'
+        }}>
+          <AlertCircle size={18} />
+          {errorMsg}
+        </div>
+      )}
+
       {/* ── ACTION FEEDBACK NOTIFICATION ── */}
       {actionMsg && (
         <div style={{
@@ -352,27 +380,27 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#d97706', fontWeight: 700, letterSpacing: '0.05em' }}>Waiting</div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: '#d97706', marginTop: '4px' }}>{waitingEntries.length}</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#d97706', marginTop: '4px' }}>{waitingCount}</div>
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#2563eb', fontWeight: 700, letterSpacing: '0.05em' }}>Called</div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: '#2563eb', marginTop: '4px' }}>{calledEntry ? 1 : 0}</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#2563eb', marginTop: '4px' }}>{calledCount}</div>
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#7c3aed', fontWeight: 700, letterSpacing: '0.05em' }}>In Consultation</div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: '#7c3aed', marginTop: '4px' }}>{inConsultationEntry ? 1 : 0}</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#7c3aed', marginTop: '4px' }}>{inConsultationCount}</div>
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#16a34a', fontWeight: 700, letterSpacing: '0.05em' }}>Completed</div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: '#16a34a', marginTop: '4px' }}>{completedEntries.length}</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#16a34a', marginTop: '4px' }}>{completedCount}</div>
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#dc2626', fontWeight: 700, letterSpacing: '0.05em' }}>No Show</div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}>{noShowEntries.length}</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}>{noShowCount}</div>
         </div>
 
       </div>

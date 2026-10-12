@@ -158,7 +158,7 @@ def _get_pool(database_name=None):
                     user=user,
                     password=password,
                     sslmode="prefer" if _is_local_host(h) else "require",
-                    connect_timeout=3,
+                    connect_timeout=2,
                 )
                 print(f"[PERF] Shared PostgreSQL connection pool initialized on {h} (min={_POOL_MIN}, max={_POOL_MAX})")
                 break
@@ -205,7 +205,7 @@ def get_db_connection(database_name=None):
                 user=user,
                 password=password,
                 sslmode="prefer" if _is_local_host(h) else "require",
-                connect_timeout=3
+                connect_timeout=2
             )
         except Exception as e:
             last_exc = e

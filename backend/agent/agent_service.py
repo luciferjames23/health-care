@@ -29,6 +29,7 @@ import agent.conversation_stages as conversation_stages
 import agent.feedback_agent as feedback_agent
 from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
 import utils.cache_service as cache_service
+import services.patient_service as patient_service
 
 
 def format_time_12h(time_str: str) -> str:
@@ -442,28 +443,27 @@ def resolve_or_create_child_patient(
                 conn.commit()
             return row[0]
 
-        # 2. Generate unique patient_code
-        cur.execute("SELECT COUNT(*) FROM patients;")
-        count = cur.fetchone()[0]
-        patient_code = f"P{(count + 1):04d}"
+        # 2. Generate unique canonical patient_code and ID
+        child_id, patient_code = patient_service.get_next_canonical_patient_id(cur)
 
         # 3. Insert child patient record
         norm_dob = dob_str if (dob_str and len(dob_str) == 10 and "-" in dob_str) else "2015-01-01"
         rel_str = relationship.upper() if relationship else "CHILD"
         cur.execute("""
             INSERT INTO patients (
-                patient_code, first_name, last_name, date_of_birth, gender,
+                id, patient_code, first_name, last_name, date_of_birth, gender,
                 phone, whatsapp_number, email, guardian_patient_id, guardian_phone,
                 relationship_to_contact, is_dependent, preferred_language, registration_date, status, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, 'ENGLISH', CURRENT_DATE, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, 'ENGLISH', CURRENT_DATE, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id;
         """, (
-            patient_code, first_name, last_name, norm_dob, gender or "Unknown",
+            child_id, patient_code, first_name, last_name, norm_dob, gender or "Unknown",
             parent_phone, parent_whatsapp, email, parent_patient_id, parent_whatsapp,
             rel_str
         ))
         child_id = cur.fetchone()[0]
         conn.commit()
+        cache_service.invalidate_cache("pat_phone_")
         print(f"[FAMILY_PATIENT] Created separate patient record ID {child_id} ({patient_code}) for dependent {first_name} {last_name} under guardian ID {parent_patient_id}")
         return child_id
     except Exception as e:
@@ -1143,13 +1143,21 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
-        # Step 1: Duplicate check
-        lookup = patient_id_service.identify_patient_by_phone(reg_phone)
-        p_existing = lookup.get("patient") or (lookup.get("patients")[0] if lookup.get("patients") else None)
-        if lookup.get("found") and p_existing:
-            pat_id = p_existing["id"]
-            p_code = p_existing.get("patient_code") or f"P{pat_id}"
-            full_name = format_patient_full_name(p_existing.get("first_name") or reg_fields.get("first_name"), p_existing.get("last_name") or reg_fields.get("last_name"), p_existing.get("full_name"))
+        # Step 1: Duplicate check - only match if the EXACT same person (name, DOB, and phone) already exists.
+        # A phone number match alone NEVER treats a new patient as an existing patient.
+        # Different family members sharing the same phone number are registered as separate patients.
+        raw_dob = reg_fields.get("date_of_birth") or "2000-01-01"
+        norm_dob_tuple = date_normalizer.parse_and_normalize_date(str(raw_dob))
+        norm_dob = norm_dob_tuple[0] if norm_dob_tuple and norm_dob_tuple[0] else "2000-01-01"
+
+        identical_pat = patient_service.find_identical_registered_patient(
+            cur, reg_fields.get("first_name"), reg_fields.get("last_name") or "", norm_dob, reg_phone
+        )
+        if identical_pat:
+            pat_id, p_code = identical_pat
+            cur.execute("SELECT first_name, last_name FROM patients WHERE id = %s;", (pat_id,))
+            id_row = cur.fetchone()
+            full_name = format_patient_full_name(id_row[0] if id_row else reg_fields.get("first_name"), id_row[1] if id_row else reg_fields.get("last_name"))
 
             cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (pat_id, conversation_code))
             if whatsapp_val and whatsapp_val != "919999999999":
@@ -1158,7 +1166,7 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
 
             state["patient_id"] = pat_id
             state["selected_patient_id"] = pat_id
-            state["entities"]["patient_id"] = pat_id
+            state.setdefault("entities", {})["patient_id"] = pat_id
             state["patient_identification_stage"] = "COMPLETED"
             state["registration_stage"] = "COMPLETED"
             state["conversation_state"] = "COMPLETED"
@@ -1180,26 +1188,21 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
                 "interactive_buttons": main_menu_buttons
             }
         else:
-            # Step 2: Atomic insertion of new patient
-            cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
-            row = cur.fetchone()
-            next_num = (row[0] + 1) if (row and row[0]) else 11
-            next_code = f"P{next_num:03d}"
-
-            raw_dob = reg_fields.get("date_of_birth") or "2000-01-01"
-            norm_dob_tuple = date_normalizer.parse_and_normalize_date(str(raw_dob))
-            norm_dob = norm_dob_tuple[0] if norm_dob_tuple and norm_dob_tuple[0] else "2000-01-01"
-            # Sync sequence to avoid primary key duplicate key errors from seed scripts
-            try:
-                cur.execute("SELECT setval(pg_get_serial_sequence('patients', 'id'), COALESCE((SELECT MAX(id) FROM patients), 1));")
-            except Exception:
-                pass
+            # Step 2: Atomic insertion of new patient with canonical UHID (MER-PAT-...)
+            new_pat_id, next_code = patient_service.get_next_canonical_patient_id(cur)
 
             cur.execute("""
-                INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, email, preferred_language, registration_date, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
-                RETURNING id;
+                INSERT INTO patients (
+                    id, patient_code, first_name, last_name, date_of_birth, gender,
+                    phone, whatsapp_number, email, preferred_language, registration_date, status,
+                    created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id, patient_code;
             """, (
+                new_pat_id,
                 next_code,
                 reg_fields["first_name"] or "Patient",
                 reg_fields.get("last_name") or ".",
@@ -1210,10 +1213,18 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
                 reg_fields.get("email"),
                 current_lang or "ENGLISH"
             ))
-            new_pat_id = cur.fetchone()[0]
+            res_row = cur.fetchone()
+            new_pat_id, next_code = res_row[0], res_row[1]
             cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
             conn.commit()
+
             cache_service.invalidate_cache("pat_phone_")
+            norm_ph = normalize_phone(reg_phone)
+            if norm_ph:
+                cache_service.invalidate_cache(f"pat_phone_{norm_ph}")
+            norm_wa = normalize_phone(whatsapp_val)
+            if norm_wa:
+                cache_service.invalidate_cache(f"pat_phone_{norm_wa}")
 
             # Step 3: Reload patient record from PostgreSQL DB
             cur.execute("SELECT id, patient_code, first_name, last_name FROM patients WHERE id = %s;", (new_pat_id,))
@@ -1223,7 +1234,7 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
 
             state["patient_id"] = new_pat_id
             state["selected_patient_id"] = new_pat_id
-            state["entities"]["patient_id"] = new_pat_id
+            state.setdefault("entities", {})["patient_id"] = new_pat_id
             state["patient_identification_stage"] = "COMPLETED"
             state["registration_stage"] = "COMPLETED"
             state["conversation_state"] = "COMPLETED"
@@ -1904,7 +1915,7 @@ def prompt_patient_selection(conversation_code: str, state: dict, current_lang: 
             state["active_workflow"] = "BOOKING"
             state["intent"] = "BOOK_APPOINTMENT"
             p_full_name = format_patient_full_name(matching_pat.get("first_name"), matching_pat.get("last_name"), matching_pat.get("full_name"))
-            p_code = str(matching_pat.get("patient_code") or f"P{matching_pat['id']}").strip().strip("`")
+            p_code = str(matching_pat.get("patient_code") or f"MER-PAT-{str(matching_pat['id']).zfill(7)}").strip().strip("`")
             resp = f"Booking for: *{p_full_name}* (`{p_code}`)\n\n" + language_service.translate_response("ASK_BOOKING_REASON", current_lang)
             state["interactive_buttons"] = []
             state_manager.save_conversation_state(conversation_code, state)
@@ -1929,7 +1940,7 @@ def prompt_patient_selection(conversation_code: str, state: dict, current_lang: 
             state["active_workflow"] = "BOOKING"
             state["intent"] = "BOOK_APPOINTMENT"
             p_full_name = format_patient_full_name(single_p.get("first_name"), single_p.get("last_name"), single_p.get("full_name"))
-            p_code = str(single_p.get("patient_code") or f"P{single_p['id']}").strip().strip("`")
+            p_code = str(single_p.get("patient_code") or f"MER-PAT-{str(single_p['id']).zfill(7)}").strip().strip("`")
             resp = f"Booking for: *{p_full_name}* (`{p_code}`)\n\n" + language_service.translate_response("ASK_BOOKING_REASON", current_lang)
             state["interactive_buttons"] = []
             state_manager.save_conversation_state(conversation_code, state)
@@ -1946,7 +1957,7 @@ def prompt_patient_selection(conversation_code: str, state: dict, current_lang: 
     # Format text prompt listing matching profiles with complete Name and Patient Code:
     patient_lines = []
     for idx, p in enumerate(patients[:9], 1):
-        p_code = str(p.get("patient_code") or f"P{p['id']}").strip().strip("`")
+        p_code = str(p.get("patient_code") or f"MER-PAT-{str(p['id']).zfill(7)}").strip().strip("`")
         full_n = format_patient_full_name(p.get("first_name"), p.get("last_name"), p.get("full_name"))
         patient_lines.append(f"*{idx}. {full_n}* - `{p_code}`")
 
@@ -2039,7 +2050,7 @@ def build_patient_profile_response(conversation_code: str, state: dict, current_
         state.setdefault("entities", {})["patient_id"] = p_data["id"]
 
     if p_data:
-        p_code = p_data.get("patient_code") or f"P{p_data.get('id')}"
+        p_code = p_data.get("patient_code") or f"MER-PAT-{str(p_data.get('id')).zfill(7)}"
         full_n = format_patient_full_name(p_data.get("first_name"), p_data.get("last_name"), p_data.get("full_name"))
         dob_str = str(p_data.get("date_of_birth")) if p_data.get("date_of_birth") else "Not recorded"
         g_str = p_data.get("gender") or "Not recorded"
@@ -2324,25 +2335,14 @@ def handle_profile_update_flow(conversation_code: str, state: dict, message_text
                 "interactive_buttons": [language_service.get_translated_button("btn_back_profile", current_lang)]
             }
 
-        dup_lookup = patient_id_service.identify_patient_by_phone(norm_phone)
-        dup_pats = dup_lookup.get("patients") or ([dup_lookup["patient"]] if dup_lookup.get("patient") else [])
-        if dup_lookup.get("found") and any(p.get("id") != pat_id for p in dup_pats):
-            resp_err = "This phone number is already registered to another patient profile."
-            return {
-                "success": False,
-                "conversation_id": conversation_code,
-                "language": current_lang,
-                "intent": "PATIENT_PROFILE",
-                "response": resp_err,
-                "interactive_buttons": [language_service.get_translated_button("btn_back_profile", current_lang)]
-            }
-
         conn = db_config.get_db_connection()
         cur = conn.cursor()
         try:
             cur.execute("UPDATE patients SET phone = %s, whatsapp_number = %s, updated_at = NOW() WHERE id = %s;", (norm_phone, norm_phone, pat_id))
             cur.execute("UPDATE conversations SET whatsapp_number = %s WHERE conversation_code = %s;", (norm_phone, conversation_code))
             conn.commit()
+            cache_service.invalidate_cache("pat_phone_")
+            cache_service.invalidate_cache(f"pat_phone_{norm_phone}")
         finally:
             cur.close()
             conn.close()
@@ -6947,46 +6947,38 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 try:
-                    # Check if patient already exists by phone or (name + DOB)
-                    existing_id = None
-                    existing_code = None
-                    if user_phone:
-                        cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (user_phone, user_phone))
-                        r = cur.fetchone()
-                        if r:
-                            existing_id, existing_code = r[0], r[1]
-                    if not existing_id and first_name and first_name != "Patient":
-                        cur.execute("""
-                            SELECT id, patient_code FROM patients 
-                            WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
-                              AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
-                              AND date_of_birth = %s 
-                              AND status = 'ACTIVE' 
-                            ORDER BY id ASC LIMIT 1;
-                        """, (first_name, last_name, reg_dob))
-                        r = cur.fetchone()
-                        if r:
-                            existing_id, existing_code = r[0], r[1]
+                    # Check if patient already exists (exact same person: matching name, DOB, and phone)
+                    # A phone match alone NEVER treats a new patient as an existing patient.
+                    identical_pat = patient_service.find_identical_registered_patient(cur, first_name, last_name, reg_dob, user_phone)
 
-                    if existing_id:
-                        new_pat_id = existing_id
-                        next_code = existing_code
+                    if identical_pat:
+                        new_pat_id = identical_pat[0]
+                        next_code = identical_pat[1]
                         cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
                         conn.commit()
                     else:
-                        cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
-                        row = cur.fetchone()
-                        next_num = (row[0] + 1) if (row and row[0]) else 100010
-                        next_code = f"P{next_num}"
+                        new_pat_id, next_code = patient_service.get_next_canonical_patient_id(cur)
 
                         cur.execute("""
-                            INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
-                            RETURNING id;
-                        """, (next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
-                        new_pat_id = cur.fetchone()[0]
+                            INSERT INTO patients (
+                                id, patient_code, first_name, last_name, date_of_birth, gender,
+                                phone, whatsapp_number, preferred_language, registration_date, status,
+                                created_at, updated_at
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, CURRENT_DATE, 'ACTIVE',
+                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                            ) RETURNING id, patient_code;
+                        """, (new_pat_id, next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
+                        res_row = cur.fetchone()
+                        new_pat_id, next_code = res_row[0], res_row[1]
                         cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
                         conn.commit()
+
+                        cache_service.invalidate_cache("pat_phone_")
+                        norm_uph = normalize_phone(user_phone)
+                        if norm_uph:
+                            cache_service.invalidate_cache(f"pat_phone_{norm_uph}")
                 finally:
                     cur.close()
                     conn.close()
@@ -8037,43 +8029,30 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     ln_val = reg_fields.get("last_name") or "."
                     dob_val = reg_fields.get("date_of_birth") or "2000-01-01"
 
-                    # Check if patient already exists by phone or (name + DOB)
-                    existing_id = None
-                    existing_code = None
-                    if phone_val:
-                        cur.execute("SELECT id, patient_code FROM patients WHERE (phone = %s OR whatsapp_number = %s) AND status = 'ACTIVE' ORDER BY id ASC LIMIT 1;", (phone_val, phone_val))
-                        r = cur.fetchone()
-                        if r:
-                            existing_id, existing_code = r[0], r[1]
-                    if not existing_id and fn_val and fn_val != "Patient":
-                        cur.execute("""
-                            SELECT id, patient_code FROM patients 
-                            WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s)) 
-                              AND LOWER(TRIM(last_name)) = LOWER(TRIM(%s)) 
-                              AND date_of_birth = %s 
-                              AND status = 'ACTIVE' 
-                            ORDER BY id ASC LIMIT 1;
-                        """, (fn_val, ln_val, dob_val))
-                        r = cur.fetchone()
-                        if r:
-                            existing_id, existing_code = r[0], r[1]
+                    # Check if patient already exists (exact same person: matching name, DOB, and phone)
+                    # A phone match alone NEVER treats a new patient as an existing patient.
+                    identical_pat = patient_service.find_identical_registered_patient(cur, fn_val, ln_val, dob_val, phone_val)
 
-                    if existing_id:
-                        new_pat_id = existing_id
-                        next_code = existing_code
+                    if identical_pat:
+                        new_pat_id = identical_pat[0]
+                        next_code = identical_pat[1]
                         cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, phone_val, conversation_code))
                         conn.commit()
                     else:
-                        cur.execute("SELECT MAX(CAST(SUBSTRING(patient_code FROM 2) AS INTEGER)) FROM patients WHERE patient_code ~ '^P[0-9]+';")
-                        row = cur.fetchone()
-                        next_num = (row[0] + 1) if (row and row[0]) else 11
-                        next_code = f"P{next_num:03d}"
+                        new_pat_id, next_code = patient_service.get_next_canonical_patient_id(cur)
 
                         cur.execute("""
-                            INSERT INTO patients (patient_code, first_name, last_name, date_of_birth, gender, phone, whatsapp_number, preferred_language, registration_date, status)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'ACTIVE')
-                            RETURNING id;
+                            INSERT INTO patients (
+                                id, patient_code, first_name, last_name, date_of_birth, gender,
+                                phone, whatsapp_number, preferred_language, registration_date, status,
+                                created_at, updated_at
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, CURRENT_DATE, 'ACTIVE',
+                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                            ) RETURNING id, patient_code;
                         """, (
+                            new_pat_id,
                             next_code,
                             fn_val,
                             ln_val,
@@ -8083,9 +8062,15 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                             phone_val,
                             current_lang or "ENGLISH"
                         ))
-                        new_pat_id = cur.fetchone()[0]
+                        res_row = cur.fetchone()
+                        new_pat_id, next_code = res_row[0], res_row[1]
                         cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, phone_val, conversation_code))
                         conn.commit()
+
+                        cache_service.invalidate_cache("pat_phone_")
+                        norm_pval = normalize_phone(phone_val)
+                        if norm_pval:
+                            cache_service.invalidate_cache(f"pat_phone_{norm_pval}")
 
                     state["patient_id"] = new_pat_id
                     state["entities"]["patient_id"] = new_pat_id

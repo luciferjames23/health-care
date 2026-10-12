@@ -41,6 +41,7 @@ const DoctorAppointments: React.FC = () => {
     displayLabel: 'All Time',
   });
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [total, setTotal] = useState(0);
 
@@ -51,17 +52,28 @@ const DoctorAppointments: React.FC = () => {
 
   const loadAppointments = useCallback(async () => {
     setLoading(true);
+    setApiError(null);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
         booking_source: sourceFilter || undefined,
-        date_from: dateRange.dateFrom,
-        date_to: dateRange.dateTo,
+        date_from: dateRange.dateFrom || undefined,
+        date_to: dateRange.dateTo || undefined,
         per_page: 50,
       });
-      setAppointments(res.appointments);
-      setTotal(res.total);
+      if (res.success === false && res.error) {
+        setApiError(res.error);
+        setAppointments([]);
+        setTotal(0);
+        return;
+      }
+      setAppointments(Array.isArray(res.appointments) ? res.appointments : []);
+      setTotal(res.total ?? 0);
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to load appointments');
+      setAppointments([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -140,6 +152,7 @@ const DoctorAppointments: React.FC = () => {
               <option value="">All Status</option>
               <option value="BOOKED">Booked</option>
               <option value="CONFIRMED">Confirmed</option>
+              <option value="CHECKED_IN">Checked In</option>
               <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
               <option value="RESCHEDULED">Rescheduled</option>
@@ -174,6 +187,18 @@ const DoctorAppointments: React.FC = () => {
         <div className="table-container">
           {loading ? (
             <TableSkeleton rows={6} columns={8} />
+          ) : apiError ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <div style={{ color: '#dc2626', fontWeight: 600, fontSize: 15, marginBottom: 8 }}>⚠️ Unable to load appointments</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>{apiError}</div>
+              <button
+                type="button"
+                onClick={loadAppointments}
+                style={{ padding: '6px 14px', borderRadius: '6px', background: '#0284c7', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+              >
+                Retry
+              </button>
+            </div>
           ) : appointments.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-muted)', fontSize: 14 }}>
               No appointments found for the selected date range ({formatFriendlyDate(dateRange.dateFrom)} – {formatFriendlyDate(dateRange.dateTo)}).

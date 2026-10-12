@@ -219,7 +219,7 @@ def create_queue_session(
         queue_date_parsed = (
             datetime.date.fromisoformat(payload.queue_date)
             if payload.queue_date
-            else datetime.date.today()
+            else queue_service.get_hospital_today()
         )
         conn = db_config.get_db_connection()
         conn.autocommit = False
@@ -232,6 +232,16 @@ def create_queue_session(
                 room_number=payload.room_number,
                 created_by_user_id=user.get("user_id")
             )
+            # When session is explicitly created/started, ensure it is ACTIVE
+            if session.get("status") == "OPEN":
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE queue_sessions
+                    SET status = 'ACTIVE', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+                    WHERE id = %s RETURNING status;
+                """, (session["id"],))
+                session["status"] = "ACTIVE"
+                cur.close()
             conn.commit()
         finally:
             conn.close()
@@ -811,28 +821,42 @@ def get_my_queue_today(
     """
     user_role = str(user.get("role") or "").upper()
     if user_role == "DOCTOR":
+        # Server-side authorization: Doctor role cannot tamper with doctor_id param to view other doctors
         target_doctor_id = resolve_doctor_id(user)
     else:
         target_doctor_id = doctor_id if doctor_id else resolve_doctor_id(user)
 
-    # Fallback for Admin or unassigned users: pick doctor with appointments today or first active doctor
+    # Fallback for Admin or unassigned users: pick doctor with active queue session today, or appointments today, or first active doctor
     if not target_doctor_id:
         conn = db_config.get_db_connection()
         cur = conn.cursor()
         try:
+            today_date = queue_service.get_hospital_today()
+            # 1. Look for doctor with active queue session today
             cur.execute("""
-                SELECT doctor_id FROM appointments 
-                WHERE appointment_date = CURRENT_DATE 
+                SELECT doctor_id FROM queue_sessions
+                WHERE queue_date = %s AND status IN ('ACTIVE', 'OPEN', 'PAUSED')
+                ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'PAUSED' THEN 2 ELSE 3 END, id DESC
                 LIMIT 1;
-            """)
+            """, (today_date,))
             row = cur.fetchone()
             if row:
                 target_doctor_id = row[0]
             else:
-                cur.execute("SELECT id FROM doctors LIMIT 1;")
+                # 2. Look for doctor with appointments today
+                cur.execute("""
+                    SELECT doctor_id FROM appointments 
+                    WHERE appointment_date = %s 
+                    LIMIT 1;
+                """, (today_date,))
                 row = cur.fetchone()
                 if row:
                     target_doctor_id = row[0]
+                else:
+                    cur.execute("SELECT id FROM doctors WHERE UPPER(status) = 'ACTIVE' LIMIT 1;")
+                    row = cur.fetchone()
+                    if row:
+                        target_doctor_id = row[0]
         finally:
             cur.close()
             conn.close()

@@ -693,10 +693,12 @@ const PreAdmissionPage: React.FC = () => {
             <span>Front Office & Patients</span> › <span>Pre-Admission Follow-up</span>
           </div>
           <div style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>
-            Patient Admission & Pre-Admission Follow-up
+            {isDoctorRole && user?.name ? `Pre-Admission Desk · ${user.name}` : 'Patient Admission & Pre-Admission Follow-up'}
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
-            Register pre-admissions, manage lifecycle, track documents, and view WhatsApp interactions
+            {isDoctorRole
+              ? `Doctor Scope: ${user?.name || 'Attending Doctor'} · Showing pre-admission records assigned under your care`
+              : 'Register pre-admissions, manage lifecycle, track documents, and view WhatsApp interactions'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

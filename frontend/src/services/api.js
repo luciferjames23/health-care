@@ -1619,6 +1619,9 @@ export const apiService = {
   async getDoctorSchedules(params = {}, options = {}) {
     const q = new URLSearchParams();
     if (params.doctor_id) q.append('doctor_id', params.doctor_id);
+    if (params.search) q.append('search', params.search);
+    if (params.department && params.department !== 'All') q.append('department', params.department);
+    if (params.day_of_week && params.day_of_week !== 'All') q.append('day_of_week', params.day_of_week);
     const qs = q.toString() ? `?${q.toString()}` : '';
     return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/schedules${qs}`, {
       revalidateMs: 2000,
@@ -1688,6 +1691,36 @@ export const apiService = {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error(`Failed to delete schedule: ${res.status}`);
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
+  async updateDoctorSchedule(scheduleId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to update schedule: ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);
+    return data;
+  },
+
+  async updateDoctorScheduleStatus(scheduleId, status) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/dashboard/schedules/${scheduleId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to update schedule status: ${res.status}`);
+    }
     const data = await res.json();
     clearAllStorageCache();
     notifyDataUpdated(`${API_BASE_URL}/api/dashboard/schedules`, data);

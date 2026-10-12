@@ -434,8 +434,8 @@ def get_pre_admissions(
         params = []
 
         if doctor_id_filter:
-            conditions.append("(pa.doctor_id = %s OR pa.patient_id IN (SELECT patient_id FROM appointments WHERE doctor_id = %s))")
-            params.extend([doctor_id_filter, doctor_id_filter])
+            conditions.append("pa.doctor_id = %s")
+            params.append(doctor_id_filter)
 
         if patient_id:
             conditions.append("pa.patient_id = %s")
@@ -457,13 +457,15 @@ def get_pre_admissions(
             s = f"%{search.strip().lower()}%"
             conditions.append("""(
                 LOWER(pa.pre_admission_code) LIKE %s OR
-                LOWER(p.patient_code) LIKE %s OR
-                LOWER(p.first_name) LIKE %s OR
-                LOWER(p.last_name) LIKE %s OR
-                LOWER(p.phone) LIKE %s OR
-                LOWER(p.whatsapp_number) LIKE %s
+                LOWER(COALESCE(p.patient_code, '')) LIKE %s OR
+                LOWER(COALESCE(p.first_name, '')) LIKE %s OR
+                LOWER(COALESCE(p.last_name, '')) LIKE %s OR
+                LOWER(COALESCE(p.first_name || ' ' || COALESCE(p.last_name, ''), '')) LIKE %s OR
+                LOWER(COALESCE(p.phone, '')) LIKE %s OR
+                LOWER(COALESCE(p.whatsapp_number, '')) LIKE %s OR
+                LOWER(COALESCE(d.display_name, '')) LIKE %s
             )""")
-            params.extend([s, s, s, s, s, s])
+            params.extend([s, s, s, s, s, s, s, s])
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

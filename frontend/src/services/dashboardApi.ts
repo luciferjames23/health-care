@@ -132,6 +132,9 @@ export interface AppointmentListResponse {
   per_page: number;
   total_pages: number;
   appointments: Appointment[];
+  success?: boolean;
+  error?: string;
+  message?: string;
 }
 
 export interface DateWiseAnalytics {
@@ -475,7 +478,28 @@ export async function fetchAppointments(params?: {
   if (params?.per_page) qs.set('per_page', String(params.per_page));
 
   const data = await apiFetch<AppointmentListResponse>(`/api/dashboard/appointments?${qs}`);
-  return data ?? { total: 0, page: 1, per_page: 20, total_pages: 1, appointments: [] };
+  if (data && Array.isArray((data as any).appointments)) {
+    return {
+      total: data.total ?? data.appointments.length,
+      page: data.page ?? 1,
+      per_page: data.per_page ?? 20,
+      total_pages: data.total_pages ?? 1,
+      appointments: data.appointments,
+      success: true,
+    };
+  }
+  if (data && (data as any).error) {
+    return {
+      total: 0,
+      page: 1,
+      per_page: 20,
+      total_pages: 1,
+      appointments: [],
+      success: false,
+      error: (data as any).error,
+    };
+  }
+  return { total: 0, page: 1, per_page: 20, total_pages: 1, appointments: [], success: false, error: 'Network or server error' };
 }
 
 export async function fetchDateWiseAnalytics(params?: {
@@ -558,11 +582,13 @@ export async function fetchDoctors(params?: {
   search?: string;
   department?: string;
   status?: string;
+  appointment_only?: boolean;
 }): Promise<{ doctors: Doctor[]; total: number }> {
   const qs = new URLSearchParams();
   if (params?.search) qs.set('search', params.search);
   if (params?.department) qs.set('department', params.department);
   if (params?.status) qs.set('status', params.status);
+  if (params?.appointment_only) qs.set('appointment_only', 'true');
 
   const data = await apiFetch<{ doctors: Doctor[]; total: number }>(`/api/dashboard/doctors?${qs}`);
   return data ?? { doctors: [], total: 0 };
@@ -592,8 +618,18 @@ export async function updateDoctorSelfProfile(data: Record<string, unknown>): Pr
   return res ?? { success: false, error: 'Request failed' };
 }
 
-export async function fetchSchedules(doctorId?: number): Promise<{ schedules: DoctorSchedule[]; total: number }> {
-  const qs = doctorId ? `?doctor_id=${doctorId}` : '';
+export async function fetchSchedules(
+  doctorId?: number,
+  search?: string,
+  department?: string,
+  dayOfWeek?: string
+): Promise<{ schedules: DoctorSchedule[]; total: number }> {
+  const params = new URLSearchParams();
+  if (doctorId) params.append('doctor_id', String(doctorId));
+  if (search) params.append('search', search);
+  if (department && department !== 'All') params.append('department', department);
+  if (dayOfWeek && dayOfWeek !== 'All') params.append('day_of_week', dayOfWeek);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const data = await apiFetch<{ schedules: DoctorSchedule[]; total: number }>(`/api/dashboard/schedules${qs}`);
   return data ?? { schedules: [], total: 0 };
 }
@@ -683,8 +719,13 @@ export async function createDoctor(payload: NewDoctorPayload): Promise<{ success
 
 // ─── Departments ──────────────────────────────────────────────────────────────
 
-export async function fetchDepartments(): Promise<{ departments: Department[]; total: number }> {
-  const data = await apiFetch<{ departments: Department[]; total: number }>('/api/dashboard/departments');
+export async function fetchDepartments(params?: {
+  appointment_only?: boolean;
+}): Promise<{ departments: Department[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params?.appointment_only) qs.set('appointment_only', 'true');
+  const endpoint = qs.toString() ? `/api/dashboard/departments?${qs}` : '/api/dashboard/departments';
+  const data = await apiFetch<{ departments: Department[]; total: number }>(endpoint);
   return data ?? { departments: [], total: 0 };
 }
 

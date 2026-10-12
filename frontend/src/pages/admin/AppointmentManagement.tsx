@@ -12,6 +12,7 @@ import {
   type DatePreset,
   type DateRangeValue,
   calculateDateRange,
+  formatFriendlyDate,
   toYMD
 } from '../../components/DateRangeFilter';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
@@ -113,6 +114,39 @@ interface AppointmentManagementProps {
   onNavigate?: (page: string, patient?: any) => void;
 }
 
+class QueueErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error('QueueErrorBoundary caught error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '32px', textAlign: 'center', background: '#fff', borderRadius: '8px', border: '1px solid #fee2e2' }}>
+          <div style={{ color: '#dc2626', fontWeight: 600, fontSize: '15px', marginBottom: '8px' }}>⚠️ Unable to load Today's Queue view</div>
+          <div style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>{this.state.error?.message || 'An unexpected rendering error occurred.'}</div>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{ padding: '6px 14px', borderRadius: '6px', background: '#0284c7', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+          >
+            Retry Loading Queue
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const APPOINTMENT_DEPARTMENT_IDS = [17, 18, 19, 20, 21, 22, 23, 24];
+
 const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   doctorName = null,
   userRole = 'Hospital Management',
@@ -149,7 +183,6 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       displayLabel: calc.label,
     };
   });
-  const [dateType, setDateType] = useState<'appointment_date' | 'created_at'>('appointment_date');
   const [deptFilter, setDeptFilter] = useState('');
   const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
   const [statusFilter, setStatusFilter] = useState('ACTIVE');
@@ -165,11 +198,22 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder(field === 'appointment_date' ? 'desc' : 'asc');
+    }
+    setPage(1);
+  };
 
   // Load static filter options & auto-bind doctor if doctor role
   useEffect(() => {
-    fetchDoctors().then(res => {
+    fetchDoctors({ appointment_only: true }).then(res => {
       const docList = Array.isArray(res?.doctors) ? res.doctors : [];
       setDoctors(docList);
       if (isDoctor) {
@@ -198,7 +242,10 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         }
       }
     });
-    fetchDepartments().then(res => setDepartments(Array.isArray(res?.departments) ? res.departments : []));
+    fetchDepartments({ appointment_only: true }).then(res => {
+      const depts = Array.isArray(res?.departments) ? res.departments : [];
+      setDepartments(depts);
+    });
   }, [isDoctor, activeDoctorName, doctorUserId]);
 
   const showToast = (msg: string) => {
@@ -207,11 +254,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   };
 
   const loadAppointments = useCallback(async () => {
-    if (isDoctor && doctorFilter === undefined && !doctorUserId) {
-      return;
-    }
     const targetDocId = isDoctor ? (doctorFilter || doctorUserId) : doctorFilter;
     setLoading(true);
+    setApiError(null);
     try {
       const res = await fetchAppointments({
         search: search || undefined,
@@ -219,27 +264,36 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         department: isDoctor ? undefined : (deptFilter || undefined),
         doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
-        date_from: dateRange.dateFrom,
-        date_to: dateRange.dateTo,
-        date_type: dateType,
+        date_from: dateRange.dateFrom || undefined,
+        date_to: dateRange.dateTo || undefined,
+        date_type: 'appointment_date',
         sort_by: sortBy,
         sort_order: sortOrder,
         page,
         per_page: perPage,
       });
 
-      let rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
-      if (isDoctor && targetDocId) {
-        rawAppts = rawAppts.filter(a => a.doctor_id === targetDocId);
+      if (res.success === false && res.error) {
+        setApiError(res.error);
+        setAppointments([]);
+        setTotal(0);
+        setTotalPages(1);
+        return;
       }
 
+      const rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
       setAppointments(rawAppts);
-      setTotal(isDoctor ? rawAppts.length : (res?.total ?? 0));
-      setTotalPages(isDoctor ? Math.ceil(rawAppts.length / perPage) || 1 : (res?.total_pages ?? 1));
+      setTotal(res?.total ?? 0);
+      setTotalPages(res?.total_pages ?? 1);
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to fetch appointments');
+      setAppointments([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, dateType, sortBy, sortOrder, page, perPage]);
+  }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, sortBy, sortOrder, page, perPage]);
 
   useEffect(() => {
     const timer = setTimeout(loadAppointments, 300);
@@ -280,9 +334,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         department: isDoctor ? undefined : (deptFilter || undefined),
         doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
-        date_from: dateRange.dateFrom,
-        date_to: dateRange.dateTo,
-        date_type: dateType,
+        date_from: dateRange.dateFrom || undefined,
+        date_to: dateRange.dateTo || undefined,
+        date_type: 'appointment_date',
         sort_by: sortBy,
         sort_order: sortOrder,
         page: 1,
@@ -370,6 +424,75 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     setPage(1);
   };
 
+  const handleDeptChange = (newDept: string) => {
+    setDeptFilter(newDept);
+    setPage(1);
+    if (doctorFilter !== undefined && !isDoctor) {
+      const currentDoc = doctors.find(d => d.id === doctorFilter);
+      const targetDept = departments.find(d => d.department_name.toLowerCase() === newDept.toLowerCase() || String(d.id) === newDept);
+      if (!newDept || !currentDoc || (targetDept && currentDoc.department_id !== targetDept.id && (currentDoc.department_name || '').toLowerCase() !== newDept.toLowerCase())) {
+        setDoctorFilter(undefined);
+      }
+    }
+  };
+
+  const handleDoctorChange = (val: string) => {
+    if (!val) {
+      setDoctorFilter(undefined);
+      setPage(1);
+      return;
+    }
+    const docId = Number(val);
+    setDoctorFilter(docId);
+    setPage(1);
+    const selectedDoc = doctors.find(d => d.id === docId);
+    if (selectedDoc) {
+      const matchedDept = departments.find(d => d.id === selectedDoc.department_id || (selectedDoc.department_name && d.department_name.toLowerCase() === selectedDoc.department_name.toLowerCase()));
+      if (matchedDept) {
+        setDeptFilter(matchedDept.department_name);
+      } else if (selectedDoc.department_name) {
+        setDeptFilter(selectedDoc.department_name);
+      }
+    }
+  };
+
+  const handleClearFilters = () => {
+    setSearch('');
+    setDeptFilter('');
+    setDoctorFilter(isDoctor ? doctorUserId : undefined);
+    setStatusFilter('');
+    setSourceFilter('');
+    setDateRange(() => {
+      const calc = calculateDateRange('all_time');
+      return {
+        dateFrom: calc.from,
+        dateTo: calc.to,
+        preset: 'all_time',
+        displayLabel: calc.label,
+      };
+    });
+    setSortBy('appointment_date');
+    setSortOrder('desc');
+    setPage(1);
+  };
+
+  const availableDoctors = deptFilter
+    ? doctors.filter(d => {
+        const targetDept = departments.find(dept => dept.department_name.toLowerCase() === deptFilter.toLowerCase() || String(dept.id) === deptFilter);
+        return (d.department_name && d.department_name.toLowerCase() === deptFilter.toLowerCase()) ||
+               (targetDept && d.department_id === targetDept.id);
+      })
+    : doctors;
+
+  const hasActiveFilters = Boolean(
+    search ||
+    deptFilter ||
+    (!isDoctor && doctorFilter !== undefined) ||
+    statusFilter ||
+    sourceFilter ||
+    dateRange.preset !== 'all_time'
+  );
+
   const formatDate = (d: string) => d ? new Date(d).toLocaleDateString() : '—';
 
   return (
@@ -438,7 +561,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       </div>
 
       {activeSubTab === 'queue' ? (
-        <TodaysQueueView onNavigate={onNavigate} onSelectPatient={onSelectPatient} />
+        <QueueErrorBoundary>
+          <TodaysQueueView onNavigate={onNavigate} onSelectPatient={onSelectPatient} />
+        </QueueErrorBoundary>
       ) : (
         <>
           {/* Filter and Search Bar Card */}
@@ -465,6 +590,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                 onChange={e => handlePresetChange(e.target.value as DatePreset)}
                 style={{ border: 'none', background: 'transparent', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer', fontWeight: 500 }}
               >
+                <option value="all_time">All Time</option>
                 <option value="today">Today</option>
                 <option value="yesterday">Yesterday</option>
                 <option value="tomorrow">Tomorrow</option>
@@ -483,28 +609,18 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                 <input
                   type="date"
                   value={dateRange.dateFrom}
-                  onChange={e => setDateRange(prev => ({ ...prev, dateFrom: e.target.value }))}
+                  onChange={e => { setDateRange(prev => ({ ...prev, dateFrom: e.target.value })); setPage(1); }}
                   style={inputStyle}
                 />
                 <span style={{ fontSize: '11px', color: '#8a9096' }}>→</span>
                 <input
                   type="date"
                   value={dateRange.dateTo}
-                  onChange={e => setDateRange(prev => ({ ...prev, dateTo: e.target.value }))}
+                  onChange={e => { setDateRange(prev => ({ ...prev, dateTo: e.target.value })); setPage(1); }}
                   style={inputStyle}
                 />
               </div>
             )}
-
-            <select
-              value={dateType}
-              onChange={e => { setDateType(e.target.value as 'appointment_date' | 'created_at'); setPage(1); }}
-              style={selectStyle}
-              title="Select which timestamp to filter on"
-            >
-              <option value="appointment_date">Filter by: Appointment Date</option>
-              <option value="created_at">Filter by: Booking Created Date</option>
-            </select>
           </div>
         </div>
 
@@ -516,20 +632,30 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <>
               <select
                 value={deptFilter}
-                onChange={e => { setDeptFilter(e.target.value); setPage(1); }}
+                onChange={e => handleDeptChange(e.target.value)}
                 style={selectStyle}
               >
                 <option value="">All Departments</option>
-                {(departments || []).map(d => <option key={d.id} value={d.department_name}>{d.department_name}</option>)}
+                {(departments || []).map(d => (
+                  <option key={d.id} value={d.department_name}>
+                    {d.department_name}
+                  </option>
+                ))}
               </select>
 
               <select
                 value={doctorFilter !== undefined ? String(doctorFilter) : ''}
-                onChange={e => { setDoctorFilter(e.target.value ? Number(e.target.value) : undefined); setPage(1); }}
+                onChange={e => handleDoctorChange(e.target.value)}
                 style={selectStyle}
               >
-                <option value="">All Doctors</option>
-                {(doctors || []).map(d => <option key={d.id} value={d.id}>{d.display_name}</option>)}
+                <option value="">
+                  {deptFilter ? `All Doctors (${availableDoctors.length})` : 'All Doctors'}
+                </option>
+                {availableDoctors.map(d => (
+                  <option key={d.id} value={d.id}>
+                    {d.display_name}
+                  </option>
+                ))}
               </select>
             </>
           ) : (
@@ -555,9 +681,14 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
             style={selectStyle}
           >
+<<<<<<< Updated upstream
             <option value="ACTIVE">⚡ Active & Scheduled (Current)</option>
             <option value="">All Status (All-Time Historical)</option>
             {['BOOKED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
+=======
+            <option value="">All Status</option>
+            {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
+>>>>>>> Stashed changes
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
@@ -576,16 +707,34 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <option value="DOCTOR">Doctor</option>
           </select>
 
+          {hasActiveFilters && (
+            <button
+              type="button"
+              style={{
+                ...btnSecondary,
+                color: '#dc2626',
+                borderColor: '#fca5a5',
+                background: '#fff',
+                fontSize: '11.5px',
+                height: '30px',
+              }}
+              onClick={handleClearFilters}
+              title="Reset all filters to defaults"
+            >
+              <RefreshCw size={11} /> Clear Filters
+            </button>
+          )}
+
           {/* Sort By & Export CSV Controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '11px', color: '#8a9096' }}>Sort by:</span>
             <select
               value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
+              onChange={e => { setSortBy(e.target.value); setPage(1); }}
               style={selectStyle}
             >
               <option value="appointment_date">Appointment Date</option>
-              <option value="created_at">Created Date</option>
+              <option value="booking_id">Booking ID</option>
               <option value="patient">Patient Name</option>
               <option value="doctor">Doctor Name</option>
               <option value="status">Status</option>
@@ -594,7 +743,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <button
               type="button"
               style={btnSecondary}
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+              onClick={() => { setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); setPage(1); }}
               title={`Sort ${sortOrder.toUpperCase()}`}
             >
               <ArrowUpDown size={12} /> {sortOrder.toUpperCase()}
@@ -630,8 +779,20 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               badgeText="Live OPD Bookings Sync"
               showKpis={false}
               tableRows={8}
-              tableColumns={11}
+              tableColumns={10}
             />
+          </div>
+        ) : apiError ? (
+          <div style={{ padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '8px' }}>
+            <div style={{ fontWeight: 600, color: '#dc2626', marginBottom: '6px', fontSize: '14px' }}>⚠️ Unable to load appointments</div>
+            <div style={{ color: '#64748b', fontSize: '13px', marginBottom: '16px' }}>{apiError}</div>
+            <button
+              type="button"
+              onClick={loadAppointments}
+              style={{ padding: '6px 14px', borderRadius: '6px', background: '#0284c7', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+            >
+              Retry
+            </button>
           </div>
         ) : appointments.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#8a9096' }}>
@@ -639,20 +800,49 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             <div>Try adjusting your date range or filter options.</div>
           </div>
         ) : (
-          <table style={{ width: '100%', minWidth: '1250px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <table style={{ width: '100%', minWidth: '1200px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
             <thead>
               <tr style={{ background: '#f6f7f8', borderBottom: '1px solid #e3e6e8' }}>
-                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Booking ID</th>
-                <th style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Patient</th>
-                <th style={{ padding: '10px 12px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Doctor</th>
+                <th 
+                  onClick={() => handleSort('booking_id')}
+                  style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: sortBy === 'booking_id' ? '#0369a1' : '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  title="Click to sort by Booking ID"
+                >
+                  Booking ID {sortBy === 'booking_id' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  onClick={() => handleSort('patient')}
+                  style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: sortBy === 'patient' ? '#0369a1' : '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  title="Click to sort by Patient Name"
+                >
+                  Patient {sortBy === 'patient' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  onClick={() => handleSort('doctor')}
+                  style={{ padding: '10px 12px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: sortBy === 'doctor' ? '#0369a1' : '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  title="Click to sort by Doctor"
+                >
+                  Doctor {sortBy === 'doctor' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
                 <th style={{ padding: '10px 12px', minWidth: '130px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Department</th>
                 <th style={{ padding: '10px 12px', minWidth: '160px', maxWidth: '200px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Reason</th>
-                <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Date</th>
-                <th style={{ padding: '10px 12px', width: '145px', minWidth: '145px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Time</th>
-                <th style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
-                <th style={{ padding: '10px 12px', width: '130px', minWidth: '130px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Queue Token</th>
-                <th style={{ padding: '10px 12px', width: '125px', minWidth: '125px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Source</th>
-                <th style={{ padding: '10px 12px', width: '105px', minWidth: '105px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Created</th>
+                <th 
+                  onClick={() => handleSort('appointment_date')}
+                  style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: sortBy === 'appointment_date' ? '#0369a1' : '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  title="Click to sort by Appointment Date"
+                >
+                  Date {sortBy === 'appointment_date' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th style={{ padding: '10px 12px', width: '140px', minWidth: '140px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Time</th>
+                <th 
+                  onClick={() => handleSort('status')}
+                  style={{ padding: '10px 12px', width: '115px', minWidth: '115px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: sortBy === 'status' ? '#0369a1' : '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  title="Click to sort by Status"
+                >
+                  Status {sortBy === 'status' && (sortOrder === 'asc' ? '↑' : '↓')}
+                </th>
+                <th style={{ padding: '10px 12px', width: '135px', minWidth: '135px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Queue Token</th>
+                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Source</th>
                 <th style={{ padding: '10px 12px', width: '150px', minWidth: '150px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
               </tr>
             </thead>
@@ -716,7 +906,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                         {a.patient_reason || '—'}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 12px', fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{formatDate(a.appointment_date)}</td>
+                    <td style={{ padding: '10px 12px', fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{formatFriendlyDate(a.appointment_date)}</td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{format12HourTime(a.appointment_time)}</div>
                       <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>
@@ -766,9 +956,6 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
                       <span style={{ background: '#f6f7f8', border: '1px solid #e3e6e8', borderRadius: '4px', padding: '2px 7px', fontSize: '10.5px', color: '#52585e', whiteSpace: 'nowrap', display: 'inline-block' }}>
                         {formatSourceLabel(a.booking_source)}
                       </span>
-                    </td>
-                    <td style={{ padding: '10px 12px', fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                      {a.created_at ? new Date(a.created_at).toLocaleDateString() : '—'}
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>

@@ -15,7 +15,6 @@ export const NAV_GROUPS = [
       { id: 'admissions', label: 'Admissions' },
       { id: 'bedboard', label: 'Bed Board' },
       { id: 'emergency', label: 'Emergency' },
-      { id: 'schedules', label: 'Consultant Schedules' },
     ]
   },
   {
@@ -243,9 +242,12 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
         if (item.id === 'todays-queue') {
           return false;
         }
+<<<<<<< Updated upstream
         if (item.id === 'schedules' && userRole === 'Doctor') {
           return false;
         }
+=======
+>>>>>>> Stashed changes
         return isPageAllowed(userRole, item.id);
       });
       return {

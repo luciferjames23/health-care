@@ -151,7 +151,7 @@ def format_patient_details_response(patient_dict: Optional[Dict[str, Any]], what
             "Would you like to register as a new patient with Meridian Hospital?"
         )
 
-    p_code = patient_dict.get("patient_code") or f"P{patient_dict.get('id')}"
+    p_code = patient_dict.get("patient_code") or (f"MER-PAT-{str(patient_dict.get('id')).zfill(7)}" if patient_dict.get('id') else "")
     full_name = patient_dict.get("full_name") or f"{patient_dict.get('first_name', '')} {patient_dict.get('last_name', '')}".strip()
     dob = patient_dict.get("date_of_birth") or "Not recorded"
     gender = patient_dict.get("gender") or "Not recorded"

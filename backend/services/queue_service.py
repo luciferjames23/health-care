@@ -65,6 +65,11 @@ class InvalidQueueStatusTransitionError(QueueError):
 # ─── Eligible appointment statuses for check-in ───────────────────────────────
 ELIGIBLE_APPOINTMENT_STATUSES = frozenset(['BOOKED', 'CONFIRMED'])
 
+def get_hospital_today() -> datetime.date:
+    """Returns today's date in hospital timezone (Asia/Kolkata, UTC+5:30)."""
+    ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    return datetime.datetime.now(ist_tz).date()
+
 # ─── Queue session init / get ──────────────────────────────────────────────────
 
 def get_or_create_queue_session(
@@ -87,6 +92,8 @@ def get_or_create_queue_session(
                    status, current_token_number, started_at, created_at
             FROM queue_sessions
             WHERE doctor_id = %s AND queue_date = %s
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'PAUSED' THEN 2 WHEN 'OPEN' THEN 3 ELSE 4 END, id DESC
+            LIMIT 1
             FOR UPDATE;
         """, (doctor_id, queue_date))
         row = cur.fetchone()
@@ -916,7 +923,7 @@ def get_queue_session(queue_session_id: int) -> Dict[str, Any]:
         session_id, doctor_id, dept_id, q_date, room, status, curr_token, \
             started_at, closed_at, paused_at, paused_reason, doctor_name, dept_name = session_row
 
-        # Fetch all entries
+        # Fetch all entries (use LEFT JOIN to ensure no entries dropped if appointment/patient joins are null)
         cur.execute("""
             SELECT qe.id, qe.token_number, qe.patient_id, qe.queue_status,
                    qe.position, qe.patients_ahead, qe.estimated_wait_minutes,
@@ -925,8 +932,8 @@ def get_queue_session(queue_session_id: int) -> Dict[str, Any]:
                    p.first_name, p.last_name, p.phone, p.whatsapp_number,
                    a.appointment_time, a.booking_id
             FROM queue_entries qe
-            JOIN patients p ON p.id = qe.patient_id
-            JOIN appointments a ON a.id = qe.appointment_id
+            LEFT JOIN patients p ON p.id = qe.patient_id
+            LEFT JOIN appointments a ON a.id = qe.appointment_id
             WHERE qe.queue_session_id = %s
             ORDER BY qe.token_number ASC;
         """, (queue_session_id,))
@@ -934,23 +941,32 @@ def get_queue_session(queue_session_id: int) -> Dict[str, Any]:
         for r in cur.fetchall():
             entries.append({
                 "entry_id": r[0], "token_number": r[1], "patient_id": r[2],
-                "queue_status": r[3], "position": r[4], "patients_ahead": r[5],
+                "queue_status": str(r[3] or "").upper(), "position": r[4], "patients_ahead": r[5],
                 "estimated_wait_minutes": r[6],
                 "checked_in_at": r[7].isoformat() if r[7] else None,
                 "called_at": r[8].isoformat() if r[8] else None,
                 "consultation_started_at": r[9].isoformat() if r[9] else None,
                 "consultation_completed_at": r[10].isoformat() if r[10] else None,
-                "patient_name": f"{r[11] or ''} {r[12] or ''}".strip(),
+                "patient_name": f"{r[11] or ''} {r[12] or ''}".strip() or f"Patient #{r[2]}",
                 "phone": r[13],
                 "whatsapp_number": r[14] or r[13],
                 "appointment_time": str(r[15]) if r[15] else None,
                 "booking_id": r[16]
             })
 
-        # Derive statistics
+        # Derive full queue statistics consistently
+        total_checked_in = len(entries)
         waiting_count = sum(1 for e in entries if e["queue_status"] in ("WAITING", "NEXT"))
+        called_count = sum(1 for e in entries if e["queue_status"] == "CALLED")
+        in_consultation_count = sum(1 for e in entries if e["queue_status"] == "IN_CONSULTATION")
+        completed_count = sum(1 for e in entries if e["queue_status"] == "COMPLETED")
+        no_show_count = sum(1 for e in entries if e["queue_status"] == "NO_SHOW")
+        cancelled_count = sum(1 for e in entries if e["queue_status"] == "CANCELLED")
+
         current_entry = next((e for e in entries if e["queue_status"] == "IN_CONSULTATION"), None)
-        next_entry = next((e for e in entries if e["queue_status"] in ("CALLED", "NEXT")), None)
+        if not current_entry:
+            current_entry = next((e for e in entries if e["queue_status"] == "CALLED"), None)
+        next_entry = next((e for e in entries if e["queue_status"] in ("WAITING", "NEXT")), None)
 
         return {
             "session_id": session_id,
@@ -966,7 +982,13 @@ def get_queue_session(queue_session_id: int) -> Dict[str, Any]:
             "closed_at": closed_at.isoformat() if closed_at else None,
             "paused_at": paused_at.isoformat() if paused_at else None,
             "paused_reason": paused_reason,
+            "total_checked_in": total_checked_in,
             "waiting_count": waiting_count,
+            "called_count": called_count,
+            "in_consultation_count": in_consultation_count,
+            "completed_count": completed_count,
+            "no_show_count": no_show_count,
+            "cancelled_count": cancelled_count,
             "current_patient": current_entry,
             "next_patient": next_entry,
             "entries": entries
@@ -978,12 +1000,12 @@ def get_queue_session(queue_session_id: int) -> Dict[str, Any]:
 
 def get_doctor_queue_today(doctor_id: int) -> Dict[str, Any]:
     """Get today's queue session for a doctor. Used by Doctor Portal."""
-    today = datetime.date.today()
+    today = get_hospital_today()
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT d.id, d.display_name, d.department_id, dept.department_name
+            SELECT d.id, d.display_name, d.department_id, COALESCE(dept.department_name, 'General Medicine')
             FROM doctors d
             LEFT JOIN departments dept ON dept.id = d.department_id
             WHERE d.id = %s;
@@ -998,7 +1020,9 @@ def get_doctor_queue_today(doctor_id: int) -> Dict[str, Any]:
 
         cur.execute("""
             SELECT id FROM queue_sessions
-            WHERE doctor_id = %s AND queue_date = %s;
+            WHERE doctor_id = %s AND queue_date = %s
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'PAUSED' THEN 2 WHEN 'OPEN' THEN 3 ELSE 4 END, id DESC
+            LIMIT 1;
         """, (doctor_id, today))
         row = cur.fetchone()
         session_data = get_queue_session(row[0]) if row else None
