@@ -30,9 +30,30 @@ const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
-    const saved = sessionStorage.getItem('meridian_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = sessionStorage.getItem('meridian_user') || sessionStorage.getItem('hx_auth');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
+
+  React.useEffect(() => {
+    const syncUser = () => {
+      try {
+        const saved = sessionStorage.getItem('meridian_user') || sessionStorage.getItem('hx_auth');
+        setUser(saved ? JSON.parse(saved) : null);
+      } catch {
+        setUser(null);
+      }
+    };
+    window.addEventListener('storage', syncUser);
+    window.addEventListener('meridian_user_changed', syncUser);
+    return () => {
+      window.removeEventListener('storage', syncUser);
+      window.removeEventListener('meridian_user_changed', syncUser);
+    };
+  }, []);
 
   const login = useCallback(async (username: string, password: string, role: UserRole): Promise<{ success: boolean; error?: string }> => {
     try {

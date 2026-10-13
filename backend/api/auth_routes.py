@@ -43,14 +43,27 @@ def get_auth_users():
                 COALESCE(r.name, 'Staff') as role,
                 COALESCE(
                     d.display_name, 
-                    NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
                     u.staff_name, 
                     NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''),
+                    NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
                     u.username
                 ) as name,
-                COALESCE(dept.department_name, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient Portal' ELSE u.staff_type END, r.name) as dept,
-                COALESCE(d.specialization, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN p.patient_code ELSE dept.department_name END, u.staff_type, 'General Medicine') as specialization,
-                COALESCE(d.specialization, CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient' ELSE u.staff_type END, r.name) as title,
+                COALESCE(
+                    dept.department_name, 
+                    CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient Portal' ELSE u.staff_type END, 
+                    r.name
+                ) as dept,
+                COALESCE(
+                    d.specialization, 
+                    CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN p.patient_code ELSE dept.department_name END, 
+                    u.staff_type, 
+                    'General Medicine'
+                ) as specialization,
+                COALESCE(
+                    d.specialization, 
+                    CASE WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 'Patient' ELSE u.staff_type END, 
+                    r.name
+                ) as title,
                 d.id as doctor_id,
                 d.id as "doctorId",
                 p.id as patient_id,
@@ -61,17 +74,10 @@ def get_auth_users():
             FROM users u
             LEFT JOIN roles r ON u.role_id = r.id
             LEFT JOIN doctors d ON d.user_id = u.id
-            LEFT JOIN departments dept ON u.department_id = dept.id
-            LEFT JOIN patients p ON (LOWER(p.patient_code) = LOWER(u.username) OR (u.phone IS NOT NULL AND p.phone = u.phone))
+            LEFT JOIN departments dept ON dept.id = COALESCE(d.department_id, u.department_id)
+            LEFT JOIN patients p ON (LOWER(r.name) = 'patient' AND LOWER(p.patient_code) = LOWER(u.username))
             ORDER BY
-                u.id ASC,
-                CASE
-                    WHEN LOWER(COALESCE(r.name, '')) = 'admin' THEN 1
-                    WHEN LOWER(COALESCE(r.name, '')) = 'radiologist' THEN 2
-                    WHEN LOWER(COALESCE(r.name, '')) = 'doctor' THEN 3
-                    WHEN LOWER(COALESCE(r.name, '')) = 'patient' THEN 5
-                    ELSE 4
-                END;
+                u.id ASC;
         """)
         rows = cur.fetchall()
         users = [dict(r) for r in rows]
@@ -97,44 +103,77 @@ def login(body: LoginRequest):
         search_id = body.username.strip()
         requested_role = (body.role or "").strip().lower()
 
-        # Query user matching username, patient_code, doctor_code, phone, or email
+        # 1. Query staff/doctor/user directly from users table and linked doctors
         cur.execute("""
             SELECT u.id, u.username, u.password_hash, u.is_active, r.name as role_name, u.phone, u.email,
-                   p.id as patient_id, p.patient_code, p.first_name as pat_fname, p.last_name as pat_lname,
                    u.first_name as u_fname, u.last_name as u_lname, u.staff_name, u.staff_type, dept.department_name,
-                   u.department_id
+                   COALESCE(d.department_id, u.department_id) as u_dept_id,
+                   d.id as doc_id, d.doctor_code, d.display_name as doc_display_name, d.specialization as doc_spec
             FROM users u
             JOIN roles r ON u.role_id = r.id
-            LEFT JOIN departments dept ON dept.id = u.department_id
-            LEFT JOIN patients p ON (LOWER(p.patient_code) = LOWER(u.username) OR (u.phone IS NOT NULL AND p.phone = u.phone))
             LEFT JOIN doctors d ON d.user_id = u.id
+            LEFT JOIN departments dept ON dept.id = COALESCE(d.department_id, u.department_id)
             WHERE LOWER(u.username) = LOWER(%s)
                OR (LOWER(%s) = 'doc1' AND (LOWER(u.username) = 'ak' OR d.doctor_code = 'DR001'))
-               OR (p.patient_code IS NOT NULL AND LOWER(p.patient_code) = LOWER(%s))
                OR (d.doctor_code IS NOT NULL AND LOWER(d.doctor_code) = LOWER(%s))
                OR (u.phone IS NOT NULL AND u.phone = %s)
-               OR (p.phone IS NOT NULL AND p.phone = %s)
                OR (u.email IS NOT NULL AND LOWER(u.email) = LOWER(%s))
-               OR (p.email IS NOT NULL AND LOWER(p.email) = LOWER(%s))
             ORDER BY 
                 CASE WHEN LOWER(r.name) = %s THEN 0 ELSE 1 END,
                 u.id ASC
             LIMIT 1;
-        """, (search_id, search_id, search_id, search_id, search_id, search_id, search_id, search_id, requested_role))
+        """, (search_id, search_id, search_id, search_id, search_id, requested_role))
         row = cur.fetchone()
-        
+
+        patient_id = None
+        patient_code = None
+        pat_fname = None
+        pat_lname = None
+
+        if not row:
+            # 2. Check if search_id matches a patient by patient_code, phone, or email
+            cur.execute("""
+                SELECT p.id, p.patient_code, p.first_name, p.last_name, p.phone, p.email
+                FROM patients p
+                WHERE LOWER(p.patient_code) = LOWER(%s)
+                   OR (p.phone IS NOT NULL AND p.phone = %s)
+                   OR (p.email IS NOT NULL AND LOWER(p.email) = LOWER(%s))
+                LIMIT 1;
+            """, (search_id, search_id, search_id))
+            pat_row = cur.fetchone()
+            if pat_row:
+                patient_id, patient_code, pat_fname, pat_lname, pat_phone, pat_email = pat_row
+                # Find patient user account
+                cur.execute("""
+                    SELECT u.id, u.username, u.password_hash, u.is_active, r.name as role_name, u.phone, u.email
+                    FROM users u
+                    JOIN roles r ON u.role_id = r.id
+                    WHERE LOWER(r.name) = 'patient'
+                      AND (LOWER(u.username) = LOWER(%s) OR (u.phone IS NOT NULL AND u.phone = %s) OR LOWER(u.username) = 'patient')
+                    ORDER BY CASE WHEN LOWER(u.username) = LOWER(%s) THEN 0 ELSE 1 END, u.id ASC
+                    LIMIT 1;
+                """, (patient_code, pat_phone, patient_code))
+                u_row = cur.fetchone()
+                if u_row:
+                    user_id, username, password_hash, is_active, role_name, phone, email = u_row
+                    row = (user_id, username, password_hash, is_active, role_name, phone, email,
+                           None, None, None, None, 'Patient Portal', None,
+                           None, None, None, None)
+
         if not row:
             raise HTTPException(status_code=401, detail="Invalid credentials. Please check your username, doctor ID, or patient ID.")
-            
-        user_id, username, password_hash, is_active, role_name, phone, email, patient_id, patient_code, pat_fname, pat_lname, u_fname, u_lname, u_staff_name, u_staff_type, u_dept_name, u_dept_id = row
-        
+
+        (user_id, username, password_hash, is_active, role_name, phone, email,
+         u_fname, u_lname, u_staff_name, u_staff_type, u_dept_name, u_dept_id,
+         doc_id, doc_code, doc_display_name, doc_spec) = row
+
         if not is_active:
             raise HTTPException(status_code=401, detail="This account has been deactivated.")
-            
+
         is_password_valid = False
         if str(password_hash or "").startswith(("$2a$", "$2b$", "$2y$")):
             is_password_valid = verify_password(body.password, password_hash)
-            
+
         # Self-healing fallback for standard hospital passwords and credentials
         allowed_fallbacks = {
             "hospital@2026",
@@ -156,42 +195,55 @@ def login(body: LoginRequest):
 
         if not is_password_valid:
             raise HTTPException(status_code=401, detail="Invalid password. Please try again.")
-            
+
         actual_role = role_name.upper()
-            
-        doctor_id = None
+
+        doctor_id = doc_id
         department_id = u_dept_id
         department_name = u_dept_name or u_staff_type or role_name
-        specialization = u_staff_type or department_name
+        specialization = doc_spec or u_staff_type or department_name
         display_name = (
+            doc_display_name or
             u_staff_name or 
             (f"{u_fname or ''} {u_lname or ''}".strip()) or 
             ("Administrator" if actual_role in {"ADMIN", "HOSPITAL MANAGEMENT"} else username)
         )
-        
+
         if actual_role in {"DOCTOR", "RADIOLOGIST", "PATHOLOGIST"}:
-            cur.execute("""
-                SELECT d.id, d.display_name, dept.department_name, d.department_id, d.specialization
-                FROM doctors d
-                LEFT JOIN departments dept ON d.department_id = dept.id
-                WHERE d.user_id = %s;
-            """, (user_id,))
-            doc_row = cur.fetchone()
-            if doc_row:
-                doctor_id, doc_display_name, doc_dept_name, doc_dept_id, doc_spec = doc_row
-                department_id = doc_dept_id
-                if doc_display_name:
-                    display_name = doc_display_name
-                if doc_dept_name:
-                    department_name = doc_dept_name
-                if doc_spec:
-                    specialization = doc_spec
+            if not doctor_id:
+                cur.execute("""
+                    SELECT d.id, d.display_name, dept.department_name, d.department_id, d.specialization
+                    FROM doctors d
+                    LEFT JOIN departments dept ON d.department_id = dept.id
+                    WHERE d.user_id = %s;
+                """, (user_id,))
+                doc_row = cur.fetchone()
+                if doc_row:
+                    doctor_id, d_disp, d_dept, d_did, d_sp = doc_row
+                    department_id = d_did
+                    if d_disp:
+                        display_name = d_disp
+                    if d_dept:
+                        department_name = d_dept
+                    if d_sp:
+                        specialization = d_sp
         elif actual_role == "PATIENT":
             department_name = "Patient Portal"
+            if not patient_id:
+                cur.execute("""
+                    SELECT p.id, p.patient_code, p.first_name, p.last_name
+                    FROM patients p
+                    WHERE LOWER(p.patient_code) = LOWER(%s)
+                       OR (p.phone IS NOT NULL AND p.phone = %s)
+                    LIMIT 1;
+                """, (username, phone or ''))
+                pat_row = cur.fetchone()
+                if pat_row:
+                    patient_id, patient_code, pat_fname, pat_lname = pat_row
             pat_full_name = f"{pat_fname or ''} {pat_lname or ''}".strip()
             display_name = pat_full_name or username
             specialization = patient_code or "Patient"
-                
+
         token_payload = {
             "user_id": user_id,
             "username": username,
@@ -202,14 +254,14 @@ def login(body: LoginRequest):
             "patient_code": patient_code
         }
         token = encode_token(token_payload)
-        
+
         cur.execute("""
             UPDATE users 
             SET last_login_at = CURRENT_TIMESTAMP 
             WHERE id = %s;
         """, (user_id,))
         conn.commit()
-        
+
         return {
             "success": True,
             "token": token,
@@ -230,10 +282,10 @@ def login(body: LoginRequest):
                 "loginId": username
             }
         }
-        
     finally:
         cur.close()
         conn.close()
+
 
 @router.post("/forgot-password/request-otp")
 def request_otp(body: RequestOTPRequest):
@@ -398,8 +450,7 @@ def select_account(body: AccountSelectionRequest, request: Request):
                        COALESCE(d.department_id, u.department_id)
                 FROM users u JOIN roles r ON r.id=u.role_id
                 LEFT JOIN doctors d ON d.user_id=u.id
-                LEFT JOIN departments dept ON dept.id=COALESCE(d.department_id,u.department_id)
-                LEFT JOIN patients p ON (LOWER(p.patient_code) = LOWER(u.username) OR (u.phone IS NOT NULL AND p.phone = u.phone))
+                LEFT JOIN patients p ON (LOWER(r.name) = 'patient' AND LOWER(p.patient_code) = LOWER(u.username))
                 WHERE (lower(u.username)=lower(%s) OR (p.patient_code IS NOT NULL AND lower(p.patient_code)=lower(%s))) AND u.is_active=true
                 LIMIT 1
             """, (body.username.strip(), body.username.strip()))

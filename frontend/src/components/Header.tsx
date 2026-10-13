@@ -7,14 +7,21 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ title }) => {
-  const { user } = useAuth();
+  const { user: authUser } = useAuth();
+  const user = authUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
 
   const getInitials = (name: string) =>
-    name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    name ? name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'DR';
 
   const getRoleLabel = () => {
-    if (user?.role === 'admin') return 'Administrator';
-    return user?.department || 'Doctor';
+    if (user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'hospital management') return 'Administrator';
+    return user?.specialization || user?.department || user?.dept || 'Doctor';
   };
 
   return (
@@ -30,7 +37,7 @@ const Header: React.FC<HeaderProps> = ({ title }) => {
           <Bell size={18} />
           <span className="badge">3</span>
         </button>
-        {user?.role === 'doctor' && (
+        {user?.role?.toLowerCase() === 'doctor' && (
           <button className="header-icon-btn" title="On Call">
             <Stethoscope size={18} />
           </button>

@@ -133,7 +133,16 @@ export const NAV_GROUPS = [
   }
 ];
 
-export default function AppSidebar({ activePage, setActivePage, userRole = 'Doctor', doctorName = null, dischargeCount: externalDischargeCount = null }) {
+export default function AppSidebar({
+  activePage,
+  setActivePage,
+  userRole = 'Doctor',
+  doctorName = null,
+  dischargeCount: externalDischargeCount = null,
+  mobileOpen = false,
+  onCloseMobile = () => {}
+}) {
+  const effectiveRole = userRole || 'Doctor';
   const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
 
   // Synchronize when external dischargeCount is passed down
@@ -229,8 +238,8 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
 
   // Sidepanel modules: Filter items and groups based on role permissions (Admins see all; specific roles see only their authorized modules)
   const visibleGroups = React.useMemo(() => {
-    if (userRole === 'Patient') return [];
-    const isAdmin = userRole === 'Hospital Management' || userRole === 'Admin' || userRole === 'System Admin' || userRole === 'Quality';
+    if (effectiveRole === 'Patient') return [];
+    const isAdmin = effectiveRole === 'Hospital Management' || effectiveRole === 'Admin' || effectiveRole === 'System Admin' || effectiveRole === 'Quality';
     return NAV_GROUPS.map(group => {
       const filteredItems = group.items.filter(item => {
         if (item.id === 'doctor-management' && !isAdmin) {
@@ -242,22 +251,19 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
         if (item.id === 'todays-queue') {
           return false;
         }
-<<<<<<< Updated upstream
-        if (item.id === 'schedules' && userRole === 'Doctor') {
+        if (item.id === 'schedules' && (effectiveRole === 'Doctor' || String(effectiveRole).toLowerCase() === 'doctor')) {
           return false;
         }
-=======
->>>>>>> Stashed changes
-        return isPageAllowed(userRole, item.id);
+        return isPageAllowed(effectiveRole, item.id);
       });
       return {
         ...group,
         items: filteredItems
       };
     }).filter(group => group.items.length > 0);
-  }, [userRole]);
+  }, [effectiveRole]);
 
-  if (userRole === 'Patient' || visibleGroups.length === 0) {
+  if (effectiveRole === 'Patient' || visibleGroups.length === 0) {
     return null;
   }
 
@@ -280,12 +286,8 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
     return false;
   };
 
-  return (
-    <nav style={{
-      width: '195px', borderRight: '1px solid #e3e6e8', background: '#f9fafa',
-      padding: '10px 8px 28px', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)',
-      position: 'sticky', top: '80px', alignSelf: 'start', flexShrink: 0
-    }}>
+  const renderGroupList = (isMobile = false) => (
+    <>
       {visibleGroups.map((group) => (
         <div key={group.title} style={{ marginBottom: '14px' }}>
           <div style={{
@@ -307,9 +309,12 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
             return (
               <div
                 key={item.id}
-                onClick={() => setActivePage(item.id)}
+                onClick={() => {
+                  setActivePage(item.id);
+                  if (isMobile && onCloseMobile) onCloseMobile();
+                }}
                 style={{
-                  margin: '1px 4px 1px 6px', padding: '5px 10px', borderRadius: '6px',
+                  margin: '1px 4px 1px 6px', padding: '6px 10px', borderRadius: '6px',
                   cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden',
                   textOverflow: 'ellipsis', fontSize: '12px',
@@ -336,6 +341,65 @@ export default function AppSidebar({ activePage, setActivePage, userRole = 'Doct
           })}
         </div>
       ))}
-    </nav>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <nav
+        className="app-sidebar-desktop"
+        style={{
+          width: '200px', borderRight: '1px solid #e3e6e8', background: '#f9fafa',
+          padding: '10px 8px 28px', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)',
+          position: 'sticky', top: '80px', alignSelf: 'start', flexShrink: 0
+        }}
+      >
+        {renderGroupList(false)}
+      </nav>
+
+      {/* Mobile / Tablet Responsive Drawer & Backdrop */}
+      {mobileOpen && (
+        <>
+          <div
+            onClick={onCloseMobile}
+            style={{
+              position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.45)',
+              zIndex: 998, backdropFilter: 'blur(2px)'
+            }}
+          />
+          <nav
+            style={{
+              position: 'fixed', top: 0, left: 0, bottom: 0, width: '270px',
+              maxWidth: '85vw', background: '#f9fafa', borderRight: '1px solid #e2e8f0',
+              zIndex: 999, display: 'flex', flexDirection: 'column',
+              boxShadow: '4px 0 24px rgba(0, 0, 0, 0.15)', overflowY: 'auto',
+              padding: '16px 10px 32px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 12px', borderBottom: '1px solid #e2e8f0' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>Meridian Hospital</div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>{effectiveRole} Navigation</div>
+              </div>
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                style={{
+                  border: 'none', background: '#e2e8f0', borderRadius: '6px',
+                  width: '28px', height: '28px', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', cursor: 'pointer', fontSize: '14px', fontWeight: 700, color: '#334155'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              {renderGroupList(true)}
+            </div>
+          </nav>
+        </>
+      )}
+    </>
   );
 }

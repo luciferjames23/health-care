@@ -25,16 +25,19 @@ export async function selectAccount(username) {
     doctorId: user.doctorId || user.doctor_id,
     title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
   };
-  try {
-    sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
-    sessionStorage.setItem('hx_auth', JSON.stringify(userObj));
-  } catch {}
-  return userObj;
+    try {
+      sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
+      sessionStorage.setItem('hx_auth', JSON.stringify(userObj));
+      window.dispatchEvent(new Event('meridian_user_changed'));
+    } catch {}
+    return userObj;
 }
 
 export async function loginWithPassword(username, password) {
   sessionStorage.removeItem('hc_auth_token');
   sessionStorage.removeItem('meridian_user');
+  sessionStorage.removeItem('hx_auth');
+  window.dispatchEvent(new Event('meridian_user_changed'));
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
@@ -58,6 +61,7 @@ export async function loginWithPassword(username, password) {
   try {
     sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
     sessionStorage.setItem('hx_auth', JSON.stringify(userObj));
+    window.dispatchEvent(new Event('meridian_user_changed'));
   } catch {}
   return userObj;
 }

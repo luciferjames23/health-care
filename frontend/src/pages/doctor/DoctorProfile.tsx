@@ -5,8 +5,20 @@ import { Mail, Phone, Building2, Stethoscope, Edit3, Save, X, CheckCircle, Lock,
 import logo from '../../assets/logo.svg';
 import ModuleLoadingScreen from '../../components/ModuleLoadingScreen';
 
-const DoctorProfile: React.FC = () => {
-  const { user } = useAuth();
+interface DoctorProfileProps {
+  user?: any;
+}
+
+const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
+  const { user: authUser } = useAuth();
+  const user = propUser || authUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+  const doctorId = user?.doctorId || user?.doctor_id;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -36,12 +48,14 @@ const DoctorProfile: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const s = await fetchDashboardSummary();
+      const s = await fetchDashboardSummary({
+        doctor_id: doctorId ? Number(doctorId) : undefined
+      });
       setSummary(s);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [doctorId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -142,8 +156,11 @@ const DoctorProfile: React.FC = () => {
         <div className="profile-info">
           <h2>{user?.name || 'Doctor'}</h2>
           <div className="meta">
-            {user?.department && (
-              <span><Building2 size={14} /> {user.department}</span>
+            {(user?.department || user?.dept) && (
+              <span><Building2 size={14} /> {user.department || user.dept}</span>
+            )}
+            {(user?.specialization || user?.title) && (
+              <span><Stethoscope size={14} /> {user.specialization || user.title}</span>
             )}
             <span><User size={14} /> Username: <strong>{user?.username}</strong></span>
             <span className="status-badge active">ACTIVE</span>
@@ -261,7 +278,8 @@ const DoctorProfile: React.FC = () => {
           <div className="card-body">
             <div className="info-row"><label>Full Name</label><span>{user?.name || '—'}</span></div>
             <div className="info-row"><label>Username</label><span>{user?.username || '—'}</span></div>
-            <div className="info-row"><label>Department</label><span>{user?.department || '—'}</span></div>
+            <div className="info-row"><label>Department</label><span>{user?.department || user?.dept || '—'}</span></div>
+            <div className="info-row"><label>Specialization</label><span>{user?.specialization || user?.title || '—'}</span></div>
             <div className="info-row"><label>Role</label><span style={{ textTransform: 'capitalize' }}>{user?.role || '—'}</span></div>
           </div>
         </div>

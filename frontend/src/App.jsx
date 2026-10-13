@@ -106,6 +106,27 @@ import {
   AdminSystemView
 } from './components/DummyDomainViews';
 
+function resolvePageFromPath(path) {
+  if (!path) return null;
+  const p = path.toLowerCase();
+  if (p.includes('/create-full/details') || p.includes('/create-full-details') || p.includes('/create-full')) {
+    return 'create-full-details';
+  }
+  if (p.includes('/doctor/appointments') || p.includes('/admin/appointments') || p === '/appointments' || p.startsWith('/appointments/')) {
+    return 'appointments';
+  }
+  if (p.includes('/doctor/queue') || p.includes('/todays-queue') || p.includes('/today-queue')) {
+    return 'todays-queue';
+  }
+  if (p.includes('/doctor/dashboard') || p.includes('/doctor-portal') || p === '/doctor') {
+    return 'doctor-portal';
+  }
+  if (p.includes('/patient-records') || p.includes('/doctor-patient-records')) {
+    return 'doctor-patient-records';
+  }
+  return null;
+}
+
 export default function App() {
   useEffect(() => {
     // Proactively pre-fetch and warm cache in background so all tabs load instantly without loading spinners
@@ -116,15 +137,18 @@ export default function App() {
     try { return JSON.parse(sessionStorage.getItem('hx_auth') || 'null'); } catch { return null; }
   });
   const [role, setRoleState] = useState(() => {
-    try { return sessionStorage.getItem('hx_role') || null; } catch { return null; }
+    try {
+      const savedRole = sessionStorage.getItem('hx_role');
+      if (savedRole) return savedRole;
+      const savedAuth = JSON.parse(sessionStorage.getItem('hx_auth') || 'null');
+      return savedAuth?.role || null;
+    } catch { return null; }
   });
   const [activePage, setActivePage] = useState(() => {
     try {
       if (typeof window !== 'undefined') {
-        const path = window.location.pathname;
-        if (path.includes('/create-full/details') || path.includes('/create-full-details') || path.includes('/create-full')) {
-          return 'create-full-details';
-        }
+        const resolved = resolvePageFromPath(window.location.pathname);
+        if (resolved) return resolved;
       }
       return sessionStorage.getItem('hx_page') || 'command';
     } catch { return 'command'; }
@@ -145,13 +169,13 @@ export default function App() {
     try { sessionStorage.setItem('hx_page', activePage); } catch { }
   }, [activePage]);
 
-  // Sync URL changes for direct testing route http://localhost:5173/create-full/details
+  // Sync URL changes for direct routes and navigation history
   useEffect(() => {
     const handleUrlSync = () => {
       if (typeof window !== 'undefined') {
-        const path = window.location.pathname;
-        if (path.includes('/create-full/details') || path.includes('/create-full-details') || path.includes('/create-full')) {
-          setActivePage('create-full-details');
+        const resolved = resolvePageFromPath(window.location.pathname);
+        if (resolved) {
+          setActivePage(resolved);
         }
       }
     };
@@ -173,6 +197,7 @@ export default function App() {
   }, [selectedPatient]);
   // ─────────────────────────────────────────────────────────────────────────────
   const [showMobile, setShowMobile] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [requestedRadiologyStudy, setRequestedRadiologyStudy] = useState(null);
   const isRadiologist = Boolean(
@@ -315,6 +340,7 @@ export default function App() {
   }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
+    setMobileSidebarOpen(false);
     if (role && !isPageAllowed(role, newPage)) {
       console.warn(`[RBAC] Access denied to page '${newPage}' for role '${role}'.`);
       return;
@@ -388,6 +414,8 @@ export default function App() {
           setRole(userObj.role);
           if (userObj.role === 'Patient' || String(userObj.role).toLowerCase() === 'patient') {
             setActivePage('portal');
+          } else if (userObj.role === 'Doctor' || String(userObj.role).toLowerCase() === 'doctor') {
+            setActivePage('doctor-portal');
           } else {
             setActivePage('command');
           }
@@ -408,7 +436,7 @@ export default function App() {
         setUser={setAuth}
         alertsCount={alertsCount}
         onSignOut={handleSignOut}
-        onOpenMobile={() => setShowMobile(true)}
+        onOpenMobile={() => setMobileSidebarOpen(prev => !prev)}
         onOpenAlerts={() => setShowAlertsDrawer(true)}
         onAskAi={handleAskAi}
         onOpenModal={setModal}
@@ -420,10 +448,15 @@ export default function App() {
         {activePage !== 'create-full-details' && activePage !== 'create-full' && activePage !== '/create-full/details' && (
           <AppSidebar
             activePage={activePage}
-            setActivePage={(page) => handleNavigate(page)}
-            userRole={role}
-            doctorName={role === 'Doctor' ? auth?.name : null}
+            setActivePage={(page) => {
+              setMobileSidebarOpen(false);
+              handleNavigate(page);
+            }}
+            userRole={role || auth?.role || 'Doctor'}
+            doctorName={(role === 'Doctor' || auth?.role === 'Doctor') ? auth?.name : null}
             dischargeCount={dischargeCount}
+            mobileOpen={mobileSidebarOpen}
+            onCloseMobile={() => setMobileSidebarOpen(false)}
           />
         )}
 
@@ -810,6 +843,7 @@ export default function App() {
               <AppointmentManagement
                 doctorName={role === 'Doctor' ? auth?.name : null}
                 userRole={role}
+                currentUser={auth}
                 onSelectPatient={handleSelectPatient}
                 onNavigate={(p, pat) => handleNavigate(p, pat)}
               />
@@ -844,6 +878,7 @@ export default function App() {
             )}
             {activePage === 'doctor-portal' && (
               <DoctorDashboard
+                user={auth}
                 onNavigate={(p, pat) => handleNavigate(p, pat)}
                 onSelectPatient={handleSelectPatient}
               />
@@ -853,6 +888,7 @@ export default function App() {
                 initialTab="queue"
                 doctorName={role === 'Doctor' ? auth?.name : null}
                 userRole={role}
+                currentUser={auth}
                 onSelectPatient={handleSelectPatient}
                 onNavigate={(p, pat) => handleNavigate(p, pat)}
               />

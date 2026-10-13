@@ -28,8 +28,20 @@ const formatSourceLabel = (source?: string) => {
   return source;
 };
 
-const DoctorAppointments: React.FC = () => {
-  const { user } = useAuth();
+interface DoctorAppointmentsProps {
+  user?: any;
+}
+
+const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser }) => {
+  const { user: authUser } = useAuth();
+  const currentUser = propUser || authUser || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch {
+      return null;
+    }
+  })();
+  const doctorId = (currentUser?.doctorId || currentUser?.doctor_id) ? Number(currentUser.doctorId || currentUser.doctor_id) : undefined;
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -55,6 +67,7 @@ const DoctorAppointments: React.FC = () => {
     setApiError(null);
     try {
       const res = await fetchAppointments({
+        doctor_id: doctorId,
         search: search || undefined,
         status: statusFilter || undefined,
         booking_source: sourceFilter || undefined,

@@ -131,7 +131,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
   onChange,
   className = '',
 }) => {
-  const [preset, setPreset] = useState<DatePreset>(initialPreset);
+  const [preset, setPreset] = useState<DatePreset>(initialPreset || 'this_month');
   const [customFrom, setCustomFrom] = useState<string>(initialFrom || toYMD(new Date()));
   const [customTo, setCustomTo] = useState<string>(initialTo || toYMD(new Date()));
 
@@ -165,7 +165,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
       </div>
 
       <select
-        value={preset}
+        value={preset || 'this_month'}
         onChange={(e) => setPreset(e.target.value as DatePreset)}
         style={{
           padding: '6px 12px',

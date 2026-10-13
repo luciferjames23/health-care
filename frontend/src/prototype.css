@@ -2390,3 +2390,21 @@ textarea.form-control {
   min-height: 70px;
 }
 
+/* Responsive Layout Controls for Header and AppSidebar */
+@media (max-width: 768px) {
+  .header-mobile-toggle-btn {
+    display: inline-flex !important;
+  }
+  .app-sidebar-desktop {
+    display: none !important;
+  }
+}
+@media (min-width: 769px) {
+  .header-mobile-toggle-btn {
+    display: none !important;
+  }
+  .app-sidebar-desktop {
+    display: block !important;
+  }
+}
+

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Menu } from 'lucide-react';
 import { ALL_ROLES, DEMO_ROLES } from '../services/meridianData';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
@@ -93,9 +94,10 @@ export default function TopHeader({
     return () => { isMounted = false; };
   }, []);
 
-  // Merge database users with other domain roles
+  // Merge database users with other domain roles and ensure currently logged in user is included
   const combinedUsers = React.useMemo(() => {
-    const list = (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS).map(u => {
+    const rawList = (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
+    const list = rawList.map(u => {
       const isAdm = (u.role === 'Admin' || u.role === 'ADMIN' || u.username === 'admin');
       const normalizedRole = isAdm ? 'Hospital Management' : (u.role || 'Doctor');
       const spec = u.specialization || u.title || u.dept || (isAdm ? 'Administration' : 'General Medicine');
@@ -111,6 +113,22 @@ export default function TopHeader({
 
     const existingUsernames = new Set(list.map(u => u.username?.toLowerCase()));
 
+    // Ensure active authenticated user is always present in list
+    if (user && user.username && !existingUsernames.has(user.username.toLowerCase())) {
+      const isAdm = (user.role === 'Admin' || user.role === 'ADMIN' || user.username === 'admin' || user.role === 'Hospital Management');
+      const normalizedRole = isAdm ? 'Hospital Management' : (user.role || 'Doctor');
+      const spec = user.specialization || user.title || user.dept || user.department || (isAdm ? 'Administration' : 'General Medicine');
+      list.unshift({
+        username: user.username,
+        name: user.name,
+        role: normalizedRole,
+        dept: user.dept || user.department || 'General Medicine',
+        specialization: spec,
+        title: spec
+      });
+      existingUsernames.add(user.username.toLowerCase());
+    }
+
     // Other non-doctor roles from DEMO_ROLES
     const extraRoles = DEMO_ROLES
       .filter(d => d.role !== 'Doctor' && !existingUsernames.has(d.username?.toLowerCase()))
@@ -124,7 +142,7 @@ export default function TopHeader({
       }));
 
     return [...list, ...extraRoles];
-  }, [dbUsers]);
+  }, [dbUsers, user]);
 
   // Available users for current selected role
   const usersForCurrentRole = React.useMemo(() => {
@@ -136,8 +154,20 @@ export default function TopHeader({
       }
       return u.role?.toLowerCase() === role.toLowerCase();
     });
+    // Ensure active user is present in usersForCurrentRole if their role matches
+    if (user && user.username) {
+      const userMatchesRole = role === 'Hospital Management'
+        ? (user.role === 'Hospital Management' || user.role === 'Admin' || user.role === 'ADMIN')
+        : (user.role?.toLowerCase() === role.toLowerCase());
+      if (userMatchesRole && !filtered.some(u => u.username?.toLowerCase() === user.username.toLowerCase())) {
+        const matchingCombined = combinedUsers.find(u => u.username?.toLowerCase() === user.username.toLowerCase());
+        if (matchingCombined) {
+          filtered.unshift(matchingCombined);
+        }
+      }
+    }
     return filtered.length > 0 ? filtered : list;
-  }, [combinedUsers, dbUsers, role]);
+  }, [combinedUsers, dbUsers, role, user]);
 
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -156,6 +186,31 @@ export default function TopHeader({
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
         padding: '8px 14px', minHeight: '44px'
       }}>
+        {/* Mobile menu toggle */}
+        <button
+          type="button"
+          onClick={onOpenMobile}
+          aria-label="Toggle navigation menu"
+          className="header-mobile-toggle-btn"
+          style={{
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '32px',
+            height: '32px',
+            border: '1px solid #e3e6e8',
+            borderRadius: '6px',
+            background: '#ffffff',
+            cursor: 'pointer',
+            padding: 0,
+            color: '#15181b',
+            flexShrink: 0
+          }}
+          title="Open navigation menu"
+        >
+          <Menu size={18} />
+        </button>
+
         {/* Brand */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => window.location.reload()}>
           <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: 'oklch(0.5 0.1 200)' }} />
@@ -290,7 +345,7 @@ export default function TopHeader({
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
               <span>Role</span>
               <select
-                value={role}
+                value={role || ''}
                 title="Select role to switch user"
                 onChange={e => {
                   const nextRole = e.target.value;
@@ -320,7 +375,12 @@ export default function TopHeader({
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
               <span>User</span>
               <select
-                value={user?.username || (usersForCurrentRole[0]?.username)}
+                value={
+                  usersForCurrentRole.find(r => r.username?.toLowerCase() === user?.username?.toLowerCase())?.username ||
+                  user?.username ||
+                  usersForCurrentRole[0]?.username ||
+                  ''
+                }
                 onChange={e => {
                   const selectedUsername = e.target.value;
                   const u = combinedUsers.find(r => r.username === selectedUsername);

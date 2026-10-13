@@ -27,22 +27,23 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface DoctorDashboardProps {
+  user?: any;
   onNavigate?: (page: string, patient?: any) => void;
   onSelectPatient?: (patient: any) => void;
 }
 
-const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectPatient }) => {
+const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNavigate, onSelectPatient }) => {
   const { user: authContextUser } = useAuth();
   const navigate = useNavigate();
 
-  const currentUser = authContextUser || (() => {
+  const currentUser = propUser || authContextUser || (() => {
     try {
       return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
     } catch {
       return null;
     }
   })();
-  const doctorId = currentUser?.doctorId ? Number(currentUser.doctorId) : undefined;
+  const doctorId = (currentUser?.doctorId || currentUser?.doctor_id) ? Number(currentUser.doctorId || currentUser.doctor_id) : undefined;
 
   const [dateRange, setDateRange] = useState<DateRangeValue>(() => {
     const calc = calculateDateRange('all_time');
@@ -209,7 +210,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ onNavigate, onSelectP
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2>Meridian Hospital — Doctor Portal</h2>
-            <p>{greeting}, {currentUser?.name || 'Doctor'} {currentUser?.department ? `· Department: ${currentUser?.department}` : ''}</p>
+            <p>{greeting}, {currentUser?.name || 'Doctor'} {(currentUser?.department || currentUser?.dept) ? `· Department: ${currentUser.department || currentUser.dept}` : ''} {(currentUser?.specialization || currentUser?.title) ? `· ${currentUser.specialization || currentUser.title}` : ''}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button

@@ -1658,7 +1658,7 @@ def get_appointments(
             d_from_str = None
         if d_to_str and d_to_str.strip().lower() in {"null", "undefined", ""}:
             d_to_str = None
-        if status_str and status_str.strip().lower() in {"all", "all status", "all statuses", "null", "undefined", ""}:
+        if status_str and status_str.strip().lower() in {"all", "all status", "all statuses", "status", "null", "undefined", ""}:
             status_str = None
         if source_str and source_str.strip().lower() in {"all", "all sources", "all source", "null", "undefined", ""}:
             source_str = None
@@ -1686,22 +1686,15 @@ def get_appointments(
             )
             params += [s_like, s_like, s_like, s_like, s_like, s_like, search_str.strip()]
 
-<<<<<<< Updated upstream
-        if status_str:
-            if status_str.upper() in ('ACTIVE', 'SCHEDULED'):
-                conditions.append("a.status IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')")
-            else:
-                conditions.append("a.status = %s")
-                params.append(status_str.upper())
-=======
         if status_str and status_str.strip():
             st_clean = status_str.strip().upper()
-            if st_clean == 'CHECKED_IN':
+            if st_clean in ('ACTIVE', 'SCHEDULED'):
+                conditions.append("UPPER(a.status) IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN')")
+            elif st_clean == 'CHECKED_IN':
                 conditions.append("(UPPER(a.status) = 'CHECKED_IN' OR UPPER(COALESCE(qe.queue_status, '')) = 'CHECKED_IN')")
             else:
                 conditions.append("UPPER(a.status) = %s")
                 params.append(st_clean)
->>>>>>> Stashed changes
 
         if dept_str and dept_str.strip() and dept_str.strip().lower() not in {"all", "all departments", "all department", "null", "undefined"}:
             s_val = dept_str.strip()
@@ -1911,7 +1904,8 @@ def get_doctors(
         appt_only = bool(appointment_only) if not hasattr(appointment_only, 'default') else False
 
         if appt_only:
-            conditions.append("(d.department_id IN (1, 2, 3, 4, 5, 6, 7, 8, 12, 17, 18, 19, 20, 21, 22, 23, 24) OR EXISTS (SELECT 1 FROM appointments a_sub WHERE a_sub.doctor_id = d.id))")
+            # When appointment_only=true, show only doctors assigned to the 8 appointment departments (17-24)
+            conditions.append("d.department_id IN (17, 18, 19, 20, 21, 22, 23, 24)")
 
         if search_str and search_str.strip():
             s = f"%{search_str.strip().lower()}%"
@@ -2812,7 +2806,8 @@ def get_departments(
         cur = conn.cursor()
 
         appt_only = bool(appointment_only) if not hasattr(appointment_only, 'default') else False
-        where_clause = "WHERE (dept.id IN (1, 2, 3, 4, 5, 6, 7, 8, 12, 17, 18, 19, 20, 21, 22, 23, 24) OR EXISTS (SELECT 1 FROM appointments a_sub WHERE a_sub.department_id = dept.id))" if appt_only else ""
+        # When appointment_only=true, show ONLY the 8 designated appointment departments (IDs 17-24)
+        where_clause = "WHERE dept.id IN (17, 18, 19, 20, 21, 22, 23, 24)" if appt_only else ""
         order_clause = "ORDER BY dept.id" if appt_only else "ORDER BY dept.department_name"
 
         cur.execute(

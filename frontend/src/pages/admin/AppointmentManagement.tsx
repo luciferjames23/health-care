@@ -112,6 +112,7 @@ interface AppointmentManagementProps {
   initialTab?: 'list' | 'queue';
   onSelectPatient?: (patient: any) => void;
   onNavigate?: (page: string, patient?: any) => void;
+  currentUser?: any;
 }
 
 class QueueErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
@@ -152,11 +153,12 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   userRole = 'Hospital Management',
   initialTab = 'list',
   onSelectPatient,
-  onNavigate
+  onNavigate,
+  currentUser
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'queue'>(initialTab);
   const { user: authUser } = useAuth();
-  const user = authUser || (() => {
+  const user = currentUser || authUser || (() => {
     try {
       return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
     } catch {
@@ -183,9 +185,10 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       displayLabel: calc.label,
     };
   });
+  // deptFilter stores the department ID as a string ('' = All Departments)
   const [deptFilter, setDeptFilter] = useState('');
   const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
-  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [sortBy, setSortBy] = useState('appointment_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -261,6 +264,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
+        // Send department ID (numeric string) so the backend applies the reliable id-based filter
         department: isDoctor ? undefined : (deptFilter || undefined),
         doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
@@ -331,6 +335,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       const res = await fetchAppointments({
         search: search || undefined,
         status: statusFilter || undefined,
+        // Send department ID (numeric string) so the backend applies the reliable id-based filter
         department: isDoctor ? undefined : (deptFilter || undefined),
         doctor_id: targetDocId,
         booking_source: sourceFilter || undefined,
@@ -424,18 +429,22 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     setPage(1);
   };
 
-  const handleDeptChange = (newDept: string) => {
-    setDeptFilter(newDept);
+  // When a department is selected, store its ID and clear the doctor filter
+  // if the currently-selected doctor does not belong to that department.
+  const handleDeptChange = (newDeptId: string) => {
+    setDeptFilter(newDeptId);
     setPage(1);
-    if (doctorFilter !== undefined && !isDoctor) {
+    if (!isDoctor && doctorFilter !== undefined) {
       const currentDoc = doctors.find(d => d.id === doctorFilter);
-      const targetDept = departments.find(d => d.department_name.toLowerCase() === newDept.toLowerCase() || String(d.id) === newDept);
-      if (!newDept || !currentDoc || (targetDept && currentDoc.department_id !== targetDept.id && (currentDoc.department_name || '').toLowerCase() !== newDept.toLowerCase())) {
+      // Keep doctor only if their department_id matches the newly selected dept
+      if (newDeptId && currentDoc && String(currentDoc.department_id) !== newDeptId) {
         setDoctorFilter(undefined);
       }
     }
   };
 
+  // When a doctor is selected, auto-populate the department filter using that
+  // doctor's database department_id — no name matching needed.
   const handleDoctorChange = (val: string) => {
     if (!val) {
       setDoctorFilter(undefined);
@@ -446,13 +455,11 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     setDoctorFilter(docId);
     setPage(1);
     const selectedDoc = doctors.find(d => d.id === docId);
-    if (selectedDoc) {
-      const matchedDept = departments.find(d => d.id === selectedDoc.department_id || (selectedDoc.department_name && d.department_name.toLowerCase() === selectedDoc.department_name.toLowerCase()));
-      if (matchedDept) {
-        setDeptFilter(matchedDept.department_name);
-      } else if (selectedDoc.department_name) {
-        setDeptFilter(selectedDoc.department_name);
-      }
+    if (selectedDoc && selectedDoc.department_id) {
+      // Only update dept filter if it's not already set to a different specific dept
+      // (to avoid overriding a deliberate dept selection that happens to have this doctor)
+      const deptIdStr = String(selectedDoc.department_id);
+      setDeptFilter(deptIdStr);
     }
   };
 
@@ -476,12 +483,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     setPage(1);
   };
 
+  // Filter doctors list based on selected department ID (reliable — uses the numeric FK)
   const availableDoctors = deptFilter
-    ? doctors.filter(d => {
-        const targetDept = departments.find(dept => dept.department_name.toLowerCase() === deptFilter.toLowerCase() || String(dept.id) === deptFilter);
-        return (d.department_name && d.department_name.toLowerCase() === deptFilter.toLowerCase()) ||
-               (targetDept && d.department_id === targetDept.id);
-      })
+    ? doctors.filter(d => String(d.department_id) === deptFilter)
     : doctors;
 
   const hasActiveFilters = Boolean(
@@ -637,7 +641,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
               >
                 <option value="">All Departments</option>
                 {(departments || []).map(d => (
-                  <option key={d.id} value={d.department_name}>
+                  <option key={d.id} value={String(d.id)}>
                     {d.department_name}
                   </option>
                 ))}
@@ -680,15 +684,12 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             value={statusFilter}
             onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
             style={selectStyle}
+            aria-label="Status"
+            title="Filter appointments by status"
           >
-<<<<<<< Updated upstream
-            <option value="ACTIVE">⚡ Active & Scheduled (Current)</option>
-            <option value="">All Status (All-Time Historical)</option>
-            {['BOOKED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
-=======
-            <option value="">All Status</option>
+            <option value="">Status</option>
+            <option value="ACTIVE">Active & Scheduled</option>
             {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
->>>>>>> Stashed changes
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
