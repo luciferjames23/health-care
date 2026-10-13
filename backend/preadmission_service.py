@@ -14,7 +14,7 @@ Responsibilities:
 import datetime
 from typing import Optional, Dict, Any, List
 import db_config
-from utils.phone_utils import normalize_phone
+from utils.phone_utils import normalize_phone, parse_and_normalize_phone, to_meta_digits, to_canonical_e164
 
 
 class PreAdmissionValidationError(Exception):
@@ -180,7 +180,12 @@ def create_pre_admission(
         "expected_admission_date": str(date_obj),
         "admission_type": adm_type_clean,
         "status": status_initial,
-        "notification_status": notification_result.get("status")
+        # Propagate all notification fields so the UI can show accurate provider-backed status
+        "notification_status": notification_result.get("status"),
+        "notification_message_id": notification_result.get("message_id"),
+        "notification_error": notification_result.get("error"),
+        "whatsapp_number": notification_result.get("whatsapp_number"),
+        "notification_detail": notification_result.get("detail"),
     }
 
 
@@ -217,9 +222,9 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         if not target_wa or not str(target_wa).strip():
             return {"success": False, "error": "Patient does not have a registered phone or WhatsApp number"}
 
-        raw_digits = "".join(c for c in str(target_wa) if c.isdigit())
-        if len(raw_digits) < 10 or len(raw_digits) > 15:
-            val_error = f"Malformed phone number '{target_wa}' (must contain 10-15 digits)"
+        can_e164, meta_digits, is_valid_phone = parse_and_normalize_phone(target_wa)
+        if not is_valid_phone or not meta_digits:
+            val_error = f"Malformed phone number '{target_wa}'"
             print(f"[PRE_ADMISSION_NOTIF] Validation error: {val_error}")
             cur.execute("""
                 INSERT INTO notifications (
@@ -276,7 +281,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
             f"Please tap a button below or reply *YES* to confirm your admission or *NO* to cancel."
         )
 
-        # 1. Create Notification Record in DB
+        # 1. Create Notification Record in DB (Status: PENDING)
         cur.execute("""
             INSERT INTO notifications (
                 patient_id, notification_type, channel, message, status, created_at
@@ -286,12 +291,11 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         notif_id = cur.fetchone()[0]
 
         # 2. Ensure active conversation & log message for patient chat history
-        clean_target_wa = normalize_phone(target_wa) if target_wa else ""
         cur.execute("""
             SELECT id, conversation_code FROM conversations
-            WHERE patient_id = %s OR whatsapp_number = %s OR whatsapp_number = %s
+            WHERE patient_id = %s OR whatsapp_number = %s OR whatsapp_number = %s OR whatsapp_number = %s
             ORDER BY id DESC LIMIT 1;
-        """, (pat_id, target_wa, clean_target_wa))
+        """, (pat_id, target_wa, can_e164, meta_digits))
         conv_row = cur.fetchone()
         if not conv_row:
             import uuid
@@ -301,7 +305,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
                     conversation_code, patient_id, whatsapp_number, channel, language, current_intent, conversation_status, created_at, updated_at
                 ) VALUES (%s, %s, %s, 'WHATSAPP', %s, 'PRE_ADMISSION_CLEARANCE', 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 RETURNING id, conversation_code;
-            """, (conv_code, pat_id, target_wa, lang))
+            """, (conv_code, pat_id, can_e164 or target_wa, lang))
             conv_row = cur.fetchone()
 
         conv_id = conv_row[0]
@@ -317,11 +321,13 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         cur.execute("""
             INSERT INTO messages (
                 conversation_id, sender_type, message_type, message_text, language, intent, metadata, created_at
-            ) VALUES (%s, 'AI_AGENT', 'TEXT', %s, %s, 'PRE_ADMISSION_CLEARANCE', %s::jsonb, CURRENT_TIMESTAMP);
+            ) VALUES (%s, 'AI_AGENT', 'TEXT', %s, %s, 'PRE_ADMISSION_CLEARANCE', %s::jsonb, CURRENT_TIMESTAMP)
+            RETURNING id;
         """, (conv_id, msg, lang, json.dumps(notif_meta)))
+        msg_db_id = cur.fetchone()[0]
         conn.commit()
 
-        # 3. Dispatch via voice.whatsapp_client service
+        # 3. Dispatch via voice.whatsapp_client service using provider digits format
         send_success = False
         ext_msg_id = None
         dispatch_error = None
@@ -332,7 +338,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
                 {"id": "btn_cancel_admission", "title": "Cancel Admission"},
                 {"id": "btn_admission_help", "title": "Need Assistance"}
             ]
-            res = whatsapp_client.send_button_message(target_wa, msg, buttons)
+            res = whatsapp_client.send_button_message(meta_digits, msg, buttons)
             if isinstance(res, dict) and res.get("success"):
                 send_success = True
                 ext_msg_id = res.get("message_id")
@@ -341,7 +347,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
             else:
                 dispatch_error = res.get("error") if isinstance(res, dict) else "WhatsApp button send failed"
                 # Fallback to plain text message if button message fails
-                res_text = whatsapp_client.send_text_message(target_wa, msg)
+                res_text = whatsapp_client.send_text_message(meta_digits, msg)
                 if isinstance(res_text, dict) and res_text.get("success"):
                     send_success = True
                     ext_msg_id = res_text.get("message_id")
@@ -358,13 +364,31 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
 
         # 4. Update Notification Status
         if send_success:
+            # Accepted by provider: set status to SUBMITTED; delivery pending webhook confirmation
             cur.execute("""
                 UPDATE notifications
-                SET status = 'SENT', external_message_id = %s, sent_at = CURRENT_TIMESTAMP
+                SET status = 'SUBMITTED', external_message_id = %s, sent_at = CURRENT_TIMESTAMP
                 WHERE id = %s;
             """, (ext_msg_id, notif_id))
-            cur.execute("UPDATE pre_admissions SET status = 'CONTACTED' WHERE id = %s AND status = 'PENDING';", (pre_admission_id,))
-            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} dispatched successfully to {target_wa}")
+
+            # Attach provider message ID to message record for webhook mapping
+            cur.execute("""
+                UPDATE messages
+                SET metadata = jsonb_set(
+                    COALESCE(metadata::jsonb, '{}'::jsonb),
+                    '{whatsapp_message_id}',
+                    to_jsonb(%s::text)
+                )
+                WHERE id = %s;
+            """, (ext_msg_id, msg_db_id))
+
+            remark_text = f"WhatsApp notification submitted (ID: {ext_msg_id}); delivery pending confirmation"
+            cur.execute("""
+                UPDATE pre_admissions
+                SET remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || '; ' || %s END
+                WHERE id = %s;
+            """, (remark_text, remark_text, pre_admission_id))
+            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} submitted to Meta Cloud API (ID: {ext_msg_id}) for {meta_digits}")
         else:
             reason_msg = dispatch_error or "WhatsApp API delivery failed"
             cur.execute("""
@@ -379,15 +403,17 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
                 SET remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || '; ' || %s END
                 WHERE id = %s;
             """, (remark_text, remark_text, pre_admission_id))
-            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} failed to dispatch to {target_wa}: {reason_msg}")
+            print(f"[PRE_ADMISSION_NOTIF] Notification ID {notif_id} failed to dispatch to {meta_digits}: {reason_msg}")
 
         conn.commit()
         return {
             "success": send_success,
             "notification_id": notif_id,
-            "status": "SENT" if send_success else "FAILED",
+            "status": "SUBMITTED" if send_success else "FAILED",
+            "message_id": ext_msg_id,
             "error": dispatch_error if not send_success else None,
-            "whatsapp_number": target_wa
+            "whatsapp_number": can_e164 or target_wa,
+            "detail": "WhatsApp notification submitted; delivery pending confirmation." if send_success else f"WhatsApp notification failed: {dispatch_error}"
         }
 
     except Exception as e:

@@ -27,7 +27,7 @@ import agent.response_validator as response_validator
 import agent.grounding_validator as grounding_validator
 import agent.conversation_stages as conversation_stages
 import agent.feedback_agent as feedback_agent
-from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number
+from utils.phone_utils import get_phone_query_condition, get_phone_query_params, normalize_phone, extract_whatsapp_number, to_canonical_e164, parse_and_normalize_phone
 import utils.cache_service as cache_service
 import services.patient_service as patient_service
 
@@ -1133,7 +1133,9 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
 
     reg_fields = state.get("registration_fields") or {}
     whatsapp_val = extract_whatsapp_number(conversation_code, state)
-    reg_phone = reg_fields.get("phone") or whatsapp_val
+    raw_phone = reg_fields.get("phone") or whatsapp_val
+    reg_phone = to_canonical_e164(raw_phone) or raw_phone
+    wa_phone = to_canonical_e164(whatsapp_val) or whatsapp_val
 
     if not reg_fields.get("first_name") or not reg_fields.get("date_of_birth") or not reg_fields.get("gender"):
         state["reg_confirmation_pending"] = False
@@ -1160,8 +1162,8 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
             full_name = format_patient_full_name(id_row[0] if id_row else reg_fields.get("first_name"), id_row[1] if id_row else reg_fields.get("last_name"))
 
             cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (pat_id, conversation_code))
-            if whatsapp_val and whatsapp_val != "919999999999":
-                cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (whatsapp_val, pat_id))
+            if wa_phone and wa_phone not in ("919999999999", "+919999999999"):
+                cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (wa_phone, pat_id))
             conn.commit()
 
             state["patient_id"] = pat_id
@@ -1209,7 +1211,7 @@ def handle_registration_confirmation(conversation_code: str, state: dict, curren
                 norm_dob,
                 reg_fields["gender"] or "Male",
                 reg_phone,
-                whatsapp_val,
+                wa_phone,
                 reg_fields.get("email"),
                 current_lang or "ENGLISH"
             ))
@@ -1515,7 +1517,8 @@ def handle_unknown_patient_identification_flow(
         state["registration_fields"] = reg_fields
 
     if not reg_fields.get("phone"):
-        reg_fields["phone"] = whatsapp_val if whatsapp_val != "919999999999" else "8072851813"
+        can_wa = to_canonical_e164(whatsapp_val) if whatsapp_val and whatsapp_val != "919999999999" else None
+        reg_fields["phone"] = can_wa or (whatsapp_val if whatsapp_val != "919999999999" else None)
 
     # Action: CONFIRM REGISTRATION (btn_confirm_reg or text 'confirm')
     if btn_id == "btn_confirm_reg" or (state.get("reg_confirmation_pending") and msg_lower in ["confirm", "yes", "correct", "ok"]):
@@ -1566,7 +1569,7 @@ def handle_unknown_patient_identification_flow(
                 language_service.get_translated_button("btn_g_other", current_lang)
             ]
         elif field_target == "phone":
-            resp = "Please enter your 10-digit phone number:"
+            resp = "Please enter your phone number with country code (e.g. +91 98765 43210):"
             buttons = []
         elif field_target == "email":
             resp = "Please enter your email address:"
@@ -1654,17 +1657,26 @@ def handle_unknown_patient_identification_flow(
                 return {"success": True, "conversation_id": conversation_code, "language": current_lang, "intent": "REGISTER_PATIENT", "response": resp, "interactive_buttons": btns}
 
         elif edit_field == "phone":
-            m = re.search(r"\b(\d{10,12})\b", msg_raw)
-            if m:
-                reg_fields["phone"] = m.group(1)
+            e164_cand, _, is_v = parse_and_normalize_phone(msg_raw)
+            if is_v and e164_cand:
+                reg_fields["phone"] = e164_cand
                 state["registration_edit_field"] = None
                 state["patient_identification_stage"] = "REGISTRATION_CONFIRMATION"
                 state["registration_stage"] = "REGISTRATION_CONFIRMATION"
                 state["reg_confirmation_pending"] = True
                 return render_registration_confirmation_card(conversation_code, state, current_lang)
             else:
-                resp = "Please enter a valid 10-digit phone number."
-                return {"success": True, "conversation_id": conversation_code, "language": current_lang, "intent": "REGISTER_PATIENT", "response": resp, "interactive_buttons": []}
+                m = re.search(r"\b(\d{10,15})\b", msg_raw)
+                if m:
+                    reg_fields["phone"] = to_canonical_e164(m.group(1)) or m.group(1)
+                    state["registration_edit_field"] = None
+                    state["patient_identification_stage"] = "REGISTRATION_CONFIRMATION"
+                    state["registration_stage"] = "REGISTRATION_CONFIRMATION"
+                    state["reg_confirmation_pending"] = True
+                    return render_registration_confirmation_card(conversation_code, state, current_lang)
+                else:
+                    resp = "Please enter a valid phone number with country code."
+                    return {"success": True, "conversation_id": conversation_code, "language": current_lang, "intent": "REGISTER_PATIENT", "response": resp, "interactive_buttons": []}
 
         elif edit_field == "email":
             reg_fields["email"] = msg_raw.strip()
@@ -6943,18 +6955,21 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 reg_dob = state.get("registration_dob") or "2000-01-01"
                 reg_gender = state.get("registration_gender") or "Male"
                 user_phone = state.get("whatsapp_number") or extract_whatsapp_number(conversation_code)
+                can_user_phone = to_canonical_e164(user_phone) or user_phone
 
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
                 try:
                     # Check if patient already exists (exact same person: matching name, DOB, and phone)
                     # A phone match alone NEVER treats a new patient as an existing patient.
-                    identical_pat = patient_service.find_identical_registered_patient(cur, first_name, last_name, reg_dob, user_phone)
+                    identical_pat = patient_service.find_identical_registered_patient(cur, first_name, last_name, reg_dob, can_user_phone)
 
                     if identical_pat:
                         new_pat_id = identical_pat[0]
                         next_code = identical_pat[1]
                         cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
+                        if can_user_phone and can_user_phone not in ("919999999999", "+919999999999"):
+                            cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (can_user_phone, new_pat_id))
                         conn.commit()
                     else:
                         new_pat_id, next_code = patient_service.get_next_canonical_patient_id(cur)
@@ -6969,7 +6984,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                                 %s, %s, %s, CURRENT_DATE, 'ACTIVE',
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             ) RETURNING id, patient_code;
-                        """, (new_pat_id, next_code, first_name, last_name, reg_dob, reg_gender, user_phone, user_phone, current_lang or "ENGLISH"))
+                        """, (new_pat_id, next_code, first_name, last_name, reg_dob, reg_gender, can_user_phone, can_user_phone, current_lang or "ENGLISH"))
                         res_row = cur.fetchone()
                         new_pat_id, next_code = res_row[0], res_row[1]
                         cur.execute("UPDATE conversations SET patient_id = %s WHERE conversation_code = %s;", (new_pat_id, conversation_code))
@@ -8025,18 +8040,22 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 try:
                     whatsapp_val = extract_whatsapp_number(conversation_code, state)
                     phone_val = reg_fields.get("phone") or whatsapp_val
+                    can_phone = to_canonical_e164(phone_val) or phone_val
+                    can_wa = to_canonical_e164(whatsapp_val) or whatsapp_val
                     fn_val = reg_fields.get("first_name") or "Patient"
                     ln_val = reg_fields.get("last_name") or "."
                     dob_val = reg_fields.get("date_of_birth") or "2000-01-01"
 
                     # Check if patient already exists (exact same person: matching name, DOB, and phone)
                     # A phone match alone NEVER treats a new patient as an existing patient.
-                    identical_pat = patient_service.find_identical_registered_patient(cur, fn_val, ln_val, dob_val, phone_val)
+                    identical_pat = patient_service.find_identical_registered_patient(cur, fn_val, ln_val, dob_val, can_phone)
 
                     if identical_pat:
                         new_pat_id = identical_pat[0]
                         next_code = identical_pat[1]
-                        cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, phone_val, conversation_code))
+                        cur.execute("UPDATE conversations SET patient_id = %s, whatsapp_number = %s WHERE conversation_code = %s;", (new_pat_id, can_phone, conversation_code))
+                        if can_wa and can_wa not in ("919999999999", "+919999999999"):
+                            cur.execute("UPDATE patients SET whatsapp_number = %s WHERE id = %s;", (can_wa, new_pat_id))
                         conn.commit()
                     else:
                         new_pat_id, next_code = patient_service.get_next_canonical_patient_id(cur)
@@ -8058,8 +8077,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                             ln_val,
                             dob_val,
                             reg_fields.get("gender") or "Male",
-                            phone_val,
-                            phone_val,
+                            can_phone,
+                            can_wa or can_phone,
                             current_lang or "ENGLISH"
                         ))
                         res_row = cur.fetchone()
@@ -8106,7 +8125,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         if llm_info.get("gender"):
             reg_fields["gender"] = llm_info["gender"]
         if llm_info.get("phone"):
-            reg_fields["phone"] = llm_info["phone"]
+            reg_fields["phone"] = to_canonical_e164(llm_info["phone"]) or llm_info["phone"]
         if llm_info.get("reason"):
             _llm_reason_val = llm_info["reason"]
             # Bug 2 fix: only accept llm reason if it contains a real medical keyword
@@ -8151,11 +8170,14 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
         # 2. Phone Extraction & Sender Number Fallback
         if not reg_fields.get("phone"):
-            match_phone = re.search(r"\b(\d{10,12})\b", msg_raw)
-            if match_phone:
-                reg_fields["phone"] = match_phone.group(1)
-            else:
-                reg_fields["phone"] = extract_whatsapp_number(conversation_code, state)
+            raw_sender_wa = extract_whatsapp_number(conversation_code, state)
+            match_phone = re.search(r"(\+?\d{10,15})", msg_raw)
+            if state.get("registration_edit_field") == "phone" and match_phone:
+                reg_fields["phone"] = to_canonical_e164(match_phone.group(1)) or match_phone.group(1)
+            elif raw_sender_wa:
+                reg_fields["phone"] = to_canonical_e164(raw_sender_wa) or raw_sender_wa
+            elif match_phone:
+                reg_fields["phone"] = to_canonical_e164(match_phone.group(1)) or match_phone.group(1)
 
         # 3. Gender matching
         if re.search(r"\b(male|man)\b", msg_raw.lower()):
@@ -8260,7 +8282,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
             if known_text:
                 detail_heading = "detail" if len(missing_req) == 1 else "details"
-                together_suffix = "\n\nYou can send them together (e.g., 08/09/2004, Male, 8072851813)." if len(missing_req) > 1 else "."
+                together_suffix = "\n\nYou can send them together (e.g., 08/09/2004, Male)." if len(missing_req) > 1 else "."
                 greeting_name = f", *{fn}*" if fn else ""
                 response_text = (
                     f"Got it{greeting_name}! 👍\n\n"
@@ -8274,7 +8296,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     f"To create your patient profile, please send the following details in one message:\n\n"
                     f"• " + "\n• ".join(missing_req) + "\n\n"
                     f"Example:\n"
-                    f"Arokiya Gilbrit, 08/09/2004, Male, 8072851813, fever and cough"
+                    f"Arokiya Gilbrit, 08/09/2004, Male, fever and cough"
                 )
             state["interactive_buttons"] = []
 

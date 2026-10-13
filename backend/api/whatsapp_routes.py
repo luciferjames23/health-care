@@ -673,6 +673,16 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    return handle_whatsapp_webhook(payload, background_tasks)
+
+
+def handle_whatsapp_webhook(payload: dict, background_tasks: Optional[BackgroundTasks] = None) -> dict:
+    """
+    Process verified WhatsApp webhook payload (status updates and inbound messages).
+    Callable both from FastAPI route handler and test harnesses.
+    """
+    if background_tasks is None:
+        background_tasks = BackgroundTasks()
 
     # Log payload for auditing
     scratch_dir = os.path.join(backend_dir, "scratch")
@@ -702,19 +712,72 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         
         print(f"[WHATSAPP_STATUS_RECEIVED] wamid={wamid}, status={status_upper}, recipient={recipient_id}")
         
+        err_msg = None
+        if status_upper == "FAILED":
+            errors_list = status_obj.get("errors") or []
+            if errors_list:
+                e0 = errors_list[0]
+                code = e0.get("code")
+                title = e0.get("title") or ""
+                desc = e0.get("message") or ""
+                err_msg = f"Meta Error #{code}: {title} - {desc}".strip(" -")
+            else:
+                err_msg = "Meta delivery failed (no error detail provided)"
+
         if wamid and status_upper in ["SENT", "DELIVERED", "READ", "FAILED"]:
             conn = db_config.get_db_connection()
             cur = conn.cursor()
             try:
+                # 1. Update messages metadata
                 cur.execute("""
                     UPDATE messages
-                    SET metadata = jsonb_set(
-                        COALESCE(metadata::jsonb, '{}'::jsonb),
-                        '{whatsapp_status}',
-                        to_jsonb(%s::text)
-                    )
-                    WHERE metadata::jsonb ->> 'whatsapp_message_id' = %s;
-                """, (status_upper, wamid))
+                    SET metadata = CASE 
+                        WHEN metadata IS NULL OR metadata = '' THEN jsonb_build_object('whatsapp_status', %s::text)::text
+                        WHEN metadata ~ '^\\s*\\{' THEN jsonb_set(metadata::jsonb, '{whatsapp_status}', to_jsonb(%s::text))::text
+                        ELSE jsonb_build_object('raw', metadata, 'whatsapp_status', %s::text)::text
+                    END
+                    WHERE metadata LIKE %s;
+                """, (status_upper, status_upper, status_upper, f'%{wamid}%'))
+
+                # 2. Idempotently update notifications record
+                cur.execute("""
+                    UPDATE notifications
+                    SET status = %s,
+                        sent_at = CASE WHEN %s = 'SENT' AND sent_at IS NULL THEN CURRENT_TIMESTAMP ELSE sent_at END,
+                        delivered_at = CASE WHEN %s = 'DELIVERED' AND delivered_at IS NULL THEN CURRENT_TIMESTAMP ELSE delivered_at END,
+                        read_at = CASE WHEN %s = 'READ' AND read_at IS NULL THEN CURRENT_TIMESTAMP ELSE read_at END,
+                        failed_at = CASE WHEN %s = 'FAILED' AND failed_at IS NULL THEN CURRENT_TIMESTAMP ELSE failed_at END,
+                        reason = CASE WHEN %s = 'FAILED' AND %s IS NOT NULL THEN %s ELSE reason END
+                    WHERE external_message_id = %s;
+                """, (status_upper, status_upper, status_upper, status_upper, status_upper, status_upper, err_msg, err_msg, wamid))
+
+                # 3. Update pre_admissions record if delivered, read, or failed
+                if status_upper in ["DELIVERED", "READ"]:
+                    cur.execute("""
+                        UPDATE pre_admissions
+                        SET status = 'CONTACTED'
+                        WHERE id IN (
+                            SELECT (metadata::jsonb->>'pre_admission_id')::bigint
+                            FROM messages
+                            WHERE metadata ~ '^\\s*\\{'
+                              AND metadata::jsonb->>'whatsapp_message_id' = %s
+                              AND metadata::jsonb->>'pre_admission_id' IS NOT NULL
+                        ) AND status = 'PENDING';
+                    """, (wamid,))
+                elif status_upper == "FAILED" and err_msg:
+                    remark_text = f"WhatsApp clearance FAILED: {err_msg[:200]}"
+                    cur.execute("""
+                        UPDATE pre_admissions
+                        SET remarks = CASE WHEN remarks IS NULL OR remarks = '' THEN %s ELSE remarks || '; ' || %s END
+                        WHERE id IN (
+                            SELECT (metadata::jsonb->>'pre_admission_id')::bigint
+                            FROM messages
+                            WHERE metadata ~ '^\\s*\\{'
+                              AND metadata::jsonb->>'whatsapp_message_id' = %s
+                              AND metadata::jsonb->>'pre_admission_id' IS NOT NULL
+                        );
+                    """, (remark_text, remark_text, wamid))
+
                 conn.commit()
                 if status_upper == "SENT":
                     print(f"[WHATSAPP_MESSAGE_SENT] wamid={wamid}")
@@ -723,13 +786,13 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
                 elif status_upper == "READ":
                     print(f"[WHATSAPP_MESSAGE_READ] wamid={wamid}")
                 elif status_upper == "FAILED":
-                    print(f"[WHATSAPP_MESSAGE_FAILED] wamid={wamid}")
+                    print(f"[WHATSAPP_MESSAGE_FAILED] wamid={wamid} | reason={err_msg}")
             except Exception as e:
-                print(f"[ERROR] Failed to update message status for {wamid}: {e}")
+                conn.rollback()
+                print(f"[ERROR] Failed to update message/notification status for {wamid}: {e}")
             finally:
                 cur.close()
                 conn.close()
-
 
         return {"status": "ok", "detail": f"Status update processed ({status_upper})"}
 

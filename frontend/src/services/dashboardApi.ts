@@ -875,12 +875,27 @@ export async function createPreAdmission(payload: NewPreAdmissionPayload): Promi
   success: boolean;
   pre_admission_id?: number;
   pre_admission_code?: string;
+  /** Provider-backed status: 'SUBMITTED' (accepted by Meta API), 'FAILED', or undefined if not attempted */
+  notification_status?: string;
+  /** Provider message ID returned by Meta Cloud API on accepted send */
+  notification_message_id?: string;
+  /** Human-readable error from provider if notification failed */
+  notification_error?: string;
+  /** Canonical E.164 or Meta-digits WhatsApp number the notification was dispatched to */
+  whatsapp_number?: string;
+  /** Backend detail string for display */
+  notification_detail?: string;
   error?: string;
 }> {
   const data = await apiFetch<{
     success: boolean;
     pre_admission_id?: number;
     pre_admission_code?: string;
+    notification_status?: string;
+    notification_message_id?: string;
+    notification_error?: string;
+    whatsapp_number?: string;
+    notification_detail?: string;
     error?: string;
   }>('/api/dashboard/pre-admissions', {
     method: 'POST',

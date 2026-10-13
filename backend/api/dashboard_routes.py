@@ -4030,8 +4030,10 @@ def notify_pre_admission_endpoint(id: int, current_user: dict = Depends(get_curr
             conn.close()
 
     res = preadmission_service.dispatch_pre_admission_notification(id)
-    if not res.get("success"):
-        raise HTTPException(status_code=400, detail=res.get("error", "Notification dispatch failed"))
+    # Always return the service payload — the frontend reads res.success to distinguish states.
+    # Do NOT raise HTTP 400 on notification failure; the DB record is already committed and
+    # the failure detail is persisted in the notifications table. Returning 200 with
+    # success=False lets the UI display the specific provider error rather than a generic toast.
     return res
 
 

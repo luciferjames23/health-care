@@ -152,12 +152,36 @@ function getStatusBadge(status: string) {
 
 function getNotificationBadge(status: string) {
   const s = String(status || '').toUpperCase();
-  if (s === 'SENT') {
+  if (s === 'READ') {
+    return {
+      bg: '#eff6ff',
+      color: '#1d4ed8',
+      border: '1px solid #bfdbfe',
+      label: 'READ',
+    };
+  }
+  if (s === 'DELIVERED') {
     return {
       bg: '#ecfdf5',
       color: '#047857',
       border: '1px solid #a7f3d0',
+      label: 'DELIVERED',
+    };
+  }
+  if (s === 'SENT') {
+    return {
+      bg: '#f0fdf4',
+      color: '#15803d',
+      border: '1px solid #bbf7d0',
       label: 'SENT',
+    };
+  }
+  if (s === 'SUBMITTED' || s === 'ACCEPTED') {
+    return {
+      bg: '#f0fdf4',
+      color: '#15803d',
+      border: '1px solid #bbf7d0',
+      label: 'SUBMITTED',
     };
   }
   if (s === 'FAILED') {
@@ -169,9 +193,9 @@ function getNotificationBadge(status: string) {
     };
   }
   return {
-    bg: '#f6f7f8',
-    color: '#52585e',
-    border: '1px solid #e3e6e8',
+    bg: '#fefce8',
+    color: '#854d0e',
+    border: '1px solid #fef08a',
     label: s || 'PENDING',
   };
 }
@@ -574,14 +598,18 @@ const PreAdmissionPage: React.FC = () => {
 
   // Trigger Notification
   const handleNotify = async (id: number) => {
-    showToastMsg('Sending WhatsApp notification to patient...', 'info', true);
+    showToastMsg('Submitting WhatsApp notification to Meta Cloud API...', 'info', true);
     try {
       const res = await sendPreAdmissionNotification(id);
-      if (res.success && res.status === 'SENT') {
-        showToastMsg(`✓ WhatsApp admission notification sent successfully! (${res.whatsapp_number || ''})`, 'success');
+      if (res.success) {
+        // res.status is 'SUBMITTED' (accepted by provider) — delivery confirmed only via webhook
+        const numDisplay = res.whatsapp_number ? ` (${res.whatsapp_number})` : '';
+        showToastMsg(`✓ WhatsApp notification submitted; delivery pending confirmation.${numDisplay}`, 'success');
         loadData();
       } else {
-        showToastMsg(`❌ Failed to send WhatsApp notification: ${res.error || 'Delivery failed'}`, 'error');
+        // Provider rejected or network failure — display provider error code/message
+        const errDetail = res.error || 'Provider rejected the request';
+        showToastMsg(`❌ WhatsApp notification failed: ${errDetail}`, 'error');
         loadData();
       }
     } catch (err: any) {
@@ -611,10 +639,22 @@ const PreAdmissionPage: React.FC = () => {
         pending_documents: formDocs
       });
       if (res.success) {
-        if (res.notification_status === 'SENT') {
-          showToastMsg(`✓ Admission registered! Code: ${res.pre_admission_code}. WhatsApp message delivered successfully.`, 'success');
+        // notification_status is 'SUBMITTED' when Meta API accepted the message,
+        // undefined/null when the notification was not attempted or failed.
+        const notifOk = res.notification_status === 'SUBMITTED' || res.notification_status === 'SENT';
+        if (notifOk) {
+          const numDisplay = res.whatsapp_number ? ` (${res.whatsapp_number})` : '';
+          showToastMsg(
+            `✓ Admission registered! Code: ${res.pre_admission_code}. WhatsApp notification submitted; delivery pending confirmation.${numDisplay}`,
+            'success'
+          );
         } else {
-          showToastMsg(`⚠️ Admission registered! Code: ${res.pre_admission_code}. WhatsApp notification FAILED to deliver (check remarks).`, 'error');
+          // Admission DB record was committed; only the WhatsApp dispatch failed.
+          const errDetail = res.notification_error || res.notification_detail || 'Check remarks for provider error';
+          showToastMsg(
+            `⚠️ Admission registered (Code: ${res.pre_admission_code}). WhatsApp notification not delivered: ${errDetail}`,
+            'error'
+          );
         }
         setShowAddModal(false);
         // Reset form

@@ -137,9 +137,16 @@ def get_meta_error_message(res: requests.Response) -> str:
 
 
 def clean_whatsapp_number(to_number: str) -> str:
-    """Ensures phone number has country code for Meta Cloud API dispatch."""
+    """Ensures phone number has country code for Meta Cloud API dispatch without double-prefixing."""
     if not to_number:
         return ""
+    try:
+        from utils.phone_utils import to_meta_digits
+        digits = to_meta_digits(to_number)
+        if digits:
+            return digits
+    except Exception:
+        pass
     digits = "".join(c for c in str(to_number) if c.isdigit())
     if len(digits) == 10:
         return f"91{digits}"
@@ -210,10 +217,9 @@ def send_text_message(to_number: str, text: str) -> dict:
         }
     }
 
-    
     if is_mock_mode():
         log_outbound_simulation("text", to_number, payload)
-        return {"success": True, "message_id": f"wam.mock_msg_{uuid.uuid4().hex[:12]}"}
+        return {"success": True, "status": "ACCEPTED", "message_id": f"wam.mock_msg_{uuid.uuid4().hex[:12]}", "simulated": True}
         
     url = f"{get_api_url()}/{get_phone_number_id()}/messages"
     headers = {
@@ -225,9 +231,9 @@ def send_text_message(to_number: str, text: str) -> dict:
         if not res.ok:
             parse_and_log_meta_error(res)
             err_msg = get_meta_error_message(res)
-            print(f"[WhatsApp] send_text_message failed: {err_msg}. Logging simulation payload fallback.")
+            print(f"[WhatsApp] send_text_message failed: {err_msg}")
             log_outbound_simulation("text", to_number, payload)
-            return {"success": True, "message_id": f"wam.sim_fallback_{uuid.uuid4().hex[:12]}", "simulated": True, "meta_error": err_msg}
+            return {"success": False, "status": "FAILED", "error": err_msg, "meta_error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -236,11 +242,11 @@ def send_text_message(to_number: str, text: str) -> dict:
             pass
         if not msg_id:
             msg_id = f"wam.meta_msg_{uuid.uuid4().hex[:12]}"
-        return {"success": True, "message_id": msg_id, "response": resp_data}
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        print(f"[WhatsApp] send_text_message exception: {e}. Falling back to simulation log.")
+        print(f"[WhatsApp] send_text_message exception: {e}")
         log_outbound_simulation("text", to_number, payload)
-        return {"success": True, "message_id": f"wam.sim_fallback_{uuid.uuid4().hex[:12]}", "simulated": True, "error": str(e)}
+        return {"success": False, "status": "FAILED", "error": str(e)}
 
 
 def send_template_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
@@ -261,7 +267,7 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
 
     if is_mock_mode():
         log_outbound_simulation("template", to_number, payload)
-        return {"success": True, "message_id": f"wam.mock_template_{uuid.uuid4().hex[:12]}"}
+        return {"success": True, "status": "ACCEPTED", "message_id": f"wam.mock_template_{uuid.uuid4().hex[:12]}", "simulated": True}
 
     url = f"{get_api_url()}/{get_phone_number_id()}/messages"
     headers = {
@@ -273,9 +279,9 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
         if not res.ok:
             parse_and_log_meta_error(res)
             err_msg = get_meta_error_message(res)
-            print(f"[WhatsApp] send_template_message failed: {err_msg}. Logging simulation payload fallback.")
+            print(f"[WhatsApp] send_template_message failed: {err_msg}")
             log_outbound_simulation("template", to_number, payload)
-            return {"success": True, "message_id": f"wam.sim_template_{uuid.uuid4().hex[:12]}", "simulated": True, "meta_error": err_msg}
+            return {"success": False, "status": "FAILED", "error": err_msg, "meta_error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -284,11 +290,11 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
             pass
         if not msg_id:
             msg_id = f"wam.meta_template_{uuid.uuid4().hex[:12]}"
-        return {"success": True, "message_id": msg_id, "response": resp_data}
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        print(f"[WhatsApp] send_template_message exception: {e}. Falling back to simulation log.")
+        print(f"[WhatsApp] send_template_message exception: {e}")
         log_outbound_simulation("template", to_number, payload)
-        return {"success": True, "message_id": f"wam.sim_template_{uuid.uuid4().hex[:12]}", "simulated": True, "error": str(e)}
+        return {"success": False, "status": "FAILED", "error": str(e)}
 
 
 def send_welcome_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
@@ -386,7 +392,9 @@ def send_image_message(to_number: str, image_url_or_path: str, caption: str = No
         res = get_http_session().post(url, json=payload, headers=headers, timeout=10)
         if not res.ok:
             parse_and_log_meta_error(res)
-        res.raise_for_status()
+            err_msg = get_meta_error_message(res)
+            log_outbound_simulation("image", to_number, payload_mock)
+            return {"success": False, "status": "FAILED", "error": err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -395,11 +403,11 @@ def send_image_message(to_number: str, image_url_or_path: str, caption: str = No
             pass
         if not msg_id:
             msg_id = f"wam.meta_image_{uuid.uuid4().hex[:12]}"
-        return {"success": True, "message_id": msg_id, "response": resp_data}
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
     except Exception as e:
-        print(f"[ERROR] send_image_message failed: {e}. Falling back to simulation log.")
+        print(f"[ERROR] send_image_message failed: {e}")
         log_outbound_simulation("image", to_number, payload_mock)
-        return {"success": True, "message_id": f"wam.mock_image_{uuid.uuid4().hex[:12]}", "fallback": True}
+        return {"success": False, "status": "FAILED", "error": str(e)}
 
 
 def send_button_message(to_number: str, text: str, buttons: list, list_button_title: str = "Menu Options", section_title: str = "Options", interactive_type: str = None) -> dict:
@@ -481,7 +489,7 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
             if fallback_res.get("success"):
                 return fallback_res
             err_msg = get_meta_error_message(res)
-            return {"success": False, "error": err_msg}
+            return {"success": False, "status": "FAILED", "error": fallback_res.get("error") or err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -490,10 +498,13 @@ def send_button_message(to_number: str, text: str, buttons: list, list_button_ti
             pass
         if not msg_id:
             msg_id = f"wam.meta_button_{uuid.uuid4().hex[:12]}"
-        return {"success": True, "message_id": msg_id, "response": resp_data}
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
     except Exception as e:
         print(f"[ERROR] send_button_message failed: {e}. Trying text message fallback...")
-        return send_text_message(to_number, text)
+        fallback_res = send_text_message(to_number, text)
+        if fallback_res.get("success"):
+            return fallback_res
+        return {"success": False, "status": "FAILED", "error": fallback_res.get("error") or str(e)}
 
 
 def send_list_message(to_number: str, text: str, button_label: str, sections: list) -> dict:
@@ -560,7 +571,7 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
             if fallback_res.get("success"):
                 return fallback_res
             err_msg = get_meta_error_message(res)
-            return {"success": False, "error": err_msg}
+            return {"success": False, "status": "FAILED", "error": fallback_res.get("error") or err_msg}
         resp_data = res.json()
         msg_id = None
         try:
@@ -569,10 +580,13 @@ def send_list_message(to_number: str, text: str, button_label: str, sections: li
             pass
         if not msg_id:
             msg_id = f"wam.meta_list_{uuid.uuid4().hex[:12]}"
-        return {"success": True, "message_id": msg_id, "response": resp_data}
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
     except Exception as e:
         print(f"[ERROR] send_list_message failed: {e}. Trying text message fallback...")
-        return send_text_message(to_number, text)
+        fallback_res = send_text_message(to_number, text)
+        if fallback_res.get("success"):
+            return fallback_res
+        return {"success": False, "status": "FAILED", "error": fallback_res.get("error") or str(e)}
 
 
 def send_registration_flow_message(to_number: str, text: str, current_lang: str = "ENGLISH") -> dict:

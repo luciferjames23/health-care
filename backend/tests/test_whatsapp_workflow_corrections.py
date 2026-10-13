@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import urllib.request
+from unittest.mock import patch
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
@@ -92,8 +93,9 @@ def test_welcome_image_dispatch():
     assert os.path.exists(backend_static), "Welcome banner asset must exist at backend/static/welcome_banner.jpg"
 
     # Dispatch welcome image in mock / test mode
-    res_img = send_image_message("919345895681", backend_static, caption="Welcome to Meridian Hospital")
-    assert res_img.get("success") is True, "Image dispatch must succeed or return fallback cleanly"
+    with patch("voice.whatsapp_client.is_mock_mode", return_value=True):
+        res_img = send_image_message("919345895681", backend_static, caption="Welcome to Meridian Hospital")
+        assert res_img.get("success") is True, "Image dispatch in mock mode must succeed"
 
 
 def test_concurrent_conversations_isolation():

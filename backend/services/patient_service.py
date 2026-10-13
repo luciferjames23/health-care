@@ -25,7 +25,7 @@ if backend_dir not in sys.path:
 
 import db_config
 import utils.cache_service as cache_service
-from utils.phone_utils import normalize_phone
+from utils.phone_utils import normalize_phone, to_canonical_e164, get_phone_query_condition, get_phone_query_params
 
 
 def get_next_canonical_patient_id(cur) -> Tuple[int, str]:
@@ -81,12 +81,14 @@ def find_identical_registered_patient(
     ln = (last_name or "").strip()
     dob_str = str(date_of_birth or "").strip()
     ph = (phone or "").strip()
-    norm_ph = normalize_phone(ph)
     
     if not fn or not dob_str or not ph:
         return None
         
-    query = """
+    phone_cond = get_phone_query_condition()
+    phone_params = get_phone_query_params(ph)
+
+    query = f"""
         SELECT id, patient_code, first_name, last_name, date_of_birth
         FROM patients
         WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(%s))
@@ -95,16 +97,13 @@ def find_identical_registered_patient(
               OR (%s = '' AND (last_name IS NULL OR last_name = '' OR last_name = '.'))
           )
           AND date_of_birth = %s
-          AND (
-              phone = %s OR whatsapp_number = %s
-              OR RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = %s
-              OR RIGHT(REGEXP_REPLACE(COALESCE(whatsapp_number, ''), '[^0-9]', '', 'g'), 10) = %s
-          )
+          AND {phone_cond}
           AND status = 'ACTIVE'
         ORDER BY id ASC
         LIMIT 1;
     """
-    cur.execute(query, (fn, ln, ln, ln, dob_str, ph, ph, norm_ph, norm_ph))
+    params = (fn, ln, ln, ln, dob_str) + phone_params
+    cur.execute(query, params)
     row = cur.fetchone()
     if row:
         return (row[0], row[1])
@@ -163,10 +162,14 @@ def register_new_patient(
         dob_val = str(date_of_birth or "2000-01-01").strip()
         ph_val = (phone or "").strip()
         wa_val = (whatsapp_number or ph_val).strip()
-        
+
+        # Canonicalize to E.164 for uniform DB storage
+        ph_canon = to_canonical_e164(ph_val) or ph_val
+        wa_canon = to_canonical_e164(wa_val) or wa_val
+
         # 1. Allocate next canonical patient ID and code
         new_id, canonical_code = get_next_canonical_patient_id(cur)
-        
+
         # 2. Insert into patients table
         insert_sql = """
             INSERT INTO patients (
@@ -187,7 +190,7 @@ def register_new_patient(
         """
         cur.execute(insert_sql, (
             new_id, canonical_code, fn, ln, dob_val, gen,
-            ph_val, wa_val, email, address or "Chennai Metropolitan Area",
+            ph_canon, wa_canon, email, address or "Chennai Metropolitan Area",
             city or "Chennai", state or "Tamil Nadu", pincode or "600001",
             emergency_contact_name, emergency_contact_phone, blood_group or "O+",
             preferred_language or "English", marital_status, guardian_patient_id, guardian_phone,
@@ -195,17 +198,15 @@ def register_new_patient(
         ))
         row = cur.fetchone()
         saved_id, saved_code = row[0], row[1]
-        
+
         if should_close_conn:
             conn.commit()
-            
-        # Invalidate cache for phone lookups
-        norm_ph = normalize_phone(ph_val)
-        if norm_ph:
-            cache_service.invalidate_cache(f"pat_phone_{norm_ph}")
-        norm_wa = normalize_phone(wa_val)
-        if norm_wa:
-            cache_service.invalidate_cache(f"pat_phone_{norm_wa}")
+
+        # Invalidate cache for all phone variations
+        for p in [ph_val, wa_val, ph_canon, wa_canon]:
+            norm = normalize_phone(p)
+            if norm:
+                cache_service.invalidate_cache(f"pat_phone_{norm}")
         cache_service.invalidate_cache("pat_phone_")
         
         return {
