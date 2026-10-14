@@ -322,3 +322,12 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
         cur.close()
         conn.close()
 
+
+def clear_conversation_state(conversation_code: str):
+    """
+    Clears or resets conversation state to default for testing or session reset.
+    """
+    default_st = get_default_state()
+    default_st["conversation_id"] = conversation_code
+    save_conversation_state(conversation_code, default_st)
+

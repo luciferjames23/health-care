@@ -97,6 +97,8 @@ SUPPORTED_INTENTS = {
     "EMERGENCY",
     "HUMAN_ESCALATION",
     "PATIENT_REPORTS",
+    "PATIENT_DOCUMENTS",
+    "BILLING_AND_PAYMENTS",
     "FEEDBACK",
     "THANK_YOU",
     "HELP",
@@ -147,6 +149,26 @@ INTENT_NORMALISATION_MAP = {
     "GET_REPORTS":                  "PATIENT_REPORTS",
     "VIEW_REPORTS":                 "PATIENT_REPORTS",
     "PATIENT_REPORTS":              "PATIENT_REPORTS",
+    "XRAY":                         "PATIENT_REPORTS",
+    "X_RAY":                        "PATIENT_REPORTS",
+    "XRAY_IMAGE":                   "PATIENT_REPORTS",
+    "RADIOLOGY_REPORT":             "PATIENT_REPORTS",
+    "PATIENT_DOCUMENTS":            "PATIENT_DOCUMENTS",
+    "DISCHARGE_SUMMARY":            "PATIENT_DOCUMENTS",
+    "DISCHARGE_DOCUMENT":           "PATIENT_DOCUMENTS",
+    "CLINICAL_RECORDS":             "PATIENT_DOCUMENTS",
+    "MEDICAL_RECORDS":              "PATIENT_DOCUMENTS",
+    "BILLING":                      "BILLING_AND_PAYMENTS",
+    "BILLING_AND_PAYMENTS":         "BILLING_AND_PAYMENTS",
+    "VIEW_BILL":                    "BILLING_AND_PAYMENTS",
+    "HOSPITAL_BILL":                "BILLING_AND_PAYMENTS",
+    "OUTSTANDING_BALANCE":          "BILLING_AND_PAYMENTS",
+    "BALANCE_QUERY":                "BILLING_AND_PAYMENTS",
+    "PAYMENT_HISTORY":              "BILLING_AND_PAYMENTS",
+    "PAY_BILL":                     "BILLING_AND_PAYMENTS",
+    "MAKE_PAYMENT":                 "BILLING_AND_PAYMENTS",
+    "INSURANCE":                    "BILLING_AND_PAYMENTS",
+    "INSURANCE_STATUS":             "BILLING_AND_PAYMENTS",
     "THANK_YOU":                    "THANK_YOU",
     "GOODBYE":                      "GOODBYE",
     "HELP":                         "HELP",
@@ -557,6 +579,9 @@ SUPPORTED INTENTS (return exactly one):
 - PATIENT_DETAILS_UPDATE: Updating personal info (name, phone, DOB, email)
 - DEPENDENT_BOOKING: Booking a NEW appointment for a family member (son, daughter, wife, husband, mother, father, child)
 - PRE_ADMISSION: Pre-admission registration, clearance, confirming admission ("confirm admission", "btn_confirm_admission"), cancelling admission ("cancel admission"), pre-admission requirements or documents
+- PATIENT_REPORTS: Requesting medical reports, diagnostic test results, lab reports, X-rays, imaging, radiology reports ("show my reports", "show my x-ray", "view my lab report", "i need my radiology report", "imaging scan", "chest x-ray")
+- PATIENT_DOCUMENTS: Requesting official hospital documents, discharge summaries, clinical records, prescriptions ("send my discharge summary", "discharge document", "my documents", "clinical notes", "medical records")
+- BILLING_AND_PAYMENTS: Inquiring about hospital bills, invoices, itemized charges, outstanding balance, making bill payments, payment history, or insurance status ("show my hospital bill", "how much do i still owe?", "outstanding balance", "show my previous payments", "pay hospital bill", "insurance status")
 - EMERGENCY: Severe acute sudden chest pain, severe difficulty breathing, sudden stroke, heavy bleeding, life-threatening emergency (routine/mild chest pain consultations go to BOOK_APPOINTMENT -> Cardiology)
 - HUMAN_ESCALATION: Asking to talk to a human agent, staff, operator, or customer care
 - GENERAL_MEDICAL_QUERY: General healthcare or medical advice question

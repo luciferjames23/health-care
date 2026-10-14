@@ -293,8 +293,12 @@ def resolve_context_aware_interactive_titles(agent_res: dict) -> Tuple[str, str]
             list_title = "Select Language"
         elif any(k in btn_ids_str for k in ["btn_appt_id_"]):
             list_title = "Select Appointment"
-        elif any(k in btn_ids_str for k in ["btn_feedback", "btn_cat_feedback", "btn_write_feedback", "btn_voice_feedback"]) or intent == "FEEDBACK":
-            list_title = "Feedback"
+        elif any(k in btn_ids_str for k in ["btn_view_bill", "btn_balance", "btn_insurance", "btn_payment_history", "btn_pay_bill"]):
+            list_title = "Billing Options"
+        elif any(k in btn_ids_str for k in ["btn_report_", "btn_xray_", "btn_send_xray", "btn_view_rad"]):
+            list_title = "Select Report"
+        elif any(k in btn_ids_str for k in ["btn_discharge_", "btn_send_discharge"]):
+            list_title = "Discharge Summary"
         elif any(k in btn_ids_str for k in ["btn_select_pat_", "btn_family_"]):
             list_title = "Select Patient"
         else:
@@ -419,6 +423,25 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             if os.path.exists(welcome_img_path):
                 print(f"[TRACE_WH] [SENDING_WELCOME_IMAGE] wamid={message_id}")
                 whatsapp_client.send_image_message(sender_num, welcome_img_path)
+
+        # Dispatch media image (e.g. X-Ray image) if attached in response
+        if agent_res.get("media_image"):
+            img = agent_res["media_image"]
+            img_path = img.get("path") if isinstance(img, dict) else (img if isinstance(img, str) else None)
+            img_caption = img.get("caption") if isinstance(img, dict) else None
+            if img_path and os.path.exists(img_path):
+                print(f"[TRACE_WH] [DISPATCHING_MEDIA_IMAGE] wamid={message_id} | path={img_path}")
+                whatsapp_client.send_image_message(sender_num, img_path, caption=img_caption)
+
+        # Dispatch media document (e.g. Discharge Summary PDF) if attached in response
+        if agent_res.get("media_document"):
+            doc = agent_res["media_document"]
+            doc_path = doc.get("path") if isinstance(doc, dict) else (doc if isinstance(doc, str) else None)
+            doc_filename = doc.get("filename") if isinstance(doc, dict) else (os.path.basename(doc_path) if doc_path else "document.pdf")
+            doc_caption = doc.get("caption") if isinstance(doc, dict) else None
+            if doc_path and os.path.exists(doc_path):
+                print(f"[TRACE_WH] [DISPATCHING_MEDIA_DOCUMENT] wamid={message_id} | path={doc_path}")
+                whatsapp_client.send_document_message(sender_num, doc_path, filename=doc_filename, caption=doc_caption)
 
         t_send_start = time.monotonic()
         print(f"[TRACE_WH] [DISPATCHING_RESPONSE] wamid={message_id} | intent={agent_res.get('intent')} | type={agent_res.get('interactive_type')}")

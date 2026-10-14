@@ -752,6 +752,14 @@ def upload_media(file_path: str) -> str | None:
     elif lower_path.endswith(".ogg"):
         content_type = "audio/ogg"
 
+    elif lower_path.endswith(".pdf"):
+        content_type = "application/pdf"
+    elif lower_path.endswith(".txt"):
+        content_type = "text/plain"
+    elif lower_path.endswith(".doc"):
+        content_type = "application/msword"
+    elif lower_path.endswith(".docx"):
+        content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         
     try:
         with open(file_path, "rb") as f:
@@ -767,6 +775,80 @@ def upload_media(file_path: str) -> str | None:
     except Exception as e:
         print("Meta media upload error:", e)
         return None
+
+
+def send_document_message(to_number: str, document_url_or_path: str, filename: str = None, caption: str = None) -> dict:
+    """
+    Send a document/PDF message to a WhatsApp number.
+    Supports either a public HTTP/HTTPS URL or local file path via media upload API.
+    """
+    to_number = clean_whatsapp_number(to_number)
+    actual_filename = filename or (os.path.basename(document_url_or_path) if not document_url_or_path.startswith("http") else "document.pdf")
+
+    payload_mock = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "document",
+        "document": {
+            "link": document_url_or_path if document_url_or_path.startswith("http") else f"http://localhost:8000/static/{actual_filename}",
+            "filename": actual_filename,
+            "caption": caption or ""
+        }
+    }
+
+    if is_mock_mode():
+        log_outbound_simulation("document", to_number, payload_mock)
+        return {"success": True, "message_id": f"wam.mock_doc_{uuid.uuid4().hex[:12]}", "simulated": True}
+
+    try:
+        media_id = None
+        if not document_url_or_path.startswith("http") and os.path.exists(document_url_or_path):
+            media_id = upload_media(document_url_or_path)
+
+        url = f"{get_api_url()}/{get_phone_number_id()}/messages"
+        headers = {
+            "Authorization": f"Bearer {get_access_token()}",
+            "Content-Type": "application/json"
+        }
+
+        doc_obj = {"filename": actual_filename}
+        if media_id:
+            doc_obj["id"] = media_id
+        else:
+            doc_obj["link"] = document_url_or_path
+
+        if caption:
+            doc_obj["caption"] = caption
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to_number,
+            "type": "document",
+            "document": doc_obj
+        }
+
+        res = get_http_session().post(url, json=payload, headers=headers, timeout=15)
+        if not res.ok:
+            parse_and_log_meta_error(res)
+            err_msg = get_meta_error_message(res)
+            log_outbound_simulation("document", to_number, payload_mock)
+            return {"success": False, "status": "FAILED", "error": err_msg}
+        resp_data = res.json()
+        msg_id = None
+        try:
+            msg_id = resp_data.get("messages", [{}])[0].get("id")
+        except Exception:
+            pass
+        if not msg_id:
+            msg_id = f"wam.meta_doc_{uuid.uuid4().hex[:12]}"
+        return {"success": True, "status": "ACCEPTED", "message_id": msg_id, "response": resp_data}
+    except Exception as e:
+        print(f"[ERROR] send_document_message failed: {e}")
+        log_outbound_simulation("document", to_number, payload_mock)
+        return {"success": False, "status": "FAILED", "error": str(e)}
+
 
 
 def download_media(media_id: str) -> str | None:
