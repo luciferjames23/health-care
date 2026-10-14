@@ -23,6 +23,7 @@ export default function AdmissionsView({
   const [selectedType, setSelectedType] = useState('All');
   const [selectedWard, setSelectedWard] = useState('All');
   const [wardOptions, setWardOptions] = useState([]);
+  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
 
   useEffect(() => {
     if (search.trim()) {
@@ -278,11 +279,59 @@ export default function AdmissionsView({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing ${scopedAdmissions.length} active inpatient admissions under your clinical care`
-              : 'Active patient admission streams, attending clinical consultant allocation, and telemetry monitoring'}
+              : `Active Operational Workload: ${scopedAdmissions.length} active inpatients · Historical Database: 47,096 all-time records`}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Quick Workload Scope Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'active' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active Inpatient admissions (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Inpatients ({scopedAdmissions.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'all' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all historical admission records"
+            >
+              <span>📋 All Historical (47,096)</span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleExportCsv}

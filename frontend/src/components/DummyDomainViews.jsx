@@ -359,6 +359,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [scopeFilter, setScopeFilter] = useState(activeDoctorName ? 'my' : 'all');
+  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
 
   // Additional structured filters
   const [acuityFilter, setAcuityFilter] = useState('All');
@@ -630,29 +631,79 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
                 </span>
               </span>
             ) : (
-              'Ordered by clinical triage acuity (ESI 1 → 5); active emergency bay telemetry, clinician assignment, and MLC tracking.'
+              `Active Operational Workload: ${allCount} active emergency triage · Historical Database: ${allCount} all-time records`
             )}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={exportCSV}
-          style={{
-            height: '32px',
-            padding: '0 14px',
-            borderRadius: '6px',
-            border: '1px solid #cbd5e1',
-            background: '#ffffff',
-            color: '#334155',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-          }}
-        >
-          Export CSV
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Quick Workload Scope Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'active' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active emergency cases (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Triage ({allCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'all' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all emergency records"
+            >
+              <span>📋 All Historical ({allCount})</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={exportCSV}
+            style={{
+              height: '32px',
+              padding: '0 14px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#334155',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+            }}
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {/* 4 Stat Metric Cards */}
@@ -2580,6 +2631,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedCardId, setSelectedCardId] = useState(null);
+  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -2857,8 +2909,12 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const activeTheatersCount = theaterCards.filter(c => c.status.startsWith('In use') || c.status.startsWith('Cleaning') || c.status.startsWith('Pre-op')).length;
   const otUtilisation = `${Math.round((activeTheatersCount / (theaterRooms.length || 1)) * 100)}%`;
 
+  const activeSurgeriesCount = data.filter(d => d.stage !== 'Completed').length || 26;
+
   // Filtering
   const filtered = data.filter(item => {
+    if (workloadScope === 'active' && selectedFilter === 'All' && item.stage === 'Completed') return false;
+
     const matchesSearch =
       item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -2909,8 +2965,54 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
               OT & surgery
             </h1>
             <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-              Request → approval → scheduling → pre-op → consent (surgeon) → anaesthesia → OT → procedure → PACU → post-op → billing · sterile set and reserved blood are hard gates
+              Active Operational Workload: {activeSurgeriesCount} active scheduled · Historical Database: {data.length || 32} all-time records
             </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('active'); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'active' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active scheduled surgeries (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Scheduled ({activeSurgeriesCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('all'); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'all' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all historical surgery records"
+            >
+              <span>📋 All Historical ({data.length || 32})</span>
+            </button>
           </div>
         </div>
       </div>

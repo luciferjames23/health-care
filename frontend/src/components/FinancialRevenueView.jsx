@@ -238,6 +238,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [claimsAnalytics, setClaimsAnalytics] = useState(null);
   const [claimsViewMode, setClaimsViewMode] = useState("kanban"); // 'table' | 'kanban'
+  const [workloadScope, setWorkloadScope] = useState("active"); // 'active' | 'all'
   const [claimsKanbanPages, setClaimsKanbanPages] = useState({});
 
   // Finance Dashboard State
@@ -915,19 +916,79 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           </div>
           <div style={{ color: PALETTE.muted, fontSize: "12.5px", maxWidth: "920px", marginTop: "2px", lineHeight: 1.4 }}>
             {activeTab === "billing" &&
-              "Estimate vs actual on every bill · AI writes plain-language explanations; the billing executive releases and responds"}
+              `Active Operational Workload: ${billTotal.toLocaleString()} active inpatient & outpatient bills · Historical Database: 2,77,113 all-time records`}
             {activeTab === "insurance" &&
-              "Preauthorisation Assembly Agent collects, checks completeness and scores denial risk. A human always submits."}
+              `Active Operational Workload: ${preauthTotal.toLocaleString()} active preauthorisations · Historical Database: 45,207 all-time records`}
             {activeTab === "claims" &&
-              "Policy → eligibility → authorisation → treatment → bill → claim → submission → review → query / approval / rejection → settlement → patient responsibility"}
+              `Active Operational Workload: ${claimTotal.toLocaleString()} active claims · Historical Database: 45,207 all-time records`}
             {activeTab === "finance" &&
-              "Service → bill → tax → insurer / patient responsibility → payment → receipt → finance · refunds and voids via approval"}
+              "Active Operational Workload: Invoiced collections & settled revenue · Historical Database: 2,77,113 all-time billing ledger"}
             {activeTab === "tax" &&
               "Centralised GST rules applied to services, pharmacy, implants, canteen and procurement · DEMO CONFIGURATION, not legal advice"}
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          {/* Quick Workload Scope Toggles */}
+          {(activeTab === "billing" || activeTab === "claims" || activeTab === "insurance") && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkloadScope("active");
+                  if (activeTab === "billing") { setBillPage(1); loadBills(); }
+                  else if (activeTab === "claims") { setClaimPage(1); loadClaims(); }
+                  else if (activeTab === "insurance") { setPreauthPage(1); loadPreauths(); }
+                }}
+                style={{
+                  height: "30px",
+                  padding: "0 12px",
+                  borderRadius: "6px",
+                  fontSize: "11.5px",
+                  fontWeight: workloadScope === "active" ? 700 : 500,
+                  cursor: "pointer",
+                  border: workloadScope === "active" ? "1px solid oklch(0.6 0.15 180)" : "1px solid #e3e6e8",
+                  background: workloadScope === "active" ? "oklch(0.96 0.04 180)" : "#fff",
+                  color: workloadScope === "active" ? "oklch(0.35 0.12 180)" : "#52585e",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  transition: "all 0.15s ease"
+                }}
+                title="Filter to Active records (matches Executive Dashboard)"
+              >
+                <span>⚡ Active {activeTab === "billing" ? `Invoices (${billTotal})` : activeTab === "insurance" ? `Preauth (${preauthTotal})` : `Claims (${claimTotal})`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkloadScope("all");
+                  if (activeTab === "billing") { setBillPage(1); loadBills(); }
+                  else if (activeTab === "claims") { setClaimPage(1); loadClaims(); }
+                  else if (activeTab === "insurance") { setPreauthPage(1); loadPreauths(); }
+                }}
+                style={{
+                  height: "30px",
+                  padding: "0 12px",
+                  borderRadius: "6px",
+                  fontSize: "11.5px",
+                  fontWeight: workloadScope === "all" ? 700 : 500,
+                  cursor: "pointer",
+                  border: workloadScope === "all" ? "1px solid oklch(0.6 0.15 180)" : "1px solid #e3e6e8",
+                  background: workloadScope === "all" ? "oklch(0.96 0.04 180)" : "#fff",
+                  color: workloadScope === "all" ? "oklch(0.35 0.12 180)" : "#52585e",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  transition: "all 0.15s ease"
+                }}
+                title="View all historical records"
+              >
+                <span>📋 All Historical ({activeTab === "billing" ? "277,113" : "45,207"})</span>
+              </button>
+            </div>
+          )}
+
           <SearchInput
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}

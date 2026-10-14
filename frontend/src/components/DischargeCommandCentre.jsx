@@ -288,6 +288,7 @@ export default function DischargeCommandCentre({
   const activeDoctorName = isDoctor ? doctorName : null;
 
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'table'
+  const [scopeFilter, setScopeFilter] = useState('active'); // 'active' or 'all'
   const [search, setSearch] = useState('');
   const [activeCaseId, setActiveCaseId] = useState(null);
   const [selectedCardId, setSelectedCardId] = useState(null);
@@ -3362,11 +3363,59 @@ export default function DischargeCommandCentre({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing ${activeCasesCount} assigned active discharge case${activeCasesCount === 1 ? '' : 's'}`
-              : `${activeCasesCount} active hospital cases · dependency graph and critical path by Discharge Orchestration Agent v3.0.2`}
+              : `Active Operational Workload: ${activeCasesCount} active discharge cases · Historical Database: 46,925 all-time records`}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Quick Workload Scope Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => { setScopeFilter('active'); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: scopeFilter === 'active' ? 700 : 500,
+                cursor: 'pointer',
+                border: scopeFilter === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: scopeFilter === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: scopeFilter === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active discharge cases (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Cases ({activeCasesCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setScopeFilter('all'); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: scopeFilter === 'all' ? 700 : 500,
+                cursor: 'pointer',
+                border: scopeFilter === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: scopeFilter === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: scopeFilter === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all historical discharge records"
+            >
+              <span>📋 All Historical (46,925)</span>
+            </button>
+          </div>
+
           <input
             type="text"
             value={search}

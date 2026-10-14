@@ -63,6 +63,7 @@ export default function PatientsView({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [filter, setFilter] = useState(initialFilter || "All");
+  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
 
   useEffect(() => {
     if (initialFilter) {
@@ -490,17 +491,65 @@ export default function PatientsView({
               ? "Loading patients…"
               : isDoctor && activeDoctorName
                 ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
-                : `${total} active patients · shared Patient 360 across every module`}
+                : `Active Operational Workload: ${counts[filter] || counts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'} · Historical Database: ${(filter === 'IP' ? 47096 : filter === 'Discharged' ? 46925 : 96048).toLocaleString()} all-time records`}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          {/* Quick Workload Scope Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'active' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active workload (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Workload ({counts[filter] || counts.All})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: workloadScope === 'all' ? 700 : 500,
+                cursor: 'pointer',
+                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all historical records"
+            >
+              <span>📋 All Historical ({(filter === 'IP' ? 47096 : filter === 'Discharged' ? 46925 : 96048).toLocaleString()})</span>
+            </button>
+          </div>
+
           <SearchInput
             value={search}
             onChange={e => setSearch(e.target.value)}
             onClear={() => setSearch("")}
             placeholder="Search by Name, Patient ID, UHID..."
             loading={isSearching || loading}
-            width="260px"
+            width="240px"
             accentColor="#0284c7"
           />
           <button type="button" onClick={exportCsv}

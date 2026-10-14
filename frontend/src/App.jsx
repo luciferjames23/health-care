@@ -645,7 +645,7 @@ export default function App() {
             <PatientPortalView currentUser={auth} onSignOut={handleSignOut} />
           ) : <>
             {activePage === 'command' && (
-              <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} />
+              <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} role={role} user={auth} />
             )}
 
             {activePage === 'clinical' && (
