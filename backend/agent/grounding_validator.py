@@ -476,6 +476,29 @@ def _value_mentioned_in_message(value: str, msg_lower: str) -> bool:
     if val_lower in msg_lower:
         return True
 
+    # Semantic / spelling correction match via message_normalizer
+    try:
+        import agent.message_normalizer as message_normalizer
+        interp = message_normalizer.normalize_patient_message(msg_lower)
+        norm_msg = interp.normalized_message.lower()
+        if val_lower in norm_msg:
+            return True
+        if interp.symptoms and any(s.lower() in val_lower or val_lower in s.lower() for s in interp.symptoms):
+            return True
+        # Check fuzzy token match for single-word symptoms
+        msg_tokens = re.findall(r"\b\w+\b", msg_lower)
+        for t in msg_tokens:
+            if message_normalizer.levenshtein_distance(t, val_lower) <= 2:
+                # Extra check: body part prefix guard for -ache words
+                if val_lower.endswith("ache"):
+                    t_pre = message_normalizer.get_body_part_prefix(t)
+                    v_pre = message_normalizer.get_body_part_prefix(val_lower)
+                    if t_pre and v_pre and t_pre != v_pre:
+                        continue
+                return True
+    except Exception:
+        pass
+
     # For dates: check if components appear (e.g. "tomorrow" -> tomorrow)
     # For times: check if digits/periods appear
     RELATIVE_DATE_WORDS = {

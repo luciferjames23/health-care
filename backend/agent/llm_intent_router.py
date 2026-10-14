@@ -665,6 +665,27 @@ Response: {{"intent":"APPOINTMENT_STATUS","confidence":0.99,"appointment_subject
 
 Patient: "I have fever and cough. I want to see a doctor tomorrow morning."
 Response: {{"intent":"BOOK_APPOINTMENT","confidence":0.98,"appointment_subject":"SELF","patient_reference":null,"time_filter":null,"symptoms":["fever","cough"],"medical_reason":"fever and cough","reason_raw_quote":"fever and cough","department":"General Medicine","doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":"{tomorrow_str}","date_raw_quote":"tomorrow","appointment_time":"MORNING","time_raw_quote":"morning","needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "fevereee"
+Response: {{"intent":"BOOK_APPOINTMENT","confidence":0.98,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":["fever"],"medical_reason":"fever","reason_raw_quote":"fevereee","department":"General Medicine","doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "hedache"
+Response: {{"intent":"BOOK_APPOINTMENT","confidence":0.98,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":["headache"],"medical_reason":"headache","reason_raw_quote":"hedache","department":"General Medicine","doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "hairfal"
+Response: {{"intent":"BOOK_APPOINTMENT","confidence":0.98,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":["hair fall"],"medical_reason":"hair fall","reason_raw_quote":"hairfal","department":"Dermatology","doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "cancle my appoinment"
+Response: {{"intent":"CANCEL_APPOINTMENT","confidence":0.99,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":[],"medical_reason":null,"reason_raw_quote":null,"department":null,"doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "my appointmnets"
+Response: {{"intent":"APPOINTMENT_STATUS","confidence":0.99,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":[],"medical_reason":null,"reason_raw_quote":null,"department":null,"doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "show my repots"
+Response: {{"intent":"PATIENT_REPORTS","confidence":0.99,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":[],"medical_reason":null,"reason_raw_quote":null,"department":null,"doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
+
+Patient: "I have fevereee from yestarday"
+Response: {{"intent":"BOOK_APPOINTMENT","confidence":0.98,"appointment_subject":"SELF","patient_reference":null,"time_filter":"ALL","symptoms":["fever"],"medical_reason":"fever from yesterday","reason_raw_quote":"fevereee from yestarday","department":"General Medicine","doctor_name":null,"doctor_raw_quote":null,"patient_type":null,"booking_for":"SELF","relationship":null,"patient_name":null,"patient_name_raw_quote":null,"date_of_birth":null,"dob_is_ambiguous":false,"gender":null,"appointment_date":null,"date_raw_quote":null,"appointment_time":null,"time_raw_quote":null,"needs_clarification":false,"clarification_question":null,"missing_fields":[],"language":"ENGLISH","emergency":false}}
 """
     return prompt
 
@@ -890,6 +911,23 @@ def _validate_and_normalise(parsed: dict, message_text: str, current_state: dict
     # --- Emergency flag ---
     emergency = bool(parsed.get("emergency", False))
 
+    # --- Semantic and spelling normalization enrichment ---
+    norm_msg = message_text
+    duration_val = None
+    try:
+        import agent.message_normalizer as message_normalizer
+        interp = message_normalizer.normalize_patient_message(message_text, current_state)
+        norm_msg = interp.normalized_message
+        duration_val = interp.duration
+        if not symptoms and interp.symptoms:
+            symptoms = interp.symptoms
+        if not med_reason and interp.medical_reason:
+            med_reason = interp.medical_reason
+        if not dept and interp.department:
+            dept = interp.department
+    except Exception:
+        pass
+
     # --- Pass through raw_quote fields for grounding_validator ---
     def _clean_quote(q) -> Optional[str]:
         if not q or str(q).strip().lower() in ("null", "none", ""):
@@ -905,6 +943,7 @@ def _validate_and_normalise(parsed: dict, message_text: str, current_state: dict
         "symptoms":              symptoms,
         "medical_reason":        med_reason,
         "reason_raw_quote":      _clean_quote(parsed.get("reason_raw_quote")),
+        "duration":              duration_val,
         "department_id":         dept_id,
         "department":            dept,
         "doctor_name":           doc_name,
@@ -927,6 +966,8 @@ def _validate_and_normalise(parsed: dict, message_text: str, current_state: dict
         "missing_fields":        missing_fields,
         "language":              lang,
         "emergency":             emergency,
+        "raw_message":           message_text,
+        "normalized_message":    norm_msg,
         "_llm_powered":          True,
     }
     
@@ -981,15 +1022,23 @@ def _rule_based_fallback(
     try:
         import agent.intent_router as intent_router
         import agent.intent_detector as intent_detector
-        msg_lower = message_text.lower()
-        rule_result = intent_router.route_patient_message(message_text, current_state)
+        import agent.message_normalizer as message_normalizer
+
+        interp = message_normalizer.normalize_patient_message(message_text, current_state)
+        norm_msg = interp.normalized_message
+        msg_lower = norm_msg.lower()
+        rule_result = intent_router.route_patient_message(norm_msg, current_state)
 
         old_intent = rule_result.get("intent", "UNKNOWN")
         canonical_intent = INTENT_NORMALISATION_MAP.get(old_intent, old_intent)
         if canonical_intent not in SUPPORTED_INTENTS:
             canonical_intent = "UNKNOWN"
 
-        dept = rule_result.get("department")
+        # If message_normalizer suggested an intent (e.g. cancel, status, reports, booking), adopt it
+        if interp.suggested_intent:
+            canonical_intent = interp.suggested_intent
+
+        dept = interp.department or rule_result.get("department")
         doc_pref = rule_result.get("doctor_preference")
 
         if not doc_pref and ("dr" in msg_lower or "doctor" in msg_lower):
@@ -1017,9 +1066,15 @@ def _rule_based_fallback(
             canonical_intent = "PRE_ADMISSION"
 
         # Fast-path for booking intent with typo tolerance (appointmnt, appoinment, apointment)
-        _booking_typo_kws = ["appointmnt", "appoinment", "apointment", "book appt", "book an appt", "need appt", "schedule appt"]
-        if any(p in msg_lower for p in _booking_typo_kws):
-            canonical_intent = "BOOK_APPOINTMENT"
+        # CRITICAL: Do NOT override cancel, reschedule, status, or reports!
+        _is_cancel_resched_status = (
+            canonical_intent in {"CANCEL_APPOINTMENT", "RESCHEDULE_APPOINTMENT", "APPOINTMENT_STATUS", "PATIENT_REPORTS"} or
+            any(w in msg_lower for w in ["cancel", "cancle", "reschedule", "resched", "status", "show", "my"])
+        )
+        if not _is_cancel_resched_status:
+            _booking_typo_kws = ["appointmnt", "appoinment", "apointment", "book appt", "book an appt", "need appt", "schedule appt"]
+            if any(p in msg_lower for p in _booking_typo_kws):
+                canonical_intent = "BOOK_APPOINTMENT"
 
         # Detect: "my son details", "son's profile", "my daughter details", "dependent details", etc.
         _dep_detail_kws = [
@@ -1077,9 +1132,9 @@ def _rule_based_fallback(
                 break
 
         # Only map UNKNOWN to BOOK_APPOINTMENT if the message itself contained medical content (not pure greeting/ack)
-        has_new_medical_info = bool(dept or rule_result.get("symptoms") or rule_result.get("doctor_preference") or any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"]))
+        has_new_medical_info = bool(dept or rule_result.get("symptoms") or interp.symptoms or rule_result.get("doctor_preference") or any(w in msg_lower for w in ["appointment", "doctor", "consult", "book", "symptom", "fever", "pain"]))
         if canonical_intent == "UNKNOWN" and has_new_medical_info:
-            if dept or current_state.get("intent") == "DOCTOR_AVAILABILITY":
+            if current_state.get("intent") == "DOCTOR_AVAILABILITY" and not dept and not interp.symptoms:
                 canonical_intent = "DOCTOR_AVAILABILITY"
             else:
                 canonical_intent = "BOOK_APPOINTMENT"
@@ -1094,7 +1149,7 @@ def _rule_based_fallback(
             ]):
                 canonical_intent = "RESCHEDULE_APPOINTMENT"
 
-        detected_rule_intent = intent_detector.detect_intent(message_text, current_state.get("intent"))
+        detected_rule_intent = intent_detector.detect_intent(norm_msg, current_state.get("intent"))
         if detected_rule_intent == "APPOINTMENT_STATUS" or any(p in msg_lower for p in ["show my appointment", "show my appointments", "my son's appointment", "my daughter's appointment", "my child's appointment", "show appointments"]):
             canonical_intent = "APPOINTMENT_STATUS"
             dept = None
@@ -1133,10 +1188,16 @@ def _rule_based_fallback(
             canonical_intent = "DEPENDENT_BOOKING"
             booking_for = "CHILD"
 
-        symptoms = rule_result.get("symptoms", [])
-        reason = ", ".join(symptoms) if symptoms else None
+        symptoms = interp.symptoms or rule_result.get("symptoms", [])
+        reason = interp.medical_reason or (", ".join(symptoms) if symptoms else None)
+        if interp.department and not dept:
+            dept = interp.department
 
         appt_d = rule_result.get("date")
+
+        is_emergency = bool(rule_result.get("emergency") or interp.emergency or canonical_intent == "EMERGENCY")
+        if is_emergency:
+            canonical_intent = "EMERGENCY"
 
         return {
             "intent":                canonical_intent,
@@ -1146,6 +1207,7 @@ def _rule_based_fallback(
             "time_filter":           "ALL",
             "symptoms":              symptoms,
             "medical_reason":        reason,
+            "duration":              interp.duration,
             "department":            dept,
             "doctor_name":           rule_result.get("doctor_preference"),
             "doctor_preference":     rule_result.get("doctor_preference"),
@@ -1161,8 +1223,10 @@ def _rule_based_fallback(
             "needs_clarification":   False,
             "clarification_question": None,
             "missing_fields":        [],
-            "language":              rule_result.get("language", "ENGLISH"),
-            "emergency":             rule_result.get("emergency", False),
+            "language":              interp.detected_language or rule_result.get("language", "ENGLISH"),
+            "emergency":             is_emergency,
+            "raw_message":           message_text,
+            "normalized_message":    interp.normalized_message,
             "_llm_powered":          False,
         }
     except Exception as exc:

@@ -389,6 +389,17 @@ def map_symptom_to_department_name(text: str) -> Optional[str]:
         return None
     text_lower = text.lower()
 
+    # Semantic and typo-tolerant mapping via message_normalizer
+    norm_text = text_lower
+    try:
+        import agent.message_normalizer as message_normalizer
+        interp = message_normalizer.normalize_patient_message(text)
+        if interp.department:
+            return interp.department
+        norm_text = interp.normalized_message.lower()
+    except Exception:
+        pass
+
     rules = [
         # 1. DERMATOLOGY — checked FIRST (highest specificity for skin/hair)
         (
@@ -456,13 +467,13 @@ def map_symptom_to_department_name(text: str) -> Optional[str]:
             r"(?:\b(fever|fevr|fevar|feveer|feverr|cold|cld|cough|couggh|stomach|stomach\s*pain|stomach\s*ache|flu|nausea|vomiting|diarrhea|fatigue|"
             r"weakness|body\s*pain|feverish|pain|payn|payning|infection|ailment|sick|illness|"
             r"corona|coronavirus|corona\s*virus|covid|covid-19|general\s*checkup|runny\s*nose|sneezing|sore\s*throat)\b|"
-            r"காய்ச்சல்|வயிற்று\s*வலி|இருமல்|சளி|வயிறு|கொரோனா|बुखार|खांसी|सर्दी|पेट|पेट\s*दर्द|कोरोना|ज्वर|ज्वार|జ్వరం|దగ్గు|నొప్పి|പനി|ചുമ|വയറു|ജ്ವರ|കെമ്മു)",
+            r"காய்ச்சல்|வயிற்று\s*வலி|இருமல்|சளி|வயிறு|கொரோனா|बुखार|खांसी|सर्दी|पेट|पेट\s*दर्द|कोरोना|ज्वर|ज्वार|జ్వరం|దగ్గు|నొప్పి|പനി|ചുമ|വയറു|ജ്ವರ|കെമ്മು)",
             "General Medicine"
         ),
     ]
 
     for pattern, dept_name in rules:
-        if re.search(pattern, text_lower):
+        if re.search(pattern, text_lower) or re.search(pattern, norm_text):
             return dept_name
 
     return None

@@ -415,6 +415,7 @@ def _accept_field(state: dict, field: str, value: Any, log_fn, permissive: bool 
         "reason":           "reason",
         "symptoms":         "symptoms",
         "booking_id":       "booking_id",
+        "duration":         "duration",
     }
     # State-level fields
     STATE_FIELDS = {
@@ -425,6 +426,7 @@ def _accept_field(state: dict, field: str, value: Any, log_fn, permissive: bool 
         "language":             "language",
         "booking_for":          "appointment_for",
         "patient_relationship": "patient_relationship",
+        "duration":             "clinical_duration",
         "gender":               lambda s, v: _set_reg_field(s, "gender", v),
         "date_of_birth":        lambda s, v: _set_reg_field(s, "date_of_birth", v),
         "phone":                lambda s, v: _set_reg_field(s, "phone", v),

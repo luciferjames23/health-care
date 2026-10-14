@@ -380,12 +380,12 @@ def detect_intent(text: str, current_intent: str = None) -> str:
                     break
 
         # Only allow explicit intent switches that make sense
-        if "APPOINTMENT_STATUS" in matched_intents:
-            return "APPOINTMENT_STATUS"
         if "CANCEL_APPOINTMENT" in matched_intents:
             return "CANCEL_APPOINTMENT"
         if "RESCHEDULE_APPOINTMENT" in matched_intents:
             return "RESCHEDULE_APPOINTMENT"
+        if "APPOINTMENT_STATUS" in matched_intents:
+            return "APPOINTMENT_STATUS"
 
         # Allow BOOK_APPOINTMENT → DOCTOR_AVAILABILITY for explicit slot queries
         if current_intent == "BOOK_APPOINTMENT" and "DOCTOR_AVAILABILITY" in matched_intents:

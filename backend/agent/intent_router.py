@@ -60,9 +60,9 @@ DEPARTMENT_SYMPTOM_MAP = {
         "eczema", "psoriasis", "itching", "itchying", "skin itching", "scalp", "itchy", "skin is itchy", "my skin is itchy", "itchy skin"
     ],
     "General Medicine": [
-        "fever", "fevr", "fevar", "feveer", "feverr", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever", "corona", "corona virus", "covid", "covid 19", "covid-19", "viral",
+        "fever", "fevr", "fevar", "feveer", "feverr", "fevereee", "high fever", "high temperature", "running a temperature", "running temperature", "temperature", "feverish", "cold", "cld", "cough", "couggh", "flu", "viral fever", "corona", "corona virus", "covid", "covid 19", "covid-19", "viral",
         "general weakness", "body pain", "body ache", "fatigue", "vomiting", "stomach", "stomach pain", "stomach ache",
-        "diarrhea", "headache", "migraine",
+        "diarrhea", "headache", "hedache", "migraine",
         "nausea", "dizziness"
     ],
     "Cardiology": [
@@ -243,6 +243,21 @@ def map_symptom_to_department(message_text: str, is_child: bool = False) -> Tupl
     found_symptoms = []
     mapped_department = None
     medical_reason = None
+
+    # Check semantic / spelling normalization first
+    try:
+        import agent.message_normalizer as message_normalizer
+        interp = message_normalizer.normalize_patient_message(message_text)
+        if interp.department:
+            mapped_department = interp.department
+            medical_reason = interp.medical_reason
+            found_symptoms = interp.symptoms
+            if is_child and (mapped_department == "General Medicine" or not mapped_department):
+                mapped_department = "Pediatrics"
+            return mapped_department, medical_reason, found_symptoms
+        msg_lower = interp.normalized_message.lower().strip()
+    except Exception:
+        pass
 
     # Check Specialist titles first
     for spec_key, dept_val in SPECIALIST_MAP.items():

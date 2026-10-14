@@ -2900,82 +2900,113 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         else:
             current_lang = language_override.upper() if language_override else state.get("language", "ENGLISH")
             return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
+    interp_msg = None
     if not btn_id and message_text:
+        try:
+            import agent.message_normalizer as message_normalizer
+            interp_msg = message_normalizer.normalize_patient_message(message_text, state)
+            norm_strip = interp_msg.normalized_message.strip().lower()
+        except Exception:
+            norm_strip = message_text.strip().lower()
         m_strip = message_text.strip().lower()
-        if m_strip in ["new patient", "register new patient", "btn_new_patient"]:
+
+        state["raw_message"] = message_text
+        state["normalized_message"] = norm_strip
+        if interp_msg and interp_msg.duration:
+            state["clinical_duration"] = interp_msg.duration
+
+        # Adopt message_normalizer suggested button / intent if detected
+        if interp_msg and interp_msg.suggested_intent:
+            if interp_msg.suggested_intent == "CANCEL_APPOINTMENT":
+                btn_id = "btn_cancel_appt"
+            elif interp_msg.suggested_intent == "APPOINTMENT_STATUS":
+                btn_id = "btn_my_appts"
+            elif interp_msg.suggested_intent == "PATIENT_REPORTS":
+                btn_id = "btn_my_reports"
+            elif interp_msg.suggested_intent == "PATIENT_DOCUMENTS":
+                btn_id = "btn_my_documents"
+            elif interp_msg.suggested_intent == "PATIENT_DETAILS":
+                btn_id = "btn_view_profile"
+            elif interp_msg.suggested_intent == "SWITCH_PATIENT":
+                btn_id = "btn_switch_patient"
+            elif interp_msg.suggested_intent == "HOSPITAL_INFORMATION":
+                btn_id = "btn_hosp_info"
+
+        if not btn_id and (m_strip in ["new patient", "register new patient", "btn_new_patient"] or norm_strip in ["new patient", "register new patient"]):
             btn_id = "btn_new_patient"
-        elif m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "btn_first_time", "btn_first_time_visitor"]:
+        elif not btn_id and (m_strip in ["first-time visitor", "first-time", "first time visitor", "first time", "btn_first_time", "btn_first_time_visitor"] or norm_strip in ["first-time visitor", "first time"]):
             btn_id = "btn_first_time"
-        elif m_strip in ["existing patient", "existing", "btn_existing_patient"]:
+        elif not btn_id and (m_strip in ["existing patient", "existing", "btn_existing_patient"] or norm_strip in ["existing patient", "existing"]):
             btn_id = "btn_existing_patient"
-        elif m_strip in ["try again", "retry", "btn_retry_patient_id"]:
+        elif not btn_id and (m_strip in ["try again", "retry", "btn_retry_patient_id"] or norm_strip in ["try again", "retry"]):
             btn_id = "btn_retry_patient_id"
-        elif any(kw in m_strip for kw in ["switch patient", "switch profile", "change patient", "select patient", "select profile", "btn_switch_patient"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["switch patient", "switch profile", "change patient", "select patient", "select profile", "btn_switch_patient"]):
             btn_id = "btn_switch_patient"
-        elif any(kw in m_strip for kw in ["hospital information", "hospital info", "location", "timings", "visiting hours"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["hospital information", "hospital info", "location", "timings", "visiting hours"]):
             btn_id = "btn_hosp_info"
-        elif any(kw in m_strip for kw in ["doctor availability", "doctor information", "doctor info", "doctors available", "find doctor", "available doctor", "doctor schedule"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["doctor availability", "doctor information", "doctor info", "doctors available", "find doctor", "available doctor", "doctor schedule"]):
             btn_id = "btn_doctor_avail"
-        elif any(kw in m_strip for kw in ["other services", "other hospital services"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["other services", "other hospital services"]):
             btn_id = "btn_other_services"
-        elif any(kw in m_strip for kw in ["show my x-ray", "show my xray", "my x-ray", "my xray", "x-ray", "xray", "show x-ray", "view x-ray", "x-ray image", "x-ray scan", "i need my x-ray", "send my x-ray"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["show my x-ray", "show my xray", "my x-ray", "my xray", "x-ray", "xray", "show x-ray", "view x-ray", "x-ray image", "x-ray scan", "i need my x-ray", "send my x-ray"]):
             btn_id = "btn_cat_xrays"
-        elif any(kw in m_strip for kw in ["i need my radiology report", "radiology report", "x-ray report", "radiology", "imaging report"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["i need my radiology report", "radiology report", "x-ray report", "radiology", "imaging report"]):
             btn_id = "btn_cat_xrays"
-        elif any(kw in m_strip for kw in ["send my discharge summary", "discharge summary", "discharge document", "discharge papers", "discharge instructions", "my discharge summary"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["send my discharge summary", "discharge summary", "discharge document", "discharge papers", "discharge instructions", "my discharge summary"]):
             btn_id = "btn_cat_discharge"
-        elif any(kw in m_strip for kw in ["how much do i still owe", "how much do i owe", "outstanding balance", "my balance", "due amount", "what do i owe"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["how much do i still owe", "how much do i owe", "outstanding balance", "my balance", "due amount", "what do i owe"]):
             btn_id = "btn_balance"
-        elif any(kw in m_strip for kw in ["show my previous payments", "payment history", "previous payments", "my payments", "past payments"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["show my previous payments", "payment history", "previous payments", "my payments", "past payments"]):
             btn_id = "btn_payment_history"
-        elif any(kw in m_strip for kw in ["i want my medical records", "medical records", "clinical records", "clinical notes", "my medical records"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["i want my medical records", "medical records", "clinical records", "clinical notes", "my medical records"]):
             btn_id = "btn_clinical_records"
-        elif any(kw in m_strip for kw in ["insurance status", "insurance details", "my insurance", "tpa status", "insurance"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["insurance status", "insurance details", "my insurance", "tpa status", "insurance"]):
             btn_id = "btn_insurance"
-        elif any(kw in m_strip for kw in ["appointment details", "my appointment details", "view appointment details"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["appointment details", "my appointment details", "view appointment details"]):
             btn_id = "btn_appt_details"
-        elif any(kw in m_strip for kw in ["documents / forms", "my documents", "documents", "hospital documents"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["documents / forms", "my documents", "documents", "hospital documents"]):
             btn_id = "btn_my_documents"
-        elif any(kw in m_strip for kw in ["my appointment", "my appts", "appointment details", "check appointment", "view appointment", "show my appointment", "my appointment details", "upcoming appointment", "my bookings", "check my appt"]) or m_strip in ["my appointments", "my appt"]:
+        elif not btn_id and (any(kw in m_strip or kw in norm_strip for kw in ["my appointment", "my appts", "appointment details", "check appointment", "view appointment", "show my appointment", "my appointment details", "upcoming appointment", "my bookings", "check my appt"]) or m_strip in ["my appointments", "my appt"] or norm_strip in ["my appointments", "my appt"]):
             btn_id = "btn_my_appts"
-        elif any(kw in m_strip for kw in ["my report", "show my report", "get report", "view report", "lab report", "test report", "download report", "medical report"]) or m_strip in ["reports", "my reports"]:
+        elif not btn_id and (any(kw in m_strip or kw in norm_strip for kw in ["my report", "show my report", "get report", "view report", "lab report", "test report", "download report", "medical report"]) or m_strip in ["reports", "my reports"] or norm_strip in ["reports", "my reports", "show my reports"]):
             btn_id = "btn_my_reports"
-        elif any(kw in m_strip for kw in ["view bill", "show bill", "show my bill", "my bill", "pay bill", "hospital bill", "check bill"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["view bill", "show bill", "show my bill", "my bill", "pay bill", "hospital bill", "check bill"]):
             btn_id = "btn_view_bill"
-        elif any(kw in m_strip for kw in ["billing & payments", "billing and payments", "billing"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["billing & payments", "billing and payments", "billing"]):
             btn_id = "btn_cat_billing"
-        elif m_strip in ["gpay", "google pay"]:
+        elif not btn_id and (m_strip in ["gpay", "google pay"] or norm_strip in ["gpay", "google pay"]):
             btn_id = "btn_pay_gpay"
-        elif m_strip in ["phonepe"]:
+        elif not btn_id and (m_strip in ["phonepe"] or norm_strip in ["phonepe"]):
             btn_id = "btn_pay_phonepe"
-        elif m_strip in ["paytm"]:
+        elif not btn_id and (m_strip in ["paytm"] or norm_strip in ["paytm"]):
             btn_id = "btn_pay_paytm"
-        elif m_strip in ["upi"]:
+        elif not btn_id and (m_strip in ["upi"] or norm_strip in ["upi"]):
             btn_id = "btn_pay_upi"
-        elif m_strip in ["netbanking", "net banking"]:
+        elif not btn_id and (m_strip in ["netbanking", "net banking"] or norm_strip in ["netbanking", "net banking"]):
             btn_id = "btn_pay_netbanking"
-        elif m_strip in ["change payment method", "change payment"]:
+        elif not btn_id and (m_strip in ["change payment method", "change payment"] or norm_strip in ["change payment method", "change payment"]):
             btn_id = "btn_pay_change"
-        elif m_strip in ["cancel payment"]:
+        elif not btn_id and (m_strip in ["cancel payment"] or norm_strip in ["cancel payment"]):
             btn_id = "btn_pay_cancel"
-        elif m_strip.startswith("pay ₹") or m_strip.startswith("pay rs") or m_strip.startswith("btn_pay_exec") or m_strip in ["pay", "pay now", "make payment", "pay fee", "confirm payment", "pay ₹800", "pay 800", "pay rs 800"]:
+        elif not btn_id and (m_strip.startswith("pay ₹") or m_strip.startswith("pay rs") or m_strip.startswith("btn_pay_exec") or m_strip in ["pay", "pay now", "make payment", "pay fee", "confirm payment", "pay ₹800", "pay 800", "pay rs 800"] or norm_strip in ["pay", "pay now", "make payment"]):
             btn_id = "btn_pay_exec"
-        elif (any(kw in m_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"]):
+        elif not btn_id and (any(kw in m_strip or kw in norm_strip for kw in ["book appointment", "book an appointment", "want to book", "need an appointment", "schedule appointment", "make an appointment", "take an appointment", "appointment booking", "book appt", "fix an appointment", "reserve appointment", "consultation booking", "see a doctor"]) or m_strip in ["book appointment", "appointment", "booking"] or norm_strip in ["book appointment", "appointment", "booking"]):
             rule_ext_check = entity_extractor.extract_entities(message_text)
             has_entities_check = bool(
                 rule_ext_check.get("reason") or
                 rule_ext_check.get("doctor_id") or
                 rule_ext_check.get("department_id") or
                 rule_ext_check.get("appointment_date") or
-                entity_extractor.is_date_or_time_expression(m_strip)
+                entity_extractor.is_date_or_time_expression(m_strip) or
+                entity_extractor.is_date_or_time_expression(norm_strip)
             )
             if not has_entities_check:
                 btn_id = "btn_book_appt"
-        elif any(kw in m_strip for kw in ["confirm appointment", "confirm appt"]) or m_strip in ["confirm"]:
+        elif not btn_id and (any(kw in m_strip or kw in norm_strip for kw in ["confirm appointment", "confirm appt"]) or m_strip in ["confirm"] or norm_strip in ["confirm"]):
             btn_id = "btn_confirm_appt"
-        elif any(kw in m_strip for kw in ["cancel appointment", "cancel my appointment", "cancel appt", "cancel booking"]):
+        elif not btn_id and any(kw in m_strip or kw in norm_strip for kw in ["cancel appointment", "cancel my appointment", "cancel appt", "cancel booking"]):
             btn_id = "btn_cancel_appt"
-        elif m_strip in ["yes, cancel", "yes cancel", "confirm cancel", "yes cancel appointment", "yes, cancel appointment", "cancel it"]:
+        elif not btn_id and (m_strip in ["yes, cancel", "yes cancel", "confirm cancel", "yes cancel appointment", "yes, cancel appointment", "cancel it"] or norm_strip in ["yes, cancel", "yes cancel", "confirm cancel", "yes cancel appointment"]):
             b_id_pending = state.get("entities", {}).get("booking_id") or state.get("selected_booking_id")
             if b_id_pending:
                 btn_id = f"btn_exec_cancel_{b_id_pending}"
