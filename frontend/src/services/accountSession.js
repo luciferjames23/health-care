@@ -23,7 +23,12 @@ export async function selectAccount(username) {
     dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
     departmentId: user.departmentId || user.department_id,
     doctorId: user.doctorId || user.doctor_id,
-    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
+    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role),
+    qualification: user.qualification || undefined,
+    phone: user.phone || undefined,
+    email: user.email || undefined,
+    consultation_fee: user.consultation_fee ?? user.consultationFee ?? undefined,
+    designation: user.designation || user.specialization || user.title || user.role,
   };
     try {
       sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
@@ -56,7 +61,12 @@ export async function loginWithPassword(username, password) {
     dept: user.department || (user.role.toLowerCase() === 'patient' ? 'Patient Portal' : undefined),
     departmentId: user.departmentId || user.department_id,
     doctorId: user.doctorId || user.doctor_id,
-    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role)
+    title: user.specialization || (user.role.toLowerCase() === 'patient' ? user.patientCode || user.patient_code : user.role),
+    qualification: user.qualification || undefined,
+    phone: user.phone || undefined,
+    email: user.email || undefined,
+    consultation_fee: user.consultation_fee ?? user.consultationFee ?? undefined,
+    designation: user.designation || user.specialization || user.title || user.role,
   };
   try {
     sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
@@ -65,3 +75,15 @@ export async function loginWithPassword(username, password) {
   } catch {}
   return userObj;
 }
+
+export async function fetchUserProfile(username = '') {
+  const token = sessionStorage.getItem('hc_auth_token') || '';
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const query = username ? `?username=${encodeURIComponent(username)}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/auth/profile${query}`, { headers });
+  if (!response.ok) throw new Error('Unable to fetch profile.');
+  const data = await response.json();
+  return data.profile;
+}
+

@@ -69,11 +69,11 @@ const Sidebar: React.FC = () => {
     <>
       <nav className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          <img src={logo} alt="Meridian Hospital" className="sidebar-logo" />
+          <img src={logo} alt="Hospital" className="sidebar-logo" />
           {!collapsed && (
             <div className="sidebar-brand">
-              <h3>Meridian Hospital</h3>
-              <span>The Family Hospital</span>
+              <h3>Hospital</h3>
+              <span>Clinical Operating Platform</span>
             </div>
           )}
         </div>

@@ -39,7 +39,7 @@ const AppLayout: React.FC = () => {
     if (location.pathname.match(/\/doctor\/patient-records\/\d+/)) return 'Patient Profile';
     // Prefix match
     const match = Object.keys(pageTitles).find(k => location.pathname.startsWith(k));
-    return match ? pageTitles[match] : 'Meridian Hospital';
+    return match ? pageTitles[match] : 'Hospital';
   };
 
   return (
@@ -50,7 +50,7 @@ const AppLayout: React.FC = () => {
         <main className="main-content">
           <Outlet />
           <footer className="app-footer">
-            Meridian Hospital | Kolathur, Chennai — AI Conversational Patient Desk
+            Hospital | Kolathur, Chennai — AI Conversational Patient Desk
           </footer>
         </main>
       </div>

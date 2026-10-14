@@ -144,7 +144,7 @@ export default function AuthScreen({
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: '17px', letterSpacing: '-0.01em', color: '#ffffff' }}>
-              Meridian Hospital
+              Hospital
             </div>
             <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>
               Clinical &amp; Hospital Operating Platform
@@ -182,7 +182,7 @@ export default function AuthScreen({
         </div>
 
         <div style={{ fontSize: '11.5px', color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>© 2026 Meridian Hospital Systems</span>
+          <span>© 2026 Hospital Systems</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
             Systems Operational
@@ -580,13 +580,13 @@ export default function AuthScreen({
             </div>
 
             <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, margin: 0 }}>
-              If you have forgotten your password or require role permissions to access clinical systems, please contact the Meridian Hospital IT Helpdesk:
+              If you have forgotten your password or require role permissions to access clinical systems, please contact the Hospital IT Helpdesk:
             </p>
 
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px', fontSize: '12.5px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div><strong>Internal Phone:</strong> Ext. 4400 (24/7 Support)</div>
               <div><strong>Direct Line:</strong> +1 (800) 555-0199</div>
-              <div><strong>Email:</strong> it-support@meridianhospital.org</div>
+              <div><strong>Email:</strong> it-support@hospital.org</div>
               <div><strong>Location:</strong> Clinical Informatics Center, Tower B, Level 2</div>
             </div>
 

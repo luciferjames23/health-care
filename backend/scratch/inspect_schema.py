@@ -1,25 +1,22 @@
 import sys
-import os
-sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, 'backend')
+import db_config
+import psycopg2.extras
 
-from db.postgres_connector import PostgresConnector
+conn = db_config.get_db_connection()
+cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-pg = PostgresConnector()
-conn = pg.get_connection()
-cur = conn.cursor()
+cur.execute("""
+SELECT u.id, u.username, r.name as role, d.id as doctor_id, d.display_name, d.qualification, d.specialization, dept.department_name
+FROM users u
+JOIN roles r ON u.role_id = r.id
+LEFT JOIN doctors d ON d.user_id = u.id
+LEFT JOIN departments dept ON dept.id = COALESCE(d.department_id, u.department_id)
+WHERE LOWER(r.name) = 'doctor'
+ORDER BY u.id
+LIMIT 5;
+""")
+for r in cur.fetchall():
+    print(dict(r))
 
-tables = [
-    'patients', 'patient_insurance', 'patient_visits', 'admissions', 
-    'dim_admission_inputs', 'diagnoses', 'bills', 'bill_items', 
-    'insurance_claims', 'insurance_claim_items', 'claim_appeals', 'agent_action_logs'
-]
-
-for t in tables:
-    cur.execute(f"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '{t}' ORDER BY ordinal_position;")
-    cols = cur.fetchall()
-    print(f"=== Table: {t} ===")
-    for c in cols:
-        print(f"  {c[0]} ({c[1]}, nullable={c[2]})")
-
-cur.close()
 conn.close()

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 import db_config
 import psycopg2.extras
-from api.auth_helper import verify_password, get_hashed_password, encode_token, require_radiologist
+from api.auth_helper import verify_password, get_hashed_password, encode_token, decode_token, require_radiologist
 from utils.email_service import send_otp_email
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -209,24 +209,38 @@ def login(body: LoginRequest):
             ("Administrator" if actual_role in {"ADMIN", "HOSPITAL MANAGEMENT"} else username)
         )
 
+        doc_qual = None
+        doc_fee = None
+        doc_exp = None
+        doc_phone = None
+        doc_email = None
+
         if actual_role in {"DOCTOR", "RADIOLOGIST", "PATHOLOGIST"}:
-            if not doctor_id:
-                cur.execute("""
-                    SELECT d.id, d.display_name, dept.department_name, d.department_id, d.specialization
-                    FROM doctors d
-                    LEFT JOIN departments dept ON d.department_id = dept.id
-                    WHERE d.user_id = %s;
-                """, (user_id,))
-                doc_row = cur.fetchone()
-                if doc_row:
-                    doctor_id, d_disp, d_dept, d_did, d_sp = doc_row
-                    department_id = d_did
-                    if d_disp:
-                        display_name = d_disp
-                    if d_dept:
-                        department_name = d_dept
-                    if d_sp:
-                        specialization = d_sp
+            cur.execute("""
+                SELECT d.id, d.display_name, dept.department_name, d.department_id, d.specialization,
+                       d.qualification, d.consultation_fee, d.experience_years, d.phone, d.email, d.doctor_code
+                FROM doctors d
+                LEFT JOIN departments dept ON d.department_id = dept.id
+                WHERE d.user_id = %s OR d.id = %s;
+            """, (user_id, doctor_id or -1))
+            doc_row = cur.fetchone()
+            if doc_row:
+                (d_id, d_disp, d_dept, d_did, d_sp,
+                 d_qual, d_fee, d_exp, d_phone, d_email, d_code) = doc_row
+                doctor_id = d_id
+                department_id = d_did or department_id
+                if d_disp:
+                    display_name = d_disp
+                if d_dept:
+                    department_name = d_dept
+                if d_sp:
+                    specialization = d_sp
+                doc_qual = d_qual
+                doc_fee = d_fee
+                doc_exp = d_exp
+                doc_phone = d_phone
+                doc_email = d_email
+                doc_code = d_code
         elif actual_role == "PATIENT":
             department_name = "Patient Portal"
             if not patient_id:
@@ -262,6 +276,8 @@ def login(body: LoginRequest):
         """, (user_id,))
         conn.commit()
 
+        fee_val = float(doc_fee) if doc_fee is not None else None
+
         return {
             "success": True,
             "token": token,
@@ -274,6 +290,16 @@ def login(body: LoginRequest):
                 "departmentId": department_id,
                 "department_id": department_id,
                 "specialization": specialization,
+                "designation": specialization or role_name,
+                "qualification": doc_qual,
+                "phone": doc_phone or phone,
+                "email": doc_email or email,
+                "consultation_fee": fee_val,
+                "consultationFee": fee_val,
+                "experience_years": doc_exp,
+                "experienceYears": doc_exp,
+                "doctorCode": doc_code,
+                "doctor_code": doc_code,
                 "doctorId": doctor_id,
                 "patient_id": patient_id,
                 "patient_code": patient_code,
@@ -447,9 +473,13 @@ def select_account(body: AccountSelectionRequest, request: Request):
                        COALESCE(dept.department_name, CASE WHEN LOWER(r.name) = 'patient' THEN 'Patient Portal' ELSE NULL END),
                        d.id, d.specialization,
                        p.id as patient_id, p.patient_code,
-                       COALESCE(d.department_id, u.department_id)
+                       COALESCE(d.department_id, u.department_id),
+                       d.qualification, d.phone as doc_phone, u.phone as user_phone,
+                       d.email as doc_email, u.email as user_email,
+                       d.consultation_fee, d.experience_years, d.doctor_code
                 FROM users u JOIN roles r ON r.id=u.role_id
                 LEFT JOIN doctors d ON d.user_id=u.id
+                LEFT JOIN departments dept ON dept.id = COALESCE(d.department_id, u.department_id)
                 LEFT JOIN patients p ON (LOWER(r.name) = 'patient' AND LOWER(p.patient_code) = LOWER(u.username))
                 WHERE (lower(u.username)=lower(%s) OR (p.patient_code IS NOT NULL AND lower(p.patient_code)=lower(%s))) AND u.is_active=true
                 LIMIT 1
@@ -457,7 +487,10 @@ def select_account(body: AccountSelectionRequest, request: Request):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=403, detail="This account is unavailable or inactive.")
-            uid, username, role, name, department, doctor_id, specialization, patient_id, patient_code, department_id = row
+            (uid, username, role, name, department, doctor_id, specialization,
+             patient_id, patient_code, department_id,
+             doc_qual, doc_phone, user_phone, doc_email, user_email,
+             doc_fee, doc_exp, doc_code) = row
             token = encode_token({
                 "user_id": uid,
                 "username": username,
@@ -469,6 +502,9 @@ def select_account(body: AccountSelectionRequest, request: Request):
             })
             cur.execute("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=%s", (uid,))
             conn.commit()
+
+            fee_val = float(doc_fee) if doc_fee is not None else None
+
     return {"success": True, "token": token, "user": {
         "username": username,
         "role": role,
@@ -477,6 +513,16 @@ def select_account(body: AccountSelectionRequest, request: Request):
         "departmentId": department_id,
         "department_id": department_id,
         "specialization": specialization or (patient_code if role.lower() == "patient" else None),
+        "designation": specialization or role,
+        "qualification": doc_qual,
+        "phone": doc_phone or user_phone,
+        "email": doc_email or user_email,
+        "consultation_fee": fee_val,
+        "consultationFee": fee_val,
+        "experience_years": doc_exp,
+        "experienceYears": doc_exp,
+        "doctorCode": doc_code,
+        "doctor_code": doc_code,
         "doctorId": doctor_id,
         "patient_id": patient_id,
         "patient_code": patient_code,
@@ -485,3 +531,111 @@ def select_account(body: AccountSelectionRequest, request: Request):
         "loginId": username,
         "canAccessRadiology": role.strip().lower() == "radiologist",
     }}
+
+
+@router.get("/profile")
+def get_user_profile(username: Optional[str] = None, request: Request = None):
+    """
+    Returns canonical authenticated user or doctor profile details from database.
+    Includes qualification, designation, department, phone, email, consultation fee, etc.
+    Guarantees no fabricated data and strictly respects canonical database relations.
+    """
+    target_username = (username or "").strip()
+    target_user_id = None
+    
+    auth_header = request.headers.get("Authorization", "") if request else ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        payload = decode_token(token)
+        if payload:
+            if not target_username:
+                target_username = payload.get("username", "")
+            target_user_id = payload.get("user_id")
+
+    if not target_username and not target_user_id:
+        raise HTTPException(status_code=400, detail="User identification required.")
+
+    conn = db_config.get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""
+            SELECT u.id as user_id, u.username, u.email as user_email, u.phone as user_phone,
+                   u.first_name as user_fname, u.last_name as user_lname,
+                   u.staff_name, u.staff_type, u.staff_code, u.is_active,
+                   r.name as role_name,
+                   d.id as doctor_id, d.doctor_code, d.first_name as doc_fname, d.last_name as doc_lname,
+                   d.display_name as doc_display_name, d.specialization as doc_spec,
+                   d.qualification as doc_qual, d.experience_years, d.phone as doc_phone,
+                   d.email as doc_email, d.consultation_fee, d.status as doc_status,
+                   dept.department_name
+            FROM users u
+            JOIN roles r ON u.role_id = r.id
+            LEFT JOIN doctors d ON d.user_id = u.id
+            LEFT JOIN departments dept ON dept.id = COALESCE(d.department_id, u.department_id)
+            WHERE (u.id = %s OR LOWER(u.username) = LOWER(%s))
+            LIMIT 1;
+        """, (target_user_id or -1, target_username))
+        row = cur.fetchone()
+
+        if not row and target_username:
+            cur.execute("""
+                SELECT u.id as user_id, u.username, u.email as user_email, u.phone as user_phone,
+                       u.first_name as user_fname, u.last_name as user_lname,
+                       u.staff_name, u.staff_type, u.staff_code, u.is_active,
+                       r.name as role_name,
+                       d.id as doctor_id, d.doctor_code, d.first_name as doc_fname, d.last_name as doc_lname,
+                       d.display_name as doc_display_name, d.specialization as doc_spec,
+                       d.qualification as doc_qual, d.experience_years, d.phone as doc_phone,
+                       d.email as doc_email, d.consultation_fee, d.status as doc_status,
+                       dept.department_name
+                FROM doctors d
+                LEFT JOIN users u ON d.user_id = u.id
+                LEFT JOIN roles r ON u.role_id = r.id
+                LEFT JOIN departments dept ON dept.id = d.department_id
+                WHERE LOWER(d.doctor_code) = LOWER(%s) OR LOWER(d.display_name) = LOWER(%s)
+                LIMIT 1;
+            """, (target_username, target_username))
+            row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="User profile not found.")
+
+        display_name = (
+            row["doc_display_name"] or
+            row["staff_name"] or
+            f"{row['user_fname'] or ''} {row['user_lname'] or ''}".strip() or
+            row["username"]
+        )
+
+        fee = None
+        if row.get("consultation_fee") is not None:
+            try:
+                fee = float(row["consultation_fee"])
+            except (ValueError, TypeError):
+                fee = None
+
+        profile = {
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "role": row["role_name"],
+            "name": display_name,
+            "first_name": row["doc_fname"] or row["user_fname"],
+            "last_name": row["doc_lname"] or row["user_lname"],
+            "designation": row["doc_spec"] or row["staff_type"] or row["role_name"],
+            "specialization": row["doc_spec"],
+            "qualification": row["doc_qual"],
+            "department": row["department_name"],
+            "phone": row["doc_phone"] or row["user_phone"],
+            "email": row["doc_email"] or row["user_email"],
+            "consultation_fee": fee,
+            "experience_years": row["experience_years"],
+            "doctor_id": row["doctor_id"],
+            "doctor_code": row["doctor_code"],
+            "staff_code": row["staff_code"],
+            "status": row["doc_status"] or ("Active" if row["is_active"] else "Inactive")
+        }
+        return {"success": True, "profile": profile}
+    finally:
+        cur.close()
+        conn.close()
+

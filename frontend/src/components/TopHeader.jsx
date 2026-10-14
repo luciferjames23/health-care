@@ -1,27 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Menu } from 'lucide-react';
-import { ALL_ROLES, DEMO_ROLES } from '../services/meridianData';
-
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
-
-const FALLBACK_DB_USERS = [
-  { username: 'admin', role: 'Hospital Management', name: 'System Admin', dept: 'Administration', specialization: 'Administration', title: 'Admin' },
-  { username: 'doctor_1', role: 'Doctor', name: 'Dr. Priya Patel', dept: 'Cardiology', specialization: 'Cardiologist', title: 'Cardiologist' },
-  { username: 'doctor_2', role: 'Doctor', name: 'Dr. Ravi Reddy', dept: 'Orthopedics', specialization: 'Orthopedist', title: 'Orthopedist' },
-  { username: 'doctor_3', role: 'Doctor', name: 'Dr. Anjali Iyer', dept: 'Pediatrics', specialization: 'Pediatrician', title: 'Pediatrician' },
-  { username: 'doctor_4', role: 'Doctor', name: 'Dr. Vikram Singh', dept: 'Neurology', specialization: 'Neurologist', title: 'Neurologist' },
-  { username: 'doctor_5', role: 'Doctor', name: 'Dr. Neha Nair', dept: 'Gynecology', specialization: 'Gynecologist', title: 'Gynecologist' },
-  { username: 'doctor_6', role: 'Doctor', name: 'Dr. Suresh Menon', dept: 'Surgery', specialization: 'Surgeon', title: 'Surgeon' },
-  { username: 'doctor_7', role: 'Doctor', name: 'Dr. Divya Verma', dept: 'Emergency', specialization: 'ER Physician', title: 'ER Physician' },
-  { username: 'doctor_8', role: 'Doctor', name: 'Dr. Rahul Kumar', dept: 'Intensive Care Unit', specialization: 'Intensivist', title: 'Intensivist' },
-  { username: 'doctor_9', role: 'Doctor', name: 'Dr. Sneha Das', dept: 'Laboratory', specialization: 'Pathologist', title: 'Pathologist' },
-  { username: 'doctor_10', role: 'Doctor', name: 'Dr. Karthik Bose', dept: 'Pharmacy', specialization: 'Pharmacologist', title: 'Pharmacologist' },
-  { username: 'doctor_11', role: 'Doctor', name: 'Dr. Pooja Pillai', dept: 'Oncology', specialization: 'Oncologist', title: 'Oncologist' },
-  { username: 'doctor_12', role: 'Doctor', name: 'Dr. Arjun Rao', dept: 'Administration', specialization: 'Administrator', title: 'Administrator' },
-  { username: 'doctor_13', role: 'Doctor', name: 'Dr. Meenakshi Gupta', dept: 'General Medicine', specialization: 'General Physician', title: 'General Physician' },
-  { username: 'doctor_14', role: 'Doctor', name: 'Dr. Sanjay Jain', dept: 'Cardiology', specialization: 'Cardiologist', title: 'Cardiologist' },
-  { username: 'doctor_15', role: 'Doctor', name: 'Dr. Amit Sharma', dept: 'Orthopedics', specialization: 'Orthopedist', title: 'Orthopedist' },
-];
+import UserProfileModal from './UserProfileModal';
 
 export default function TopHeader({
   role,
@@ -38,17 +17,42 @@ export default function TopHeader({
   onOpenModal,
   onSwitchUserPromptPassword,
 }) {
-  const [askInput, setAskInput] = React.useState('');
-  const [showNewMenu, setShowNewMenu] = React.useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const accountMenuRef = useRef(null);
 
   // Dynamic real-time clock and calendar date
-  const [now, setNow] = React.useState(new Date());
+  const [now, setNow] = useState(new Date());
 
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
     }, 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target)) {
+        setShowAccountMenu(false);
+      }
+    };
+    if (showAccountMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAccountMenu]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowAccountMenu(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -58,362 +62,371 @@ export default function TopHeader({
   const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
   const liveTimeStr = `${String(hours12).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${ampm}`;
 
-  const [askingLoading, setAskingLoading] = React.useState(false);
+  const displayName = (user?.name || (role === 'Doctor' ? 'Doctor' : 'Admin')).trim();
+  const displayRole = user?.role || role || 'Staff';
+  const displaySubtitle = user?.specialization || user?.designation || user?.department || user?.dept || '';
 
-  const handleAskSubmit = async (e) => {
-    e.preventDefault();
-    if (askInput.trim() && onAskAi) {
-      setAskingLoading(true);
-      try {
-        await onAskAi(askInput.trim());
-      } finally {
-        setTimeout(() => setAskingLoading(false), 800);
-      }
+  const isDoctor = String(displayRole).trim().toLowerCase() === 'doctor';
+  let welcomeTitle = '';
+  if (isDoctor) {
+    if (/^dr\.?\s+/i.test(displayName)) {
+      const clean = displayName.replace(/^dr\.?\s+/i, '').trim();
+      welcomeTitle = `Welcome, Dr. ${clean}`;
+    } else {
+      welcomeTitle = `Welcome, Dr. ${displayName}`;
     }
-  };
+  } else {
+    welcomeTitle = `Welcome, ${displayName}`;
+  }
 
-  // Fetch dynamic users and specializations from database
-  const [dbUsers, setDbUsers] = React.useState(FALLBACK_DB_USERS);
+  const initials = displayName
+    ? displayName.split(' ').map(n => n[0]).filter(Boolean).join('').slice(0, 2).toUpperCase()
+    : 'U';
 
-  React.useEffect(() => {
-    let isMounted = true;
-    async function loadUsers() {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/auth/users`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.users && data.users.length > 0 && isMounted) {
-            setDbUsers(data.users);
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load dynamic users in TopHeader:', err);
-      }
-    }
-    loadUsers();
-    return () => { isMounted = false; };
-  }, []);
+  const isPatient = (role === 'Patient' || displayRole.toLowerCase() === 'patient');
 
-  // Merge database users with other domain roles and ensure currently logged in user is included
-  const combinedUsers = React.useMemo(() => {
-    const rawList = (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
-    const list = rawList.map(u => {
-      const isAdm = (u.role === 'Admin' || u.role === 'ADMIN' || u.username === 'admin');
-      const normalizedRole = isAdm ? 'Hospital Management' : (u.role || 'Doctor');
-      const spec = u.specialization || u.title || u.dept || (isAdm ? 'Administration' : 'General Medicine');
-      return {
-        username: u.username,
-        name: u.name,
-        role: normalizedRole,
-        dept: u.dept || 'General Medicine',
-        specialization: spec,
-        title: spec
-      };
-    });
-
-    const existingUsernames = new Set(list.map(u => u.username?.toLowerCase()));
-
-    // Ensure active authenticated user is always present in list
-    if (user && user.username && !existingUsernames.has(user.username.toLowerCase())) {
-      const isAdm = (user.role === 'Admin' || user.role === 'ADMIN' || user.username === 'admin' || user.role === 'Hospital Management');
-      const normalizedRole = isAdm ? 'Hospital Management' : (user.role || 'Doctor');
-      const spec = user.specialization || user.title || user.dept || user.department || (isAdm ? 'Administration' : 'General Medicine');
-      list.unshift({
-        username: user.username,
-        name: user.name,
-        role: normalizedRole,
-        dept: user.dept || user.department || 'General Medicine',
-        specialization: spec,
-        title: spec
-      });
-      existingUsernames.add(user.username.toLowerCase());
-    }
-
-    // Other non-doctor roles from DEMO_ROLES
-    const extraRoles = DEMO_ROLES
-      .filter(d => d.role !== 'Doctor' && !existingUsernames.has(d.username?.toLowerCase()))
-      .map(d => ({
-        username: d.username,
-        name: d.name,
-        role: d.role,
-        dept: d.dept || d.role,
-        specialization: d.title || d.dept || d.role,
-        title: d.title || d.dept || d.role
-      }));
-
-    return [...list, ...extraRoles];
-  }, [dbUsers, user]);
-
-  // Available users for current selected role
-  const usersForCurrentRole = React.useMemo(() => {
-    const list = combinedUsers.length > 0 ? combinedUsers : (dbUsers && dbUsers.length > 0 ? dbUsers : FALLBACK_DB_USERS);
-    if (!role) return list;
-    const filtered = list.filter(u => {
-      if (role === 'Hospital Management') {
-        return u.role === 'Hospital Management' || u.role === 'Admin' || u.role === 'ADMIN';
-      }
-      return u.role?.toLowerCase() === role.toLowerCase();
-    });
-    // Ensure active user is present in usersForCurrentRole if their role matches
-    if (user && user.username) {
-      const userMatchesRole = role === 'Hospital Management'
-        ? (user.role === 'Hospital Management' || user.role === 'Admin' || user.role === 'ADMIN')
-        : (user.role?.toLowerCase() === role.toLowerCase());
-      if (userMatchesRole && !filtered.some(u => u.username?.toLowerCase() === user.username.toLowerCase())) {
-        const matchingCombined = combinedUsers.find(u => u.username?.toLowerCase() === user.username.toLowerCase());
-        if (matchingCombined) {
-          filtered.unshift(matchingCombined);
-        }
-      }
-    }
-    return filtered.length > 0 ? filtered : list;
-  }, [combinedUsers, dbUsers, role, user]);
-
-  const initials = user?.name
-    ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-    : 'DR';
+  const unreadBadgeCount = typeof alertsCount === 'number' ? Math.max(0, alertsCount) : (parseInt(alertsCount, 10) || 0);
+  const unreadBadgeText = unreadBadgeCount > 99 ? '99+' : String(unreadBadgeCount);
 
   return (
-    <header style={{
-      borderBottom: '1px solid #e3e6e8',
-      background: '#fff',
-      zIndex: 30,
-      position: 'sticky',
-      top: 0
-    }}>
-      {/* ── Row 1: Brand / AI search / pills / clock / actions / alerts ── */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
-        padding: '8px 14px', minHeight: '44px'
+    <>
+      <header style={{
+        borderBottom: '1px solid #e2e8f0',
+        background: '#ffffff',
+        zIndex: 40,
+        position: 'sticky',
+        top: 0,
+        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)'
       }}>
-        {/* Mobile menu toggle */}
-        <button
-          type="button"
-          onClick={onOpenMobile}
-          aria-label="Toggle navigation menu"
-          className="header-mobile-toggle-btn"
-          style={{
-            display: 'none',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '32px',
-            height: '32px',
-            border: '1px solid #e3e6e8',
-            borderRadius: '6px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            padding: 0,
-            color: '#15181b',
-            flexShrink: 0
-          }}
-          title="Open navigation menu"
-        >
-          <Menu size={18} />
-        </button>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          padding: '8px 20px',
+          minHeight: '52px'
+        }}>
+          {/* Left: Mobile Toggle, Brand & Top-Navbar Personalized Welcome Area */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+            <button
+              type="button"
+              onClick={onOpenMobile}
+              aria-label="Toggle navigation menu"
+              className="header-mobile-toggle-btn"
+              style={{
+                display: 'none',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                background: '#ffffff',
+                cursor: 'pointer',
+                padding: 0,
+                color: '#1e293b',
+                flexShrink: 0
+              }}
+              title="Open navigation menu"
+            >
+              <Menu size={18} />
+            </button>
 
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => window.location.reload()}>
-          <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: 'oklch(0.5 0.1 200)' }} />
-          <span style={{ fontWeight: 700, fontSize: '14px', letterSpacing: '-0.01em' }}>Hospital</span>
-          <span style={{ fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap' }}>AI Hospital Operating Platform</span>
-        </div>
+            {/* Brand Logo & Name: "Hospital" */}
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer', flexShrink: 0 }}
+              onClick={() => window.location.reload()}
+              title="Hospital Clinical Operating Platform"
+            >
+              <div style={{
+                width: '26px',
+                height: '26px',
+                borderRadius: '7px',
+                background: 'linear-gradient(135deg, oklch(0.55 0.14 180), oklch(0.42 0.12 210))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontWeight: 800,
+                fontSize: '14px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+              }}>
+                +
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontWeight: 700, fontSize: '14.5px', letterSpacing: '-0.01em', color: '#0f172a', lineHeight: 1.2 }}>
+                  Hospital
+                </span>
+                <span style={{ fontSize: '10.5px', color: '#64748b', whiteSpace: 'nowrap', lineHeight: 1.1 }}>
+                  Clinical Operating Platform
+                </span>
+              </div>
+            </div>
 
-        {/* Dynamic Real-time Clock */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e', marginLeft: 'auto' }}>
-          <span>{liveDateStr}</span>
-          <span style={{ fontWeight: 600, color: '#15181b' }}>{liveTimeStr}</span>
-        </div>
-
-        {/* Dynamic Alerts Action Button with Red Badge */}
-        <button
-          type="button"
-          id="btn-header-alerts"
-          onClick={() => {
-            if (onOpenAlerts) onOpenAlerts();
-          }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            height: '28px',
-            padding: '0 10px',
-            border: '1px solid #e3e6e8',
-            borderRadius: '6px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            fontSize: '11.5px',
-            fontWeight: 600,
-            color: '#15181b',
-            transition: 'all 0.15s ease',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = '#fef2f2';
-            e.currentTarget.style.borderColor = '#fca5a5';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.borderColor = '#e3e6e8';
-          }}
-          title={`${alertsCount} Active Alerts — Click to open Alert Drawer`}
-        >
-          <span>Alerts</span>
-          <span style={{
-            minWidth: '20px',
-            height: '18px',
-            padding: '0 6px',
-            borderRadius: '10px',
-            background: '#b91c1c',
-            color: '#ffffff',
-            fontSize: '10.5px',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            lineHeight: 1
-          }}>
-            {alertsCount}
-          </span>
-        </button>
-
-        {/* Top Right Corner Sign out */}
-        <button
-          type="button"
-          id="btn-top-signout"
-          onClick={onSignOut}
-          style={{
-            height: '28px',
-            padding: '0 10px',
-            border: '1px solid #e3e6e8',
-            borderRadius: '6px',
-            background: '#ffffff',
-            cursor: 'pointer',
-            color: '#b91c1c',
-            fontSize: '11.5px',
-            fontWeight: 600,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            transition: 'all 0.15s ease',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = '#fef2f2';
-            e.currentTarget.style.borderColor = '#fca5a5';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = '#ffffff';
-            e.currentTarget.style.borderColor = '#e3e6e8';
-          }}
-          title="Sign out of hospital account"
-        >
-          <span>Sign out</span>
-        </button>
-      </div>
-
-      {/* ── Row 2: Role / User / avatar / sign out / mobile ── */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 12px',
-        padding: '5px 14px 6px', borderTop: '1px solid #eef0f1', background: '#fff'
-      }}>
-        {role === 'Patient' ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{
-              background: 'oklch(0.95 0.03 200)',
-              color: 'oklch(0.4 0.1 200)',
-              padding: '3px 9px',
-              borderRadius: '6px',
-              fontSize: '11.5px',
-              fontWeight: 700
-            }}>
-              👤 Patient Portal
-            </span>
-            <span style={{ fontSize: '11.5px', color: '#64748b' }}>
-              UHID: <strong style={{ color: '#0f172a' }}>{user?.patientCode || user?.patient_code || user?.specialization || 'Verified'}</strong>
-            </span>
-          </div>
-        ) : (
-          <>
-            {/* Role */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-              <span>Role</span>
-              <select
-                value={role || ''}
-                title="Select role to switch user"
-                onChange={e => {
-                  const nextRole = e.target.value;
-                  const matched = combinedUsers.find(r =>
-                    r.role?.toLowerCase() === nextRole.toLowerCase() ||
-                    (nextRole === 'Hospital Management' && (r.role?.toLowerCase() === 'admin' || r.role?.toLowerCase() === 'hospital management'))
-                  );
-                  if (!matched) return;
-                  if (matched.username === user?.username) {
-                    // A role label cannot change the backend identity carried by the token.
-                    setRole(user?.role || nextRole);
-                    return;
-                  }
-                  if (onSwitchUserPromptPassword) {
-                    onSwitchUserPromptPassword(matched);
-                  } else if (onSignOut) {
-                    onSignOut();
-                  }
+            {/* Highlighted Top-Navbar Personalized Welcome Message */}
+            {!isPatient && (
+              <div
+                id="top-navbar-welcome-area"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  marginLeft: '8px',
+                  borderLeft: '1px solid #e2e8f0',
+                  paddingLeft: '18px',
+                  minWidth: 0
                 }}
-                style={{ height: '28px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
               >
-                {ALL_ROLES.map(r => (<option key={r} value={r}>{r}</option>))}
-              </select>
-            </label>
-
-            {/* User */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#8a9096', fontSize: '11.5px' }}>
-              <span>User</span>
-              <select
-                value={
-                  usersForCurrentRole.find(r => r.username?.toLowerCase() === user?.username?.toLowerCase())?.username ||
-                  user?.username ||
-                  usersForCurrentRole[0]?.username ||
-                  ''
-                }
-                onChange={e => {
-                  const selectedUsername = e.target.value;
-                  const u = combinedUsers.find(r => r.username === selectedUsername);
-                  if (u && u.username !== user?.username) {
-                    if (onSwitchUserPromptPassword) {
-                      onSwitchUserPromptPassword(u);
-                    } else if (onSignOut) {
-                      onSignOut();
-                    }
-                  }
-                }}
-                style={{ height: '28px', maxWidth: '300px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', padding: '0 6px', fontWeight: 600, color: '#15181b', fontSize: '11.5px', outline: 'none', cursor: 'pointer' }}
-              >
-                {usersForCurrentRole.map(r => (
-                  <option key={r.username} value={r.username}>
-                    {r.name} · {r.specialization || r.dept || r.role}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
-
-        {/* Avatar + name + specialization + sign out + mobile */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '8px', borderLeft: '1px solid #e3e6e8' }}>
-          <span style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)', fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {initials}
-          </span>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, justifyContent: 'center' }}>
-            <span style={{ fontWeight: 600, fontSize: '12px', whiteSpace: 'nowrap', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>
-              {user?.name || 'Dr. Rahul Kumar'}
-            </span>
-            {(user?.specialization || user?.dept) && (
-              <span style={{ fontSize: '10px', color: '#626d77', whiteSpace: 'nowrap', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.1' }}>
-                {user?.specialization || user?.dept}
-              </span>
+                <div style={{
+                  fontSize: '13.5px',
+                  fontWeight: 700,
+                  color: '#0f172a',
+                  letterSpacing: '-0.01em',
+                  lineHeight: 1.25,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {welcomeTitle}
+                </div>
+                {displaySubtitle && (
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    lineHeight: 1.2,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {displayRole} {displaySubtitle ? `· ${displaySubtitle}` : ''}
+                  </div>
+                )}
+              </div>
             )}
           </div>
+
+          {/* Right: Clock, Bell Icon Button, and Profile Avatar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: 'auto', flexShrink: 0 }}>
+            {/* Dynamic Real-time Clock */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontFamily: 'ui-monospace, Menlo, monospace',
+              fontSize: '11px',
+              color: '#475569',
+              background: '#f8fafc',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              border: '1px solid #f1f5f9'
+            }}>
+              <span>{liveDateStr}</span>
+              <span style={{ color: '#cbd5e1' }}>·</span>
+              <span style={{ fontWeight: 600, color: '#0f172a' }}>{liveTimeStr}</span>
+            </div>
+
+            {/* Alerts Bell Icon Button with Compact Numeric Unread Badge */}
+            <button
+              type="button"
+              id="btn-header-alerts"
+              onClick={() => {
+                if (onOpenAlerts) onOpenAlerts();
+              }}
+              aria-label="View alerts"
+              style={{
+                position: 'relative',
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                border: '1px solid #e2e8f0',
+                background: '#ffffff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#475569',
+                transition: 'all 0.15s ease',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+                padding: 0
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.color = '#0f172a';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.color = '#475569';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              title={unreadBadgeCount > 0 ? `${unreadBadgeCount} Unread Alert${unreadBadgeCount > 1 ? 's' : ''} — Click to open Alert Drawer` : "Alerts Drawer"}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+              </svg>
+
+              {/* Compact numeric badge showing actual unread notification count */}
+              {unreadBadgeCount > 0 && (
+                <span
+                  id="alerts-unread-badge"
+                  data-testid="alerts-unread-badge"
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    minWidth: '17px',
+                    height: '17px',
+                    padding: '0 4px',
+                    borderRadius: '9999px',
+                    background: '#dc2626',
+                    color: '#ffffff',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    lineHeight: '17px',
+                    textAlign: 'center',
+                    boxShadow: '0 0 0 2px #ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
+                    pointerEvents: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  {unreadBadgeText}
+                </span>
+              )}
+            </button>
+
+            {/* Circular Profile Avatar Button & Dropdown Menu */}
+            <div ref={accountMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                id="top-navbar-avatar-btn"
+                onClick={() => setShowAccountMenu(prev => !prev)}
+                aria-expanded={showAccountMenu}
+                aria-haspopup="true"
+                title="Account Menu"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, oklch(0.55 0.12 180), oklch(0.4 0.1 200))',
+                  color: '#ffffff',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  border: showAccountMenu ? '2px solid #0d9488' : '2px solid #ffffff',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  outline: 'none',
+                  padding: 0
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.04)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                {initials}
+              </button>
+
+              {/* Dropdown containing EXACTLY: My Profile and Sign Out */}
+              {showAccountMenu && (
+                <div
+                  id="account-dropdown-menu"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    width: '180px',
+                    background: '#ffffff',
+                    borderRadius: '10px',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
+                    border: '1px solid #e2e8f0',
+                    zIndex: 999,
+                    overflow: 'hidden',
+                    padding: '4px'
+                  }}
+                >
+                  <button
+                    type="button"
+                    id="menu-item-view-profile"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      setShowProfileModal(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: '#0f172a',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background 0.12s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <span style={{ fontSize: '14px' }}>👤</span>
+                    <span>My Profile</span>
+                  </button>
+
+                  <div style={{ height: '1px', background: '#f1f5f9', margin: '3px 0' }} />
+
+                  <button
+                    type="button"
+                    id="menu-item-signout"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      if (onSignOut) onSignOut();
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      borderRadius: '6px',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: '#b91c1c',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background 0.12s'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fef2f2'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <span style={{ fontSize: '14px' }}>🚪</span>
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* User Profile Modal */}
+      {showProfileModal && (
+        <UserProfileModal
+          user={user}
+          onClose={() => setShowProfileModal(false)}
+          onSignOut={onSignOut}
+        />
+      )}
+    </>
   );
 }

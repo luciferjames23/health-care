@@ -35,7 +35,6 @@ const Header: React.FC<HeaderProps> = ({ title }) => {
         </button>
         <button className="header-icon-btn" title="Notifications">
           <Bell size={18} />
-          <span className="badge">3</span>
         </button>
         {user?.role?.toLowerCase() === 'doctor' && (
           <button className="header-icon-btn" title="On Call">

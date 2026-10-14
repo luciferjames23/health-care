@@ -458,7 +458,9 @@ export default function App() {
             }}
             userRole={role || auth?.role || 'Doctor'}
             doctorName={(role === 'Doctor' || auth?.role === 'Doctor') ? auth?.name : null}
+            user={auth}
             dischargeCount={dischargeCount}
+            notifCount={alertsCount}
             mobileOpen={mobileSidebarOpen}
             onCloseMobile={() => setMobileSidebarOpen(false)}
           />

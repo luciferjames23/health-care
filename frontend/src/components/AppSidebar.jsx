@@ -139,11 +139,37 @@ export default function AppSidebar({
   setActivePage,
   userRole = 'Doctor',
   doctorName = null,
+  user = null,
   dischargeCount: externalDischargeCount = null,
+  notifCount: propNotifCount = null,
   mobileOpen = false,
   onCloseMobile = () => {}
 }) {
-  const effectiveRole = userRole || 'Doctor';
+  const activeUser = user || (() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+    } catch { return null; }
+  })();
+
+  const effectiveRole = activeUser?.role || userRole || 'Doctor';
+  const isDoctor = String(effectiveRole).trim().toLowerCase() === 'doctor';
+  const resolvedName = (activeUser?.name || doctorName || (isDoctor ? 'Doctor' : 'Admin')).trim();
+
+  let welcomeTitle = '';
+  if (isDoctor) {
+    if (/^dr\.?\s+/i.test(resolvedName)) {
+      const clean = resolvedName.replace(/^dr\.?\s+/i, '').trim();
+      welcomeTitle = `Welcome, Dr. ${clean}`;
+    } else {
+      welcomeTitle = `Welcome, Dr. ${resolvedName}`;
+    }
+  } else {
+    // For Admins and other staff
+    welcomeTitle = `Welcome, ${resolvedName}`;
+  }
+
+  const roleBadgeText = activeUser?.role || userRole || (isDoctor ? 'Doctor' : 'Hospital Management');
+  const userSubtitle = activeUser?.specialization || activeUser?.designation || activeUser?.dept || activeUser?.department;
   const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
   const desktopNavRef = useRef(null);
   const desktopActiveItemRef = useRef(null);
@@ -194,10 +220,18 @@ export default function AppSidebar({
     return () => window.removeEventListener('hc_discharge_count_updated', handleCountUpdate);
   }, []);
 
-  const [notifCount, setNotifCount] = React.useState(null);
+  const [notifCount, setNotifCount] = React.useState(propNotifCount);
 
-  // Fetch live notifications unread count
+  // Synchronize with external notifCount if provided
   useEffect(() => {
+    if (propNotifCount !== null && propNotifCount !== undefined) {
+      setNotifCount(propNotifCount);
+    }
+  }, [propNotifCount]);
+
+  // Fetch live notifications unread count only if not provided from parent
+  useEffect(() => {
+    if (propNotifCount !== null && propNotifCount !== undefined) return;
     let isMounted = true;
     async function fetchNotifCount() {
       try {
@@ -216,7 +250,7 @@ export default function AppSidebar({
       clearInterval(timer);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  }, [propNotifCount]);
 
   // Fetch discharge count dynamically combining summaries and admissions matching doctor/role
   useEffect(() => {
@@ -299,10 +333,10 @@ export default function AppSidebar({
 
   const renderGroupList = (isMobile = false) => (
     <>
-      {visibleGroups.map((group) => (
+      {visibleGroups.map((group, groupIdx) => (
         <div key={group.title} style={{ marginBottom: '14px' }}>
           <div style={{
-            margin: '12px 4px 5px', padding: '5px 8px', borderRadius: '5px',
+            margin: groupIdx === 0 ? '2px 4px 5px' : '14px 4px 5px', padding: '5px 8px', borderRadius: '5px',
             background: '#eef0f1', fontSize: '10px', textTransform: 'uppercase',
             letterSpacing: '.07em', color: '#15181b', fontWeight: 700
           }}>
@@ -364,8 +398,8 @@ export default function AppSidebar({
         className="app-sidebar-desktop"
         style={{
           width: '200px', borderRight: '1px solid #e3e6e8', background: '#f9fafa',
-          padding: '10px 8px 28px', overflowY: 'auto', maxHeight: 'calc(100vh - 80px)',
-          position: 'sticky', top: '80px', alignSelf: 'start', flexShrink: 0
+          padding: '4px 8px 24px', overflowY: 'auto', maxHeight: 'calc(100vh - 53px)',
+          position: 'sticky', top: '53px', alignSelf: 'start', flexShrink: 0
         }}
       >
         {renderGroupList(false)}
@@ -393,7 +427,7 @@ export default function AppSidebar({
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 12px', borderBottom: '1px solid #e2e8f0' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>Meridian Hospital</div>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>Hospital</div>
                 <div style={{ fontSize: '11px', color: '#64748b' }}>{effectiveRole} Navigation</div>
               </div>
               <button
