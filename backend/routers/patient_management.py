@@ -70,7 +70,7 @@ class VisitInput(BaseModel):
 
 class AdmissionInput(BaseModel):
     is_admitted: Optional[bool] = Field(True, description="Whether the patient is being admitted into an inpatient ward")
-    admission_type: Optional[str] = Field("Emergency", description="Admission type: Emergency, Planned, Day Care, ICU Transfer")
+    admission_type: Optional[str] = Field("Emergency", description="Admission type: Emergency, Elective, Urgent, Routine, Direct Admission, Transfer In, Day Care, Maternity / Obstetric, Newborn / Neonatal, Psychiatric, Rehabilitation, Observation, Readmission, Surgical, Medical")
     admission_source: Optional[str] = Field("Emergency Bay", description="Admission source: Emergency Bay, OPD Referral, Transfer")
     reason_for_admission: Optional[str] = Field("Inpatient Medical Management", description="Reason for admission")
     ward_id: Optional[int] = Field(None, description="Ward ID")
@@ -218,7 +218,7 @@ class CreateFullPatientRequest(BaseModel):
     visit_type: Optional[str] = Field(None, description="Visit type (Inpatient, Outpatient, Emergency)")
     consultation_reason: Optional[str] = Field(None, description="Chief complaint / consultation reason")
     create_admission: Optional[bool] = Field(None, description="Whether to create admission")
-    admission_type: Optional[str] = Field(None, description="Admission type (Emergency, Elective, Urgent)")
+    admission_type: Optional[str] = Field(None, description="Admission type (Emergency, Elective, Urgent, Routine, Direct Admission, Transfer In, Day Care, Maternity / Obstetric, Newborn / Neonatal, Psychiatric, Rehabilitation, Observation, Readmission, Surgical, Medical)")
     admission_source: Optional[str] = Field(None, description="Admission source (Emergency Department, Referral, Direct)")
     reason_for_admission: Optional[str] = Field(None, description="Clinical reason for admission")
     allow_duplicate: Optional[bool] = Field(False, description="Allow creating another record if matching patient name/phone exists")

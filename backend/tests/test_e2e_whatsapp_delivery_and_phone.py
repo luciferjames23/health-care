@@ -61,7 +61,7 @@ class TestE2EWhatsAppDeliveryAndPhone(unittest.TestCase):
                 doctor_id=doc_id,
                 department_id=dept_id,
                 expected_admission_date="2026-11-01",
-                admission_type="INPATIENT",
+                admission_type="Medical",
                 instructions="Report at 8 AM",
                 remarks="Initial registration test"
             )

@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS pre_admissions (
     patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
     appointment_id BIGINT REFERENCES appointments(id) ON DELETE SET NULL,
     expected_admission_date DATE NOT NULL,
-    admission_type VARCHAR(50) NOT NULL CHECK (admission_type IN ('INPATIENT', 'DAYCARE', 'SURGERY')),
+    admission_type VARCHAR(50) NOT NULL CHECK (admission_type IN ('Emergency', 'Elective', 'Urgent', 'Routine', 'Direct Admission', 'Transfer In', 'Day Care', 'Maternity / Obstetric', 'Newborn / Neonatal', 'Psychiatric', 'Rehabilitation', 'Observation', 'Readmission', 'Surgical', 'Medical')),
     status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DOCUMENTS_PENDING', 'READY', 'COMPLETED', 'CANCELLED')),
     pending_documents TEXT,
     submitted_documents TEXT,

@@ -632,6 +632,7 @@ class RegisterPatientRequest(BaseModel):
     room_number: Optional[str] = None
     reason: Optional[str] = None
     diagnosis: Optional[str] = None
+    admission_type: Optional[str] = None  # Emergency, Elective, Urgent, Routine, Direct Admission, Transfer In, Day Care, Maternity / Obstetric, Newborn / Neonatal, Psychiatric, Rehabilitation, Observation, Readmission, Surgical, Medical
     insurer: Optional[str] = "Self-Pay"
     policy_number: Optional[str] = None
     coverage_limit: Optional[float] = None
@@ -936,6 +937,18 @@ def register_patient(
         clinical_reason = req.reason or req.diagnosis or "Clinical Evaluation"
         encounter_details = {}
 
+        # Resolve a valid admission type (never store "Inpatient" — that is a care level, not an admission type)
+        valid_admission_types = {
+            "Emergency", "Elective", "Urgent", "Routine", "Direct Admission",
+            "Transfer In", "Day Care", "Maternity / Obstetric", "Newborn / Neonatal",
+            "Psychiatric", "Rehabilitation", "Observation", "Readmission",
+            "Surgical", "Medical"
+        }
+        admission_type = (req.admission_type or "").strip()
+        if admission_type not in valid_admission_types:
+            ptype = (req.patient_type or "OP").upper()
+            admission_type = "Emergency" if ptype == "ER" else "Elective"
+
         ptype = (req.patient_type or "OP").upper()
         if ptype in ("IP", "INPATIENT"):
             ward_id = req.ward_id
@@ -974,9 +987,9 @@ def register_patient(
                     admission_id, admission_number, patient_id, doctor_id, department_id,
                     ward_id, bed_id, admission_date, admission_type, admission_source,
                     reason_for_admission, discharge_status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, 'Inpatient', 'Registration', %s, 'Admitted');
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, 'Registration', %s, 'Admitted');
                 """,
-                (next_adm_id, adm_number, patient_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, clinical_reason)
+                (next_adm_id, adm_number, patient_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, admission_type, clinical_reason)
             )
 
             # Resolve Doctor and Ward names for lakehouse and SBAR
@@ -1015,7 +1028,7 @@ def register_patient(
                 "admission_details": {
                     "admission_number": adm_number,
                     "admission_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "admission_type": "Inpatient",
+                    "admission_type": admission_type,
                     "admission_source": "Registration",
                     "reason_for_admission": clinical_reason,
                     "discharge_status": "Admitted",
@@ -1084,7 +1097,7 @@ Name: {patient_full_name} | Gender: {gender} | Age: {req.age or 35} years | Bloo
 Phone: {phone} | Address: {patient_address}
 
 --- ADMISSION DETAILS ---
-Admission Number: {adm_number} | Date: {datetime.now().strftime('%Y-%m-%d')} | Type: Inpatient
+Admission Number: {adm_number} | Date: {datetime.now().strftime('%Y-%m-%d')} | Type: {admission_type}
 Reason: {clinical_reason} | Status: Admitted
 Attending Doctor: {doc_name} | Specialization: {doc_spec}
 
@@ -1113,7 +1126,7 @@ Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insu
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    CURRENT_TIMESTAMP, 'Inpatient', 'Registration', %s,
+                    CURRENT_TIMESTAMP, %s, 'Registration', %s,
                     'Admitted', 1, %s, %s,
                     %s, %s, %s,
                     98.6, 72, 120, 80,
@@ -1126,7 +1139,7 @@ Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insu
                 first_name, last_name, gender, req.age or 35, patient_blood_group,
                 dob or "1990-01-01", "Single", "English", phone, f"{first_name.lower()}.{last_name.lower()}@hospital.com",
                 patient_address, "Chennai", "Tamil Nadu", "600001", "Family Member", phone,
-                clinical_reason, doc_name, doc_spec,
+                admission_type, clinical_reason, doc_name, doc_spec,
                 doc_qual, clinical_reason, "{}",
                 f"BILL-{30500 + next_adm_id % 1000}", adm_llm_input_text, json.dumps(adm_llm_json),
                 bed_number or "BED-Allocated", room_number or "Assigned Room", ward_name
@@ -1798,10 +1811,23 @@ def get_appointments(
             params + [per_page_num, offset],
         )
         appointments = rows_to_dicts(cur, cur.fetchall())
+
+        cur.execute("""
+            SELECT 
+                COUNT(*) as all_time_total,
+                COUNT(CASE WHEN UPPER(status) IN ('CONFIRMED', 'BOOKED', 'CHECKED_IN') THEN 1 END) as active_total
+            FROM appointments
+        """)
+        totals_row = cur.fetchone()
+        all_time_total = int(totals_row[0]) if totals_row else int(total)
+        active_total = int(totals_row[1]) if totals_row else int(total)
+
         cur.close()
 
         return {
             "total": total,
+            "active_total": active_total,
+            "all_time_total": all_time_total,
             "page": page_num,
             "per_page": per_page_num,
             "total_pages": max(1, (total + per_page_num - 1) // per_page_num),

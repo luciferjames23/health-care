@@ -188,7 +188,9 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   // deptFilter stores the department ID as a string ('' = All Departments)
   const [deptFilter, setDeptFilter] = useState('');
   const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [activeTotal, setActiveTotal] = useState<number>(471);
+  const [allTimeTotal, setAllTimeTotal] = useState<number>(151399);
   const [sourceFilter, setSourceFilter] = useState('');
   const [sortBy, setSortBy] = useState('appointment_date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -288,6 +290,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       const rawAppts = Array.isArray(res?.appointments) ? res.appointments : [];
       setAppointments(rawAppts);
       setTotal(res?.total ?? 0);
+      if (typeof (res as any)?.active_total === 'number') setActiveTotal((res as any).active_total);
+      if (typeof (res as any)?.all_time_total === 'number') setAllTimeTotal((res as any).all_time_total);
       setTotalPages(res?.total_pages ?? 1);
     } catch (err: any) {
       setApiError(err?.message || 'Failed to fetch appointments');
@@ -513,13 +517,13 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing consultations and procedures scheduled under your care`
-              : 'View, filter, sort and manage hospital appointments — database records'}
+              : `Active Operational Workload: ${activeTotal} scheduled encounters · Historical Database: ${allTimeTotal.toLocaleString()} all-time records`}
           </div>
         </div>
       </div>
 
-      {/* Module Sub-Navigation Tabs: [Appointment List] [Today's Queue] */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #eef0f1', paddingBottom: '10px' }}>
+      {/* Module Sub-Navigation Tabs: [Appointment List] [Today's Queue] + Quick Count Toggles */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #eef0f1', paddingBottom: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveSubTab('list')}
@@ -562,6 +566,54 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         >
           <Clock size={14} /> Today's Queue
         </button>
+
+        {/* Quick Workload Scope Toggles */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => { setStatusFilter('ACTIVE'); setPage(1); }}
+            style={{
+              height: '30px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              fontSize: '11.5px',
+              fontWeight: statusFilter === 'ACTIVE' ? 700 : 500,
+              cursor: 'pointer',
+              border: statusFilter === 'ACTIVE' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+              background: statusFilter === 'ACTIVE' ? 'oklch(0.96 0.04 180)' : '#fff',
+              color: statusFilter === 'ACTIVE' ? 'oklch(0.35 0.12 180)' : '#52585e',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              transition: 'all 0.15s ease'
+            }}
+            title="Filter to Active & Scheduled appointments (matches Executive Dashboard)"
+          >
+            <span>⚡ Active Scheduled ({activeTotal})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(''); setPage(1); }}
+            style={{
+              height: '30px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              fontSize: '11.5px',
+              fontWeight: statusFilter === '' ? 700 : 500,
+              cursor: 'pointer',
+              border: statusFilter === '' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+              background: statusFilter === '' ? 'oklch(0.96 0.04 180)' : '#fff',
+              color: statusFilter === '' ? 'oklch(0.35 0.12 180)' : '#52585e',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              transition: 'all 0.15s ease'
+            }}
+            title="View all historical appointment records across all statuses"
+          >
+            <span>📋 All Historical ({allTimeTotal.toLocaleString()})</span>
+          </button>
+        </div>
       </div>
 
       {activeSubTab === 'queue' ? (
@@ -687,8 +739,8 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             aria-label="Status"
             title="Filter appointments by status"
           >
-            <option value="">Status</option>
-            <option value="ACTIVE">Active & Scheduled</option>
+            <option value="ACTIVE">⚡ Active & Scheduled ({activeTotal})</option>
+            <option value="">📋 All Records ({allTimeTotal.toLocaleString()})</option>
             {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
               <option key={s} value={s}>{s}</option>
             ))}

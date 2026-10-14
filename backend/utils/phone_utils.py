@@ -15,7 +15,11 @@ Guarantees:
 
 import re
 from typing import Optional, Tuple, List, Dict, Any
-import phonenumbers
+
+try:
+    import phonenumbers
+except ImportError:
+    phonenumbers = None
 
 
 def parse_and_normalize_phone(
@@ -52,6 +56,17 @@ def parse_and_normalize_phone(
     elif len(digits) == 12 and digits.startswith("91") and s.startswith("+91") and digits[2:4] == "91" and digits[4] in "6789":
         digits = digits[2:]
         s = "+" + digits
+
+    if phonenumbers is None:
+        if len(digits) == 10:
+            return (f"+91{digits}", f"91{digits}", True)
+        elif len(digits) == 12 and digits.startswith("91"):
+            return (f"+{digits}", digits, True)
+        elif s.startswith("+") and 10 <= len(digits) <= 15:
+            return (f"+{digits}", digits, True)
+        elif 10 <= len(digits) <= 15:
+            return (f"+{digits}", digits, True)
+        return (None, None, False)
 
     parsed = None
 

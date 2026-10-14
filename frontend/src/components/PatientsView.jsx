@@ -37,7 +37,8 @@ export default function PatientsView({
   onNavigate,
   doctorName = null,
   userRole = 'Hospital Management',
-  currentUser = null
+  currentUser = null,
+  initialFilter = 'All'
 }) {
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? (doctorName || currentUser?.name || null) : null;
@@ -61,7 +62,13 @@ export default function PatientsView({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState(initialFilter || "All");
+
+  useEffect(() => {
+    if (initialFilter) {
+      setFilter(initialFilter);
+    }
+  }, [initialFilter]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -114,6 +121,7 @@ export default function PatientsView({
 
         const dischargedTracker = extractDischargedPatientIds(rawDischarges);
 
+        const seenDischargedKeys = new Set();
         const seenDischargedPids = new Set();
         const parsedDischargedList = [];
         const actualAdmitted = [];
@@ -122,6 +130,7 @@ export default function PatientsView({
           const st = String(r.discharge_status || r.admission_status || '').trim().toLowerCase();
           const pid = String(r.patient_id || r.id || '').trim();
           const aid = String(r.admission_id || '').trim();
+          const matchKey = aid ? `adm_${aid}` : `pid_${pid}`;
 
           const isDischarged = st === 'discharged';
           const matchedSummary = dischargeMapByPid[pid] || (aid ? dischargeMapByAid[aid] : null);
@@ -135,6 +144,7 @@ export default function PatientsView({
 
           if (isDischarged) {
             if (pid) seenDischargedPids.add(pid);
+            if (matchKey) seenDischargedKeys.add(matchKey);
             parsedDischargedList.push({
               ...parsed,
               name: pName,
@@ -164,6 +174,7 @@ export default function PatientsView({
         });
 
         // Merge any additional live IP admissions from directory (allDirRes) not already present
+        const seenActiveAdmissionIds = new Set(actualAdmitted.map(a => String(a.admission_id || '')).filter(Boolean));
         const seenAdmittedPids = new Set(actualAdmitted.map(a => String(a.patient_id || a.id || '')));
         (allDirRes?.data || []).forEach(r => {
           if (r.patient_type === 'IP' || r.encounter_type === 'IP') {
@@ -191,22 +202,30 @@ export default function PatientsView({
           }
         });
 
-        // 2. Add any additional finalized discharge records if not already in admissions
+        // 2. Add approved finalized discharge summaries if not already in admissions
         rawDischarges.forEach(r => {
           const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
           if (dcStatus === 'admitted') return; // Active inpatient, not discharged!
 
-          const isExplicitDischarge = String(r.status || r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true;
+          const statusLower = String(r.approval_status || r.status || '').trim().toLowerCase();
+          const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+          const isExplicitDischarge = isApproved || String(r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true;
           if (!isExplicitDischarge) return;
 
           const pid = String(r.patient_id || r.id || '').trim();
-          if (pid && (seenDischargedPids.has(pid) || seenAdmittedPids.has(pid))) return;
+          const aid = String(r.admission_id || '').trim();
+          const matchKey = aid ? `adm_${aid}` : (pid ? `pid_${pid}` : `sum_${r.summary_id || r.id}`);
+
+          // Skip if this summary belongs to a currently active inpatient admission (e.g. Jacky K in Ready status)
+          if (aid && seenActiveAdmissionIds.has(aid)) return;
+          if (seenDischargedKeys.has(matchKey)) return;
+          seenDischargedKeys.add(matchKey);
+          if (pid) seenDischargedPids.add(pid);
 
           const d = parseDischargeSummaryRecord(r);
           const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d.patient || d.name || d.patient_name;
           const docName = cleanDoctorName(r.primary_consultant || r.doctor_name || d.doctor || 'Attending Physician');
 
-          if (pid) seenDischargedPids.add(pid);
           parsedDischargedList.push({
             ...d,
             name: pName,
@@ -228,7 +247,7 @@ export default function PatientsView({
         const parsedOp = [];
         rawOpList.forEach(r => {
           const pid = String(r.patient_id || r.id || '').trim();
-          if (pid && (seenDischargedPids.has(pid) || seenAdmittedPids.has(pid) || seenOpPids.has(pid))) return;
+          if (pid && seenOpPids.has(pid)) return;
           if (pid) seenOpPids.add(pid);
           parsedOp.push({
             patient_id: r.patient_id,

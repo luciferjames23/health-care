@@ -11,8 +11,34 @@ export default function BedDemandView({ onSelectPatient }) {
 
   // Filters
   const [selectedWardId, setSelectedWardId] = useState('All');
+  const [selectedFloor, setSelectedFloor] = useState('All');
+  const [selectedRoom, setSelectedRoom] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Occupied' | 'Available' | 'Maintenance'
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Distinct floors available across all wards (sorted numerically)
+  const availableFloors = useMemo(() => {
+    const set = new Set();
+    (wardList || []).forEach(w => {
+      if (w.floor_number !== null && w.floor_number !== undefined && String(w.floor_number).trim() !== '') {
+        set.add(w.floor_number);
+      }
+    });
+    return Array.from(set).sort((a, b) => Number(a) - Number(b));
+  }, [wardList]);
+
+  // Distinct room numbers available across all wards (sorted)
+  const availableRooms = useMemo(() => {
+    const set = new Set();
+    (bedManagement?.wards || []).forEach(w => {
+      (w.rooms || []).forEach(r => {
+        if (r.room_number !== null && r.room_number !== undefined && String(r.room_number).trim() !== '') {
+          set.add(r.room_number);
+        }
+      });
+    });
+    return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  }, [bedManagement]);
 
   const loadAllBedData = useCallback(async (isSilent = false) => {
     if (!isSilent) {
@@ -144,22 +170,28 @@ export default function BedDemandView({ onSelectPatient }) {
         if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) {
           return false;
         }
+        if (selectedFloor !== 'All' && String(w.floor_number) !== String(selectedFloor)) {
+          return false;
+        }
         return true;
       })
       .map(w => {
-        const rooms = (w.rooms || []).map(r => {
-          const beds = (r.beds || []).filter(b => {
-            // Status filter
-            if (statusFilter === 'Occupied' && b.status !== 'Occupied') return false;
-            if (statusFilter === 'Available' && b.status !== 'Available') return false;
-            if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return false;
+        const rooms = (w.rooms || [])
+          .filter(r => selectedRoom === 'All' || String(r.room_number) === String(selectedRoom))
+          .map(r => {
+            const beds = (r.beds || []).filter(b => {
+              // Status filter
+              if (statusFilter === 'Occupied' && b.status !== 'Occupied') return false;
+              if (statusFilter === 'Available' && b.status !== 'Available') return false;
+              if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return false;
 
             // Search query
             if (searchQuery.trim()) {
               const q = searchQuery.toLowerCase().trim();
-              const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q;
-              const matchRoom = (r.room_number || '').toLowerCase().includes(q);
-              const matchWard = (w.ward_name || '').toLowerCase().includes(q);
+              const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q || (b.bed_type || '').toLowerCase().includes(q);
+              const matchRoom = (r.room_number || '').toLowerCase().includes(q) || (r.room_type || '').toLowerCase().includes(q);
+              const matchWard = (w.ward_name || '').toLowerCase().includes(q) || (w.ward_type || '').toLowerCase().includes(q);
+              const matchFloor = String(w.floor_number || '') === q || (`floor ${w.floor_number}`).toLowerCase().includes(q);
               const matchPat = b.patient && (
                 (b.patient.name || '').toLowerCase().includes(q) ||
                 (b.patient.patient_name || '').toLowerCase().includes(q) ||
@@ -170,7 +202,7 @@ export default function BedDemandView({ onSelectPatient }) {
                 (b.patient.attending_doctor || '').toLowerCase().includes(q) ||
                 String(b.patient.id || '').includes(q)
               );
-              return matchBed || matchRoom || matchWard || matchPat;
+              return matchBed || matchRoom || matchWard || matchFloor || matchPat;
             }
             return true;
           });
@@ -180,24 +212,27 @@ export default function BedDemandView({ onSelectPatient }) {
 
         return { ...w, rooms };
       }).filter(w => w.rooms.length > 0);
-  }, [bedManagement, selectedWardId, statusFilter, searchQuery]);
+  }, [bedManagement, selectedWardId, selectedFloor, selectedRoom, statusFilter, searchQuery]);
 
   // Flattened bed list for table mode
   const allFlattenedBeds = useMemo(() => {
     const list = [];
     (bedManagement?.wards || []).forEach(w => {
+      if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) return;
+      if (selectedFloor !== 'All' && String(w.floor_number) !== String(selectedFloor)) return;
       (w.rooms || []).forEach(r => {
+        if (selectedRoom !== 'All' && String(r.room_number) !== String(selectedRoom)) return;
         (r.beds || []).forEach(b => {
           // Filters
-          if (selectedWardId !== 'All' && String(w.ward_id) !== String(selectedWardId)) return;
           if (statusFilter === 'Occupied' && b.status !== 'Occupied') return;
           if (statusFilter === 'Available' && b.status !== 'Available') return;
           if (statusFilter === 'Maintenance' && b.status !== 'Maintenance') return;
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase().trim();
-            const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q;
-            const matchRoom = (r.room_number || '').toLowerCase().includes(q);
-            const matchWard = (w.ward_name || '').toLowerCase().includes(q);
+            const matchBed = (b.bed_number || '').toLowerCase().includes(q) || String(b.bed_id || '') === q || (b.bed_type || '').toLowerCase().includes(q);
+            const matchRoom = (r.room_number || '').toLowerCase().includes(q) || (r.room_type || '').toLowerCase().includes(q);
+            const matchWard = (w.ward_name || '').toLowerCase().includes(q) || (w.ward_type || '').toLowerCase().includes(q);
+            const matchFloor = String(w.floor_number || '') === q || (`floor ${w.floor_number}`).toLowerCase().includes(q);
             const matchPat = b.patient && (
               (b.patient.name || '').toLowerCase().includes(q) ||
               (b.patient.patient_name || '').toLowerCase().includes(q) ||
@@ -208,7 +243,7 @@ export default function BedDemandView({ onSelectPatient }) {
               (b.patient.attending_doctor || '').toLowerCase().includes(q) ||
               String(b.patient.id || '').includes(q)
             );
-            if (!matchBed && !matchRoom && !matchWard && !matchPat) return;
+            if (!matchBed && !matchRoom && !matchWard && !matchFloor && !matchPat) return;
           }
 
           list.push({
@@ -224,7 +259,7 @@ export default function BedDemandView({ onSelectPatient }) {
       });
     });
     return list;
-  }, [bedManagement, selectedWardId, statusFilter, searchQuery]);
+  }, [bedManagement, selectedWardId, selectedFloor, selectedRoom, statusFilter, searchQuery]);
 
   const handleExportCsv = () => {
     if (allFlattenedBeds.length === 0) return alert('No bed records to export');
@@ -420,10 +455,46 @@ export default function BedDemandView({ onSelectPatient }) {
               fontWeight: 500
             }}
           >
-            <option value="All">All Hospital Wards (8 Wards)</option>
+            <option value="All">All Wards ({wardList.length})</option>
             {wardList.map(w => (
               <option key={w.ward_id} value={w.ward_id}>
-                {w.ward_name} · Floor {w.floor_number}
+                {w.ward_name}
+              </option>
+            ))}
+          </select>
+
+          {/* Floor Select */}
+          <select
+            value={selectedFloor}
+            onChange={e => setSelectedFloor(e.target.value)}
+            style={{
+              height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8',
+              background: '#fff', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer',
+              fontWeight: 500
+            }}
+          >
+            <option value="All">All Floors</option>
+            {availableFloors.map(f => (
+              <option key={f} value={f}>
+                Floor {f}
+              </option>
+            ))}
+          </select>
+
+          {/* Room Select */}
+          <select
+            value={selectedRoom}
+            onChange={e => setSelectedRoom(e.target.value)}
+            style={{
+              height: '30px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8',
+              background: '#fff', fontSize: '12px', color: '#15181b', outline: 'none', cursor: 'pointer',
+              fontWeight: 500
+            }}
+          >
+            <option value="All">All Rooms</option>
+            {availableRooms.map(rn => (
+              <option key={rn} value={rn}>
+                Room {rn}
               </option>
             ))}
           </select>
@@ -455,9 +526,9 @@ export default function BedDemandView({ onSelectPatient }) {
           type="text"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Search bed, room, patient name, ward..."
+          placeholder="Search bed, room, ward, floor, patient, diagnosis, doctor..."
           style={{
-            height: '30px', width: '280px', border: '1px solid #e3e6e8',
+            height: '30px', width: '320px', border: '1px solid #e3e6e8',
             borderRadius: '6px', padding: '0 10px', background: '#fff', fontSize: '12px', outline: 'none'
           }}
         />
@@ -474,7 +545,7 @@ export default function BedDemandView({ onSelectPatient }) {
           ) : filteredWards.length === 0 ? (
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>No Wards or Beds Match Current Filter</div>
-              <div style={{ fontSize: '12px' }}>Try selecting a different ward or status filter.</div>
+              <div style={{ fontSize: '12px' }}>Try selecting a different ward, floor, room, or status filter.</div>
             </div>
           ) : (
             filteredWards.map(ward => {

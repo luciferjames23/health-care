@@ -201,12 +201,26 @@ function getNotificationBadge(status: string) {
 }
 
 function getTypeBadge(type: string) {
-  const t = String(type || '').toUpperCase();
-  if (t === 'SURGERY') {
+  const t = String(type || '').toLowerCase();
+  if (t === 'emergency' || t === 'surgical' || t === 'readmission') {
     return {
       bg: '#fef2f2',
       color: '#b91c1c',
       border: '1px solid #fecaca',
+    };
+  }
+  if (t === 'elective' || t === 'day care' || t === 'maternity / obstetric') {
+    return {
+      bg: '#e0f2fe',
+      color: '#0369a1',
+      border: '1px solid #bae6fd',
+    };
+  }
+  if (t === 'urgent' || t === 'observation') {
+    return {
+      bg: '#fef3c7',
+      color: '#92400e',
+      border: '1px solid #fde68a',
     };
   }
   return {
@@ -221,7 +235,12 @@ const STATUS_OPTIONS = [
   'READY', 'ESCALATED', 'COMPLETED', 'CANCELLED'
 ];
 
-const ADMISSION_TYPES = ['INPATIENT', 'SURGERY', 'DAYCARE'];
+const ADMISSION_TYPES = [
+  'Emergency', 'Elective', 'Urgent', 'Routine', 'Direct Admission',
+  'Transfer In', 'Day Care', 'Maternity / Obstetric', 'Newborn / Neonatal',
+  'Psychiatric', 'Rehabilitation', 'Observation', 'Readmission',
+  'Surgical', 'Medical'
+];
 
 interface SearchableOption {
   id: string | number;
@@ -440,7 +459,7 @@ const PreAdmissionPage: React.FC = () => {
   const [formPatientId, setFormPatientId] = useState('');
   const [formDoctorId, setFormDoctorId] = useState('');
   const [formDeptId, setFormDeptId] = useState('');
-  const [formType, setFormType] = useState('INPATIENT');
+  const [formType, setFormType] = useState('Elective');
   const [formDate, setFormDate] = useState('');
   const [formTime, setFormTime] = useState('09:00');
   const [formInstructions, setFormInstructions] = useState('');

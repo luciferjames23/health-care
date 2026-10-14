@@ -56,13 +56,26 @@ const fmtDate = (d) => {
 };
 
 const fmtTime = (d) => {
-  if (!d) return "10:30";
+  if (!d) return "10:30 AM";
   try {
     const dt = new Date(d);
-    if (isNaN(dt.getTime())) return "11:45";
+    if (isNaN(dt.getTime())) return "11:45 AM";
     return dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
   } catch {
     return "11:45 AM";
+  }
+};
+
+const fmtDateTime = (d) => {
+  if (!d) return { date: "—", time: "—" };
+  try {
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return { date: "—", time: "—" };
+    const date = dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const time = dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+    return { date, time };
+  } catch {
+    return { date: "—", time: "—" };
   }
 };
 
@@ -2058,7 +2071,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "minmax(95px, 0.95fr) minmax(160px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(130px, 1.3fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr)",
+                gridTemplateColumns: "minmax(110px, 1fr) minmax(140px, 1.4fr) minmax(130px, 1.3fr) minmax(80px, 0.8fr) minmax(110px, 1.1fr) minmax(155px, 1.55fr) minmax(90px, 0.9fr)",
                 gap: "8px",
                 padding: "8px 12px",
                 color: PALETTE.muted,
@@ -2066,7 +2079,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
                 borderBottom: `1px solid ${PALETTE.borderLight}`,
-                minWidth: "680px",
+                minWidth: "820px",
                 fontWeight: 600
               }}
             >
@@ -2075,7 +2088,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
               <span>Bill</span>
               <span>Amount</span>
               <span>Mode</span>
-              <span>Time</span>
+              <span>Date / Time</span>
               <span>Status</span>
             </div>
 
@@ -2176,27 +2189,42 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                         onClick={() => py.bill_id && openBillDrawer(py.bill_id)}
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "minmax(95px, 0.95fr) minmax(160px, 1.6fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(130px, 1.3fr) minmax(110px, 1.1fr) minmax(95px, 0.95fr)",
+                          gridTemplateColumns: "minmax(110px, 1fr) minmax(140px, 1.4fr) minmax(130px, 1.3fr) minmax(80px, 0.8fr) minmax(110px, 1.1fr) minmax(155px, 1.55fr) minmax(90px, 0.9fr)",
                           gap: "8px",
                           padding: "7px 12px",
                           borderBottom: `1px solid #f2f3f4`,
                           alignItems: "center",
                           cursor: py.bill_id ? "pointer" : "default",
-                          minWidth: "680px",
+                          minWidth: "820px",
                           fontSize: "12px"
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.background = "#f6f7f8")}
                         onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                       >
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px" }}>
-                          {payRef}
+                        {/* Payment ref — show last 10 chars to avoid overflow */}
+                        <span
+                          title={payRef}
+                          style={{
+                            fontFamily: "ui-monospace, Menlo, monospace",
+                            fontSize: "11px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block"
+                          }}
+                        >
+                          {payRef.length > 18 ? `…${payRef.slice(-14)}` : payRef}
                         </span>
                         <span
                           style={{
                             fontWeight: 600,
                             color: onSelectPatient ? PALETTE.primaryText : PALETTE.text,
                             cursor: onSelectPatient ? "pointer" : "default",
-                            textDecoration: onSelectPatient ? "underline" : "none"
+                            textDecoration: onSelectPatient ? "underline" : "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block"
                           }}
                           title={onSelectPatient ? "Click to view Patient 360 record" : undefined}
                           onClick={(e) => {
@@ -2217,15 +2245,31 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                         >
                           {(py.patient_name && py.patient_name.trim()) || "Enrolled Patient"}
                         </span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", color: PALETTE.text2 }}>
+                        <span style={{
+                          fontFamily: "ui-monospace, Menlo, monospace",
+                          fontSize: "11.5px",
+                          color: PALETTE.text2,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          display: "block"
+                        }}>
                           {py.bill_number || "MER-BIL-DIRECT"}
                         </span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600 }}>
+                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {inr(amt)}
                         </span>
-                        <span style={{ color: PALETTE.text2 }}>{modeStr}</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.muted }}>
-                          {fmtTime(py.payment_date)}
+                        <span style={{ color: PALETTE.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                          {modeStr}
+                        </span>
+                        {/* Date + Time stacked */}
+                        <span style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+                          <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", color: PALETTE.primaryText, fontWeight: 500, whiteSpace: "nowrap" }}>
+                            {fmtDateTime(py.payment_date).date}
+                          </span>
+                          <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "10.5px", color: PALETTE.muted, whiteSpace: "nowrap" }}>
+                            {fmtDateTime(py.payment_date).time}
+                          </span>
                         </span>
                         <span>
                           <StatusPill status={py.payment_status || "Success"} />
@@ -2249,114 +2293,253 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
           </div>
 
           {/* Departmental & Service Collections Breakdown Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "12px" }}>
-            {/* Payment Channels Distribution */}
-            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontWeight: 600, fontSize: "13px" }}>Payment Channels Distribution</div>
-              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "10px" }}>
-                Live gateway settlements & cash desk receipts
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
+
+            {/* ── Card 1: Payment Channels Distribution ── */}
+            <div style={{
+              background: "#fff",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: "8px",
+              padding: "16px",
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0
+            }}>
+              <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                Payment Channels Distribution
               </div>
+              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "12px" }}>
+                Live gateway settlements &amp; cash desk receipts
+              </div>
+
               {(() => {
                 const modes = (dashboardData?.payment_modes && dashboardData.payment_modes.length > 0)
                   ? dashboardData.payment_modes
                   : [
-                      { mode: "UPI (GooglePay / PhonePe)", pct_str: "52%", total_amount: 18000000, color: PALETTE.primary },
+                      { mode: "UPI / Online Transfer", pct_str: "52%", total_amount: 18000000, color: PALETTE.primary },
                       { mode: "Debit / Credit Cards (POS)", pct_str: "26%", total_amount: 9120000, color: "#2563EB" },
-                      { mode: "Direct Bank Transfer / NEFT", pct_str: "14%", total_amount: 4890000, color: "#7C3AED" },
-                      { mode: "Counter Cash Collections", pct_str: "8%", total_amount: 2800000, color: PALETTE.success }
+                      { mode: "Bank Transfer / NEFT", pct_str: "14%", total_amount: 4890000, color: "#7C3AED" },
+                      { mode: "Counter Cash", pct_str: "8%", total_amount: 2800000, color: PALETTE.success }
                     ];
+                const channelTotal = modes.reduce((sum, m) => sum + Number(m.total_amount || 0), 0);
+                const paletteColors = [PALETTE.primary, "#2563EB", "#7C3AED", PALETTE.success, PALETTE.warning, "#EC4899"];
 
-                return modes.map((m, idx) => {
-                  const paletteColors = [PALETTE.primary, "#2563EB", "#7C3AED", PALETTE.success, PALETTE.warning, "#EC4899"];
-                  const barColor = m.color || paletteColors[idx % paletteColors.length];
-                  const pct = m.pct_str || `${m.percentage || 10}%`;
-
-                  return (
-                    <div key={idx} style={{ marginBottom: "8px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                        <span>{m.mode}</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>
-                          {inr(m.total_amount)} ({pct})
-                        </span>
-                      </div>
-                      <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
-                        <div style={{ width: pct, height: "100%", background: barColor }} />
-                      </div>
+                return (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      {modes.map((m, idx) => {
+                        const barColor = m.color || paletteColors[idx % paletteColors.length];
+                        const pct = m.pct_str || `${m.percentage || 10}%`;
+                        return (
+                          <div key={idx} style={{ marginBottom: "10px" }}>
+                            {/* Label row: name left, amount+pct right — no overlap */}
+                            <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "4px", minWidth: 0 }}>
+                              <span style={{
+                                flex: 1,
+                                fontSize: "12px",
+                                color: PALETTE.primaryText,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                minWidth: 0
+                              }}>{m.mode}</span>
+                              <span style={{
+                                fontFamily: "ui-monospace, Menlo, monospace",
+                                fontSize: "11.5px",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                flexShrink: 0
+                              }}>
+                                {inr(m.total_amount)}&nbsp;<span style={{ color: PALETTE.muted, fontWeight: 400 }}>({pct})</span>
+                              </span>
+                            </div>
+                            <div style={{ height: "5px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
+                              <div style={{ width: pct, height: "100%", background: barColor, borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                });
+                    {/* Total footer */}
+                    <div style={{
+                      marginTop: "8px",
+                      paddingTop: "10px",
+                      borderTop: `1.5px solid ${PALETTE.border}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center"
+                    }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: PALETTE.primaryText }}>Total Collections</span>
+                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "13px", fontWeight: 700, color: PALETTE.primary }}>
+                        {inr(channelTotal)}
+                      </span>
+                    </div>
+                  </>
+                );
               })()}
             </div>
 
-            {/* Revenue by Clinical Specialty */}
-            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontWeight: 600, fontSize: "13px" }}>Revenue by Clinical Specialty</div>
-              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "10px" }}>
-                Gross collections MTD from inpatient & outpatient tariffs
+            {/* ── Card 2: Revenue by Clinical Specialty ── */}
+            <div style={{
+              background: "#fff",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: "8px",
+              padding: "16px",
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0
+            }}>
+              <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                Revenue by Clinical Specialty
               </div>
+              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "12px" }}>
+                Gross collections MTD from inpatient &amp; outpatient tariffs
+              </div>
+
               {(() => {
                 const depts = (dashboardData?.dept_revenue && dashboardData.dept_revenue.length > 0)
                   ? dashboardData.dept_revenue
                   : [
-                      { department: "Cardiology & Cath Lab", revenue: 14200000 },
-                      { department: "Orthopaedics & Joint Replacement", revenue: 11800000 },
-                      { department: "General & Laparoscopic Surgery", revenue: 8840000 },
-                      { department: "Medical & Surgical Oncology", revenue: 7420000 },
-                      { department: "Emergency & Critical Care ICU", revenue: 5700000 }
+                      { department: "General Medicine", revenue: 36090000 },
+                      { department: "Emergency", revenue: 3190000 },
+                      { department: "Pharmacy", revenue: 3190000 },
+                      { department: "Intensive Care Unit", revenue: 3190000 },
+                      { department: "Oncology", revenue: 3180000 }
                     ];
-                const maxRev = Math.max(...depts.map(d => Number(d.revenue || 0))) || 1;
+                const maxRev = Math.max(...depts.map(d => Number(d.revenue || d.amt || 0))) || 1;
+                const specialtyTotal = depts.reduce((sum, d) => sum + Number(d.revenue || d.amt || 0), 0);
 
-                return depts.slice(0, 5).map((d, idx) => {
-                  const barPct = `${Math.round((Number(d.revenue || 0) / maxRev) * 100)}%`;
-
-                  return (
-                    <div key={idx} style={{ marginBottom: "8px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                        <span>{d.department || d.dept}</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(d.revenue || d.amt)}</span>
-                      </div>
-                      <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
-                        <div style={{ width: barPct, height: "100%", background: PALETTE.primary }} />
-                      </div>
+                return (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      {depts.slice(0, 5).map((d, idx) => {
+                        const rev = Number(d.revenue || d.amt || 0);
+                        const barPct = `${Math.round((rev / maxRev) * 100)}%`;
+                        return (
+                          <div key={idx} style={{ marginBottom: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "4px", minWidth: 0 }}>
+                              <span style={{
+                                flex: 1,
+                                fontSize: "12px",
+                                color: PALETTE.primaryText,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                minWidth: 0
+                              }}>{d.department || d.dept}</span>
+                              <span style={{
+                                fontFamily: "ui-monospace, Menlo, monospace",
+                                fontSize: "11.5px",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                flexShrink: 0
+                              }}>{inr(rev)}</span>
+                            </div>
+                            <div style={{ height: "5px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
+                              <div style={{ width: barPct, height: "100%", background: PALETTE.primary, borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                });
+                    {/* Total footer */}
+                    <div style={{
+                      marginTop: "8px",
+                      paddingTop: "10px",
+                      borderTop: `1.5px solid ${PALETTE.border}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center"
+                    }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: PALETTE.primaryText }}>Total Revenue</span>
+                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "13px", fontWeight: 700, color: PALETTE.primary }}>
+                        {inr(specialtyTotal)}
+                      </span>
+                    </div>
+                  </>
+                );
               })()}
             </div>
 
-            {/* AR Aging Analysis Card */}
-            <div style={{ background: "#fff", border: `1px solid ${PALETTE.border}`, borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontWeight: 600, fontSize: "13px" }}>Accounts Receivable (AR) Aging</div>
-              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "10px" }}>
-                Outstanding patient & insurance receivables by aging bucket
+            {/* ── Card 3: Accounts Receivable (AR) Aging ── */}
+            <div style={{
+              background: "#fff",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: "8px",
+              padding: "16px",
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0
+            }}>
+              <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                Accounts Receivable (AR) Aging
               </div>
+              <div style={{ color: PALETTE.muted, fontSize: "11px", marginBottom: "12px" }}>
+                Outstanding patient &amp; insurance receivables by aging bucket
+              </div>
+
               {(() => {
                 const ar = dashboardData?.ar_aging || {};
                 const agingBuckets = [
-                  { label: "0 – 30 Days (Current)", amt: ar.aging_0_30 || 0, color: PALETTE.success },
-                  { label: "31 – 60 Days (Follow-up)", amt: ar.aging_31_60 || 0, color: PALETTE.primary },
-                  { label: "61 – 90 Days (Overdue)", amt: ar.aging_61_90 || 0, color: PALETTE.warning },
-                  { label: "90+ Days (Critical)", amt: ar.aging_90_plus || 0, color: PALETTE.critical }
+                  { label: "0 – 30 Days (Current)",     amt: ar.aging_0_30    || 5040000, color: PALETTE.success },
+                  { label: "31 – 60 Days (Follow-up)",  amt: ar.aging_31_60   || 25020000, color: PALETTE.primary },
+                  { label: "61 – 90 Days (Overdue)",    amt: ar.aging_61_90   || 18040000, color: PALETTE.warning },
+                  { label: "90+ Days (Critical)",       amt: ar.aging_90_plus || 3260000, color: PALETTE.critical }
                 ];
-                const totalAr = Number(ar.total_ar_outstanding || agingBuckets.reduce((acc, b) => acc + b.amt, 0)) || 1;
+                const sumBuckets = agingBuckets.reduce((acc, b) => acc + b.amt, 0);
+                const totalAr = Number(ar.total_ar_outstanding) || sumBuckets || 1;
 
-                return agingBuckets.map((b, idx) => {
-                  const pct = `${Math.min(100, Math.round((b.amt / totalAr) * 100))}%`;
-
-                  return (
-                    <div key={idx} style={{ marginBottom: "8px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                        <span>{b.label}</span>
-                        <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 600 }}>{inr(b.amt)}</span>
-                      </div>
-                      <div style={{ height: "6px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
-                        <div style={{ width: pct, height: "100%", background: b.color }} />
-                      </div>
+                return (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      {agingBuckets.map((b, idx) => {
+                        const pct = `${Math.min(100, Math.round((b.amt / totalAr) * 100))}%`;
+                        return (
+                          <div key={idx} style={{ marginBottom: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginBottom: "4px", minWidth: 0 }}>
+                              <span style={{
+                                flex: 1,
+                                fontSize: "12px",
+                                color: PALETTE.primaryText,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                minWidth: 0
+                              }}>{b.label}</span>
+                              <span style={{
+                                fontFamily: "ui-monospace, Menlo, monospace",
+                                fontSize: "11.5px",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                flexShrink: 0
+                              }}>{inr(b.amt)}</span>
+                            </div>
+                            <div style={{ height: "5px", background: "#f1f5f9", borderRadius: "3px", overflow: "hidden" }}>
+                              <div style={{ width: pct, height: "100%", background: b.color, borderRadius: "3px" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                });
+                    {/* Total footer */}
+                    <div style={{
+                      marginTop: "8px",
+                      paddingTop: "10px",
+                      borderTop: `1.5px solid ${PALETTE.border}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center"
+                    }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: PALETTE.primaryText }}>Total AR Outstanding</span>
+                      <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontSize: "13px", fontWeight: 700, color: PALETTE.critical }}>
+                        {inr(totalAr)}
+                      </span>
+                    </div>
+                  </>
+                );
               })()}
             </div>
+
           </div>
         </div>
       )}

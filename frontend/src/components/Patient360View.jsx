@@ -2870,7 +2870,7 @@ export default function Patient360View({
           rows={[
             ...(p.admission_id ? [[
               p.encounter || `ENC-${p.admission_number || p.admission_id}`,
-              `${p.admission_type || 'Inpatient'} Admission`,
+              `${p.admission_type || 'Medical'} Admission`,
               p.doctor,
               p.admitted,
               p.isDischarged ? 'Discharged' : (p.status || 'Active')

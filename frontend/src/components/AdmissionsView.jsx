@@ -170,7 +170,7 @@ export default function AdmissionsView({
   const totalAdmissions = scopedAdmissions.length;
   const emergencyCount = scopedAdmissions.filter(a => a.admission_type === 'Emergency' || a.admission_source?.includes('Emergency') || a.admission_source?.includes('ER')).length;
   const electiveCount = scopedAdmissions.filter(a => a.admission_type === 'Elective').length;
-  const referralCount = scopedAdmissions.filter(a => a.admission_type === 'Referral').length;
+  const surgicalCount = scopedAdmissions.filter(a => a.admission_type === 'Surgical').length;
   const highEwsCount = scopedAdmissions.filter(a => a.ewsType === 'red').length;
 
   // Pagination calculations
@@ -216,10 +216,32 @@ export default function AdmissionsView({
         return { bg: '#fee2e2', color: '#991b1b', border: '#fecaca' };
       case 'Elective':
         return { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd' };
-      case 'Referral':
-        return { bg: '#f3e8ff', color: '#6b21a8', border: '#e9d5ff' };
       case 'Urgent':
         return { bg: '#fef3c7', color: '#92400e', border: '#fde68a' };
+      case 'Routine':
+        return { bg: '#ecfdf5', color: '#065f46', border: '#a7f3d0' };
+      case 'Direct Admission':
+        return { bg: '#f0fdf4', color: '#166534', border: '#bbf7d0' };
+      case 'Transfer In':
+        return { bg: '#fff7ed', color: '#9a3412', border: '#fed7aa' };
+      case 'Day Care':
+        return { bg: '#f0f9ff', color: '#075985', border: '#bae6fd' };
+      case 'Maternity / Obstetric':
+        return { bg: '#fdf2f8', color: '#9d174d', border: '#fbcfe8' };
+      case 'Newborn / Neonatal':
+        return { bg: '#f5f3ff', color: '#6b21a8', border: '#ddd6fe' };
+      case 'Psychiatric':
+        return { bg: '#eef2ff', color: '#3730a3', border: '#c7d2fe' };
+      case 'Rehabilitation':
+        return { bg: '#f7fee7', color: '#3f6212', border: '#d9f99d' };
+      case 'Observation':
+        return { bg: '#fefce8', color: '#854d0e', border: '#fef08a' };
+      case 'Readmission':
+        return { bg: '#fef2f2', color: '#991b1b', border: '#fecaca' };
+      case 'Surgical':
+        return { bg: '#eff6ff', color: '#1e40af', border: '#bfdbfe' };
+      case 'Medical':
+        return { bg: '#f1f5f9', color: '#334155', border: '#e2e8f0' };
       default:
         return { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
     }
@@ -302,9 +324,9 @@ export default function AdmissionsView({
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Referral Admissions</div>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Surgical Admissions</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '24px', lineHeight: 1.1, color: '#7c3aed', marginTop: '2px' }}>
-            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid #7c3aed',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : referralCount}
+            {loading ? <span style={{display:'inline-block',width:'14px',height:'14px',border:'2px solid #e3e6e8',borderTop:'2px solid #7c3aed',borderRadius:'50%',animation:'kpi-spin 0.7s linear infinite',verticalAlign:'middle'}} /> : surgicalCount}
           </div>
         </div>
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '10px 16px', minWidth: '130px', flex: '1 1 130px' }}>
@@ -465,7 +487,7 @@ export default function AdmissionsView({
                             color: badge.color,
                             border: `1px solid ${badge.border}`
                           }}>
-                            {a.admission_type || 'Inpatient'}
+                            {a.admission_type || 'Medical'}
                           </span>
                         </div>
                         <div style={{ fontSize: '10.5px', color: '#64748b' }}>{a.admission_source || 'Referral'}</div>

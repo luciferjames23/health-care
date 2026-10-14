@@ -458,7 +458,8 @@ export default function DischargeCommandCentre({
       const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
       const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
-      const isDone = isApproved || isDischarged;
+      const hasActiveAdmission = Boolean(adm && String(adm.discharge_status || '').toLowerCase() !== 'discharged' && (adm.admission_id || adm.patient_id));
+      const isDone = isDischarged || (isApproved && !hasActiveAdmission);
 
       let category = isDone ? 'Completed' : 'Ready';
       let blocker = isDone ? 'All steps completed' : 'Clear';
@@ -3485,7 +3486,7 @@ export default function DischargeCommandCentre({
         </div>
 
         <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '8px 16px', minWidth: '115px' }}>
-          <div style={{ color: '#8a9096', fontSize: '11px' }}>Completed today</div>
+          <div style={{ color: '#8a9096', fontSize: '11px' }}>Completed</div>
           <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '28px', lineHeight: 1.1, color: '#15181b', fontWeight: 500 }}>
             {loading && enrichedCases.length === 0 ? '—' : stats.completed}
           </div>

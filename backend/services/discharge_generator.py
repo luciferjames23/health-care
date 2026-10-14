@@ -666,7 +666,7 @@ def generate_patient_discharge_summary(
     p_num = patient_data.get("patient_number") or f"MER-PAT-{pid}"
     adm_id = patient_data.get("admission_id") or patient_data.get("admission_number") or f"ADM-{pid}"
     adm_date = str(patient_data.get("admission_date") or now.strftime("%Y-%m-%d"))[:10]
-    adm_type = patient_data.get("admission_type") or "Inpatient"
+    adm_type = patient_data.get("admission_type") or "Emergency"
     age = patient_data.get("age_at_admission") or patient_data.get("age") or 45
     gender = patient_data.get("gender") or "Unknown"
 
@@ -1412,7 +1412,7 @@ def generate_and_persist_discharge_summaries(
                         "gender": p.get("gender") or "Unknown",
                         "admission_id": f"ADM-{pid}",
                         "admission_date": p.get("created_at") or "2026-09-10",
-                        "admission_type": "Inpatient",
+                        "admission_type": "Emergency",
                         "discharge_status": "Admitted",
                         "reason_for_admission": "Inpatient Clinical Management",
                         "primary_diagnosis": "Clinical Inpatient Care",

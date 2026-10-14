@@ -15,7 +15,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
-import DateRangeFilter, { type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
+import DateRangeFilter, { calculateDateRange, type DateRangeValue, formatFriendlyDate, toYMD } from '../../components/DateRangeFilter';
 
 const STATUS_COLORS: Record<string, string> = {
   BOOKED: '#ECC94B',

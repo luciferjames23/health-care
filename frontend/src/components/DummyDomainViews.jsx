@@ -26,6 +26,19 @@ const pillStyle = (bg, color) => ({
   whiteSpace: 'nowrap'
 });
 
+const erFilterSelect = {
+  height: '32px',
+  padding: '0 10px',
+  borderRadius: '6px',
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  fontSize: '12px',
+  color: '#1e293b',
+  outline: 'none',
+  cursor: 'pointer',
+  fontWeight: 500
+};
+
 function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel = '+ New Record' }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
@@ -295,11 +308,11 @@ export function AppointmentsView({ onOpenDrawer, onOpenModal }) {
                 <td style={{ padding: '10px 14px' }}>
                   <span style={pillStyle(
                     row.status === 'In Consultation' ? '#fef3c7' :
-                    row.status === 'Checked In' ? '#dbeafe' :
-                    row.status === 'Completed' ? '#dcfce7' : '#f1f5f9',
+                      row.status === 'Checked In' ? '#dbeafe' :
+                        row.status === 'Completed' ? '#dcfce7' : '#f1f5f9',
                     row.status === 'In Consultation' ? '#92400e' :
-                    row.status === 'Checked In' ? '#1e40af' :
-                    row.status === 'Completed' ? '#15803d' : '#475569'
+                      row.status === 'Checked In' ? '#1e40af' :
+                        row.status === 'Completed' ? '#15803d' : '#475569'
                   )}>
                     ● {row.status}
                   </span>
@@ -346,6 +359,14 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [scopeFilter, setScopeFilter] = useState(activeDoctorName ? 'my' : 'all');
+
+  // Additional structured filters
+  const [acuityFilter, setAcuityFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [bayFilter, setBayFilter] = useState('All');
+  const [triageColorFilter, setTriageColorFilter] = useState('All');
+  const [criticalOnly, setCriticalOnly] = useState(false);
+  const [mlcOnly, setMlcOnly] = useState(false);
 
   useEffect(() => {
     setScopeFilter(activeDoctorName ? 'my' : 'all');
@@ -405,22 +426,71 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
     return data;
   }, [data, myCases, activeDoctorName, scopeFilter]);
 
+  // Distinct filter option lists derived from the currently scoped data
+  const acuityOptions = useMemo(() => {
+    const set = new Set();
+    currentScopedList.forEach(d => { if (d.acuity) set.add(d.acuity); });
+    return Array.from(set).sort((a, b) => {
+      const esu = (s) => {
+        if (s === 'Not triaged') return 0;
+        const m = String(s).match(/ESI[-\s]?(\d)/i);
+        return m ? parseInt(m[1], 10) : 99;
+      };
+      return esu(a) - esu(b);
+    });
+  }, [currentScopedList]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set();
+    currentScopedList.forEach(d => { if (d.status) set.add(d.status); });
+    return Array.from(set).sort();
+  }, [currentScopedList]);
+
+  const bayOptions = useMemo(() => {
+    const set = new Set();
+    currentScopedList.forEach(d => { if (d.bay) set.add(d.bay); });
+    return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  }, [currentScopedList]);
+
+  const triageColorOptions = useMemo(() => {
+    const set = new Set();
+    currentScopedList.forEach(d => { if (d.triage) set.add(d.triage); });
+    return Array.from(set);
+  }, [currentScopedList]);
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, pageSize, scopeFilter]);
+  }, [query, pageSize, scopeFilter, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly]);
 
   const filtered = useMemo(() => {
-    if (!query) return currentScopedList;
-    const q = query.toLowerCase();
-    return currentScopedList.filter(d =>
-      (d.id && d.id.toLowerCase().includes(q)) ||
-      (d.patient && d.patient.toLowerCase().includes(q)) ||
-      (d.complaint && d.complaint.toLowerCase().includes(q)) ||
-      (d.doctor && d.doctor.toLowerCase().includes(q)) ||
-      (d.acuity && d.acuity.toLowerCase().includes(q)) ||
-      (d.status && d.status.toLowerCase().includes(q))
-    );
-  }, [currentScopedList, query]);
+    const q = query.trim().toLowerCase();
+    return currentScopedList.filter(d => {
+      // Structured filters (AND semantics)
+      if (acuityFilter !== 'All' && d.acuity !== acuityFilter) return false;
+      if (statusFilter !== 'All' && d.status !== statusFilter) return false;
+      if (bayFilter !== 'All' && d.bay !== bayFilter) return false;
+      if (triageColorFilter !== 'All' && d.triage !== triageColorFilter) return false;
+      if (criticalOnly && !(d.critical && d.critical !== '—')) return false;
+      if (mlcOnly && !d.mlc) return false;
+
+      // Free-text search (OR across fields)
+      if (q) {
+        const matchQuery =
+          (d.id && String(d.id).toLowerCase().includes(q)) ||
+          (d.patient && d.patient.toLowerCase().includes(q)) ||
+          (d.complaint && d.complaint.toLowerCase().includes(q)) ||
+          (d.doctor && d.doctor.toLowerCase().includes(q)) ||
+          (d.acuity && d.acuity.toLowerCase().includes(q)) ||
+          (d.status && d.status.toLowerCase().includes(q)) ||
+          (d.bay && d.bay.toLowerCase().includes(q)) ||
+          (d.triage && d.triage.toLowerCase().includes(q)) ||
+          (d.critical && d.critical.toLowerCase().includes(q)) ||
+          (d.age && String(d.age).toLowerCase().includes(q));
+        if (!matchQuery) return false;
+      }
+      return true;
+    });
+  }, [currentScopedList, query, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly]);
 
   const untriagedCount = currentScopedList.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
   const awaitingBedCount = currentScopedList.filter(d => d.status === 'Awaiting bed').length;
@@ -686,7 +756,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
           <div style={{ position: 'relative', width: '280px' }}>
             <input
               type="text"
-              placeholder="Search patient, complaint, doctor, bay..."
+              placeholder="Search patient, complaint, doctor, bay, acuity, status..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{
@@ -704,6 +774,144 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
             />
           </div>
         </div>
+      </div>
+
+      {/* Structured Filter Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <select
+          value={acuityFilter}
+          onChange={(e) => setAcuityFilter(e.target.value)}
+          style={erFilterSelect}
+          title="Filter by triage acuity"
+        >
+          <option value="All">All Acuity</option>
+          {acuityOptions.map(a => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          style={erFilterSelect}
+          title="Filter by clinical status"
+        >
+          <option value="All">All Status</option>
+          {statusOptions.map(s => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
+        <select
+          value={bayFilter}
+          onChange={(e) => setBayFilter(e.target.value)}
+          style={erFilterSelect}
+          title="Filter by emergency bay / location"
+        >
+          <option value="All">All Bays</option>
+          {bayOptions.map(b => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
+
+        <select
+          value={triageColorFilter}
+          onChange={(e) => setTriageColorFilter(e.target.value)}
+          style={erFilterSelect}
+          title="Filter by triage color"
+        >
+          <option value="All">All Triage Colors</option>
+          {triageColorOptions.map(c => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            type="button"
+            onClick={() => setCriticalOnly(v => !v)}
+            style={{
+              height: '32px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: criticalOnly ? '1px solid #dc2626' : '1px solid #cbd5e1',
+              background: criticalOnly ? '#fef2f2' : '#ffffff',
+              color: criticalOnly ? '#991b1b' : '#475569',
+              fontSize: '12px',
+              fontWeight: criticalOnly ? 600 : 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Show only cases with a critical alert"
+          >
+            <span style={{
+              width: '8px', height: '8px', borderRadius: '50%',
+              background: criticalOnly ? '#dc2626' : '#cbd5e1'
+            }} />
+            Critical Only
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMlcOnly(v => !v)}
+            style={{
+              height: '32px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: mlcOnly ? '1px solid #b45309' : '1px solid #cbd5e1',
+              background: mlcOnly ? '#fffbeb' : '#ffffff',
+              color: mlcOnly ? '#92400e' : '#475569',
+              fontSize: '12px',
+              fontWeight: mlcOnly ? 600 : 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            title="Show only medico-legal (MLC) cases"
+          >
+            <span style={{
+              width: '8px', height: '8px', borderRadius: '50%',
+              background: mlcOnly ? '#b45309' : '#cbd5e1'
+            }} />
+            MLC Only
+          </button>
+        </div>
+
+        {(acuityFilter !== 'All' || statusFilter !== 'All' || bayFilter !== 'All' || triageColorFilter !== 'All' || criticalOnly || mlcOnly || query) && (
+          <button
+            type="button"
+            onClick={() => {
+              setAcuityFilter('All');
+              setStatusFilter('All');
+              setBayFilter('All');
+              setTriageColorFilter('All');
+              setCriticalOnly(false);
+              setMlcOnly(false);
+              setQuery('');
+            }}
+            style={{
+              height: '32px',
+              padding: '0 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              background: '#f8fafc',
+              color: '#475569',
+              fontSize: '12px',
+              fontWeight: 500,
+              cursor: 'pointer'
+            }}
+            title="Clear all filters and search"
+          >
+            Clear Filters
+          </button>
+        )}
+
+        <span style={{ fontSize: '11.5px', color: '#64748b', marginLeft: '4px' }}>
+          {filtered.length} of {currentScopedList.length} case{currentScopedList.length === 1 ? '' : 's'}
+        </span>
       </div>
 
       {/* Alert Banner for untriaged cases */}
@@ -732,7 +940,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
       {filtered.length === 0 ? (
         <EmptyState
           title={isDoctor && activeDoctorName && scopeFilter === 'my' ? `No ER Patients Under ${activeDoctorName}` : "No Emergency Cases Found"}
-          description={isDoctor && activeDoctorName && scopeFilter === 'my' ? "There are currently no active emergency patients assigned to your care." : "There are currently no active emergency patients matching the search."}
+          description={isDoctor && activeDoctorName && scopeFilter === 'my' ? "There are currently no active emergency patients assigned to your care." : "There are currently no active emergency patients matching the selected filters or search."}
           onAction={() => {
             if (isDoctor && activeDoctorName && scopeFilter === 'my') {
               setScopeFilter('all');
@@ -1294,8 +1502,8 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
             lastVitals: r.last_vitals_time || '07:30',
             hr: r.hr ?? 75,
             bp: r.bp || '120/80',
-            spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2)/10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
-            temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9/5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
+            spo2: r.spo2 != null ? (Number(r.spo2) > 100 ? (Number(r.spo2) / 10).toFixed(1) : String(r.spo2).replace('%', '')) : '98',
+            temp: r.temp != null ? (Number(r.temp) < 50 ? Number((Number(r.temp) * 9 / 5) + 32).toFixed(1) : Number(r.temp).toFixed(2).replace(/\.00$/, '')) : '98.6',
             rr: r.rr ?? 18,
             pain: r.pain_score ?? 0,
             ews: r.ews_score ?? 0,
@@ -1336,15 +1544,15 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
       title: `${t.bed} · ${t.patient}`,
       sub: `Ward: ${t.ward} | UHID: ${t.uhid}`,
       badges: [
-        { 
-          t: t.flag, 
-          bg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#fee2e2' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#fef3c7' : '#dcfce7', 
-          fg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#dc2626' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#92400e' : '#15803d' 
+        {
+          t: t.flag,
+          bg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#fee2e2' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#fef3c7' : '#dcfce7',
+          fg: t.flag.includes('Critical') || t.flag.includes('escalate') ? '#dc2626' : t.flag.includes('Pending') || t.flag.includes('watch') ? '#92400e' : '#15803d'
         },
-        { 
-          t: `EWS: ${t.ews}`, 
-          bg: t.ews >= 3 ? '#fee2e2' : t.ews === 2 ? '#fef3c7' : '#f1f5f9', 
-          fg: t.ews >= 3 ? '#dc2626' : t.ews === 2 ? '#92400e' : '#475569' 
+        {
+          t: `EWS: ${t.ews}`,
+          bg: t.ews >= 3 ? '#fee2e2' : t.ews === 2 ? '#fef3c7' : '#f1f5f9',
+          fg: t.ews >= 3 ? '#dc2626' : t.ews === 2 ? '#92400e' : '#475569'
         }
       ],
       facts: [
@@ -1405,7 +1613,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `nursing_workspace_census_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `nursing_workspace_census_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1897,7 +2105,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `medication_administration_record_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `medication_administration_record_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2574,7 +2782,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `ot_surgery_roster_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `ot_surgery_roster_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -2767,7 +2975,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#dc2626' }}>{emergencyCount}</div>
         </div>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px' }}>
-          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT utilisation today</div>
+          <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 500, marginBottom: '2px' }}>OT utilisation</div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>{otUtilisation}</div>
         </div>
       </div>
@@ -3298,7 +3506,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `blood_bank_inventory_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `blood_bank_inventory_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -3622,8 +3830,8 @@ function useLabListControls(orders, sortPending = false) {
     const query = search.trim().toLowerCase();
     const rows = orders.filter(order => {
       const searchable = [order.lab_order_id, order.patient_name, order.patient_code,
-        order.visit_id, order.admission_id, order.test_name, order.test_code,
-        order.status, order.priority, order.doctor, order.ordered_date, order.source]
+      order.visit_id, order.admission_id, order.test_name, order.test_code,
+      order.status, order.priority, order.doctor, order.ordered_date, order.source]
         .filter(value => value !== null && value !== undefined).join(' ').toLowerCase();
       return (!query || searchable.includes(query))
         && (statusFilter === 'All' || String(order.status || '').toLowerCase() === statusFilter.toLowerCase())
@@ -3642,8 +3850,10 @@ function useLabListControls(orders, sortPending = false) {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   const statuses = [...new Set(orders.map(order => order.status).filter(Boolean))];
   const priorities = [...new Set(orders.map(order => order.priority).filter(Boolean))];
-  return { search, setSearch, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
-    page, setPage, pageSize, setPageSize, filtered, pageRows, statuses, priorities };
+  return {
+    search, setSearch, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
+    page, setPage, pageSize, setPageSize, filtered, pageRows, statuses, priorities
+  };
 }
 
 function LabListFilters({ controls }) {
@@ -3711,7 +3921,7 @@ export function LabDashboardView({ onOpenDrawer }) {
       if (!active) return;
       if (Array.isArray(priorityResponse?.priorities)) setAvailablePriorities(priorityResponse.priorities);
       if (Array.isArray(statusResponse?.statuses)) setAvailableStatuses(statusResponse.statuses);
-    }).catch(() => {});
+    }).catch(() => { });
     return () => { active = false; };
   }, []);
   const { orders, total, allOrdersTotal, summary, loading, error } = useLabOrders({
@@ -4481,7 +4691,7 @@ export function SbarView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `ward_sbar_handovers_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `ward_sbar_handovers_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -5189,7 +5399,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `death_and_mlc_register_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute('download', `death_and_mlc_register_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -5894,13 +6104,13 @@ export function DataDomainView({ domain = 'Patient', onOpenDrawer, onOpenModal }
 
   const title = isPatient ? 'Master Patient Index · Clinical Database' :
     isOps ? 'Hospital Operational & Throughput Metrics' :
-    isClinical ? 'Structured Clinical Observations & Diagnostic Codes' :
-    isFinancial ? 'Financial Ledger & AR/AP Fact Records' :
-    isQuality ? 'Automated Data Quality & Validation Rules' :
-    isForecasting ? 'Predictive Inpatient Census & Demand Forecasting' :
-    isScenario ? 'Hospital Capacity & Surge Scenario Simulator' :
-    isBeforeAfter ? 'Pre vs Post AI Intervention Outcomes & SLA Impact' :
-    `${domain} Data View`;
+      isClinical ? 'Structured Clinical Observations & Diagnostic Codes' :
+        isFinancial ? 'Financial Ledger & AR/AP Fact Records' :
+          isQuality ? 'Automated Data Quality & Validation Rules' :
+            isForecasting ? 'Predictive Inpatient Census & Demand Forecasting' :
+              isScenario ? 'Hospital Capacity & Surge Scenario Simulator' :
+                isBeforeAfter ? 'Pre vs Post AI Intervention Outcomes & SLA Impact' :
+                  `${domain} Data View`;
 
   const subtitle = 'Live operational view of hospital enterprise clinical and administrative records.';
 
@@ -6824,7 +7034,7 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
     if (!onOpenDrawer) return;
     const title = item.component || item.name || item.staff_name || item.role_name || item.department_name || item.service_name || item.provider_name || item.method_name || item.ward_name || item.token_id || module;
     const sub = item.protocol || item.email || item.designation || item.description || item.code || item.shift || item.type || item.location || 'Live PostgreSQL Connected Configuration';
-    
+
     const facts = Object.entries(item)
       .filter(([k]) => !['id', 'password_hash'].includes(k))
       .slice(0, 8)
@@ -6897,329 +7107,329 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
         ) : (
           <>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                {endpoint === 'integration-arch' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Component</th>
-                    <th style={{ padding: '10px 14px' }}>Protocol</th>
-                    <th style={{ padding: '10px 14px' }}>Direction</th>
-                    <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
-                    <th style={{ padding: '10px 14px' }}>Live Records / Metrics</th>
-                    <th style={{ padding: '10px 14px' }}>Health</th>
-                  </>
-                ) : endpoint === 'users' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>User Name</th>
-                    <th style={{ padding: '10px 14px' }}>Role</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Email</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'employees' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
-                    <th style={{ padding: '10px 14px' }}>Role / Type</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Email / Contact</th>
-                    <th style={{ padding: '10px 14px' }}>Joining Date</th>
-                    <th style={{ padding: '10px 14px' }}>Salary</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'attendance' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>Employee Name</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Shift Schedule</th>
-                    <th style={{ padding: '10px 14px' }}>Check In</th>
-                    <th style={{ padding: '10px 14px' }}>Check Out</th>
-                    <th style={{ padding: '10px 14px' }}>Work Hours</th>
-                    <th style={{ padding: '10px 14px' }}>Overtime</th>
-                    <th style={{ padding: '10px 14px' }}>Biometric Device</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'credentials' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>Clinician Name</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Designation</th>
-                    <th style={{ padding: '10px 14px' }}>Council Reg No</th>
-                    <th style={{ padding: '10px 14px' }}>Licensing Authority</th>
-                    <th style={{ padding: '10px 14px' }}>License Expiry</th>
-                    <th style={{ padding: '10px 14px' }}>CME Credits</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'staff' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Assigned Unit / Ward</th>
-                    <th style={{ padding: '10px 14px' }}>Shift Timing</th>
-                    <th style={{ padding: '10px 14px' }}>Duty Role</th>
-                    <th style={{ padding: '10px 14px' }}>SBAR Handover</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'canteen' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Token ID</th>
-                    <th style={{ padding: '10px 14px' }}>Staff Code</th>
-                    <th style={{ padding: '10px 14px' }}>Staff Name</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Meal Category</th>
-                    <th style={{ padding: '10px 14px' }}>Dining Time</th>
-                    <th style={{ padding: '10px 14px' }}>Subsidy</th>
-                    <th style={{ padding: '10px 14px' }}>Staff Co-Pay</th>
-                    <th style={{ padding: '10px 14px' }}>Payment Mode</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'roles' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Role Name</th>
-                    <th style={{ padding: '10px 14px' }}>Description</th>
-                    <th style={{ padding: '10px 14px' }}>Active Members</th>
-                    <th style={{ padding: '10px 14px' }}>Permissions Scope</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'permissions' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Module / Domain</th>
-                    <th style={{ padding: '10px 14px' }}>Admin</th>
-                    <th style={{ padding: '10px 14px' }}>Doctor</th>
-                    <th style={{ padding: '10px 14px' }}>Nurse</th>
-                    <th style={{ padding: '10px 14px' }}>Pharmacist</th>
-                    <th style={{ padding: '10px 14px' }}>Billing</th>
-                  </>
-                ) : endpoint === 'departments' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Code</th>
-                    <th style={{ padding: '10px 14px' }}>Department Name</th>
-                    <th style={{ padding: '10px 14px' }}>Type</th>
-                    <th style={{ padding: '10px 14px' }}>Location</th>
-                    <th style={{ padding: '10px 14px' }}>Doctors</th>
-                    <th style={{ padding: '10px 14px' }}>Wards</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'services' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Service Code</th>
-                    <th style={{ padding: '10px 14px' }}>Service Name</th>
-                    <th style={{ padding: '10px 14px' }}>Category</th>
-                    <th style={{ padding: '10px 14px' }}>Department</th>
-                    <th style={{ padding: '10px 14px' }}>Standard Charge</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'insurers' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Insurance Provider</th>
-                    <th style={{ padding: '10px 14px' }}>Claims Count</th>
-                    <th style={{ padding: '10px 14px' }}>Total Claimed</th>
-                    <th style={{ padding: '10px 14px' }}>Total Approved</th>
-                    <th style={{ padding: '10px 14px' }}>Settlement Rate</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'payment-methods' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Payment Method</th>
-                    <th style={{ padding: '10px 14px' }}>Channel</th>
-                    <th style={{ padding: '10px 14px' }}>Txn Count</th>
-                    <th style={{ padding: '10px 14px' }}>Total Collected</th>
-                    <th style={{ padding: '10px 14px' }}>Success Rate</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : endpoint === 'facilities' ? (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>Ward / Unit</th>
-                    <th style={{ padding: '10px 14px' }}>Type</th>
-                    <th style={{ padding: '10px 14px' }}>Location</th>
-                    <th style={{ padding: '10px 14px' }}>Rooms</th>
-                    <th style={{ padding: '10px 14px' }}>Beds</th>
-                    <th style={{ padding: '10px 14px' }}>Housekeeping</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                ) : (
-                  <>
-                    <th style={{ padding: '10px 14px' }}>UHID</th>
-                    <th style={{ padding: '10px 14px' }}>Patient Name</th>
-                    <th style={{ padding: '10px 14px' }}>Gender</th>
-                    <th style={{ padding: '10px 14px' }}>Blood Group</th>
-                    <th style={{ padding: '10px 14px' }}>Phone</th>
-                    <th style={{ padding: '10px 14px' }}>Location</th>
-                    <th style={{ padding: '10px 14px' }}>Status</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((item, i) => (
-                <tr
-                  key={item.id || i}
-                  onClick={() => handleRowClick(item)}
-                  style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
                   {endpoint === 'integration-arch' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.component}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.protocol}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.direction}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.frequency}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 500, color: '#0f766e' }}>{item.records}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.health}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Component</th>
+                      <th style={{ padding: '10px 14px' }}>Protocol</th>
+                      <th style={{ padding: '10px 14px' }}>Direction</th>
+                      <th style={{ padding: '10px 14px' }}>Sync Frequency</th>
+                      <th style={{ padding: '10px 14px' }}>Live Records / Metrics</th>
+                      <th style={{ padding: '10px 14px' }}>Health</th>
                     </>
                   ) : endpoint === 'users' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'Active' ? '#dcfce7' : '#fee2e2', item.status === 'Active' ? '#15803d' : '#b91c1c')}>{item.status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>User Name</th>
+                      <th style={{ padding: '10px 14px' }}>Role</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Email</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'employees' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.joining_date}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#16a34a' }}>{item.salary_display}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                      <th style={{ padding: '10px 14px' }}>Role / Type</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Email / Contact</th>
+                      <th style={{ padding: '10px 14px' }}>Joining Date</th>
+                      <th style={{ padding: '10px 14px' }}>Salary</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'attendance' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#15803d', fontWeight: 600 }}>{item.check_in}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.check_out}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.work_hours}</td>
-                      <td style={{ padding: '10px 14px', color: item.overtime_hours !== '0.0 hrs' ? '#dc2626' : '#64748b', fontWeight: 600 }}>{item.overtime_hours}</td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.biometric_device}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>Employee Name</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Shift Schedule</th>
+                      <th style={{ padding: '10px 14px' }}>Check In</th>
+                      <th style={{ padding: '10px 14px' }}>Check Out</th>
+                      <th style={{ padding: '10px 14px' }}>Work Hours</th>
+                      <th style={{ padding: '10px 14px' }}>Overtime</th>
+                      <th style={{ padding: '10px 14px' }}>Biometric Device</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'credentials' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.designation}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>{item.council_reg_number}</td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.licensing_authority}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.license_expiry}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.cme_credits}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.verification_status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>Clinician Name</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Designation</th>
+                      <th style={{ padding: '10px 14px' }}>Council Reg No</th>
+                      <th style={{ padding: '10px 14px' }}>Licensing Authority</th>
+                      <th style={{ padding: '10px 14px' }}>License Expiry</th>
+                      <th style={{ padding: '10px 14px' }}>CME Credits</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'staff' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.assigned_unit}</td>
-                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.duty_role}</span></td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#15803d', fontWeight: 600 }}>✓ {item.handover_status}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'On Duty' ? '#dcfce7' : '#f1f5f9', item.status === 'On Duty' ? '#15803d' : '#475569')}>{item.status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Assigned Unit / Ward</th>
+                      <th style={{ padding: '10px 14px' }}>Shift Timing</th>
+                      <th style={{ padding: '10px 14px' }}>Duty Role</th>
+                      <th style={{ padding: '10px 14px' }}>SBAR Handover</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'canteen' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#0f766e' }}>{item.token_id}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.staff_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.department}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.meal_category}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.dining_time}</td>
-                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.subsidy_rate}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.co_pay}</td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.payment_mode}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Token ID</th>
+                      <th style={{ padding: '10px 14px' }}>Staff Code</th>
+                      <th style={{ padding: '10px 14px' }}>Staff Name</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Meal Category</th>
+                      <th style={{ padding: '10px 14px' }}>Dining Time</th>
+                      <th style={{ padding: '10px 14px' }}>Subsidy</th>
+                      <th style={{ padding: '10px 14px' }}>Staff Co-Pay</th>
+                      <th style={{ padding: '10px 14px' }}>Payment Mode</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'roles' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.role_name || item.name}</td>
-                      <td style={{ padding: '10px 14px', color: '#475569' }}>{item.description || 'Role Definition'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.member_count || 0)} users</td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.permissions_summary || 'Standard access'}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                      <th style={{ padding: '10px 14px' }}>Role Name</th>
+                      <th style={{ padding: '10px 14px' }}>Description</th>
+                      <th style={{ padding: '10px 14px' }}>Active Members</th>
+                      <th style={{ padding: '10px 14px' }}>Permissions Scope</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'permissions' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.module || 'System Domain'}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>{item.admin || 'Full Control'}</span></td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.doctor || 'Read / Write'}</span></td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#fef3c7', '#b45309')}>{item.nurse || 'Administer'}</span></td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{item.pharmacist || 'Dispense'}</span></td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f8fafc', '#64748b')}>{item.billing || 'Billing View'}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Module / Domain</th>
+                      <th style={{ padding: '10px 14px' }}>Admin</th>
+                      <th style={{ padding: '10px 14px' }}>Doctor</th>
+                      <th style={{ padding: '10px 14px' }}>Nurse</th>
+                      <th style={{ padding: '10px 14px' }}>Pharmacist</th>
+                      <th style={{ padding: '10px 14px' }}>Billing</th>
                     </>
                   ) : endpoint === 'departments' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.department_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.department_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.type || 'Clinical'}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Main Hospital'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.doctor_count || 0)}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.ward_count || 0)}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                      <th style={{ padding: '10px 14px' }}>Code</th>
+                      <th style={{ padding: '10px 14px' }}>Department Name</th>
+                      <th style={{ padding: '10px 14px' }}>Type</th>
+                      <th style={{ padding: '10px 14px' }}>Location</th>
+                      <th style={{ padding: '10px 14px' }}>Doctors</th>
+                      <th style={{ padding: '10px 14px' }}>Wards</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'services' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.service_code}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.service_name}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.category || 'Clinical'}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.department || 'General'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.charge_display || `₹${Number(item.standard_charge || 0).toFixed(2)}`}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status || 'Active'}</span></td>
+                      <th style={{ padding: '10px 14px' }}>Service Code</th>
+                      <th style={{ padding: '10px 14px' }}>Service Name</th>
+                      <th style={{ padding: '10px 14px' }}>Category</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                      <th style={{ padding: '10px 14px' }}>Standard Charge</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'insurers' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.provider_name || 'Insurance Partner'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.claim_count) || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.claimed_display || `₹${(Number(item.total_claimed) || 0).toLocaleString('en-IN')}`}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#16a34a', fontWeight: 600 }}>{item.approved_display || `₹${(Number(item.total_approved) || 0).toLocaleString('en-IN')}`}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#2563eb' }}>{item.approval_rate || '95.0%'}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active Partner</span></td>
+                      <th style={{ padding: '10px 14px' }}>Insurance Provider</th>
+                      <th style={{ padding: '10px 14px' }}>Claims Count</th>
+                      <th style={{ padding: '10px 14px' }}>Total Claimed</th>
+                      <th style={{ padding: '10px 14px' }}>Total Approved</th>
+                      <th style={{ padding: '10px 14px' }}>Settlement Rate</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'payment-methods' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.method_name || 'Payment Channel'}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.channel || 'Digital / Counter'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.txn_count) || 0).toLocaleString('en-IN')}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.collected_display || `₹${(Number(item.total_collected) || 0).toLocaleString('en-IN')}`}</td>
-                      <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.success_rate || '100%'}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Operational</span></td>
+                      <th style={{ padding: '10px 14px' }}>Payment Method</th>
+                      <th style={{ padding: '10px 14px' }}>Channel</th>
+                      <th style={{ padding: '10px 14px' }}>Txn Count</th>
+                      <th style={{ padding: '10px 14px' }}>Total Collected</th>
+                      <th style={{ padding: '10px 14px' }}>Success Rate</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : endpoint === 'facilities' ? (
                     <>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.ward_name || item.facility || 'Ward'}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.ward_type || 'Inpatient'}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.floor || 'Floor 1'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.room_count || 0)} rooms</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.bed_count || 0)} beds</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Sanitized</span></td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Operational</span></td>
+                      <th style={{ padding: '10px 14px' }}>Ward / Unit</th>
+                      <th style={{ padding: '10px 14px' }}>Type</th>
+                      <th style={{ padding: '10px 14px' }}>Location</th>
+                      <th style={{ padding: '10px 14px' }}>Rooms</th>
+                      <th style={{ padding: '10px 14px' }}>Beds</th>
+                      <th style={{ padding: '10px 14px' }}>Housekeeping</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   ) : (
                     <>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.uhid || item.patient_code || 'PAT-001'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.patient_name || 'Patient'}</td>
-                      <td style={{ padding: '10px 14px' }}>{item.gender || '—'}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.blood_group || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.phone || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Chennai, Tamil Nadu'}</td>
-                      <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Verified</span></td>
+                      <th style={{ padding: '10px 14px' }}>UHID</th>
+                      <th style={{ padding: '10px 14px' }}>Patient Name</th>
+                      <th style={{ padding: '10px 14px' }}>Gender</th>
+                      <th style={{ padding: '10px 14px' }}>Blood Group</th>
+                      <th style={{ padding: '10px 14px' }}>Phone</th>
+                      <th style={{ padding: '10px 14px' }}>Location</th>
+                      <th style={{ padding: '10px 14px' }}>Status</th>
                     </>
                   )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.map((item, i) => (
+                  <tr
+                    key={item.id || i}
+                    onClick={() => handleRowClick(item)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    {endpoint === 'integration-arch' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.component}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.protocol}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.direction}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.frequency}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 500, color: '#0f766e' }}>{item.records}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.health}</span></td>
+                      </>
+                    ) : endpoint === 'users' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'Active' ? '#dcfce7' : '#fee2e2', item.status === 'Active' ? '#15803d' : '#b91c1c')}>{item.status}</span></td>
+                      </>
+                    ) : endpoint === 'employees' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.role}</span></td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.email}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.joining_date}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#16a34a' }}>{item.salary_display}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      </>
+                    ) : endpoint === 'attendance' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#15803d', fontWeight: 600 }}>{item.check_in}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.check_out}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.work_hours}</td>
+                        <td style={{ padding: '10px 14px', color: item.overtime_hours !== '0.0 hrs' ? '#dc2626' : '#64748b', fontWeight: 600 }}>{item.overtime_hours}</td>
+                        <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.biometric_device}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      </>
+                    ) : endpoint === 'credentials' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', color: '#475569' }}>{item.designation}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>{item.council_reg_number}</td>
+                        <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.licensing_authority}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.license_expiry}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.cme_credits}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.verification_status}</span></td>
+                      </>
+                    ) : endpoint === 'staff' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{item.assigned_unit}</td>
+                        <td style={{ padding: '10px 14px', color: '#475569' }}>{item.shift}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.duty_role}</span></td>
+                        <td style={{ padding: '10px 14px', fontSize: '11px', color: '#15803d', fontWeight: 600 }}>✓ {item.handover_status}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle(item.status === 'On Duty' ? '#dcfce7' : '#f1f5f9', item.status === 'On Duty' ? '#15803d' : '#475569')}>{item.status}</span></td>
+                      </>
+                    ) : endpoint === 'canteen' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700, color: '#0f766e' }}>{item.token_id}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#64748b' }}>{item.staff_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.staff_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.department}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.meal_category}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.dining_time}</td>
+                        <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.subsidy_rate}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.co_pay}</td>
+                        <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.payment_mode}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status}</span></td>
+                      </>
+                    ) : endpoint === 'roles' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.role_name || item.name}</td>
+                        <td style={{ padding: '10px 14px', color: '#475569' }}>{item.description || 'Role Definition'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.member_count || 0)} users</td>
+                        <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b' }}>{item.permissions_summary || 'Standard access'}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                      </>
+                    ) : endpoint === 'permissions' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.module || 'System Domain'}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>{item.admin || 'Full Control'}</span></td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#e0e7ff', '#3730a3')}>{item.doctor || 'Read / Write'}</span></td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#fef3c7', '#b45309')}>{item.nurse || 'Administer'}</span></td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#475569')}>{item.pharmacist || 'Dispense'}</span></td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f8fafc', '#64748b')}>{item.billing || 'Billing View'}</span></td>
+                      </>
+                    ) : endpoint === 'departments' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.department_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.department_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.type || 'Clinical'}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Main Hospital'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.doctor_count || 0)}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.ward_count || 0)}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active</span></td>
+                      </>
+                    ) : endpoint === 'services' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.code || item.service_code}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.service_name}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.category || 'Clinical'}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.department || 'General'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.charge_display || `₹${Number(item.standard_charge || 0).toFixed(2)}`}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ {item.status || 'Active'}</span></td>
+                      </>
+                    ) : endpoint === 'insurers' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.provider_name || 'Insurance Partner'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.claim_count) || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>{item.claimed_display || `₹${(Number(item.total_claimed) || 0).toLocaleString('en-IN')}`}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#16a34a', fontWeight: 600 }}>{item.approved_display || `₹${(Number(item.total_approved) || 0).toLocaleString('en-IN')}`}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#2563eb' }}>{item.approval_rate || '95.0%'}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Active Partner</span></td>
+                      </>
+                    ) : endpoint === 'payment-methods' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.method_name || 'Payment Channel'}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.channel || 'Digital / Counter'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{(Number(item.txn_count) || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 700, color: '#16a34a', fontFamily: 'monospace' }}>{item.collected_display || `₹${(Number(item.total_collected) || 0).toLocaleString('en-IN')}`}</td>
+                        <td style={{ padding: '10px 14px', color: '#15803d', fontWeight: 600 }}>{item.success_rate || '100%'}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Operational</span></td>
+                      </>
+                    ) : endpoint === 'facilities' ? (
+                      <>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.ward_name || item.facility || 'Ward'}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.ward_type || 'Inpatient'}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.floor || 'Floor 1'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{Number(item.room_count || 0)} rooms</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f766e' }}>{Number(item.bed_count || 0)} beds</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Sanitized</span></td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>Operational</span></td>
+                      </>
+                    ) : (
+                      <>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#0f766e' }}>{item.uhid || item.patient_code || 'PAT-001'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#15181b' }}>{item.name || item.patient_name || 'Patient'}</td>
+                        <td style={{ padding: '10px 14px' }}>{item.gender || '—'}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.blood_group || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.phone || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.location || 'Chennai, Tamil Nadu'}</td>
+                        <td style={{ padding: '10px 14px' }}><span style={pillStyle('#dcfce7', '#15803d')}>✓ Verified</span></td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
             {/* Pagination Footer */}
             {totalCount > 0 && (

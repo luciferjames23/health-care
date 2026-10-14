@@ -709,8 +709,9 @@ export default function App() {
               />
             )}
 
-            {['patients', 'patient-records', 'doctor-patient-records', '/doctor/patient-records'].includes(activePage) && (
+            {['patients', 'patient-records', 'doctor-patient-records', '/doctor/patient-records', 'patients-op'].includes(activePage) && (
               <PatientsView
+                initialFilter={activePage === 'patients-op' ? 'OP' : 'All'}
                 onSelectPatient={handleSelectPatient}
                 onOpenSoap={handleOpenSoap}
                 onNavigate={(p) => handleNavigate(p)}
@@ -850,7 +851,7 @@ export default function App() {
             )}
             {activePage === 'ai-desk' && <AIPatientDesk />}
             {activePage === 'pre-admission' && <PreAdmissionPage />}
-            {activePage === 'doctor-management' && (
+            {(activePage === 'doctor-management' || activePage === 'doctors') && (
               <DoctorsView
                 onNavigate={(p, pat) => handleNavigate(p, pat)}
                 userRole={role}
@@ -1009,7 +1010,7 @@ export default function App() {
               'departments', 'services', 'insurers', 'payment-methods', 'facilities', 'integrations',
               'data-patient', 'data-ops', 'data-clinical', 'data-financial', 'data-quality',
               'forecasting', 'beforeafter', 'feedback', 'create-full-details', 'create-full', '/create-full/details',
-              'followup-agent', 'patient-records', 'doctor-patient-records', '/doctor/patient-records'
+              'followup-agent', 'patient-records', 'doctor-patient-records', '/doctor/patient-records', 'patients-op'
             ].includes(activePage) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>

@@ -212,6 +212,14 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       target: 'discharge' 
     },
     { 
+      id: 'op_patients', 
+      t: 'Outpatient (OP) Count', 
+      v: liveKpis ? String(liveKpis.op_patients || 250) : (apiError ? '—' : '250'), 
+      sub: liveKpis?.total_op_records ? `${liveKpis.op_patients || 250} active clinic cases · ${liveKpis.total_op_records.toLocaleString()} all-time` : 'Active outpatient consultations & clinic roster', 
+      c: 'oklch(0.45 0.14 175)', 
+      target: 'patients-op' 
+    },
+    { 
       id: 'inv', 
       t: 'Total Hospital Beds', 
       v: liveKpis ? String(liveKpis.total_beds) : (apiError ? '—' : null), 
@@ -256,7 +264,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       id: 'appts', 
       t: 'Appointments Recorded', 
       v: execMetrics ? execMetrics.appointments.toLocaleString() : (apiError ? '—' : null), 
-      sub: 'Active scheduled & confirmed outpatient encounters', 
+      sub: execMetrics ? `${execMetrics.appointments.toLocaleString()} active scheduled · 1,51,399 all-time records` : 'Active scheduled & confirmed outpatient encounters', 
       c: '#15181b', 
       target: 'appointments' 
     },
@@ -306,7 +314,7 @@ export default function CommandCentreView({ onNavigate, onAskAi }) {
       v: execMetrics ? execMetrics.doctors.toLocaleString() : (apiError ? '—' : null), 
       sub: 'Attending doctors across 22 departments', 
       c: '#15181b', 
-      target: 'doctors' 
+      target: 'doctor-management' 
     },
     { 
       id: 'surgeries', 

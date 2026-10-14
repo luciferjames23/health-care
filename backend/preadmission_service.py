@@ -106,7 +106,7 @@ def create_pre_admission(
 
         # 8. Handle existing active pre-admission records for patient
         cur.execute("""
-            SELECT id, pre_admission_code FROM pre_admissions
+            SELECT id, pre_admission_code, admission_id FROM pre_admissions
             WHERE patient_id = %s AND status NOT IN ('COMPLETED', 'CANCELLED');
         """, (patient_id,))
         dup_rows = cur.fetchall()
@@ -117,6 +117,23 @@ def create_pre_admission(
                     SET status = 'CANCELLED', remarks = 'Superseded by new pre-admission registration', updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s;
                 """, (dup[0],))
+                linked_aid = dup[2]
+                if linked_aid:
+                    cur.execute("""
+                        UPDATE admissions
+                        SET discharge_status = 'Discharged', discharge_date = CURRENT_DATE
+                        WHERE admission_id = %s;
+                    """, (linked_aid,))
+                    cur.execute("""
+                        UPDATE dim_admission_inputs
+                        SET discharge_status = 'Discharged'
+                        WHERE admission_id = %s;
+                    """, (linked_aid,))
+                    cur.execute("""
+                        UPDATE beds
+                        SET status = 'Available'
+                        WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = %s AND bed_id IS NOT NULL);
+                    """, (linked_aid,))
             print(f"[PRE_ADMISSION] Superseded {len(dup_rows)} active pre-admission record(s) for patient ID {patient_id}")
 
         # 9. Format check-in time
@@ -582,6 +599,17 @@ def update_pre_admission_status(
 
         sql = f"UPDATE pre_admissions SET {', '.join(updates)} WHERE id = %s;"
         cur.execute(sql, params)
+
+        # If cancelled, ensure any linked admission is discharged and bed is freed
+        if status and status.strip().upper() == 'CANCELLED':
+            cur.execute("SELECT admission_id FROM pre_admissions WHERE id = %s;", (pre_admission_id,))
+            linked_adm_row = cur.fetchone()
+            if linked_adm_row and linked_adm_row[0]:
+                linked_aid = linked_adm_row[0]
+                cur.execute("UPDATE admissions SET discharge_status = 'Discharged', discharge_date = CURRENT_DATE WHERE admission_id = %s;", (linked_aid,))
+                cur.execute("UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = %s;", (linked_aid,))
+                cur.execute("UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = %s AND bed_id IS NOT NULL);", (linked_aid,))
+
         conn.commit()
 
         return {"success": True, "message": "Pre-admission updated successfully."}

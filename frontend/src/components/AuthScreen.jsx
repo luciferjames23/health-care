@@ -99,7 +99,7 @@ export default function AuthScreen({
   });
 
   // Selected user lookup
-  const selectedUser = usersList.find(u => 
+  const selectedUser = usersList.find(u =>
     u.username?.toLowerCase() === (username || '').trim().toLowerCase() ||
     (u.patient_code && u.patient_code.toLowerCase() === (username || '').trim().toLowerCase())
   ) || (loginMode === 'patient' ? SAMPLE_PATIENTS[0] : staffUsers[0]);
@@ -182,7 +182,7 @@ export default function AuthScreen({
         </div>
 
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
-          © 2026 Meridian Hospital Systems · Enterprise Clinical Platform
+          © 2026 Hospital Systems · Enterprise Clinical Platform
         </div>
       </aside>
 

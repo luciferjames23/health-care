@@ -175,9 +175,9 @@ def seed_data():
         # 8. Insert Pre-Admissions (At least 3 records)
         print("Seeding Pre-Admissions...")
         pre_admissions_data = [
-            ("PA001", "P001", "BK001", (datetime.date.today() + datetime.timedelta(days=4)).strftime("%Y-%m-%d"), "INPATIENT", "DOCUMENTS_PENDING", "Aadhaar Card, Employer ID, Insurance Card", None, "Fast 8 hours before admission", "Patient needs to submit corporate policy card"),
-            ("PA002", "P003", "BK003", (datetime.date.today() + datetime.timedelta(days=5)).strftime("%Y-%m-%d"), "SURGERY", "READY", None, "Aadhaar Card, Lab Reports, Pre-op Consent", "Report to Ward 3B at 6 AM", "All checks cleared by anesthesia team"),
-            ("PA003", "P006", "BK006", (datetime.date.today() + datetime.timedelta(days=6)).strftime("%Y-%m-%d"), "DAYCARE", "PENDING", "Aadhaar Card", None, "No special prep required", "Awaiting physician clearance check")
+            ("PA001", "P001", "BK001", (datetime.date.today() + datetime.timedelta(days=4)).strftime("%Y-%m-%d"), "Medical", "DOCUMENTS_PENDING", "Aadhaar Card, Employer ID, Insurance Card", None, "Fast 8 hours before admission", "Patient needs to submit corporate policy card"),
+            ("PA002", "P003", "BK003", (datetime.date.today() + datetime.timedelta(days=5)).strftime("%Y-%m-%d"), "Surgical", "READY", None, "Aadhaar Card, Lab Reports, Pre-op Consent", "Report to Ward 3B at 6 AM", "All checks cleared by anesthesia team"),
+            ("PA003", "P006", "BK006", (datetime.date.today() + datetime.timedelta(days=6)).strftime("%Y-%m-%d"), "Day Care", "PENDING", "Aadhaar Card", None, "No special prep required", "Awaiting physician clearance check")
         ]
         
         for pa_code, p_code, bk_id, adm_date, adm_type, stat, pending_docs, sub_docs, instr, rem in pre_admissions_data:

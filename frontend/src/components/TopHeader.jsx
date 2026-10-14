@@ -218,47 +218,6 @@ export default function TopHeader({
           <span style={{ fontSize: '11px', color: '#8a9096', whiteSpace: 'nowrap' }}>AI Hospital Operating Platform</span>
         </div>
 
-        {/* AI search */}
-        <form onSubmit={handleAskSubmit} style={{ flex: '1 1 240px', maxWidth: '460px', display: 'flex', position: 'relative', alignItems: 'center' }}>
-          <input
-            value={askInput}
-            onChange={e => setAskInput(e.target.value)}
-            placeholder={`Ask Hospital AI — “Which patients are blocked from discharge and why?”`}
-            style={{
-              width: '100%', height: '30px', border: askingLoading ? '1px solid oklch(0.5 0.1 300)' : '1px solid #e3e6e8', borderRadius: '8px',
-              padding: '0 34px 0 28px',
-              background: '#f6f7f8 no-repeat 10px center/8px 8px radial-gradient(circle,oklch(0.5 0.1 300) 0 4px,transparent 4.5px)',
-              fontSize: '11.5px', outline: 'none',
-              boxShadow: askingLoading ? '0 0 0 2px rgba(168, 85, 247, 0.15)' : 'none',
-              transition: 'border-color 0.2s, box-shadow 0.2s'
-            }}
-          />
-          {askingLoading && (
-            <span
-              style={{
-                position: 'absolute',
-                right: '42px',
-                display: 'inline-block',
-                width: '13px',
-                height: '13px',
-                border: '2px solid oklch(0.5 0.1 300)',
-                borderTopColor: 'transparent',
-                borderRadius: '50%',
-                animation: 'spin 0.6s linear infinite'
-              }}
-              title="Querying Hospital AI..."
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => { setAskInput('Which patients are currently blocked from discharge and why?'); if (onAskAi) onAskAi('Which patients are currently blocked from discharge and why?'); }}
-            aria-label="Voice input"
-            style={{ height: '30px', minWidth: '32px', marginLeft: '4px', border: '1px solid #e3e6e8', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '12px' }}
-          >
-            🎙
-          </button>
-        </form>
-
         {/* Dynamic Real-time Clock */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', color: '#52585e', marginLeft: 'auto' }}>
           <span>{liveDateStr}</span>
@@ -315,6 +274,40 @@ export default function TopHeader({
           }}>
             {alertsCount}
           </span>
+        </button>
+
+        {/* Top Right Corner Sign out */}
+        <button
+          type="button"
+          id="btn-top-signout"
+          onClick={onSignOut}
+          style={{
+            height: '28px',
+            padding: '0 10px',
+            border: '1px solid #e3e6e8',
+            borderRadius: '6px',
+            background: '#ffffff',
+            cursor: 'pointer',
+            color: '#b91c1c',
+            fontSize: '11.5px',
+            fontWeight: 600,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            transition: 'all 0.15s ease',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = '#fef2f2';
+            e.currentTarget.style.borderColor = '#fca5a5';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = '#ffffff';
+            e.currentTarget.style.borderColor = '#e3e6e8';
+          }}
+          title="Sign out of hospital account"
+        >
+          <span>Sign out</span>
         </button>
       </div>
 
@@ -419,13 +412,6 @@ export default function TopHeader({
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onSignOut}
-            style={{ height: '28px', padding: '0 9px', border: '1px solid #e3e6e8', borderRadius: '6px', background: '#fff', cursor: 'pointer', color: '#52585e', fontSize: '11px', flexShrink: 0 }}
-          >
-            Sign out
-          </button>
         </div>
       </div>
     </header>

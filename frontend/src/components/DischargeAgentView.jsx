@@ -817,7 +817,7 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
                     </span>
                   </div>
                   <div style={{ fontSize: '11.5px', color: '#52585e', marginTop: '2px' }}>
-                    Attending: <strong>{validationResult.attending_doctor || 'Dr. Priya Narayanan'}</strong> · Admission: {validationResult.admission_type || 'Inpatient'} ({validationResult.admission_date})
+                    Attending: <strong>{validationResult.attending_doctor || 'Dr. Priya Narayanan'}</strong> · Admission: {validationResult.admission_type || 'Medical'} ({validationResult.admission_date})
                   </div>
                 </div>
 

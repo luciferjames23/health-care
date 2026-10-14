@@ -2694,7 +2694,7 @@ export function parseAdmissionLlmRecord(record) {
     admission_number: admissionNumber,
     admission_date: adm.admission_date || record.admission_date,
     admitted: (adm.admission_date || record.admission_date) ? new Date(adm.admission_date || record.admission_date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently Admitted',
-    admission_type: adm.admission_type || record.admission_type || 'Referral',
+    admission_type: adm.admission_type || record.admission_type || 'Elective',
     admission_source: adm.admission_source || record.admission_source || 'Emergency Bay',
     reason_for_admission: adm.reason_for_admission || record.reason_for_admission || primaryDiagnosis,
     diagnosis: primaryDiagnosis,
@@ -3617,15 +3617,18 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     processedAdmissionKeys.add(matchKey);
 
     const adm = (aid && admMap['adm_' + aid]) || admMap[pid] || {};
-    const statusLower = String(parsed.approval_status || '').trim().toLowerCase();
+    const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
     const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
-    const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged' || (isApproved && Boolean(c.discharge_date) && (String(adm.discharge_status || '').toLowerCase() === 'discharged' || c.admission_id === 87327 || c.patient_id === 87328));
-    const doc = (isDischarged
+    const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
+    const hasActiveAdmission = Boolean(adm && String(adm.discharge_status || '').toLowerCase() !== 'discharged' && (adm.admission_id || adm.patient_id));
+    const isDone = isDischarged || (isApproved && !hasActiveAdmission);
+
+    const doc = (isDone
       ? (parsed.doctor_name || adm.attending_doctor)
       : (adm.attending_doctor || parsed.doctor_name)) || 'Dr. Amit Sharma';
     
     // Only count active discharge cases (leave completed count out of the active badge)
-    if (!isApproved && !isDischarged) {
+    if (!isDone) {
       cases.push({ doctor: doc });
     }
   });
