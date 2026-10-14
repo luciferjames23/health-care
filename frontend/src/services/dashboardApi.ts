@@ -1077,3 +1077,103 @@ export async function cancelQueueEntry(entryId: number, reason?: string): Promis
 }
 
 
+
+// ─── Role-Scoped KPIs ─────────────────────────────────────────────────────────
+// Returned shape varies by role — every key is optional so callers must
+// use nullish coalescing when reading values.
+
+export interface RoleKpis {
+  role?: string;
+  user_id?: number;
+  today?: string;
+
+  // Shared / common
+  active_admissions?: number;
+  discharged_patients?: number;
+  available_beds?: number;
+  occupied_beds?: number;
+  total_beds?: number;
+  occupancy_rate?: number;
+  total_wards?: number;
+  total_rooms?: number;
+  appointments_today?: number;
+  appointments_active?: number;
+  appointments_total?: number;
+  emergency_load?: number;
+  open_escalations?: number;
+  total_patients?: number;
+  patients_today?: number;
+
+  // Admin / Management
+  doctors_active?: number;
+  surgeries_scheduled?: number;
+  active_surgeries?: number;
+  revenue_total?: number;
+  revenue_collected?: number;
+  claims_count?: number;
+  claims_outstanding?: number;
+  inventory_value?: number;
+  low_stock_items?: number;
+  pending_discharges?: number;
+
+  // Doctor-specific
+  active_ip_cases?: number;
+  appointments_upcoming?: number;
+  appointments_completed_today?: number;
+  lab_orders_pending?: number;
+  pre_admissions_pending?: number;
+
+  // Nurse-specific
+  pending_sbar?: number;
+  lab_critical_unacked?: number;
+
+  // Billing-specific
+  bills_pending?: number;
+  bills_today?: number;
+  revenue_today?: number;
+  pre_auth_pending?: number;
+
+  // Insurance-specific
+  claims_total?: number;
+  claims_pending?: number;
+  claims_approved?: number;
+  claims_rejected?: number;
+  outstanding_amount?: number;
+  approved_amount?: number;
+
+  // Finance Manager-specific
+  bills_outstanding?: number;
+
+  // Pharmacy-specific
+  dispensed_today?: number;
+  out_of_stock?: number;
+  pending_prescriptions?: number;
+  inventory_total?: number;
+
+  // Lab-specific
+  orders_pending?: number;
+  orders_today?: number;
+  critical_unacked?: number;
+
+  // Front Office-specific
+  checkins_today?: number;
+  walkins_today?: number;
+  upcoming_slots?: number;
+  pre_admissions_today?: number;
+
+  // Store / Procurement-specific
+  pending_po?: number;
+
+  // HR-specific
+  total_staff?: number;
+  schedules_today?: number;
+}
+
+/**
+ * Fetches role-scoped dashboard KPI counts for the currently logged-in user.
+ * The backend derives the user identity from the Bearer JWT — no params needed.
+ * Returns null on network error so callers can fall back gracefully.
+ */
+export async function fetchRoleKpis(signal?: AbortSignal): Promise<RoleKpis | null> {
+  return apiFetch<RoleKpis>('/api/dashboard/role-kpis', { externalSignal: signal });
+}

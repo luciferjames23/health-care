@@ -615,6 +615,7 @@ export const apiService = {
     if (params.gender) queryParams.append("gender", params.gender);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
+    if (params.scope) queryParams.append("scope", params.scope);
 
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/current-admission-llm-inputs?${queryParams.toString()}`, options);
   },
@@ -647,6 +648,7 @@ export const apiService = {
     if (params.attending_physician) queryParams.append("attending_physician", params.attending_physician);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
+    if (params.scope) queryParams.append("scope", params.scope);
 
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries?${queryParams.toString()}`, options);
   },

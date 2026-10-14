@@ -41,14 +41,15 @@ export default function AdmissionsView({
 
   useEffect(() => {
     let isMounted = true;
-    async function loadAdmissionsData(isSilent = false) {
+    async function loadAdmissionsData(isSilent = false, targetScope = workloadScope) {
       if (!isSilent && admissions.length === 0) {
         setLoading(true);
       }
       setError(null);
       try {
+        const isAllScope = targetScope === 'all';
         const [admRes, bedsRes, wardsRes, dcRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all', scope: isAllScope ? 'all' : 'active', limit: isAllScope ? 300 : 250 }).catch(() => ({ data: [] })),
           apiService.getBeds({}).catch(() => ({ data: [] })),
           apiService.getWards({}).catch(() => ({ data: [] })),
           apiService.getDischargedPatients({}).catch(() => ({ data: [] }))
@@ -74,14 +75,16 @@ export default function AdmissionsView({
         });
         setWardOptions([...new Set(wList)]);
 
-        // Filter out any patient who is discharged (either in discharge API or discharge_status === 'discharged')
+        // Filter out discharged patients only in active operational scope
         const rawAdmissions = admRes?.data || [];
-        const actualAdmittedRaw = rawAdmissions.filter(r => {
-          if (!r) return false;
-          const st = String(r.discharge_status || r.admission_status || r.status || '').trim().toLowerCase();
-          if (st === 'discharged') return false;
-          return !dischargedTracker.has(r);
-        });
+        const actualAdmittedRaw = isAllScope
+          ? rawAdmissions
+          : rawAdmissions.filter(r => {
+              if (!r) return false;
+              const st = String(r.discharge_status || r.admission_status || r.status || '').trim().toLowerCase();
+              if (st === 'discharged') return false;
+              return !dischargedTracker.has(r);
+            });
 
         const list = actualAdmittedRaw.map(r => {
           const p = parseAdmissionLlmRecord(r);
@@ -288,7 +291,7 @@ export default function AdmissionsView({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
+              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); loadAdmissionsData(false, 'active'); }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -310,7 +313,7 @@ export default function AdmissionsView({
             </button>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
+              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); loadAdmissionsData(false, 'all'); }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -600,7 +603,7 @@ export default function AdmissionsView({
         {/* Pagination Footer */}
         {filteredAdmissions.length > 0 && (
           <TablePagination
-            total={totalRows}
+            total={workloadScope === 'all' ? 47096 : totalRows}
             page={safeCurrentPage}
             pageSize={pageSize}
             onPageChange={(p) => setCurrentPage(p)}

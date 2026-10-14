@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
+import { fetchRoleKpis } from '../services/dashboardApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 
 const Spinner = () => (
@@ -217,6 +218,7 @@ const PROFILE_CONFIG = {
 export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   const [liveKpis, setLiveKpis] = useState(null);
   const [execMetrics, setExecMetrics] = useState(null);
+  const [roleKpis, setRoleKpis] = useState(null);
   const [liveWards, setLiveWards] = useState([]);
   const [liveExceptions, setLiveExceptions] = useState([]);
   const [liveApprovals, setLiveApprovals] = useState([]);
@@ -226,109 +228,96 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   // Derive role profile once
   const profile = PROFILE_CONFIG[getRoleProfile(role)] || PROFILE_CONFIG.management;
   const displayName = user?.name || user?.username || '';
+  const isManagement = ['management', 'governance'].includes(getRoleProfile(role));
 
   useEffect(() => {
     let isMounted = true;
+    const controller = new AbortController();
 
     async function loadCommandCentre(isSilent = false) {
       if (!isSilent && !liveKpis) setLoading(true);
       try {
-        const results = await Promise.allSettled([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }),
-          apiService.getDischargedPatients({}),
-          apiService.getBedManagementData({}),
-          apiService.getExecutiveKpis({})
+        // Always fetch scoped role KPIs
+        const roleKpisPromise = fetchRoleKpis(controller.signal);
+        // Only hit heavy executive endpoint for management/governance
+        const execPromise = isManagement ? apiService.getExecutiveKpis({}) : Promise.resolve(null);
+        // Only pull bed/ward/exception data when the profile needs it
+        const needsBedData = profile.showWards || profile.showExceptions || isManagement;
+        const admPromise = needsBedData ? apiService.getCurrentAdmissions({ discharge_status: 'all' }) : Promise.resolve(null);
+        const disPromise = needsBedData ? apiService.getDischargedPatients({}) : Promise.resolve(null);
+        const bmPromise  = needsBedData ? apiService.getBedManagementData({}) : Promise.resolve(null);
+
+        const [rk, execRes, admRes, disRes, bmRes] = await Promise.allSettled([
+          roleKpisPromise, execPromise, admPromise, disPromise, bmPromise,
         ]);
 
         if (!isMounted) return;
 
-        const [admSettled, disSettled, bmSettled, execSettled] = results;
+        // Role KPIs (user-scoped)
+        if (rk.status === 'fulfilled' && rk.value) setRoleKpis(rk.value);
 
-        if (execSettled?.status === 'fulfilled' && execSettled.value?.success) {
-          setExecMetrics(execSettled.value);
-        }
+        // Executive KPIs (management only, hospital-wide)
+        if (execRes.status === 'fulfilled' && execRes.value?.success) setExecMetrics(execRes.value);
 
-        if (
-          admSettled.status === 'rejected' &&
-          disSettled.status === 'rejected' &&
-          bmSettled.status === 'rejected'
-        ) {
-          const errMsg = bmSettled.reason?.message || admSettled.reason?.message || 'Connection refused';
-          setApiError(`Backend API unreachable (${errMsg}). Verify server is running on http://127.0.0.1:8000.`);
+        const bmValue   = bmRes?.status  === 'fulfilled' ? bmRes.value  : null;
+        const disValue  = disRes?.status === 'fulfilled' ? disRes.value : null;
+        const admValue  = admRes?.status === 'fulfilled' ? admRes.value : null;
+        const wardsList = bmValue?.wards || [];
+        const kpisObj   = bmValue?.kpis  || {};
+        const rkv       = (rk.status === 'fulfilled' && rk.value) ? rk.value : {};
+        const exec      = (execRes.status === 'fulfilled' && execRes.value?.success) ? execRes.value : null;
+
+        // Merge priority: role-kpis > executive-kpis > bed-management > defaults
+        const totalBeds     = (rkv.total_beds     ?? exec?.total_beds     ?? kpisObj.total_beds     ?? wardsList.reduce((a, w) => a + (w.total_beds || 0), 0)) || 312;
+        const occupiedBeds  = rkv.occupied_beds  ?? exec?.occupied_beds  ?? kpisObj.occupied_beds  ?? 208;
+        const availableBeds = rkv.available_beds ?? exec?.available_beds ?? kpisObj.available_beds ?? 104;
+        const occupancyRate = rkv.occupancy_rate ?? exec?.occupancy_rate ?? (totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 66.7);
+        const totalWards    = (rkv.total_wards    ?? exec?.total_wards    ?? kpisObj.total_wards    ?? wardsList.length) || 9;
+        const totalRooms    = (rkv.total_rooms    ?? exec?.total_rooms    ?? kpisObj.total_rooms    ?? wardsList.reduce((a, w) => a + (w.rooms_count || w.rooms?.length || 0), 0)) || 150;
+        const activeAdm     = rkv.active_admissions ?? exec?.active_admissions ?? occupiedBeds;
+        const dischargedCnt = rkv.discharged_patients ?? exec?.discharged_patients ?? 0;
+
+        if (!totalBeds && !activeAdm && !exec && !rkv.appointments_today) {
+          setApiError('Backend API unreachable. Verify server is running on http://127.0.0.1:8000.');
           setLiveKpis(null); setLiveWards([]); setLiveExceptions([]); setLiveApprovals([]);
           return;
         }
 
         setApiError(null);
-
-        const rawAdmissions = admSettled.status === 'fulfilled' ? (admSettled.value?.data || []) : [];
-        const rawDischarges = disSettled.status === 'fulfilled' ? (disSettled.value?.data || []) : [];
-        const bmRes = bmSettled.status === 'fulfilled' ? bmSettled.value : null;
-
-        const dischargedTracker = extractDischargedPatientIds(rawDischarges);
-
-        const dischargedInAdmissions = rawAdmissions.filter(p => {
-          const st = String(p.discharge_status || p.admission_status || '').trim().toLowerCase();
-          return st === 'discharged';
-        });
-
-        const dischargedInSummaries = rawDischarges.filter(r => {
-          const st = String(r.approval_status || r.status || '').trim().toLowerCase();
-          return ['approved', 'signed', 'signed off', 'completed'].includes(st);
-        });
-
-        const allDischargedPids = new Set();
-        [...dischargedInAdmissions, ...dischargedInSummaries].forEach(p => {
-          const pid = p.patient_id != null ? String(p.patient_id) : (p.id != null ? String(p.id) : (p.admission_id ? `adm_${p.admission_id}` : ''));
-          if (pid) allDischargedPids.add(pid);
-        });
-
-        const actuallyDischargedCount = allDischargedPids.size || (dischargedInAdmissions.length + dischargedInSummaries.length);
-        const discharges = rawDischarges.map(parseDischargeSummaryRecord).filter(Boolean);
-        const kpisObj = bmRes?.kpis || {};
-        const wardsList = bmRes?.wards || [];
-        const execData = execSettled?.status === 'fulfilled' && execSettled.value?.success ? execSettled.value : null;
-
-        const totalBeds     = execData?.total_beds      ?? kpisObj.total_beds      ?? wardsList.reduce((a, w) => a + (w.total_beds || 0), 0) || 312;
-        const occupiedBeds  = execData?.occupied_beds   ?? kpisObj.occupied_beds   ?? 208;
-        const availableBeds = execData?.available_beds  ?? kpisObj.available_beds  ?? 104;
-        const occupancyRate = execData?.occupancy_rate  ?? (totalBeds > 0 ? Number(((occupiedBeds / totalBeds) * 100).toFixed(1)) : 66.7);
-        const totalWards    = execData?.total_wards     ?? kpisObj.total_wards     ?? wardsList.length || 9;
-        const totalRooms    = execData?.total_rooms     ?? kpisObj.total_rooms     ?? wardsList.reduce((a, w) => a + (w.rooms_count || w.rooms?.length || 0), 0) || 150;
-
         setLiveKpis({
-          active_admissions:   execData?.active_admissions   ?? occupiedBeds,
-          discharged_patients: execData?.discharged_patients ?? actuallyDischargedCount,
-          total_beds: totalBeds, occupied_beds: occupiedBeds,
-          available_beds: availableBeds, maintenance_beds: execData?.maintenance_beds ?? kpisObj.maintenance_beds ?? 0,
+          active_admissions: activeAdm, discharged_patients: dischargedCnt,
+          total_beds: totalBeds, occupied_beds: occupiedBeds, available_beds: availableBeds,
+          maintenance_beds: rkv.maintenance_beds ?? exec?.maintenance_beds ?? kpisObj.maintenance_beds ?? 0,
           occupancy_rate: occupancyRate, total_wards: totalWards, total_rooms: totalRooms,
         });
-
         setLiveWards(wardsList);
 
-        if (discharges.length > 0) {
-          setLiveExceptions(discharges.slice(0, 5).map(c => {
-            const cleanDiag = cleanDiagnosis(c.diagnoses || c.primary_diagnosis || c.discharge_diagnosis || '');
-            return {
-              ref: `${c.patient} · ${c.bed || 'Released Bed'}`,
-              owner: c.doctor || 'Attending Physician',
-              age: 'Active Record',
-              pri: c.approval_status === 'Approved' ? 'Low' : 'High',
-              priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
-              reason: cleanDiag ? (cleanDiag.length > 55 ? `${cleanDiag.slice(0, 55)}...` : cleanDiag) : 'Clinical summary review',
-              next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
-              target: 'discharge',
-            };
-          }));
-          setLiveApprovals(discharges.slice(0, 4).map(c => ({
-            type: 'Discharge summary', patient: c.patient,
-            age: c.approval_status, owner: c.doctor || 'Attending Physician',
-            agent: c.model_name || 'Llama 3.3 70B',
-          })));
-        } else {
-          setLiveExceptions([]); setLiveApprovals([]);
+        // Exceptions built from discharge records (only when profile needs them)
+        if (needsBedData && disValue) {
+          const discharges = (disValue?.data || []).map(parseDischargeSummaryRecord).filter(Boolean);
+          if (discharges.length > 0) {
+            setLiveExceptions(discharges.slice(0, 5).map(c => {
+              const cleanDiag = cleanDiagnosis(c.diagnoses || c.primary_diagnosis || c.discharge_diagnosis || '');
+              return {
+                ref: `${c.patient} · ${c.bed || 'Released Bed'}`, owner: c.doctor || 'Attending Physician',
+                age: 'Active Record',
+                pri: c.approval_status === 'Approved' ? 'Low' : 'High',
+                priC: c.approval_status === 'Approved' ? 'oklch(0.4 0.12 150)' : 'oklch(0.5 0.18 25)',
+                reason: cleanDiag ? (cleanDiag.length > 55 ? `${cleanDiag.slice(0, 55)}...` : cleanDiag) : 'Clinical summary review',
+                next: c.approval_status === 'Approved' ? 'Bed released' : 'Physician sign-off',
+                target: 'discharge',
+              };
+            }));
+            setLiveApprovals(discharges.slice(0, 4).map(c => ({
+              type: 'Discharge summary', patient: c.patient, age: c.approval_status,
+              owner: c.doctor || 'Attending Physician', agent: c.model_name || 'Llama 3.3 70B',
+            })));
+          } else {
+            setLiveExceptions([]); setLiveApprovals([]);
+          }
         }
       } catch (err) {
+        if (err?.name === 'AbortError') return;
         console.warn('Failed to load Command Centre metrics:', err);
         if (isMounted) {
           setApiError(err.message || 'Failed to load metrics from backend API');
@@ -340,17 +329,30 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     }
 
     loadCommandCentre();
-    const timer = setInterval(() => loadCommandCentre(true), 6000);
+    const timer = setInterval(() => loadCommandCentre(true), 15000);
     const handleUpdate = () => loadCommandCentre(true);
     window.addEventListener('hc_api_updated', handleUpdate);
     return () => {
       isMounted = false;
       clearInterval(timer);
+      controller.abort();
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
 
-  // ── Full KPI catalogue (all IDs defined here; profile filters which show) ──
+  // ── Helpers to resolve a value with priority: roleKpis > execMetrics > liveKpis ──
+  const rk = roleKpis || {};
+  const em = execMetrics || {};
+
+  function fmtCrore(n) {
+    if (!n) return '—';
+    if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
+    if (n >= 100000)   return `₹${(n / 100000).toFixed(2)} L`;
+    return `₹${Number(n).toLocaleString()}`;
+  }
+
+  // ── Full KPI catalogue — values drawn from role-scoped data ──────────────
   const allKpis = [
     {
       id: 'adm',
@@ -369,7 +371,7 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'op_patients',
       t: 'Outpatient (OP) Count',
-      v: liveKpis ? String(liveKpis.op_patients || 250) : (apiError ? '—' : '250'),
+      v: rk.total_patients != null ? String(rk.total_patients) : (em.op_patients != null ? String(em.op_patients) : (apiError ? '—' : '—')),
       sub: 'Active outpatient consultations & clinic roster',
       c: 'oklch(0.45 0.14 175)', target: 'patients-op',
     },
@@ -408,81 +410,134 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
       sub: apiError ? 'API Offline · Intake capacity unknown' : 'Immediate intake capacity',
       c: 'oklch(0.4 0.12 150)', target: 'beds',
     },
+    // Appointments — role-scoped count first, exec total as fallback
     {
       id: 'appts',
       t: 'Appointments Recorded',
-      v: execMetrics ? execMetrics.appointments.toLocaleString() : (apiError ? '—' : null),
-      sub: execMetrics ? `${execMetrics.appointments.toLocaleString()} active scheduled · all-time records` : 'Active scheduled & confirmed outpatient encounters',
+      v: rk.appointments_today != null
+          ? `${rk.appointments_today} today`
+          : (rk.appointments_active != null
+              ? rk.appointments_active.toLocaleString()
+              : (em.appointments != null ? em.appointments.toLocaleString() : (apiError ? '—' : null))),
+      sub: rk.appointments_today != null
+          ? `${rk.appointments_today} today · ${rk.appointments_total ?? em.all_time_appointments ?? ''} all-time`
+          : 'Active scheduled & confirmed outpatient encounters',
       c: '#15181b', target: 'appointments',
     },
+    // Emergency — same for all roles (hospital-wide is correct here)
     {
       id: 'er',
       t: 'Emergency Load',
-      v: execMetrics ? execMetrics.emergency_load.toLocaleString() : (apiError ? '—' : null),
+      v: (rk.emergency_load ?? em.emergency_load)?.toLocaleString() ?? (apiError ? '—' : null),
       sub: 'Active emergency triage & critical admissions',
       c: 'oklch(0.5 0.18 25)', target: 'emergency',
     },
+    // Lab — role-scoped for Lab/Doctor, hospital-wide for management
     {
       id: 'lab',
       t: 'Lab Tests',
-      v: execMetrics ? execMetrics.lab_orders.toLocaleString() : (apiError ? '—' : null),
-      sub: 'Active orders for current IP & Emergency patients',
+      v: (rk.orders_pending ?? rk.lab_orders_active ?? rk.lab_orders_pending ?? em.lab_orders)?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.orders_pending != null
+          ? `${rk.orders_pending} pending · ${rk.orders_today ?? 0} ordered today`
+          : 'Active orders for current IP & Emergency patients',
       c: '#15181b', target: 'lab',
     },
+    // Revenue — role-scoped amounts, exec totals for management
     {
       id: 'revenue',
       t: 'Total Invoiced Revenue',
-      v: execMetrics
-        ? (execMetrics.bills.total_revenue >= 10000000
-            ? `₹${(execMetrics.bills.total_revenue / 10000000).toFixed(2)} Cr`
-            : `₹${execMetrics.bills.total_revenue.toLocaleString()}`)
-        : (apiError ? '—' : null),
-      sub: execMetrics
-        ? `${execMetrics.bills.count.toLocaleString()} bills · ₹${(execMetrics.bills.total_collected / 100000).toFixed(2)} L collected`
-        : 'Active invoices & collections',
+      v: rk.revenue_total != null ? fmtCrore(rk.revenue_total)
+          : (em.bills?.total_revenue != null ? fmtCrore(em.bills.total_revenue) : (apiError ? '—' : null)),
+      sub: rk.revenue_today != null
+          ? `₹${Number(rk.revenue_today).toLocaleString()} collected today · ${rk.bills_today ?? 0} bills`
+          : (em.bills ? `${em.bills.count.toLocaleString()} bills · ${fmtCrore(em.bills.total_collected)} collected` : 'Active invoices & collections'),
       c: 'oklch(0.5 0.1 200)', target: 'finance',
     },
+    // Claims — role-scoped counts
     {
       id: 'claims',
       t: 'Insurance Claims',
-      v: execMetrics ? execMetrics.claims.count.toLocaleString() : (apiError ? '—' : null),
-      sub: execMetrics
-        ? (execMetrics.claims.approved >= 10000000
-            ? `₹${(execMetrics.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due`
-            : `₹${(execMetrics.claims.approved / 100000).toFixed(2)} L approved · ₹${(execMetrics.claims.outstanding / 100000).toFixed(2)} L due`)
-        : 'Claims for current active cases',
+      v: (rk.claims_total ?? rk.claims_count ?? em.claims?.count)?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.outstanding_amount != null
+          ? `${rk.claims_pending ?? 0} pending · ${fmtCrore(rk.outstanding_amount)} outstanding`
+          : (em.claims
+              ? (em.claims.approved >= 10000000
+                  ? `₹${(em.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(em.claims.outstanding / 100000).toFixed(2)} L due`
+                  : `₹${(em.claims.approved / 100000).toFixed(2)} L approved · ₹${(em.claims.outstanding / 100000).toFixed(2)} L due`)
+              : 'Claims for current active cases'),
       c: '#15181b', target: 'insurance',
     },
+    // Inventory — role-scoped for pharmacy/supply, exec for management
     {
       id: 'inventory',
       t: 'Pharmacy Inventory Value',
-      v: execMetrics
-        ? (execMetrics.inventory.valuation >= 10000000
-            ? `₹${(execMetrics.inventory.valuation / 10000000).toFixed(2)} Cr`
-            : execMetrics.inventory.valuation >= 100000
-              ? `₹${(execMetrics.inventory.valuation / 100000).toFixed(2)} L`
-              : `₹${execMetrics.inventory.valuation.toLocaleString()}`)
-        : (apiError ? '—' : null),
-      sub: execMetrics
-        ? `${execMetrics.inventory.count} active prescription sales · ${execMetrics.inventory.low_stock} at reorder level`
-        : 'Live pharmacy stock valuation',
+      v: rk.inventory_value != null ? fmtCrore(rk.inventory_value)
+          : (em.inventory?.valuation != null ? fmtCrore(em.inventory.valuation) : (apiError ? '—' : null)),
+      sub: rk.low_stock_items != null
+          ? `${rk.dispensed_today ?? rk.inventory_total ?? 0} items · ${rk.low_stock_items} at reorder level`
+          : (em.inventory ? `${em.inventory.count} active prescription sales · ${em.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation'),
       c: '#15181b', target: 'pharmacy',
     },
+    // Doctors — hospital-wide (management only shows this)
     {
       id: 'doctors',
       t: 'Medical Specialists',
-      v: execMetrics ? execMetrics.doctors.toLocaleString() : (apiError ? '—' : null),
+      v: (rk.doctors_active ?? em.doctors)?.toLocaleString() ?? (apiError ? '—' : null),
       sub: 'Attending doctors across all departments',
       c: '#15181b', target: 'doctor-management',
     },
+    // Surgeries — hospital-wide
     {
       id: 'surgeries',
       t: 'OT Surgeries Scheduled',
-      v: execMetrics ? execMetrics.surgeries.toLocaleString() : (apiError ? '—' : null),
-      sub: execMetrics
-        ? `${execMetrics.active_surgeries || 26} active · 5 operating suites in use`
-        : 'Active & scheduled operating theatre cases',
+      v: (rk.surgeries_scheduled ?? em.surgeries)?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: `${rk.active_surgeries ?? em.active_surgeries ?? 0} active · 5 operating suites in use`,
       c: '#15181b', target: 'surgery',
+    },
+    // Role-specific supplementary cards shown only for relevant profiles
+    {
+      id: 'appts_today',
+      t: 'Today\'s Appointments',
+      v: rk.appointments_today?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.appointments_completed_today != null
+          ? `${rk.appointments_completed_today} completed · ${rk.appointments_upcoming ?? 0} upcoming`
+          : 'Scheduled for today',
+      c: '#15181b', target: 'appointments',
+    },
+    {
+      id: 'bills_pending',
+      t: 'Pending Bills',
+      v: rk.bills_pending?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.bills_today != null ? `${rk.bills_today} raised today` : 'Awaiting finalisation or payment',
+      c: 'oklch(0.5 0.18 25)', target: 'billing',
+    },
+    {
+      id: 'low_stock',
+      t: 'Low Stock Items',
+      v: (rk.low_stock_items ?? rk.out_of_stock != null ? `${rk.low_stock_items ?? 0}` : null) ?? (apiError ? '—' : null),
+      sub: rk.out_of_stock != null ? `${rk.out_of_stock} out of stock · ${rk.inventory_total ?? 0} total SKUs` : 'Items at or below reorder level',
+      c: 'oklch(0.5 0.18 25)', target: 'pharmacy',
+    },
+    {
+      id: 'lab_pending',
+      t: 'Pending Lab Orders',
+      v: rk.orders_pending?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.critical_unacked != null ? `${rk.critical_unacked} critical unacknowledged` : 'Awaiting processing or reporting',
+      c: 'oklch(0.5 0.18 25)', target: 'lab',
+    },
+    {
+      id: 'checkins_today',
+      t: 'Check-Ins Today',
+      v: rk.checkins_today?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: rk.walkins_today != null ? `${rk.walkins_today} walk-ins · ${rk.upcoming_slots ?? 0} upcoming slots` : 'Patients checked in today',
+      c: 'oklch(0.4 0.12 150)', target: 'appointments',
+    },
+    {
+      id: 'escalations',
+      t: 'Open Escalations',
+      v: rk.open_escalations?.toLocaleString() ?? (apiError ? '—' : null),
+      sub: 'Cases requiring immediate attention',
+      c: 'oklch(0.5 0.18 25)', target: 'escalations',
     },
   ];
 

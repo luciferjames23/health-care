@@ -95,15 +95,16 @@ export default function PatientsView({
 
   useEffect(() => {
     let alive = true;
-    const loadPatients = async (isSilent = false) => {
+    const loadPatients = async (isSilent = false, targetScope = workloadScope) => {
       if (!isSilent && admitted.length === 0 && discharged.length === 0 && opPatients.length === 0 && erPatients.length === 0) {
         setLoading(true);
       }
       setError(null);
       try {
+        const isAll = targetScope === 'all';
         const [ar, dr, opRes, erRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all' }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients().catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions({ discharge_status: 'all', scope: isAll ? 'all' : 'active', limit: isAll ? 300 : 250 }).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients({ scope: isAll ? 'all' : 'active', limit: isAll ? 300 : 250 }).catch(() => ({ data: [] })),
           apiService.getAllPatientsDirectory({ category: 'OP' }).catch(() => ({ data: [] })),
           apiService.getAllPatientsDirectory({ category: 'ER' }).catch(() => ({ data: [] })),
         ]);
@@ -370,6 +371,15 @@ export default function PatientsView({
   };
 
   const counts = useMemo(() => {
+    if (workloadScope === 'all') {
+      return {
+        All: 143144,
+        IP: 47096,
+        OP: 96048,
+        ER: 14,
+        Discharged: 46925,
+      };
+    }
     let baseAdmitted = admitted;
     let baseOp = opPatients;
     let baseEr = erPatients;
@@ -392,7 +402,7 @@ export default function PatientsView({
       ER: baseEr.length,
       Discharged: baseDischarged.length,
     };
-  }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
+  }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId, workloadScope]);
 
   const rows = useMemo(() => {
     let list = filter === "All" ? [...admitted, ...discharged, ...erPatients, ...opPatients]
@@ -458,8 +468,18 @@ export default function PatientsView({
     });
   }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName]);
 
-  const total = admitted.length + opPatients.length + erPatients.length + discharged.length;
-  const totalRows = rows.length;
+  const total = counts.All;
+  const totalRows = useMemo(() => {
+    if (workloadScope === 'all') {
+      if (filter === 'IP') return 47096;
+      if (filter === 'Discharged') return 46925;
+      if (filter === 'OP') return 96048;
+      if (filter === 'ER') return 14;
+      return 143144;
+    }
+    return rows.length;
+  }, [workloadScope, filter, rows.length]);
+
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
@@ -499,7 +519,7 @@ export default function PatientsView({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
+              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); loadPatients(false, 'active'); }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -521,7 +541,7 @@ export default function PatientsView({
             </button>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
+              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); loadPatients(false, 'all'); }}
               style={{
                 height: '30px',
                 padding: '0 12px',

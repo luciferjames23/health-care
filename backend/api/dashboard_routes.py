@@ -500,6 +500,523 @@ def get_dashboard_summary(
             conn.close()
 
 
+# ─── Role-Scoped KPIs ────────────────────────────────────────────────────────
+
+@router.get("/role-kpis")
+def get_role_kpis(current_user: dict = Depends(get_current_user)):
+    """
+    Returns dynamic, user-specific KPI counts for the dashboard.
+    The data scope adapts based on the authenticated user's role:
+
+      DOCTOR      → counts scoped to the doctor's own patients, admissions,
+                    appointments, and lab orders.
+      NURSE       → ward-level assigned patients, nursing tasks, vital alerts.
+      BILLING     → billing queue, pending bills, collections for today.
+      INSURANCE   → active pre-auth requests, outstanding claims.
+      PHARMACY    → dispensed Rx today, low-stock items, pending orders.
+      FINANCE     → revenue, AR ageing, collections, outstanding claims.
+      FRONT OFFICE→ today's appointments, check-ins, walk-ins.
+      LAB         → pending orders, overdue results, critical values.
+      ADMIN / MGMT→ hospital-wide counts across all systems.
+      GOVERNANCE / AUDITOR → audit flags, compliance KPIs.
+    """
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        role        = str(current_user.get("role") or "").upper().strip()
+        user_id     = current_user.get("user_id")
+        doctor_id   = current_user.get("doctor_id")
+        department  = current_user.get("department_name") or current_user.get("department") or ""
+        today       = date.today().isoformat()
+
+        # ── Resolve doctor_id from DB when the token omits it ────────────────
+        if role == "DOCTOR" and not doctor_id:
+            cur.execute("SELECT id FROM doctors WHERE user_id = %s LIMIT 1;", (user_id,))
+            row = cur.fetchone()
+            doctor_id = row[0] if row else -1
+
+        target_doctor_id = resolve_target_doctor_id(current_user, None, cur)
+
+        # ── Helper: safely execute a scalar query ─────────────────────────────
+        def scalar(sql, params=()):
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+        result = {"role": role, "user_id": user_id, "today": today}
+
+        # ──────────────────────────────────────────────────────────────────────
+        # ADMIN / HOSPITAL MANAGEMENT / AI ADMIN / IT ADMIN / AUDITOR
+        # Hospital-wide counts for the Executive Dashboard
+        # ──────────────────────────────────────────────────────────────────────
+        if role in ("ADMIN", "HOSPITAL MANAGEMENT", "SYSTEM ADMIN",
+                    "AI ADMINISTRATOR", "IT ADMINISTRATOR", "AUDITOR",
+                    "GOVERNANCE OFFICER"):
+            result.update({
+                # Bed census
+                "total_beds":     scalar("SELECT COUNT(*) FROM beds;"),
+                "occupied_beds":  scalar("SELECT COUNT(*) FROM beds WHERE status = 'Occupied';"),
+                "available_beds": scalar("SELECT COUNT(*) FROM beds WHERE status = 'Available';"),
+                "occupancy_rate": round(
+                    scalar("SELECT COUNT(*) FROM beds WHERE status = 'Occupied';") /
+                    max(scalar("SELECT COUNT(*) FROM beds;"), 1) * 100, 1
+                ),
+                "total_wards":    scalar("SELECT COUNT(*) FROM wards;"),
+                "total_rooms":    scalar("SELECT COUNT(*) FROM rooms;"),
+                # Admissions
+                "active_admissions": scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+                "discharged_patients": scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) = 'discharged';"
+                ),
+                # Appointments
+                "appointments_today":    scalar("SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)),
+                "appointments_active":   scalar("SELECT COUNT(*) FROM appointments WHERE status IN ('CONFIRMED','BOOKED','CHECKED_IN');"),
+                "appointments_total":    scalar("SELECT COUNT(*) FROM appointments;"),
+                # Clinical
+                "emergency_load":        scalar("SELECT COUNT(*) FROM emergency_triage;"),
+                "lab_orders_active":     scalar(
+                    "SELECT COUNT(*) FROM lab_orders WHERE admission_id IN "
+                    "(SELECT admission_id FROM dim_admission_inputs "
+                    " WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged');"
+                ),
+                "doctors_active":        scalar("SELECT COUNT(*) FROM doctors WHERE status = 'ACTIVE';"),
+                "surgeries_scheduled":   scalar("SELECT COUNT(*) FROM ot_surgeries;"),
+                "active_surgeries":      scalar("SELECT COUNT(*) FROM ot_surgeries WHERE LOWER(status) != 'completed';"),
+                # Finance
+                "revenue_total":         scalar("SELECT COALESCE(SUM(net_amount),0) FROM bills;"),
+                "revenue_collected":     scalar("SELECT COALESCE(SUM(amount),0) FROM payments WHERE payment_status='SUCCESS';"),
+                "claims_count":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "claims_outstanding":    scalar("SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"),
+                "inventory_value":       scalar("SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"),
+                "low_stock_items":       scalar("SELECT COUNT(*) FROM pharmacy_inventory WHERE available_quantity <= reorder_level;"),
+                # Patients
+                "total_patients":        scalar("SELECT COUNT(*) FROM patients WHERE status = 'ACTIVE';"),
+                "patients_today":        scalar("SELECT COUNT(*) FROM patients WHERE DATE(created_at) = %s;", (today,)),
+                # Pending approvals & escalations
+                "open_escalations":      scalar("SELECT COUNT(*) FROM escalations WHERE UPPER(status) = 'OPEN';"),
+                "pending_discharges":    scalar(
+                    "SELECT COUNT(*) FROM dim_generated_discharge_summaries "
+                    "WHERE LOWER(COALESCE(approval_status,'')) NOT IN ('approved','rejected');"
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # DOCTOR
+        # All counts scoped to this doctor's own patients only
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "DOCTOR":
+            doc_id = target_doctor_id or -1
+
+            # Active IP admissions for this doctor
+            # First try the structured admissions table, fall back to dim_admission_inputs
+            active_ip = scalar(
+                "SELECT COUNT(*) FROM dim_admission_inputs "
+                "WHERE doctor_id = %s "
+                "  AND LOWER(COALESCE(discharge_status,'')) != 'discharged';",
+                (doc_id,)
+            )
+            if active_ip == 0:
+                # Fallback: infer from appointments linked to admissions
+                active_ip = scalar(
+                    "SELECT COUNT(DISTINCT a.patient_id) "
+                    "FROM appointments a "
+                    "JOIN dim_admission_inputs d ON d.patient_id = a.patient_id "
+                    "WHERE a.doctor_id = %s "
+                    "  AND LOWER(COALESCE(d.discharge_status,'')) != 'discharged';",
+                    (doc_id,)
+                )
+
+            discharged = scalar(
+                "SELECT COUNT(*) FROM dim_admission_inputs "
+                "WHERE doctor_id = %s "
+                "  AND LOWER(COALESCE(discharge_status,'')) = 'discharged';",
+                (doc_id,)
+            )
+            if discharged == 0:
+                discharged = scalar(
+                    "SELECT COUNT(*) FROM dim_generated_discharge_summaries "
+                    "WHERE doctor_id = %s "
+                    "  AND LOWER(COALESCE(approval_status,'')) = 'approved';",
+                    (doc_id,)
+                )
+
+            pending_discharges = scalar(
+                "SELECT COUNT(*) FROM dim_generated_discharge_summaries "
+                "WHERE doctor_id = %s "
+                "  AND LOWER(COALESCE(approval_status,'')) NOT IN ('approved','rejected');",
+                (doc_id,)
+            )
+
+            result.update({
+                "active_ip_cases":       active_ip,
+                "discharged_patients":   discharged,
+                "pending_discharges":    pending_discharges,
+                "appointments_today":    scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE doctor_id = %s AND appointment_date = %s;",
+                    (doc_id, today)
+                ),
+                "appointments_upcoming": scalar(
+                    "SELECT COUNT(*) FROM appointments "
+                    "WHERE doctor_id = %s "
+                    "  AND appointment_date >= %s "
+                    "  AND UPPER(status) NOT IN ('CANCELLED','COMPLETED');",
+                    (doc_id, today)
+                ),
+                "appointments_completed_today": scalar(
+                    "SELECT COUNT(*) FROM appointments "
+                    "WHERE doctor_id = %s AND appointment_date = %s AND UPPER(status) = 'COMPLETED';",
+                    (doc_id, today)
+                ),
+                "total_patients":        scalar(
+                    "SELECT COUNT(DISTINCT patient_id) FROM appointments "
+                    "WHERE doctor_id = %s AND UPPER(status) != 'CANCELLED';",
+                    (doc_id,)
+                ),
+                "lab_orders_pending":    scalar(
+                    "SELECT COUNT(*) FROM lab_orders "
+                    "WHERE doctor_id = %s "
+                    "  AND LOWER(COALESCE(status,'')) IN ('pending','ordered','processing');",
+                    (doc_id,)
+                ) if scalar("SELECT COUNT(*) FROM information_schema.columns "
+                             "WHERE table_name='lab_orders' AND column_name='doctor_id';") > 0
+                else scalar(
+                    "SELECT COUNT(*) FROM lab_orders lo "
+                    "JOIN appointments a ON lo.patient_id = a.patient_id "
+                    "WHERE a.doctor_id = %s "
+                    "  AND LOWER(COALESCE(lo.status,'')) IN ('pending','ordered','processing');",
+                    (doc_id,)
+                ),
+                "open_escalations":      scalar(
+                    "SELECT COUNT(DISTINCT e.id) FROM escalations e "
+                    "JOIN appointments a ON e.patient_id = a.patient_id "
+                    "WHERE a.doctor_id = %s AND UPPER(e.status) = 'OPEN';",
+                    (doc_id,)
+                ),
+                "pre_admissions_pending": scalar(
+                    "SELECT COUNT(*) FROM pre_admissions "
+                    "WHERE doctor_id = %s "
+                    "  AND UPPER(status) NOT IN ('ADMITTED','CANCELLED');",
+                    (doc_id,)
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # NURSE
+        # Ward-level: assigned patients, task queue, vital alerts
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "NURSE":
+            # Nurses are linked to a department; scope to their ward where possible
+            dept_cond  = "AND LOWER(COALESCE(department_name,'')) = LOWER(%s)" if department else ""
+            dept_param = (department,) if department else ()
+
+            result.update({
+                "active_admissions": scalar(
+                    f"SELECT COUNT(*) FROM dim_admission_inputs "
+                    f"WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged' {dept_cond};",
+                    dept_param
+                ),
+                "patients_today": scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s "
+                    + (f"AND LOWER(COALESCE(department_name,'')) = LOWER(%s)" if department else ""),
+                    (today, department) if department else (today,)
+                ),
+                "appointments_today": scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)
+                ),
+                "available_beds": scalar("SELECT COUNT(*) FROM beds WHERE status = 'Available';"),
+                "occupied_beds":  scalar("SELECT COUNT(*) FROM beds WHERE status = 'Occupied';"),
+                "total_beds":     scalar("SELECT COUNT(*) FROM beds;"),
+                "emergency_load": scalar("SELECT COUNT(*) FROM emergency_triage;"),
+                "pending_discharges": scalar(
+                    "SELECT COUNT(*) FROM dim_generated_discharge_summaries "
+                    "WHERE LOWER(COALESCE(approval_status,'')) NOT IN ('approved','rejected');"
+                ),
+                # SBAR handovers pending acknowledgement
+                "pending_sbar": scalar(
+                    "SELECT COUNT(*) FROM sbar_handovers "
+                    "WHERE UPPER(COALESCE(status,'')) = 'PENDING';"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                             "WHERE table_name='sbar_handovers';") > 0 else 0,
+                "lab_critical_unacked": scalar(
+                    "SELECT COUNT(*) FROM lab_critical_values "
+                    "WHERE acknowledged = FALSE OR acknowledged IS NULL;"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                             "WHERE table_name='lab_critical_values';") > 0 else 0,
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # BILLING
+        # Billing queue, pending bills, today's collections
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "BILLING":
+            result.update({
+                "bills_pending":       scalar(
+                    "SELECT COUNT(*) FROM bills "
+                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','unpaid','draft');"
+                ),
+                "bills_today":         scalar(
+                    "SELECT COUNT(*) FROM bills WHERE DATE(created_at) = %s;", (today,)
+                ),
+                "revenue_today":       scalar(
+                    "SELECT COALESCE(SUM(amount),0) FROM payments "
+                    "WHERE payment_status = 'SUCCESS' AND DATE(payment_date) = %s;", (today,)
+                ),
+                "revenue_total":       scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM bills "
+                    "WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','void');"
+                ),
+                "patients_today":      scalar(
+                    "SELECT COUNT(DISTINCT patient_id) FROM bills "
+                    "WHERE DATE(created_at) = %s;", (today,)
+                ),
+                "pre_auth_pending":    scalar(
+                    "SELECT COUNT(*) FROM pre_admissions "
+                    "WHERE UPPER(COALESCE(status,'')) = 'PENDING';"
+                ),
+                "open_escalations":    scalar("SELECT COUNT(*) FROM escalations WHERE UPPER(status) = 'OPEN';"),
+                "claims_outstanding":  scalar(
+                    "SELECT COUNT(*) FROM insurance_claims "
+                    "WHERE LOWER(claim_status) IN ('pending','under review','submitted');"
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # INSURANCE
+        # Pre-auth pipeline, active claims, outstanding amounts
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "INSURANCE":
+            result.update({
+                "pre_auth_pending":    scalar(
+                    "SELECT COUNT(*) FROM pre_admissions "
+                    "WHERE UPPER(COALESCE(status,'')) = 'PENDING';"
+                ),
+                "claims_total":        scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "claims_pending":      scalar(
+                    "SELECT COUNT(*) FROM insurance_claims "
+                    "WHERE LOWER(claim_status) IN ('pending','submitted','under review');"
+                ),
+                "claims_approved":     scalar(
+                    "SELECT COUNT(*) FROM insurance_claims "
+                    "WHERE LOWER(claim_status) IN ('approved','settled cashless','partially approved');"
+                ),
+                "claims_rejected":     scalar(
+                    "SELECT COUNT(*) FROM insurance_claims "
+                    "WHERE LOWER(claim_status) IN ('rejected','denied');"
+                ),
+                "outstanding_amount":  scalar(
+                    "SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"
+                ),
+                "approved_amount":     scalar(
+                    "SELECT COALESCE(SUM(approved_amount),0) FROM insurance_claims;"
+                ),
+                "active_admissions":   scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # FINANCE MANAGER
+        # Revenue cycle, AR ageing, budget vs actuals
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "FINANCE MANAGER":
+            result.update({
+                "revenue_total":        scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM bills "
+                    "WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','void');"
+                ),
+                "revenue_collected":    scalar(
+                    "SELECT COALESCE(SUM(amount),0) FROM payments WHERE payment_status = 'SUCCESS';"
+                ),
+                "revenue_today":        scalar(
+                    "SELECT COALESCE(SUM(amount),0) FROM payments "
+                    "WHERE payment_status = 'SUCCESS' AND DATE(payment_date) = %s;", (today,)
+                ),
+                "bills_outstanding":    scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM bills "
+                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','unpaid');"
+                ),
+                "claims_outstanding":   scalar(
+                    "SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"
+                ),
+                "claims_count":         scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "inventory_value":      scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"
+                ),
+                "low_stock_items":      scalar(
+                    "SELECT COUNT(*) FROM pharmacy_inventory "
+                    "WHERE available_quantity <= reorder_level;"
+                ),
+                "active_admissions":    scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+                "bills_today":          scalar(
+                    "SELECT COUNT(*) FROM bills WHERE DATE(created_at) = %s;", (today,)
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # PHARMACY
+        # Dispensing today, low stock, pending orders
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "PHARMACY":
+            result.update({
+                "dispensed_today":      scalar(
+                    "SELECT COUNT(*) FROM pharmacy_sales WHERE DATE(created_at) = %s;", (today,)
+                ),
+                "revenue_today":        scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales "
+                    "WHERE DATE(created_at) = %s;", (today,)
+                ),
+                "low_stock_items":      scalar(
+                    "SELECT COUNT(*) FROM pharmacy_inventory "
+                    "WHERE available_quantity <= reorder_level;"
+                ),
+                "out_of_stock":         scalar(
+                    "SELECT COUNT(*) FROM pharmacy_inventory WHERE available_quantity = 0;"
+                ),
+                "pending_prescriptions": scalar(
+                    "SELECT COUNT(*) FROM prescriptions "
+                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','active');"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                              "WHERE table_name='prescriptions';") > 0 else 0,
+                "inventory_total":       scalar("SELECT COUNT(*) FROM pharmacy_inventory;"),
+                "active_admissions":     scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # LABORATORY / PATHOLOGIST
+        # Pending orders, critical values, TAT overdue
+        # ──────────────────────────────────────────────────────────────────────
+        elif role in ("LABORATORY", "PATHOLOGIST"):
+            result.update({
+                "orders_pending":       scalar(
+                    "SELECT COUNT(*) FROM lab_orders "
+                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','ordered','processing');"
+                ),
+                "orders_today":         scalar(
+                    "SELECT COUNT(*) FROM lab_orders WHERE DATE(created_at) = %s;", (today,)
+                ),
+                "critical_unacked":     scalar(
+                    "SELECT COUNT(*) FROM lab_critical_values "
+                    "WHERE acknowledged = FALSE OR acknowledged IS NULL;"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                              "WHERE table_name='lab_critical_values';") > 0 else 0,
+                "active_admissions":    scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+                "emergency_load":       scalar("SELECT COUNT(*) FROM emergency_triage;"),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # FRONT OFFICE
+        # Today's check-ins, walk-ins, upcoming slots
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "FRONT OFFICE":
+            result.update({
+                "appointments_today":   scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)
+                ),
+                "checkins_today":       scalar(
+                    "SELECT COUNT(*) FROM appointments "
+                    "WHERE appointment_date = %s AND UPPER(status) = 'CHECKED_IN';",
+                    (today,)
+                ),
+                "walkins_today":        scalar(
+                    "SELECT COUNT(*) FROM appointments "
+                    "WHERE appointment_date = %s "
+                    "  AND UPPER(COALESCE(booking_source,'')) IN ('WALK-IN','WALK_IN','OPD_DESK');",
+                    (today,)
+                ),
+                "upcoming_slots":       scalar(
+                    "SELECT COUNT(*) FROM appointments "
+                    "WHERE appointment_date = %s "
+                    "  AND UPPER(status) IN ('BOOKED','CONFIRMED');",
+                    (today,)
+                ),
+                "available_beds":       scalar("SELECT COUNT(*) FROM beds WHERE status = 'Available';"),
+                "active_admissions":    scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+                "pre_admissions_today": scalar(
+                    "SELECT COUNT(*) FROM pre_admissions "
+                    "WHERE expected_admission_date = %s;", (today,)
+                ),
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # STORE MANAGER / PROCUREMENT OFFICER
+        # ──────────────────────────────────────────────────────────────────────
+        elif role in ("STORE MANAGER", "PROCUREMENT OFFICER"):
+            result.update({
+                "low_stock_items":     scalar(
+                    "SELECT COUNT(*) FROM pharmacy_inventory "
+                    "WHERE available_quantity <= reorder_level;"
+                ),
+                "out_of_stock":        scalar(
+                    "SELECT COUNT(*) FROM pharmacy_inventory WHERE available_quantity = 0;"
+                ),
+                "inventory_total":     scalar("SELECT COUNT(*) FROM pharmacy_inventory;"),
+                "inventory_value":     scalar(
+                    "SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"
+                ),
+                "pending_po":          scalar(
+                    "SELECT COUNT(*) FROM purchase_orders "
+                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','draft');"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                              "WHERE table_name='purchase_orders';") > 0 else 0,
+            })
+
+        # ──────────────────────────────────────────────────────────────────────
+        # HR MANAGER
+        # ──────────────────────────────────────────────────────────────────────
+        elif role == "HR MANAGER":
+            result.update({
+                "total_staff":  scalar("SELECT COUNT(*) FROM users WHERE is_active = TRUE;"),
+                "doctors_active": scalar("SELECT COUNT(*) FROM doctors WHERE status = 'ACTIVE';"),
+                "schedules_today": scalar(
+                    "SELECT COUNT(*) FROM doctor_schedules "
+                    "WHERE UPPER(day_of_week) = UPPER(TO_CHAR(CURRENT_DATE,'Day'));"
+                ) if scalar("SELECT COUNT(*) FROM information_schema.tables "
+                              "WHERE table_name='doctor_schedules';") > 0 else 0,
+            })
+
+        # ── Fallback: return empty but valid shape ─────────────────────────────
+        else:
+            result.update({
+                "appointments_today": scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)
+                ),
+                "active_admissions": scalar(
+                    "SELECT COUNT(*) FROM dim_admission_inputs "
+                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+            })
+
+        cur.close()
+        return result
+
+    except Exception as e:
+        print(f"[ERROR] role-kpis failed for role={current_user.get('role')}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Role KPI error: {str(e)}")
+    finally:
+        if conn:
+            conn.close()
+
+
 # ─── Patients ─────────────────────────────────────────────────────────────────
 
 @router.get("/patients")

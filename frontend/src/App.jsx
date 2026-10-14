@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 import { selectAccount } from './services/accountSession';
 import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/meridianData';
+import { getPostLoginPage, normalizePageId } from './services/navigation';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
 import AppSidebar from './components/AppSidebar';
@@ -144,15 +145,20 @@ export default function App() {
       return savedAuth?.role || null;
     } catch { return null; }
   });
-  const [activePage, setActivePage] = useState(() => {
+  const [activePage, setActivePageState] = useState(() => {
     try {
       if (typeof window !== 'undefined') {
         const resolved = resolvePageFromPath(window.location.pathname);
         if (resolved) return resolved;
       }
-      return sessionStorage.getItem('hx_page') || 'command';
+      return normalizePageId(sessionStorage.getItem('hx_page') || 'command');
     } catch { return 'command'; }
   });
+  const setActivePage = (pageOrUpdater) => {
+    setActivePageState(currentPage => normalizePageId(
+      typeof pageOrUpdater === 'function' ? pageOrUpdater(currentPage) : pageOrUpdater
+    ));
+  };
 
   const [selectedPatient, setSelectedPatient] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem('hx_selected_patient') || 'null'); } catch { return null; }
@@ -340,6 +346,7 @@ export default function App() {
   }, [navHistory]);
 
   const handleNavigate = (newPage, newPatient = undefined) => {
+    newPage = normalizePageId(newPage);
     setMobileSidebarOpen(false);
     if (role && !isPageAllowed(role, newPage)) {
       console.warn(`[RBAC] Access denied to page '${newPage}' for role '${role}'.`);
@@ -410,15 +417,12 @@ export default function App() {
         initialUsername={authScreenUsername}
         initialInfo={authScreenInfo}
         onLoginSuccess={(userObj) => {
+          const landingPage = getPostLoginPage(userObj.role);
           setAuth(userObj);
-          setRole(userObj.role);
-          if (userObj.role === 'Patient' || String(userObj.role).toLowerCase() === 'patient') {
-            setActivePage('portal');
-          } else if (userObj.role === 'Doctor' || String(userObj.role).toLowerCase() === 'doctor') {
-            setActivePage('doctor-portal');
-          } else {
-            setActivePage('command');
-          }
+          setRoleState(userObj.role);
+          setActivePage(landingPage);
+          setSelectedPatient(null);
+          setNavHistory([]);
           setAuthScreenUsername(null);
           setAuthScreenInfo('');
         }}

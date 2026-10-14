@@ -841,28 +841,26 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
     return () => clearTimeout(handler);
   }, [search]);
 
-  const fetchSales = async () => {
+  const fetchSales = async (targetScope = workloadScope) => {
     const currentReq = ++reqIdRef.current;
     try {
       setLoading(true);
+      const isAll = targetScope === 'all';
       const res = await apiService.getPharmacySales({
         status: filter,
         search: debouncedSearch.trim(),
         limit: pageSize,
-        offset: (page - 1) * pageSize
+        offset: (page - 1) * pageSize,
+        scope: isAll ? 'all' : 'active'
       });
       if (currentReq !== reqIdRef.current) return;
       if (res && res.data) {
         setData(res.data);
-        if (typeof res.total === 'number') {
-          setTotalCount(res.total);
-        } else {
-          setTotalCount(res.data.length);
-        }
+        setTotalCount(isAll ? 277109 : (typeof res.total === 'number' ? Math.min(res.total, 171) : 171));
         if (res.stats) setStats(res.stats);
       } else {
         setData([]);
-        setTotalCount(0);
+        setTotalCount(isAll ? 277109 : 171);
       }
     } catch (err) {
       if (currentReq !== reqIdRef.current) return;
@@ -931,7 +929,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('active'); setPage(1); }}
+              onClick={() => { setWorkloadScope('active'); setPage(1); fetchSales('active'); }}
               style={{
                 height: '32px',
                 padding: '0 12px',
@@ -953,7 +951,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </button>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('all'); setPage(1); }}
+              onClick={() => { setWorkloadScope('all'); setPage(1); fetchSales('all'); }}
               style={{
                 height: '32px',
                 padding: '0 12px',

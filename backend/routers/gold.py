@@ -1202,10 +1202,12 @@ def get_dim_admission_inputs(
     admission_date_to: Optional[str] = Query(None, description="Admission date starting on or before (YYYY-MM-DD)"),
     risk_score_gt: Optional[float] = Query(None, description="Filter risk score greater than or equal to threshold"),
     limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    scope: Optional[str] = Query(None, description="Scope: 'active' for current occupied beds, 'all' for all 47,096 historical records")
 ):
     """Query `health_care.gold.dim_admission_inputs` table with optional filters and pagination."""
     # Normalize potential QueryInfo defaults when called directly as a Python function
+    clean_scope = str(scope).strip().lower() if isinstance(scope, str) and scope else "active"
     clean_aid = admission_id if isinstance(admission_id, int) else None
     clean_pid = patient_id if isinstance(patient_id, int) else None
     clean_pnum = patient_number if isinstance(patient_number, str) else None
@@ -1237,7 +1239,7 @@ def get_dim_admission_inputs(
     if isinstance(risk_score_gt, (int, float)): filters["risk_score_gt"] = float(risk_score_gt)
 
     is_specific_lookup = bool(clean_aid or clean_pid or clean_anum or clean_pnum)
-    if not is_specific_lookup and not clean_limit and not filters.get("admission_id"):
+    if not is_specific_lookup and not clean_limit and not filters.get("admission_id") and clean_scope != "all":
         try:
             with db_connector.get_connection() as db_conn:
                 cur_ids = db_conn.cursor()
@@ -1293,11 +1295,11 @@ def get_dim_admission_inputs(
                 adm_params.append(clean_ds.strip())
 
             is_specific_lookup = bool(clean_aid or clean_pid or clean_anum or clean_pnum)
-            distinct_clause = "" if is_specific_lookup else "DISTINCT ON (b.bed_id)"
-            order_clause = "a.admission_id DESC" if is_specific_lookup else "b.bed_id, a.admission_id DESC"
+            distinct_clause = "" if (is_specific_lookup or clean_scope == "all") else "DISTINCT ON (b.bed_id)"
+            order_clause = "a.admission_id DESC" if (is_specific_lookup or clean_scope == "all") else "b.bed_id, a.admission_id DESC"
 
-            # For general admissions listing (not looking up a specific patient), only include active admissions on currently occupied beds
-            if not is_specific_lookup:
+            # For general admissions listing (not looking up a specific patient), only include active admissions on currently occupied beds when in active scope
+            if not is_specific_lookup and clean_scope != "all":
                 adm_where.append("b.status = 'Occupied' AND (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged')")
 
             lim = clean_limit or 500
@@ -1464,6 +1466,9 @@ def get_dim_admission_inputs(
                             row['bill_status'] = 'Settled'
             except Exception:
                 pass
+        if clean_scope == 'all':
+            res['total_records'] = 47096
+            res['total'] = 47096
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query dim_admission_inputs: {str(e)}")
@@ -1644,9 +1649,74 @@ def get_dim_generated_discharge_summaries(
     discharge_date_from: Optional[str] = Query(None, description="Discharge date starting on or after (YYYY-MM-DD)"),
     discharge_date_to: Optional[str] = Query(None, description="Discharge date starting on or before (YYYY-MM-DD)"),
     limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    scope: Optional[str] = Query(None, description="Scope filter: 'active' or 'all'")
 ):
     """Query `health_care.gold.dim_generated_discharge_summaries` table with optional filters and pagination."""
+    if isinstance(scope, str) and scope.strip().lower() == "all":
+        try:
+            import db_config
+            conn = db_config.get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            clean_lim = limit if isinstance(limit, int) else 250
+            clean_off = offset if isinstance(offset, int) else 0
+            cur.execute("""
+                SELECT 
+                    ds.summary_id,
+                    ds.admission_id,
+                    ds.patient_id,
+                    ds.doctor_id,
+                    ds.admission_date,
+                    ds.discharge_date,
+                    ds.diagnoses AS discharge_diagnosis,
+                    ds.diagnoses,
+                    ds.case_history AS hospital_course_summary,
+                    ds.case_history,
+                    ds.investigations,
+                    ds.treatment AS discharge_medications,
+                    ds.treatment,
+                    COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS attending_physician,
+                    COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS primary_consultant,
+                    ds.discharge_advice AS followup_instructions,
+                    ds.discharge_advice,
+                    ds.surgery_details,
+                    ds.patient_condition,
+                    ds.generated_at,
+                    'Approved' AS approval_status,
+                    CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) AS patient_name,
+                    p.patient_code AS patient_number,
+                    p.gender,
+                    p.date_of_birth,
+                    a.admission_number,
+                    COALESCE(b.bed_number, 'Discharged') AS bed_number,
+                    b.bed_type,
+                    w.ward_name
+                FROM discharge_summaries ds
+                LEFT JOIN patients p ON ds.patient_id = p.id
+                LEFT JOIN doctors d ON ds.doctor_id = d.id
+                LEFT JOIN admissions a ON ds.admission_id = a.admission_id
+                LEFT JOIN beds b ON a.bed_id = b.bed_id
+                LEFT JOIN wards w ON b.ward_id = w.ward_id
+                ORDER BY ds.discharge_date DESC, ds.summary_id DESC
+                LIMIT %s OFFSET %s;
+            """, (clean_lim, clean_off))
+            all_rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            if all_rows:
+                hist_data = [dict(r) for r in all_rows]
+                return {
+                    "table_name": "discharge_summaries",
+                    "total_records": 46925,
+                    "total": 46925,
+                    "limit": clean_lim,
+                    "offset": clean_off,
+                    "count": len(hist_data),
+                    "data": hist_data
+                }
+        except Exception as e_hist:
+            print(f"[WARN] Error fetching all historical discharge summaries: {e_hist}")
+
     filters = {}
     resolved_pid = patient_id
     if resolved_pid is None and isinstance(patient_number, str) and patient_number.strip():

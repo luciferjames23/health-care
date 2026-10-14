@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiService, computeDischargeCasesCount } from '../services/api';
 import { isPageAllowed } from '../services/meridianData';
+import { isNavigationItemActive } from '../services/navigation';
 
 export const NAV_GROUPS = [
   {
@@ -144,6 +145,10 @@ export default function AppSidebar({
 }) {
   const effectiveRole = userRole || 'Doctor';
   const [dischargeCount, setDischargeCount] = useState(externalDischargeCount);
+  const desktopNavRef = useRef(null);
+  const desktopActiveItemRef = useRef(null);
+  const mobileNavRef = useRef(null);
+  const mobileActiveItemRef = useRef(null);
 
   // Synchronize when external dischargeCount is passed down
   useEffect(() => {
@@ -151,6 +156,31 @@ export default function AppSidebar({
       setDischargeCount(externalDischargeCount);
     }
   }, [externalDischargeCount]);
+
+  useEffect(() => {
+    const scrollActiveItemIntoView = (container, activeItem) => {
+      if (!container || !activeItem) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const activeItemRect = activeItem.getBoundingClientRect();
+      let scrollDelta = 0;
+
+      if (activeItemRect.top < containerRect.top) {
+        scrollDelta = activeItemRect.top - containerRect.top;
+      } else if (activeItemRect.bottom > containerRect.bottom) {
+        scrollDelta = activeItemRect.bottom - containerRect.bottom;
+      }
+
+      if (scrollDelta !== 0) {
+        container.scrollBy({ top: scrollDelta, behavior: 'smooth' });
+      }
+    };
+
+    scrollActiveItemIntoView(desktopNavRef.current, desktopActiveItemRef.current);
+    if (mobileOpen) {
+      scrollActiveItemIntoView(mobileNavRef.current, mobileActiveItemRef.current);
+    }
+  }, [activePage, mobileOpen, effectiveRole]);
 
   // Listen to live discharge count updates emitted from DischargeCommandCentre
   useEffect(() => {
@@ -267,25 +297,6 @@ export default function AppSidebar({
     return null;
   }
 
-  const isItemActive = (itemId) => {
-    if (activePage === itemId) return true;
-    if (itemId === 'patients' && (activePage === 'patient360' || activePage === 'patient')) return true;
-    if (itemId === 'clinical' && (activePage === 'soap' || activePage === 'doctor-portal')) return true;
-    if (itemId === 'discharge' && (activePage === 'discharge-case' || activePage === 'discharge-agent')) return true;
-    if (itemId === 'agents' && activePage === 'agent') return true;
-    if (itemId === 'runs' && activePage === 'execution') return true;
-    if (itemId === 'approvals' && activePage === 'approval') return true;
-    if (itemId === 'assistant' && (activePage === 'chat' || activePage === 'patient-chat' || activePage === 'ask')) return true;
-    if (itemId === 'lab' && activePage === 'lab-dashboard') return true;
-    if (itemId === 'criticalvalues' && activePage === 'laboratory') return true;
-    if (itemId === 'radiology' && activePage === 'xray-orders') return true;
-    if (itemId === 'medications' && activePage === 'mar') return true;
-    if (itemId === 'surgery' && activePage === 'ot') return true;
-    if (itemId === 'deathmlc' && activePage === 'deaths') return true;
-    if (itemId === 'sbar' && activePage === 'handover') return true;
-    return false;
-  };
-
   const renderGroupList = (isMobile = false) => (
     <>
       {visibleGroups.map((group) => (
@@ -299,7 +310,7 @@ export default function AppSidebar({
           </div>
 
           {group.items.map((item) => {
-            const isActive = isItemActive(item.id);
+            const isActive = isNavigationItemActive(activePage, item.id);
             const badgeText = item.id === 'discharge' 
               ? (dischargeCount !== null ? String(dischargeCount) : item.badge)
               : item.id === 'notifications'
@@ -309,6 +320,7 @@ export default function AppSidebar({
             return (
               <div
                 key={item.id}
+                ref={isActive ? (isMobile ? mobileActiveItemRef : desktopActiveItemRef) : null}
                 onClick={() => {
                   setActivePage(item.id);
                   if (isMobile && onCloseMobile) onCloseMobile();
@@ -348,6 +360,7 @@ export default function AppSidebar({
     <>
       {/* Desktop Persistent Sidebar */}
       <nav
+        ref={desktopNavRef}
         className="app-sidebar-desktop"
         style={{
           width: '200px', borderRight: '1px solid #e3e6e8', background: '#f9fafa',
@@ -369,6 +382,7 @@ export default function AppSidebar({
             }}
           />
           <nav
+            ref={mobileNavRef}
             style={{
               position: 'fixed', top: 0, left: 0, bottom: 0, width: '270px',
               maxWidth: '85vw', background: '#f9fafa', borderRight: '1px solid #e2e8f0',
