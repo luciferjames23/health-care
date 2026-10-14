@@ -1224,6 +1224,35 @@ def get_dim_admission_inputs(
     if isinstance(admission_date_to, str) and admission_date_to: filters["admission_date_to"] = admission_date_to
     if isinstance(risk_score_gt, (int, float)): filters["risk_score_gt"] = float(risk_score_gt)
 
+    is_specific_lookup = bool(clean_aid or clean_pid or clean_anum or clean_pnum)
+    if not is_specific_lookup and not clean_limit and not filters.get("admission_id"):
+        try:
+            with db_connector.get_connection() as db_conn:
+                cur_ids = db_conn.cursor()
+                cur_ids.execute("""
+                    WITH current_active AS (
+                        SELECT DISTINCT ON (b.bed_id) a.admission_id 
+                        FROM admissions a 
+                        JOIN beds b ON a.bed_id = b.bed_id 
+                        WHERE b.status = 'Occupied' AND (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged') 
+                        ORDER BY b.bed_id, a.admission_id DESC
+                    ),
+                    current_discharged AS (
+                        SELECT a.admission_id 
+                        FROM admissions a 
+                        WHERE LOWER(a.discharge_status) = 'discharged' AND a.admission_id >= 87000
+                    )
+                    SELECT admission_id FROM current_active
+                    UNION
+                    SELECT admission_id FROM current_discharged;
+                """)
+                current_ids = [r[0] for r in cur_ids.fetchall()]
+                cur_ids.close()
+                if current_ids:
+                    filters["admission_id"] = current_ids
+        except Exception as e_cids:
+            print(f"[WARN] Failed to filter current admission IDs: {e_cids}")
+
     try:
         res = db_connector.query_gold_table("dim_admission_inputs", filters=filters, limit=clean_limit, offset=clean_offset)
         data = res.get("data", []) or []

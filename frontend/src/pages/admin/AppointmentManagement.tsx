@@ -218,7 +218,11 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
 
   // Load static filter options & auto-bind doctor if doctor role
   useEffect(() => {
-    fetchDoctors({ appointment_only: true }).then(res => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    fetchDoctors({ appointment_only: true }, signal).then(res => {
+      if (signal.aborted) return;
       const docList = Array.isArray(res?.doctors) ? res.doctors : [];
       setDoctors(docList);
       if (isDoctor) {
@@ -247,10 +251,14 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         }
       }
     });
-    fetchDepartments({ appointment_only: true }).then(res => {
+
+    fetchDepartments({ appointment_only: true }, signal).then(res => {
+      if (signal.aborted) return;
       const depts = Array.isArray(res?.departments) ? res.departments : [];
       setDepartments(depts);
     });
+
+    return () => controller.abort();
   }, [isDoctor, activeDoctorName, doctorUserId]);
 
   const showToast = (msg: string) => {
@@ -258,7 +266,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
     setTimeout(() => setToast(''), 3500);
   };
 
-  const loadAppointments = useCallback(async () => {
+  const loadAppointments = useCallback(async (signal?: AbortSignal) => {
     const targetDocId = isDoctor ? (doctorFilter || doctorUserId) : doctorFilter;
     setLoading(true);
     setApiError(null);
@@ -277,7 +285,11 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         sort_order: sortOrder,
         page,
         per_page: perPage,
-      });
+      }, signal);
+
+      // If the request was cancelled (component unmount / filter change),
+      // res will be null — skip all state updates to avoid React warnings.
+      if (res === null) return;
 
       if (res.success === false && res.error) {
         setApiError(res.error);
@@ -294,18 +306,27 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       if (typeof (res as any)?.all_time_total === 'number') setAllTimeTotal((res as any).all_time_total);
       setTotalPages(res?.total_pages ?? 1);
     } catch (err: any) {
+      if (err?.name === 'AbortError') return; // cancelled — ignore silently
       setApiError(err?.message || 'Failed to fetch appointments');
       setAppointments([]);
       setTotal(0);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      // Only clear the spinner if this request wasn't aborted mid-flight.
+      // Checking signal lets us avoid a stale setLoading(false) from an
+      // old request racing with the new one.
+      if (!signal?.aborted) setLoading(false);
     }
   }, [isDoctor, doctorUserId, doctorFilter, search, statusFilter, deptFilter, sourceFilter, dateRange, sortBy, sortOrder, page, perPage]);
 
   useEffect(() => {
-    const timer = setTimeout(loadAppointments, 300);
-    return () => clearTimeout(timer);
+    const controller = new AbortController();
+    // 300 ms debounce — cancel the previous request if filters change quickly.
+    const timer = setTimeout(() => loadAppointments(controller.signal), 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [loadAppointments]);
 
   const handleStatusChange = async (bookingId: string, newStatus: string, reason?: string) => {

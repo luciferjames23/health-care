@@ -338,19 +338,45 @@ function getAuthHeaders(): Record<string, string> {
   return { 'Authorization': 'Bearer demo-session-token' };
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | null> {
+async function apiFetch<T>(path: string, options?: RequestInit & { externalSignal?: AbortSignal }): Promise<T | null> {
+  // If the caller already aborted before we even start, bail silently.
+  if (options?.externalSignal?.aborted) return null;
+
+  const { externalSignal, ...fetchOptions } = options ?? {};
+
+  // Internal timeout controller — only used as a last-resort failsafe.
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => timeoutController.abort(), 12000);
+
+  // Combine external signal (component unmount / stale request) with the
+  // internal timeout signal so either can cancel the fetch.
+  let combinedSignal: AbortSignal;
+  if (externalSignal) {
+    // AbortSignal.any() is the modern API; fall back to manual wiring for
+    // older browser environments.
+    if (typeof (AbortSignal as any).any === 'function') {
+      combinedSignal = (AbortSignal as any).any([externalSignal, timeoutController.signal]);
+    } else {
+      const combo = new AbortController();
+      const onAbort = () => combo.abort();
+      externalSignal.addEventListener('abort', onAbort, { once: true });
+      timeoutController.signal.addEventListener('abort', onAbort, { once: true });
+      combinedSignal = combo.signal;
+    }
+  } else {
+    combinedSignal = timeoutController.signal;
+  }
+
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
     const headers = {
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
-      ...(options?.headers || {}),
+      ...(fetchOptions?.headers || {}),
     };
     const res = await fetch(`${BASE_URL}${path}`, {
-      signal: controller.signal,
-      ...options,
+      ...fetchOptions,
       headers,
+      signal: combinedSignal,
     });
     clearTimeout(timer);
     const data = await res.json().catch(() => null);
@@ -374,7 +400,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T | nul
       return { success: false, error: errorMsg, message: errorMsg } as unknown as T;
     }
     return data as T;
-  } catch (err) {
+  } catch (err: any) {
+    clearTimeout(timer);
+    // Suppress console noise for intentional cancellations (component
+    // unmount, debounce cleanup, React StrictMode double-invoke, etc.).
+    if (err?.name === 'AbortError') return null;
     console.error(`[Dashboard API] ${path} failed:`, err);
     return null;
   }
@@ -462,7 +492,7 @@ export async function fetchAppointments(params?: {
   sort_order?: 'asc' | 'desc';
   page?: number;
   per_page?: number;
-}): Promise<AppointmentListResponse> {
+}, signal?: AbortSignal): Promise<AppointmentListResponse> {
   const qs = new URLSearchParams();
   if (params?.search) qs.set('search', params.search);
   if (params?.status) qs.set('status', params.status);
@@ -477,7 +507,7 @@ export async function fetchAppointments(params?: {
   if (params?.page) qs.set('page', String(params.page));
   if (params?.per_page) qs.set('per_page', String(params.per_page));
 
-  const data = await apiFetch<AppointmentListResponse>(`/api/dashboard/appointments?${qs}`);
+  const data = await apiFetch<AppointmentListResponse>(`/api/dashboard/appointments?${qs}`, { externalSignal: signal });
   if (data && Array.isArray((data as any).appointments)) {
     return {
       total: data.total ?? data.appointments.length,
@@ -583,14 +613,14 @@ export async function fetchDoctors(params?: {
   department?: string;
   status?: string;
   appointment_only?: boolean;
-}): Promise<{ doctors: Doctor[]; total: number }> {
+}, signal?: AbortSignal): Promise<{ doctors: Doctor[]; total: number }> {
   const qs = new URLSearchParams();
   if (params?.search) qs.set('search', params.search);
   if (params?.department) qs.set('department', params.department);
   if (params?.status) qs.set('status', params.status);
   if (params?.appointment_only) qs.set('appointment_only', 'true');
 
-  const data = await apiFetch<{ doctors: Doctor[]; total: number }>(`/api/dashboard/doctors?${qs}`);
+  const data = await apiFetch<{ doctors: Doctor[]; total: number }>(`/api/dashboard/doctors?${qs}`, { externalSignal: signal });
   return data ?? { doctors: [], total: 0 };
 }
 
@@ -721,11 +751,11 @@ export async function createDoctor(payload: NewDoctorPayload): Promise<{ success
 
 export async function fetchDepartments(params?: {
   appointment_only?: boolean;
-}): Promise<{ departments: Department[]; total: number }> {
+}, signal?: AbortSignal): Promise<{ departments: Department[]; total: number }> {
   const qs = new URLSearchParams();
   if (params?.appointment_only) qs.set('appointment_only', 'true');
   const endpoint = qs.toString() ? `/api/dashboard/departments?${qs}` : '/api/dashboard/departments';
-  const data = await apiFetch<{ departments: Department[]; total: number }>(endpoint);
+  const data = await apiFetch<{ departments: Department[]; total: number }>(endpoint, { externalSignal: signal });
   return data ?? { departments: [], total: 0 };
 }
 
