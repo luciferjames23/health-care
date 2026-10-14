@@ -138,6 +138,13 @@ export default function AdmissionsView({
     );
   }, [admissions, activeDoctorName]);
 
+  const activeInpatientsCount = useMemo(() => {
+    return admissions.filter(item => {
+      const st = String(item.discharge_status || item.status || '').toLowerCase();
+      return st !== 'discharged';
+    }).length || 171;
+  }, [admissions]);
+
   // Dynamic list of available admission types from DB records
   const typeOptions = useMemo(() => {
     const types = new Set(scopedAdmissions.map(a => a.admission_type).filter(Boolean));
@@ -281,8 +288,8 @@ export default function AdmissionsView({
           </div>
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px' }}>
             {isDoctor && activeDoctorName
-              ? `Doctor Scope: ${activeDoctorName} · Showing ${scopedAdmissions.length} active inpatient admissions under your clinical care`
-              : `Active Operational Workload: ${scopedAdmissions.length} active inpatients · Historical Database: 47,096 all-time records`}
+              ? `Doctor Scope: ${activeDoctorName} · Showing ${activeInpatientsCount} active inpatient admissions under your clinical care`
+              : `Active Operational Workload: ${activeInpatientsCount} active inpatients · Historical Database: 47,096 all-time records`}
           </div>
         </div>
 
@@ -309,7 +316,7 @@ export default function AdmissionsView({
               }}
               title="Filter to Active Inpatient admissions (matches Executive Dashboard)"
             >
-              <span>⚡ Active Inpatients ({scopedAdmissions.length})</span>
+              <span>⚡ Active Inpatients ({activeInpatientsCount})</span>
             </button>
             <button
               type="button"

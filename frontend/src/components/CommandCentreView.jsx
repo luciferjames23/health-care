@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiService, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
+import { apiService, matchesDoctor, parseDischargeSummaryRecord, extractDischargedPatientIds, cleanDiagnosis } from '../services/api';
 import { fetchRoleKpis } from '../services/dashboardApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 
@@ -57,7 +57,7 @@ function getRoleProfile(role) {
   if (['front office'].includes(r))
     return 'front_office';
 
-  // Doctor uses its own portal, but if they somehow land here show clinical view
+  // Doctors use the Executive Dashboard with doctor-scoped metrics.
   if (['doctor'].includes(r))
     return 'clinical';
 
@@ -86,7 +86,7 @@ const PROFILE_CONFIG = {
   finance_manager: {
     title: 'Finance & Revenue Dashboard',
     breadcrumb: 'Finance & Accounts › Finance Dashboard',
-    kpiIds: ['revenue', 'claims', 'inventory', 'adm', 'dis', 'appts'],
+    kpiIds: ['revenue', 'bills_pending', 'claims', 'inventory', 'adm', 'dis'],
     showExceptions: false,
     showApprovalQueue: true,
     showWards: false,
@@ -102,7 +102,7 @@ const PROFILE_CONFIG = {
   billing: {
     title: 'Billing & Claims Dashboard',
     breadcrumb: 'Revenue Cycle › Billing & Claims',
-    kpiIds: ['revenue', 'claims', 'adm', 'dis', 'appts'],
+    kpiIds: ['revenue', 'bills_pending', 'claims', 'adm', 'appts_today'],
     showExceptions: false,
     showApprovalQueue: false,
     showWards: false,
@@ -118,7 +118,7 @@ const PROFILE_CONFIG = {
   supply: {
     title: 'Pharmacy & Supply Dashboard',
     breadcrumb: 'Pharmacy & Supply Chain › Overview',
-    kpiIds: ['inventory', 'revenue', 'adm'],
+    kpiIds: ['inventory', 'low_stock', 'adm', 'revenue'],
     showExceptions: false,
     showApprovalQueue: false,
     showWards: false,
@@ -134,7 +134,7 @@ const PROFILE_CONFIG = {
   nurse: {
     title: 'Ward Operations Dashboard',
     breadcrumb: 'Nursing › Ward Operations',
-    kpiIds: ['adm', 'dis', 'inv', 'occ', 'wards', 'avail', 'er'],
+    kpiIds: ['adm', 'dis', 'inv', 'occ', 'wards', 'avail', 'er', 'appts_today'],
     showExceptions: true,
     showApprovalQueue: false,
     showWards: true,
@@ -150,7 +150,7 @@ const PROFILE_CONFIG = {
   lab: {
     title: 'Laboratory Dashboard',
     breadcrumb: 'Diagnostics & LIS › Laboratory',
-    kpiIds: ['lab', 'adm', 'er', 'dis'],
+    kpiIds: ['lab_pending', 'lab', 'adm', 'er'],
     showExceptions: false,
     showApprovalQueue: false,
     showWards: false,
@@ -182,7 +182,7 @@ const PROFILE_CONFIG = {
   front_office: {
     title: 'Front Office Dashboard',
     breadcrumb: 'Front Office › Reception Overview',
-    kpiIds: ['adm', 'avail', 'appts', 'op_patients', 'occ'],
+    kpiIds: ['checkins_today', 'appts_today', 'adm', 'avail', 'occ'],
     showExceptions: false,
     showApprovalQueue: false,
     showWards: true,
@@ -196,16 +196,16 @@ const PROFILE_CONFIG = {
     ],
   },
   clinical: {
-    title: 'Clinical Operations Dashboard',
-    breadcrumb: 'Clinical Workspace › Operations',
-    kpiIds: ['adm', 'dis', 'er', 'lab', 'occ', 'avail'],
-    showExceptions: true,
+    title: 'Executive Dashboard',
+    breadcrumb: 'Hospital Operations › Executive Dashboard',
+    kpiIds: ['doctor_patients', 'appts_today', 'doctor_upcoming', 'er', 'doctor_lab'],
+    showExceptions: false,
     showApprovalQueue: false,
-    showWards: true,
+    showWards: false,
     showCopilot: true,
     copilotLabel: 'Clinical Copilot',
-    copilotInsight: 'No critical result backlogs detected. Discharge pipeline has 3 cases pending physician sign-off.',
-    copilotSources: 'Clinical EHR, LIS, Bed Management',
+    copilotInsight: 'Review your active inpatient cases, appointment schedule, emergency load, and pending lab orders.',
+    copilotSources: 'Clinical EHR, Appointments, LIS',
     copilotActions: [
       { label: 'Pending sign-offs', prompt: 'Which discharge summaries are awaiting physician sign-off?' },
       { label: 'Emergency queue', prompt: 'Show current emergency triage queue and wait times.' },
@@ -224,6 +224,7 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   const [liveApprovals, setLiveApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
+  const [doctorEmergencyLoad, setDoctorEmergencyLoad] = useState(null);
 
   // Derive role profile once
   const profile = PROFILE_CONFIG[getRoleProfile(role)] || PROFILE_CONFIG.management;
@@ -231,8 +232,41 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   const isManagement = ['management', 'governance'].includes(getRoleProfile(role));
 
   useEffect(() => {
+    if (normaliseRole(role) !== 'doctor' || !displayName) {
+      setDoctorEmergencyLoad(null);
+      return undefined;
+    }
+
+    let isMounted = true;
+    apiService.getEmergencyCases(
+      { doctor_name: displayName },
+      { forceRefresh: true }
+    ).then(response => {
+      if (!isMounted) return;
+      const cases = response?.data;
+      setDoctorEmergencyLoad(
+        Array.isArray(cases)
+          ? cases.filter(item => matchesDoctor(item.doctor_name, displayName)).length
+          : null
+      );
+    }).catch(error => {
+      console.warn('Failed to load Doctor emergency count:', error);
+      if (isMounted) setDoctorEmergencyLoad(null);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [role, displayName]);
+
+  useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
+    setRoleKpis(null);
+    setExecMetrics(null);
+    setLiveKpis(null);
+    setApiError(null);
+    setLoading(true);
 
     async function loadCommandCentre(isSilent = false) {
       if (!isSilent && !liveKpis) setLoading(true);
@@ -246,15 +280,29 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
         const admPromise = needsBedData ? apiService.getCurrentAdmissions({ discharge_status: 'all' }) : Promise.resolve(null);
         const disPromise = needsBedData ? apiService.getDischargedPatients({}) : Promise.resolve(null);
         const bmPromise  = needsBedData ? apiService.getBedManagementData({}) : Promise.resolve(null);
+        const isDoctor = normaliseRole(role) === 'doctor';
+        const doctorSummaryPromise = isDoctor
+          ? apiService.getDashboardSummary({ forceRefresh: true })
+          : Promise.resolve(null);
 
-        const [rk, execRes, admRes, disRes, bmRes] = await Promise.allSettled([
+        const [rk, execRes, admRes, disRes, bmRes, summaryRes] = await Promise.allSettled([
           roleKpisPromise, execPromise, admPromise, disPromise, bmPromise,
+          doctorSummaryPromise,
         ]);
 
         if (!isMounted) return;
 
         // Role KPIs (user-scoped)
-        if (rk.status === 'fulfilled' && rk.value) setRoleKpis(rk.value);
+        const roleKpiData = rk.status === 'fulfilled' && rk.value ? rk.value : {};
+        const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+        if (Object.keys(roleKpiData).length > 0 || summary?.patients) {
+          setRoleKpis({
+            ...roleKpiData,
+            total_patients: summary?.patients?.total ?? roleKpiData.total_patients,
+            appointments_today: summary?.appointments?.today ?? roleKpiData.appointments_today,
+            appointments_upcoming: summary?.appointments?.upcoming ?? roleKpiData.appointments_upcoming,
+          });
+        }
 
         // Executive KPIs (management only, hospital-wide)
         if (execRes.status === 'fulfilled' && execRes.value?.success) setExecMetrics(execRes.value);
@@ -339,7 +387,7 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, user?.name, user?.username]);
 
   // ── Helpers to resolve a value with priority: roleKpis > execMetrics > liveKpis ──
   const rk = roleKpis || {};
@@ -354,6 +402,13 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
 
   // ── Full KPI catalogue — values drawn from role-scoped data ──────────────
   const allKpis = [
+    {
+      id: 'doctor_patients',
+      t: 'My Patients',
+      v: rk.total_patients?.toLocaleString() ?? (loading ? null : '—'),
+      sub: 'Patients with appointments assigned to you',
+      c: 'oklch(0.5 0.1 200)', target: 'clinical',
+    },
     {
       id: 'adm',
       t: 'Currently Admitted Patients',
@@ -428,16 +483,20 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'er',
       t: 'Emergency Load',
-      v: (rk.emergency_load ?? em.emergency_load)?.toLocaleString() ?? (apiError ? '—' : null),
-      sub: 'Active emergency triage & critical admissions',
+      v: (rk.emergency_load ?? doctorEmergencyLoad ?? em.emergency_load)?.toLocaleString() ?? (loading ? null : '—'),
+      sub: !loading && rk.emergency_load == null && doctorEmergencyLoad == null && em.emergency_load == null
+        ? 'Emergency count unavailable'
+        : 'Active emergency triage & critical admissions',
       c: 'oklch(0.5 0.18 25)', target: 'emergency',
     },
     // Lab — role-scoped for Lab/Doctor, hospital-wide for management
     {
       id: 'lab',
       t: 'Lab Tests',
-      v: (rk.orders_pending ?? rk.lab_orders_active ?? rk.lab_orders_pending ?? em.lab_orders)?.toLocaleString() ?? (apiError ? '—' : null),
-      sub: rk.orders_pending != null
+      v: (rk.orders_pending ?? rk.lab_orders_active ?? rk.lab_orders_pending ?? em.lab_orders)?.toLocaleString() ?? (loading ? null : '—'),
+      sub: !loading && rk.orders_pending == null && rk.lab_orders_active == null && rk.lab_orders_pending == null && em.lab_orders == null
+        ? 'Lab test count unavailable'
+        : rk.orders_pending != null
           ? `${rk.orders_pending} pending · ${rk.orders_today ?? 0} ordered today`
           : 'Active orders for current IP & Emergency patients',
       c: '#15181b', target: 'lab',
@@ -498,11 +557,27 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'appts_today',
       t: 'Today\'s Appointments',
-      v: rk.appointments_today?.toLocaleString() ?? (apiError ? '—' : null),
+      v: rk.appointments_today?.toLocaleString() ?? (loading ? null : '—'),
       sub: rk.appointments_completed_today != null
           ? `${rk.appointments_completed_today} completed · ${rk.appointments_upcoming ?? 0} upcoming`
           : 'Scheduled for today',
       c: '#15181b', target: 'appointments',
+    },
+    {
+      id: 'doctor_upcoming',
+      t: 'Upcoming Appointments',
+      v: rk.appointments_upcoming?.toLocaleString() ?? (loading ? null : '—'),
+      sub: 'Appointments scheduled for your patients',
+      c: '#15181b', target: 'appointments',
+    },
+    {
+      id: 'doctor_lab',
+      t: 'My Pending Lab Orders',
+      v: (rk.lab_orders_pending ?? rk.orders_pending)?.toLocaleString() ?? (loading ? null : '—'),
+      sub: rk.lab_critical_unacked != null
+        ? `${rk.lab_critical_unacked} critical results awaiting acknowledgement`
+        : 'Lab orders for your current patients',
+      c: 'oklch(0.5 0.18 25)', target: 'lab',
     },
     {
       id: 'bills_pending',

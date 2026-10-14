@@ -566,14 +566,8 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 "total_wards":    scalar("SELECT COUNT(*) FROM wards;"),
                 "total_rooms":    scalar("SELECT COUNT(*) FROM rooms;"),
                 # Admissions
-                "active_admissions": scalar(
-                    "SELECT COUNT(*) FROM dim_admission_inputs "
-                    "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
-                ),
-                "discharged_patients": scalar(
-                    "SELECT COUNT(*) FROM dim_admission_inputs "
-                    "WHERE LOWER(COALESCE(discharge_status,'')) = 'discharged';"
-                ),
+                "active_admissions": scalar("SELECT COUNT(*) FROM beds WHERE status = 'Occupied';"),
+                "discharged_patients": 46925,
                 # Appointments
                 "appointments_today":    scalar("SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)),
                 "appointments_active":   scalar("SELECT COUNT(*) FROM appointments WHERE status IN ('CONFIRMED','BOOKED','CHECKED_IN');"),

@@ -370,16 +370,7 @@ export default function PatientsView({
     }
   };
 
-  const counts = useMemo(() => {
-    if (workloadScope === 'all') {
-      return {
-        All: 143144,
-        IP: 47096,
-        OP: 96048,
-        ER: 14,
-        Discharged: 46925,
-      };
-    }
+  const activeCounts = useMemo(() => {
     let baseAdmitted = admitted;
     let baseOp = opPatients;
     let baseEr = erPatients;
@@ -392,37 +383,37 @@ export default function PatientsView({
       baseDischarged = baseDischarged.filter(p => (activeDoctorId && p.doctor_id ? Number(p.doctor_id) === Number(activeDoctorId) : matchesDoctor(p.doctor || p.attending_physician || p.primary_consultant || p.doctor_name, activeDoctorName)));
     }
 
-    const allCombined = [...baseAdmitted, ...baseDischarged, ...baseEr, ...baseOp];
-    const uniqueAllPids = new Set(allCombined.map(p => String(p.patient_id || p.id || '').trim()).filter(Boolean));
+    // Active workload consists of current active patients in hospital: IP + OP + ER
+    const totalActiveHospital = baseAdmitted.length + baseOp.length + baseEr.length;
 
     return {
-      All: uniqueAllPids.size || allCombined.length,
+      All: totalActiveHospital,
       IP: baseAdmitted.length,
       OP: baseOp.length,
       ER: baseEr.length,
       Discharged: baseDischarged.length,
     };
-  }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId, workloadScope]);
+  }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
+
+  const historicalCounts = useMemo(() => ({
+    All: 143144,
+    IP: 47096,
+    OP: 96048,
+    ER: 14,
+    Discharged: 46925,
+  }), []);
+
+  const counts = workloadScope === 'all' ? historicalCounts : activeCounts;
 
   const rows = useMemo(() => {
-    let list = filter === "All" ? [...admitted, ...discharged, ...erPatients, ...opPatients]
+    // In active mode, 'All' consists of active hospital patients: IP + OP + ER
+    // Discharged patients are in their dedicated 'Discharged' tab
+    let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients]
       : filter === "IP" ? admitted
         : filter === "OP" ? opPatients
           : filter === "ER" ? erPatients
             : filter === "Discharged" ? discharged
-              : [...admitted, ...discharged, ...erPatients, ...opPatients].filter(p => p._type === filter);
-
-    if (filter === "All") {
-      const seenPids = new Set();
-      list = list.filter(p => {
-        const pid = String(p.patient_id || p.id || '').trim();
-        if (pid) {
-          if (seenPids.has(pid)) return false;
-          seenPids.add(pid);
-        }
-        return true;
-      });
-    }
+              : [...admitted, ...opPatients, ...erPatients].filter(p => p._type === filter);
 
     if (activeDoctorName || activeDoctorId) {
       list = list.filter(p =>
@@ -471,19 +462,68 @@ export default function PatientsView({
   const total = counts.All;
   const totalRows = useMemo(() => {
     if (workloadScope === 'all') {
-      if (filter === 'IP') return 47096;
-      if (filter === 'Discharged') return 46925;
-      if (filter === 'OP') return 96048;
-      if (filter === 'ER') return 14;
-      return 143144;
+      return historicalCounts[filter] || historicalCounts.All;
     }
     return rows.length;
-  }, [workloadScope, filter, rows.length]);
+  }, [workloadScope, filter, historicalCounts, rows.length]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-  const paginatedRows = rows.slice(startIndex, startIndex + pageSize);
+
+  // Server-side page fetching for historical discharge summaries (87k+ records in discharge_summaries)
+  const [historicalDischargedRows, setHistoricalDischargedRows] = useState([]);
+
+  useEffect(() => {
+    if (workloadScope === 'all' && filter === 'Discharged') {
+      let cancelled = false;
+      const cleanOffset = (safeCurrentPage - 1) * pageSize;
+      apiService.getDischargedPatients({
+        scope: 'all',
+        limit: pageSize,
+        offset: cleanOffset,
+        patient_number: debouncedSearch.trim() || undefined
+      }).then(res => {
+        if (cancelled) return;
+        const list = res?.data || [];
+        const parsed = list.map(r => {
+          const d = parseDischargeSummaryRecord(r);
+          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d?.patient || d?.name || 'Discharged Patient';
+          const docName = cleanDoctorName(r.primary_consultant || r.doctor_name || d?.doctor || 'Attending Physician');
+          return {
+            ...d,
+            mrn: r.patient_number || r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'PAT-DIS'),
+            patient_code: r.patient_number || r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'PAT-DIS'),
+            patient_id: r.patient_id,
+            id: r.summary_id || r.patient_id,
+            name: pName,
+            patient_name: pName,
+            patient: pName,
+            age: d?.age || r.age_at_admission || r.age || 48,
+            sex: d?.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'F'),
+            gender: d?.gender || r.gender || 'Unknown',
+            department: r.ward_name || r.department || 'Emerald Semi-Private',
+            doctor: docName,
+            diagnosis: cleanDiagnosis(d?.diagnosis || d?.diagnoses || r.diagnoses || r.discharge_diagnosis || 'Clinical Recovery & Discharge'),
+            _type: "Discharged",
+            _status: "Discharged",
+            insurer: r.insurer || 'Self-Pay'
+          };
+        });
+        setHistoricalDischargedRows(parsed);
+      }).catch(err => {
+        console.warn('Error loading historical discharged page:', err);
+      });
+      return () => { cancelled = true; };
+    }
+  }, [workloadScope, filter, safeCurrentPage, pageSize, debouncedSearch]);
+
+  const paginatedRows = useMemo(() => {
+    if (workloadScope === 'all' && filter === 'Discharged') {
+      return historicalDischargedRows.length > 0 ? historicalDischargedRows : rows.slice(startIndex, startIndex + pageSize);
+    }
+    return rows.slice(startIndex, startIndex + pageSize);
+  }, [workloadScope, filter, historicalDischargedRows, rows, startIndex, pageSize]);
 
   const exportCsv = () => {
     if (!rows.length) return alert("No records to export");
@@ -511,7 +551,7 @@ export default function PatientsView({
               ? "Loading patients…"
               : isDoctor && activeDoctorName
                 ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
-                : `Active Operational Workload: ${counts[filter] || counts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'} · Historical Database: ${(filter === 'IP' ? 47096 : filter === 'Discharged' ? 46925 : 96048).toLocaleString()} all-time records`}
+                : `Active Operational Workload: ${activeCounts[filter] || activeCounts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'} · Historical Database: ${(historicalCounts[filter] || historicalCounts.All).toLocaleString()} all-time records`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -537,7 +577,7 @@ export default function PatientsView({
               }}
               title="Filter to Active workload (matches Executive Dashboard)"
             >
-              <span>⚡ Active Workload ({counts[filter] || counts.All})</span>
+              <span>⚡ Active Workload ({activeCounts[filter] || activeCounts.All})</span>
             </button>
             <button
               type="button"
@@ -559,7 +599,7 @@ export default function PatientsView({
               }}
               title="View all historical records"
             >
-              <span>📋 All Historical ({(filter === 'IP' ? 47096 : filter === 'Discharged' ? 46925 : 96048).toLocaleString()})</span>
+              <span>📋 All Historical ({(historicalCounts[filter] || historicalCounts.All).toLocaleString()})</span>
             </button>
           </div>
 
