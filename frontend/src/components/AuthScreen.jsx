@@ -10,7 +10,7 @@ const getPasswordForUser = (uname) => {
   return 'Hospital@2026';
 };
 
-// 5 Curated Sample Patients with clinical histories
+// 5 Curated Sample Patients with clinical histories (kept for testing compatibility)
 export const SAMPLE_PATIENTS = [
   { username: 'patient', patient_code: 'MER-PAT-0087227', name: 'Saanvier Parthalan', age: 34, gender: 'Other', blood: 'A+', condition: 'Asthma / Respiratory', patient_id: 87227 },
   { username: 'kavitha.raman', patient_code: 'MER-PAT-0087225', name: 'Vijayer Parthalan', age: 46, gender: 'Male', blood: 'B+', condition: 'Post-Op Monitoring', patient_id: 87225 },
@@ -25,53 +25,38 @@ export default function AuthScreen({
   initialInfo = '',
   initialRole = null
 }) {
-  const [loginMode, setLoginMode] = useState(() => {
-    if (initialRole?.toLowerCase() === 'patient') return 'patient';
-    const isSample = SAMPLE_PATIENTS.some(p => p.username === initialUsername || p.patient_code === initialUsername);
-    return isSample ? 'patient' : 'staff';
-  });
-
-  const [username, setUsername] = useState(initialUsername || (loginMode === 'patient' ? 'patient' : 'admin'));
-  const [password, setPassword] = useState(() => getPasswordForUser(initialUsername || (loginMode === 'patient' ? 'patient' : 'admin')));
+  const [username, setUsername] = useState(initialUsername || '');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(initialInfo || '');
   const [usersList, setUsersList] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [showHelpDialog, setShowHelpDialog] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
     async function loadUsers() {
       try {
+        setLoadingUsers(true);
         const res = await fetch(`${API_BASE_URL}/api/auth/users`);
         if (res.ok) {
           const data = await res.json();
           if (data.users && data.users.length > 0 && isMounted) {
             setUsersList(data.users);
-            if (!initialUsername) {
-              if (loginMode === 'patient') {
-                setUsername('patient');
-                setPassword('Hospital@2026');
-              } else {
-                const defaultUser = data.users.find(u => u.username === 'admin') || data.users[0];
-                if (defaultUser) {
-                  setUsername(defaultUser.username);
-                  setPassword(getPasswordForUser(defaultUser.username));
-                }
-              }
-            }
           }
         }
       } catch (err) {
-        console.warn('Could not load dynamic users from database table:', err);
+        console.warn('Could not load dynamic users list:', err);
       } finally {
         if (isMounted) setLoadingUsers(false);
       }
     }
     loadUsers();
     return () => { isMounted = false; };
-  }, [initialUsername]);
+  }, []);
 
   useEffect(() => {
     if (initialUsername) {
@@ -86,7 +71,6 @@ export default function AuthScreen({
     }
   }, [initialInfo]);
 
-  // Show every account from public.users (staff + patient + inactive)
   const staffUsers = [...usersList].sort((a, b) => {
     const rank = (user) => {
       const role = user.role?.toLowerCase() || '';
@@ -98,257 +82,221 @@ export default function AuthScreen({
     return rank(a) - rank(b);
   });
 
-  // Selected user lookup
-  const selectedUser = usersList.find(u =>
-    u.username?.toLowerCase() === (username || '').trim().toLowerCase() ||
-    (u.patient_code && u.patient_code.toLowerCase() === (username || '').trim().toLowerCase())
-  ) || (loginMode === 'patient' ? SAMPLE_PATIENTS[0] : staffUsers[0]);
-
-  const handleSwitchMode = (mode) => {
-    setLoginMode(mode);
-    setError('');
-    setInfo('');
-    if (mode === 'patient') {
-      const p = SAMPLE_PATIENTS[0];
-      setUsername(p.username);
-      setPassword('Hospital@2026');
-    } else {
-      const defaultUser = staffUsers.find(u => u.username === 'admin') || staffUsers[0];
-      if (defaultUser) {
-        setUsername(defaultUser.username);
-        setPassword(getPasswordForUser(defaultUser.username));
-      }
-    }
-  };
-
   const handleSignIn = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (signingIn) return;
     const targetUsername = (username || '').trim();
     if (!targetUsername) {
-      setError(loginMode === 'patient' ? 'Please enter your Patient Username, UHID, Phone, or Email.' : 'Please enter a username.');
+      setError('Please enter your Username or Employee ID.');
+      return;
+    }
+    if (!password) {
+      setError('Please enter your password.');
       return;
     }
     setSigningIn(true);
     setError('');
-    const targetName = selectedUser?.name || targetUsername;
-    setInfo(`Signing in as ${targetName}…`);
+    setInfo('Authenticating credentials…');
     try {
-      let userObj;
-      if (password) {
-        userObj = await loginWithPassword(targetUsername, password);
-      } else {
-        userObj = await selectAccount(targetUsername);
-      }
+      const userObj = await loginWithPassword(targetUsername, password);
       onLoginSuccess(userObj);
     } catch (err) {
-      setError(err.message || 'Unable to sign in. Please verify your credentials.');
+      setError(err.message || 'Unable to sign in. Please check your username and password.');
       setInfo('');
     } finally {
       setSigningIn(false);
     }
   };
 
+  const handleQuickFill = (user) => {
+    setUsername(user.username);
+    setPassword(getPasswordForUser(user.username));
+    setError('');
+  };
+
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', background: '#fbfbfc' }}>
+    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', background: '#f8fafc' }}>
       {/* Left dark branding panel */}
       <aside style={{
-        background: '#15181b', color: '#fff', padding: '36px 40px',
-        display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '40px'
+        background: '#0f172a',
+        color: '#fff',
+        padding: '48px 44px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        gap: '40px',
+        borderRight: '1px solid #1e293b'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: 'oklch(0.5 0.1 200)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '34px',
+            height: '34px',
+            borderRadius: '9px',
+            background: 'linear-gradient(135deg, oklch(0.6 0.14 180), oklch(0.45 0.12 210))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.01em' }}>Hospital</div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,.55)' }}>AI Hospital Operating Platform</div>
+            <div style={{ fontWeight: 700, fontSize: '17px', letterSpacing: '-0.01em', color: '#ffffff' }}>
+              Meridian Hospital
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+              Clinical &amp; Hospital Operating Platform
+            </div>
           </div>
         </div>
 
         <div>
-          <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '30px', lineHeight: 1.25, maxWidth: '420px' }}>
+          <div style={{
+            fontFamily: 'Newsreader, Georgia, serif',
+            fontSize: '32px',
+            lineHeight: 1.25,
+            maxWidth: '440px',
+            color: '#f8fafc',
+            fontWeight: 400
+          }}>
             One record, one workflow, every human decision kept with a human.
           </div>
           <div style={{
-            marginTop: '22px', display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)',
-            gap: '10px 14px', color: 'rgba(255,255,255,.75)', fontSize: '12px'
+            marginTop: '28px',
+            display: 'grid',
+            gridTemplateColumns: 'auto minmax(0, 1fr)',
+            gap: '12px 14px',
+            color: '#cbd5e1',
+            fontSize: '12.5px',
+            lineHeight: 1.45
           }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.7 0.14 150)', marginTop: '5px' }} />
-            <span>HMS · EMR · Billing · LIS · PACS · Patient Portal — healthy</span>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.7 0.14 150)', marginTop: '5px' }} />
-            <span>Authenticated Patient Portal · Strict token-level records isolation</span>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'oklch(0.75 0.13 70)', marginTop: '5px' }} />
-            <span>AI agents run under governance · clinical data strictly bound to verified patient</span>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', marginTop: '6px' }} />
+            <span>HMS · EMR · Billing · LIS · PACS · Pharmacy · Bed Command</span>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', marginTop: '6px' }} />
+            <span>Role-Based Access Control (RBAC) with token-level isolation</span>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', marginTop: '6px' }} />
+            <span>Governed clinical decision support with end-to-end audit compliance</span>
           </div>
         </div>
 
-        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)' }}>
-          © 2026 Hospital Systems · Enterprise Clinical Platform
+        <div style={{ fontSize: '11.5px', color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>© 2026 Meridian Hospital Systems</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+            Systems Operational
+          </span>
         </div>
       </aside>
 
       {/* Right sign-in container */}
-      <main style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '28px 20px' }}>
-        <div style={{ width: 'min(480px, 100%)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <main style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '36px 24px' }}>
+        <div style={{ width: 'min(440px, 100%)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* Role Selection Tabs: Staff vs Patient Login */}
+          {/* Main Production Card */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            background: '#f1f5f9',
-            padding: '4px',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0'
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '16px',
+            padding: '32px 30px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '20px',
+            boxShadow: '0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03)'
           }}>
-            <button
-              type="button"
-              id="tab-staff-login"
-              onClick={() => handleSwitchMode('staff')}
-              style={{
-                height: '36px',
-                borderRadius: '8px',
-                border: 'none',
-                background: loginMode === 'staff' ? '#ffffff' : 'transparent',
-                color: loginMode === 'staff' ? '#0f172a' : '#64748b',
-                fontWeight: loginMode === 'staff' ? 700 : 500,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: loginMode === 'staff' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <span>👨‍⚕️</span>
-              <span>Staff &amp; Doctors</span>
-            </button>
-
-            <button
-              type="button"
-              id="tab-patient-login"
-              onClick={() => handleSwitchMode('patient')}
-              style={{
-                height: '36px',
-                borderRadius: '8px',
-                border: 'none',
-                background: loginMode === 'patient' ? '#ffffff' : 'transparent',
-                color: loginMode === 'patient' ? 'oklch(0.5 0.1 200)' : '#64748b',
-                fontWeight: loginMode === 'patient' ? 700 : 500,
-                fontSize: '13px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: loginMode === 'patient' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <span>👤</span>
-              <span>Patient Login</span>
-              <span style={{
-                background: loginMode === 'patient' ? 'oklch(0.95 0.03 200)' : '#e2e8f0',
-                color: loginMode === 'patient' ? 'oklch(0.4 0.1 200)' : '#64748b',
-                fontSize: '10px',
-                padding: '1px 6px',
-                borderRadius: '10px',
-                fontWeight: 700
-              }}>
-                Portal
-              </span>
-            </button>
-          </div>
-
-          {/* Main Card */}
-          <div style={{
-            background: '#fff', border: '1px solid #e3e6e8', borderRadius: '12px',
-            padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
-          }}>
+            {/* Header */}
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
-                  {loginMode === 'patient' ? 'Patient Portal Login' : 'Staff Sign In'}
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <span style={{
                   fontSize: '11px',
                   fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: '6px',
-                  background: loginMode === 'patient' ? 'oklch(0.95 0.03 200)' : '#f1f5f9',
-                  color: loginMode === 'patient' ? 'oklch(0.4 0.1 200)' : '#475569'
+                  padding: '3px 9px',
+                  borderRadius: '20px',
+                  background: '#f0fdf4',
+                  color: '#15803d',
+                  border: '1px solid #bbf7d0',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}>
-                  {loginMode === 'patient' ? '🔒 Patient Role' : 'Clinical Workspace'}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  Secure Enterprise Sign In
                 </span>
               </div>
-              <div style={{ color: '#64748b', marginTop: '4px', lineHeight: 1.45, fontSize: '12px' }}>
-                {loginMode === 'patient'
-                  ? 'Sign in using your Patient credentials (Username, UHID, Phone, or Email) to view your personal health record.'
-                  : 'Select an account and sign in to access clinical, administrative, or diagnostic workspace.'}
-              </div>
+              <h1 style={{
+                fontSize: '22px',
+                fontWeight: 700,
+                color: '#0f172a',
+                margin: '0 0 6px 0',
+                letterSpacing: '-0.02em'
+              }}>
+                Sign In
+              </h1>
+              <p style={{
+                color: '#64748b',
+                fontSize: '13px',
+                margin: 0,
+                lineHeight: 1.5
+              }}>
+                Enter your institutional credentials to access your clinical workspace and administrative services.
+              </p>
             </div>
 
+            {/* Error Message */}
             {error && (
               <div role="alert" style={{
-                display: 'flex', gap: '8px', padding: '9px 12px', borderRadius: '6px',
-                background: 'oklch(0.96 0.03 25)', color: 'oklch(0.45 0.17 25)', fontSize: '12px'
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#b91c1c',
+                fontSize: '12.5px',
+                lineHeight: 1.45
               }}>
-                <span style={{ fontWeight: 700 }}>✕</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '2px' }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
                 <span>{error}</span>
               </div>
             )}
 
+            {/* Info Message */}
             {info && (
               <div style={{
-                display: 'flex', gap: '8px', padding: '9px 12px', borderRadius: '6px',
-                background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)', fontSize: '12px'
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: '#f0f9ff',
+                border: '1px solid #bae6fd',
+                color: '#0369a1',
+                fontSize: '12.5px',
+                lineHeight: 1.45
               }}>
-                <span style={{ fontWeight: 700 }}>ⓘ</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '2px' }}>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
                 <span>{info}</span>
               </div>
             )}
 
-            {/* Selected User Identity Banner */}
-            {selectedUser && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '12px 14px',
-                background: loginMode === 'patient' ? 'oklch(0.98 0.01 200)' : '#f8fafc',
-                border: loginMode === 'patient' ? '1px solid oklch(0.9 0.03 200)' : '1px solid #e2e8f0',
-                borderRadius: '8px'
-              }}>
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '50%',
-                  background: 'oklch(0.95 0.03 200)', color: 'oklch(0.4 0.1 200)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: '14px', flexShrink: 0
-                }}>
-                  {selectedUser.name ? selectedUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : (loginMode === 'patient' ? 'PT' : 'DR')}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: '14px', color: '#15181b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {selectedUser.name}
-                  </div>
-                  <div style={{ fontSize: '11.5px', color: '#64748b' }}>
-                    <span style={{ fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
-                      {loginMode === 'patient' ? 'Patient' : selectedUser.role}
-                    </span>
-                    {(selectedUser.specialization || selectedUser.patient_code || selectedUser.dept) && (
-                      ` · ${selectedUser.patient_code || selectedUser.specialization || selectedUser.dept}`
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Form */}
-            <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155' }}>
-                  {loginMode === 'patient' ? 'Patient ID / Username / Phone / Email' : 'Username'}
+            {/* Login Form */}
+            <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>
+                  Username or Employee ID
                 </span>
                 <input
                   type="text"
@@ -358,35 +306,42 @@ export default function AuthScreen({
                     setUsername(e.target.value);
                     setError('');
                   }}
-                  placeholder={loginMode === 'patient' ? 'e.g. MER-PAT-0087227, rajesh.v, or phone' : 'Username'}
+                  placeholder="e.g. doctor_1, admin, or username"
                   autoComplete="username"
+                  autoFocus={!initialUsername}
                   style={{
-                    height: '36px',
+                    height: '40px',
                     border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    padding: '0 12px',
-                    fontSize: '13px',
+                    borderRadius: '8px',
+                    padding: '0 14px',
+                    fontSize: '13.5px',
                     color: '#0f172a',
-                    background: '#fff',
+                    background: '#ffffff',
                     outline: 'none',
-                    transition: 'border-color 0.15s'
+                    transition: 'border-color 0.15s, box-shadow 0.15s'
                   }}
-                  onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
-                  onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                  onFocus={e => {
+                    e.target.style.borderColor = '#0284c7';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.12)';
+                  }}
+                  onBlur={e => {
+                    e.target.style.borderColor = '#cbd5e1';
+                    e.target.style.boxShadow = 'none';
+                  }}
                 />
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155' }}>Password</span>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Password</span>
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     style={{
                       border: 0,
                       background: 'transparent',
-                      color: 'oklch(0.5 0.1 200)',
-                      fontSize: '11px',
+                      color: '#0284c7',
+                      fontSize: '11.5px',
                       fontWeight: 600,
                       cursor: 'pointer',
                       padding: 0
@@ -403,174 +358,258 @@ export default function AuthScreen({
                     setPassword(e.target.value);
                     setError('');
                   }}
-                  placeholder="Password"
+                  placeholder="Enter your password"
                   autoComplete="current-password"
                   style={{
-                    height: '36px',
+                    height: '40px',
                     border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    padding: '0 12px',
-                    fontSize: '13px',
+                    borderRadius: '8px',
+                    padding: '0 14px',
+                    fontSize: '13.5px',
                     color: '#0f172a',
-                    background: '#fff',
+                    background: '#ffffff',
                     outline: 'none',
-                    transition: 'border-color 0.15s'
+                    transition: 'border-color 0.15s, box-shadow 0.15s'
                   }}
-                  onFocus={e => e.target.style.borderColor = 'oklch(0.5 0.1 200)'}
-                  onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                  onFocus={e => {
+                    e.target.style.borderColor = '#0284c7';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.12)';
+                  }}
+                  onBlur={e => {
+                    e.target.style.borderColor = '#cbd5e1';
+                    e.target.style.boxShadow = 'none';
+                  }}
                 />
               </label>
 
+              {/* Remember me & Help row */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', marginTop: '-2px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#475569', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                    style={{ accentColor: '#0284c7', cursor: 'pointer' }}
+                  />
+                  <span>Remember this device</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpDialog(true)}
+                  style={{
+                    border: 0,
+                    background: 'transparent',
+                    color: '#0284c7',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    padding: 0,
+                    textDecoration: 'none'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+                  onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
+                >
+                  Need assistance?
+                </button>
+              </div>
+
+              {/* Submit Button */}
               <button
                 type="submit"
                 id="sign-in-submit-btn"
                 disabled={signingIn}
                 style={{
-                  height: '40px',
-                  borderRadius: '6px',
+                  height: '42px',
+                  borderRadius: '8px',
                   border: 0,
-                  background: 'oklch(0.5 0.1 200)',
-                  color: '#fff',
+                  background: 'linear-gradient(135deg, #0f766e, #0d9488)',
+                  color: '#ffffff',
                   fontWeight: 600,
-                  cursor: 'pointer',
-                  fontSize: '13.5px',
+                  cursor: signingIn ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '6px',
-                  marginTop: '4px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  transition: 'opacity 0.15s'
+                  gap: '8px',
+                  marginTop: '6px',
+                  boxShadow: '0 2px 8px rgba(13, 148, 136, 0.25)',
+                  transition: 'opacity 0.15s, transform 0.05s',
+                  opacity: signingIn ? 0.8 : 1
                 }}
               >
-                {signingIn ? 'Signing in…' : (loginMode === 'patient' ? `Sign in to Patient Portal →` : `Sign in as ${selectedUser?.name || username} →`)}
+                {signingIn ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                      <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
+                      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" />
+                    </svg>
+                    <span>Signing in…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </>
+                )}
               </button>
             </form>
 
+            {/* Security Notice */}
+            <div style={{
+              borderTop: '1px solid #f1f5f9',
+              paddingTop: '16px',
+              fontSize: '11px',
+              color: '#94a3b8',
+              lineHeight: 1.5,
+              textAlign: 'center'
+            }}>
+              Authorized clinical and administrative personnel only. System access is monitored, recorded, and audited under institutional security governance.
+            </div>
           </div>
 
-          {/* Bottom Section: Mode Specific Directory */}
-          {loginMode === 'patient' ? (
-            /* 5 Sample Patients for Patient Login */
-            <div style={{
-              background: '#fff', border: '1px solid #e3e6e8', borderRadius: '12px',
-              padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px'
+          {/* Collapsible Development & Testing Credentials Helper */}
+          <details style={{
+            border: '1px dashed #cbd5e1',
+            borderRadius: '10px',
+            padding: '10px 14px',
+            background: '#ffffff',
+            color: '#64748b',
+            fontSize: '12px'
+          }}>
+            <summary style={{
+              cursor: 'pointer',
+              fontWeight: 600,
+              color: '#475569',
+              userSelect: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 700, fontSize: '12.5px', color: '#1e293b' }}>
-                  Sample Patient Accounts (5 Available)
-                </span>
-                <span style={{ fontSize: '11px', color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>
-                  Password: Hospital@2026
-                </span>
-              </div>
-              <div style={{ fontSize: '11px', color: '#64748b', lineHeight: 1.4 }}>
-                Click any of the 5 sample patient profiles below to auto-fill their credentials and verify patient-specific isolation:
-              </div>
+              <span>Demo Accounts &amp; Quick Fill</span>
+              <span style={{ fontSize: '10.5px', color: '#0284c7', background: '#f0f9ff', padding: '2px 8px', borderRadius: '12px', border: '1px solid #e0f2fe' }}>
+                {loadingUsers ? 'loading accounts...' : `${staffUsers.length} accounts available`}
+              </span>
+            </summary>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' }}>
-                {SAMPLE_PATIENTS.map((p) => {
-                  const isSelected = (
-                    username?.toLowerCase() === p.username.toLowerCase() ||
-                    username?.toLowerCase() === p.patient_code.toLowerCase()
-                  );
-
-                  return (
-                    <button
-                      key={p.username}
-                      type="button"
-                      id={`sample-patient-${p.username}`}
-                      disabled={signingIn}
-                      onClick={() => {
-                        setUsername(p.username);
-                        setPassword('Hospital@2026');
-                        setError('');
-                      }}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        border: isSelected ? '1.5px solid oklch(0.5 0.1 200)' : '1px solid #e2e8f0',
-                        background: isSelected ? 'oklch(0.96 0.03 200)' : '#f8fafc',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '12.5px', fontWeight: isSelected ? 700 : 600, color: '#0f172a' }}>
-                          {p.name}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                          UHID: <span style={{ color: 'oklch(0.5 0.1 200)', fontWeight: 600 }}>{p.patient_code}</span> · {p.age}y · {p.gender} · {p.blood}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{
-                          fontSize: '10.5px',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          background: isSelected ? 'oklch(0.5 0.1 200)' : '#e2e8f0',
-                          color: isSelected ? '#fff' : '#475569',
-                          fontWeight: 600
-                        }}>
-                          {p.condition}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                Click any profile to auto-fill credentials for quick validation:
               </div>
-            </div>
-          ) : (
-            /* Staff Directory */
-            <div style={{
-              background: '#fff', border: '1px solid #e3e6e8', borderRadius: '12px',
-              padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '8px'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 600, fontSize: '12px' }}>Hospital Accounts &amp; Staff Directory</span>
-                <span style={{ font: '500 10px ui-monospace, Menlo, monospace', color: '#0284c7' }}>
-                  {loadingUsers ? 'loading database...' : `directory (${staffUsers.length} accounts)`}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '160px', overflowY: 'auto', paddingRight: '4px' }}>
                 {staffUsers.map((r) => {
-                  const isSelected = (username?.toLowerCase() === r.username?.toLowerCase() || selectedUser?.username?.toLowerCase() === r.username?.toLowerCase());
-                  const isPatient = r.role?.toLowerCase() === 'patient';
+                  const isSelected = username?.toLowerCase() === r.username?.toLowerCase();
                   return (
                     <button
                       key={r.id || r.username}
                       type="button"
                       disabled={signingIn}
-                      onClick={() => {
-                        if (isPatient) setLoginMode('patient');
-                        setUsername(r.username);
-                        setPassword(getPasswordForUser(r.username));
-                        setError('');
-                      }}
+                      onClick={() => handleQuickFill(r)}
                       style={{
-                        height: '28px', padding: '0 10px', borderRadius: '14px',
-                        border: isSelected ? '1.5px solid oklch(0.5 0.1 200)' : '1px solid #e3e6e8',
-                        background: isSelected ? 'oklch(0.95 0.03 200)' : '#f6f7f8',
-                        cursor: 'pointer', fontSize: '11.5px', color: '#15181b', transition: 'all 0.15s',
+                        height: '28px',
+                        padding: '0 10px',
+                        borderRadius: '14px',
+                        border: isSelected ? '1.5px solid #0d9488' : '1px solid #e2e8f0',
+                        background: isSelected ? '#f0fdfa' : '#f8fafc',
+                        cursor: 'pointer',
+                        fontSize: '11.5px',
+                        color: isSelected ? '#0f766e' : '#334155',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        transition: 'all 0.15s',
                         fontWeight: isSelected ? 600 : 400
                       }}
                     >
                       <span style={{ fontWeight: 600 }}>{r.role || 'Doctor'}</span>
-                      <span style={{ color: '#52585e' }}> · {r.name}</span>
+                      <span style={{ color: '#64748b' }}>· {r.name}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
-          )}
+          </details>
 
         </div>
       </main>
+
+      {/* IT Helpdesk Modal */}
+      {showHelpDialog && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.45)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '14px',
+            maxWidth: '400px',
+            width: '100%',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#f0f9ff', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                </div>
+                <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>Hospital IT Support</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHelpDialog(false)}
+                style={{ border: 0, background: 'transparent', cursor: 'pointer', color: '#94a3b8', fontSize: '18px', padding: 0 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, margin: 0 }}>
+              If you have forgotten your password or require role permissions to access clinical systems, please contact the Meridian Hospital IT Helpdesk:
+            </p>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px', fontSize: '12.5px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div><strong>Internal Phone:</strong> Ext. 4400 (24/7 Support)</div>
+              <div><strong>Direct Line:</strong> +1 (800) 555-0199</div>
+              <div><strong>Email:</strong> it-support@meridianhospital.org</div>
+              <div><strong>Location:</strong> Clinical Informatics Center, Tower B, Level 2</div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowHelpDialog(false)}
+              style={{
+                height: '36px',
+                borderRadius: '8px',
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginTop: '4px'
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
