@@ -59,6 +59,13 @@ export default function PatientsView({
   const [discharged, setDischarged] = useState([]);
   const [opPatients, setOpPatients] = useState([]);
   const [erPatients, setErPatients] = useState([]);
+  const [historicalPatients, setHistoricalPatients] = useState([]);
+  const [historicalCategoryRows, setHistoricalCategoryRows] = useState([]);
+  const [historicalCategoryCounts, setHistoricalCategoryCounts] = useState({
+    IP: 0, OP: 0, ER: 0, Discharged: 0,
+  });
+  const [historicalTotal, setHistoricalTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -95,18 +102,26 @@ export default function PatientsView({
 
   useEffect(() => {
     let alive = true;
-    const loadPatients = async (isSilent = false, targetScope = workloadScope) => {
+    let requestInProgress = false;
+    const loadPatients = async (isSilent = false) => {
+      if (requestInProgress) return;
+      requestInProgress = true;
       if (!isSilent && admitted.length === 0 && discharged.length === 0 && opPatients.length === 0 && erPatients.length === 0) {
         setLoading(true);
       }
       setError(null);
       try {
-        const isAll = targetScope === 'all';
         const [ar, dr, opRes, erRes] = await Promise.all([
-          apiService.getCurrentAdmissions({ discharge_status: 'all', scope: isAll ? 'all' : 'active', limit: isAll ? 300 : 250 }).catch(() => ({ data: [] })),
-          apiService.getDischargedPatients({ scope: isAll ? 'all' : 'active', limit: isAll ? 300 : 250 }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'OP' }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ER' }).catch(() => ({ data: [] })),
+          apiService.getCurrentAdmissions(
+            { discharge_status: 'all', scope: 'active', limit: 250 },
+            { forceRefresh: true }
+          ).catch(() => ({ data: [] })),
+          apiService.getDischargedPatients(
+            { scope: 'active', limit: 250 },
+            { forceRefresh: true }
+          ).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         const allDirRes = { data: [] };
         if (!alive) return;
@@ -205,22 +220,17 @@ export default function PatientsView({
           }
         });
 
-        // 2. Add approved finalized discharge summaries if not already in admissions
+        // 2. Add approved finalized discharge summaries
         rawDischarges.forEach(r => {
-          const dcStatus = String(r.discharge_status || '').trim().toLowerCase();
-          if (dcStatus === 'admitted') return; // Active inpatient, not discharged!
-
           const statusLower = String(r.approval_status || r.status || '').trim().toLowerCase();
           const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
           const isExplicitDischarge = isApproved || String(r.discharge_status || '').trim().toLowerCase() === 'discharged' || r.is_discharged === true;
           if (!isExplicitDischarge) return;
 
+          const sid = r.summary_id || r.id;
           const pid = String(r.patient_id || r.id || '').trim();
-          const aid = String(r.admission_id || '').trim();
-          const matchKey = aid ? `adm_${aid}` : (pid ? `pid_${pid}` : `sum_${r.summary_id || r.id}`);
+          const matchKey = `sum_${sid || pid}`;
 
-          // Skip if this summary belongs to a currently active inpatient admission (e.g. Jacky K in Ready status)
-          if (aid && seenActiveAdmissionIds.has(aid)) return;
           if (seenDischargedKeys.has(matchKey)) return;
           seenDischargedKeys.add(matchKey);
           if (pid) seenDischargedPids.add(pid);
@@ -312,14 +322,17 @@ export default function PatientsView({
         setOpPatients(parsedOp);
         setErPatients(parsedEr);
       } catch (e) { if (alive) setError(e.message); }
-      finally { if (alive) setLoading(false); }
+      finally {
+        requestInProgress = false;
+        if (alive) setLoading(false);
+      }
     };
 
     loadPatients();
 
     const timer = setInterval(() => {
       loadPatients(true);
-    }, 6000);
+    }, 15000);
 
     const handleUpdate = () => loadPatients(true);
     window.addEventListener('hc_api_updated', handleUpdate);
@@ -397,16 +410,24 @@ export default function PatientsView({
   }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
 
   const historicalCounts = useMemo(() => ({
-    All: 143144,
-    IP: 47096,
-    OP: 96048,
-    ER: 14,
-    Discharged: 46925,
-  }), []);
+    All: historicalTotal,
+    ...historicalCategoryCounts,
+  }), [historicalTotal, historicalCategoryCounts]);
 
   const counts = workloadScope === 'all' ? historicalCounts : activeCounts;
 
   const rows = useMemo(() => {
+    if (workloadScope === 'all') {
+      let list = filter === 'All' ? historicalPatients
+        : historicalCategoryRows;
+
+      if (!debouncedSearch.trim() || filter === 'All') return list;
+      const query = debouncedSearch.toLowerCase().trim();
+      return list.filter(p => [
+        p.patient_id, p.patient_number, p.patient_code, p.uhid, p.name, p.doctor, p.diagnosis
+      ].some(value => String(value || '').toLowerCase().includes(query)));
+    }
+
     // In active mode, 'All' consists of active hospital patients: IP + OP + ER
     // Discharged patients are in their dedicated 'Discharged' tab
     let list = filter === "All" ? [...admitted, ...opPatients, ...erPatients]
@@ -458,73 +479,175 @@ export default function PatientsView({
         phone.includes(s)
       );
     });
-  }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName]);
+  }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName, activeDoctorId, workloadScope, historicalPatients, historicalCategoryRows]);
 
-  const total = counts.All;
-  const totalRows = useMemo(() => {
-    if (workloadScope === 'all') {
-      return historicalCounts[filter] || historicalCounts.All;
-    }
-    return rows.length;
-  }, [workloadScope, filter, historicalCounts, rows.length]);
+  const totalRows = useMemo(() => (
+    workloadScope === 'all' ? (counts[filter] ?? rows.length) : rows.length
+  ), [workloadScope, filter, counts, rows.length]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-
-  // Server-side page fetching for historical discharge summaries (87k+ records in discharge_summaries)
-  const [historicalDischargedRows, setHistoricalDischargedRows] = useState([]);
+  const viewLoading = workloadScope === 'all' ? historyLoading : loading;
 
   useEffect(() => {
-    if (workloadScope === 'all' && filter === 'Discharged') {
-      let cancelled = false;
-      const cleanOffset = (safeCurrentPage - 1) * pageSize;
-      apiService.getDischargedPatients({
-        scope: 'all',
-        limit: pageSize,
-        offset: cleanOffset,
-        patient_number: debouncedSearch.trim() || undefined
-      }).then(res => {
-        if (cancelled) return;
-        const list = res?.data || [];
-        const parsed = list.map(r => {
-          const d = parseDischargeSummaryRecord(r);
-          const pName = r.patient_name || (r.first_name ? `${r.first_name} ${r.last_name || ''}`.trim() : null) || d?.patient || d?.name || 'Discharged Patient';
-          const docName = cleanDoctorName(r.primary_consultant || r.doctor_name || d?.doctor || 'Attending Physician');
-          return {
-            ...d,
-            mrn: r.patient_number || r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'PAT-DIS'),
-            patient_code: r.patient_number || r.patient_code || (r.patient_id ? `MER-PAT-${String(r.patient_id).padStart(7, '0')}` : 'PAT-DIS'),
-            patient_id: r.patient_id,
-            id: r.summary_id || r.patient_id,
-            name: pName,
-            patient_name: pName,
-            patient: pName,
-            age: d?.age || r.age_at_admission || r.age || 48,
-            sex: d?.sex || (r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'F'),
-            gender: d?.gender || r.gender || 'Unknown',
-            department: r.ward_name || r.department || 'Emerald Semi-Private',
-            doctor: docName,
-            diagnosis: cleanDiagnosis(d?.diagnosis || d?.diagnoses || r.diagnoses || r.discharge_diagnosis || 'Clinical Recovery & Discharge'),
-            _type: "Discharged",
-            _status: "Discharged",
-            insurer: r.insurer || 'Self-Pay'
-          };
-        });
-        setHistoricalDischargedRows(parsed);
-      }).catch(err => {
-        console.warn('Error loading historical discharged page:', err);
-      });
-      return () => { cancelled = true; };
+    if (workloadScope === 'all') return undefined;
+
+    let cancelled = false;
+    apiService.getPatients({
+      page: 1,
+      per_page: 1,
+      scope: 'historical',
+      doctor_id: activeDoctorId || undefined,
+    }, { forceRefresh: true }).then(res => {
+      if (!cancelled) setHistoricalTotal(Number(res?.total) || 0);
+    }).catch(err => {
+      if (!cancelled) console.warn('Failed to load historical patient count:', err);
+    });
+
+    return () => { cancelled = true; };
+  }, [workloadScope, activeDoctorName, activeDoctorId]);
+
+  useEffect(() => {
+    if (workloadScope !== 'all') return undefined;
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    apiService.getPatients({
+      page: safeCurrentPage,
+      per_page: pageSize,
+      search: debouncedSearch || undefined,
+      scope: 'historical',
+      doctor_id: activeDoctorId || undefined,
+    }, { forceRefresh: true }).then(res => {
+      if (cancelled) return;
+      const patients = res?.patients || [];
+      setHistoricalTotal(Number(res?.total) || 0);
+      setHistoricalPatients(patients.map(patient => {
+        const age = patient.date_of_birth
+          ? Math.max(0, Math.floor((Date.now() - new Date(patient.date_of_birth).getTime()) / 31557600000))
+          : null;
+        const name = `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Patient';
+        const rawGender = String(patient.gender || '').trim();
+        const gender = !rawGender || ['unspecified', 'unknown', 'n/a', 'na'].includes(rawGender.toLowerCase())
+          ? 'Not recorded'
+          : rawGender;
+        return {
+          ...patient,
+          id: patient.id,
+          patient_id: patient.id,
+          patient_code: patient.patient_code,
+          patient_number: patient.patient_code,
+          uhid: patient.patient_code,
+          name,
+          patient_name: name,
+          age,
+          sex: gender,
+          gender,
+          language: patient.preferred_language || 'Not recorded',
+          department: 'Patient Registry',
+          doctor: activeDoctorName || '—',
+          insurer: patient.insurance_provider || patient.insurer || 'Self-pay',
+          _type: 'Patient',
+          _status: patient.status || 'Historical',
+        };
+      }));
+    }).catch(err => {
+      if (!cancelled) setError(err.message || 'Failed to load patient history');
+    }).finally(() => {
+      if (!cancelled) setHistoryLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [workloadScope, safeCurrentPage, pageSize, debouncedSearch, activeDoctorName]);
+
+  useEffect(() => {
+    if (workloadScope !== 'all') return undefined;
+    let cancelled = false;
+    const categories = ['IP', 'OP', 'ER', 'Discharged'];
+    Promise.all(categories.map(category => apiService.getAllPatientsDirectory({
+      category,
+      scope: 'historical',
+      limit: 1,
+      doctor_id: activeDoctorId || undefined,
+      doctor_name: activeDoctorId ? undefined : activeDoctorName || undefined,
+    }, { forceRefresh: true }))).then(results => {
+      if (cancelled) return;
+      setHistoricalCategoryCounts(Object.fromEntries(categories.map((category, index) => [
+        category,
+        Number(results[index]?.total) || 0,
+      ])));
+    }).catch(err => {
+      if (!cancelled) console.warn('Failed to load historical category totals:', err);
+    });
+    return () => { cancelled = true; };
+  }, [workloadScope, activeDoctorId, activeDoctorName]);
+
+  useEffect(() => {
+    if (workloadScope !== 'all' || filter === 'All') {
+      setHistoricalCategoryRows([]);
+      return undefined;
     }
-  }, [workloadScope, filter, safeCurrentPage, pageSize, debouncedSearch]);
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    apiService.getAllPatientsDirectory({
+      category: filter,
+      scope: 'historical',
+      limit: pageSize,
+      offset: (safeCurrentPage - 1) * pageSize,
+      search: debouncedSearch || undefined,
+      doctor_id: activeDoctorId || undefined,
+      doctor_name: activeDoctorId ? undefined : activeDoctorName || undefined,
+    }, { forceRefresh: true }).then(res => {
+      if (cancelled) return;
+      const records = res?.data || [];
+      setHistoricalCategoryCounts(current => ({
+        ...current,
+        [filter]: Number(res?.total) || 0,
+      }));
+      setHistoricalCategoryRows(records.map(record => {
+        const name = record.patient_name || `${record.first_name || ''} ${record.last_name || ''}`.trim() || 'Patient';
+        const rawGender = String(record.gender || '').trim();
+        const gender = !rawGender || ['unspecified', 'unknown', 'n/a', 'na'].includes(rawGender.toLowerCase())
+          ? 'Not recorded'
+          : rawGender;
+        const patientCode = record.patient_code || record.patient_number || record.id;
+        return {
+          ...record,
+          id: record.patient_id || record.appointment_id || record.admission_id || patientCode,
+          patient_id: record.patient_id,
+          patient_code: patientCode,
+          patient_number: patientCode,
+          uhid: patientCode,
+          name,
+          patient_name: name,
+          age: record.age ?? (record.date_of_birth
+            ? Math.max(0, Math.floor((Date.now() - new Date(record.date_of_birth).getTime()) / 31557600000))
+            : null),
+          sex: gender,
+          gender,
+          language: record.preferred_language || 'Not recorded',
+          department: record.department || '—',
+          doctor: record.doctor || '—',
+          diagnosis: cleanDiagnosis(record.diagnosis || ''),
+          insurer: record.insurer || record.insurance_provider || 'Self-pay',
+          _type: filter,
+          _status: record.status || record.discharge_status || 'Historical',
+        };
+      }));
+    }).catch(err => {
+      if (!cancelled) setError(err.message || `Failed to load historical ${filter} records`);
+    }).finally(() => {
+      if (!cancelled) setHistoryLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [workloadScope, filter, safeCurrentPage, pageSize, debouncedSearch, activeDoctorId, activeDoctorName]);
 
   const paginatedRows = useMemo(() => {
-    if (workloadScope === 'all' && filter === 'Discharged') {
-      return historicalDischargedRows.length > 0 ? historicalDischargedRows : rows.slice(startIndex, startIndex + pageSize);
-    }
+    if (workloadScope === 'all') return rows;
     return rows.slice(startIndex, startIndex + pageSize);
-  }, [workloadScope, filter, historicalDischargedRows, rows, startIndex, pageSize]);
+  }, [workloadScope, rows, startIndex, pageSize]);
 
   const exportCsv = () => {
     if (!rows.length) return alert("No records to export");
@@ -548,11 +671,13 @@ export default function PatientsView({
             {isDoctor && activeDoctorName ? `Patients · ${activeDoctorName}` : 'Patients'}
           </div>
           <div style={{ color: "#8a9096", fontSize: "11.5px", marginTop: "2px" }}>
-            {loading
+            {viewLoading
               ? "Loading patients…"
+              : workloadScope === 'all'
+                ? `${historicalTotal.toLocaleString()} historical patient records${isDoctor && activeDoctorName ? ` assigned to ${activeDoctorName}` : ' across the hospital'}`
               : isDoctor && activeDoctorName
                 ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
-                : `Active Operational Workload: ${activeCounts[filter] || activeCounts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'} · Historical Database: ${(historicalCounts[filter] || historicalCounts.All).toLocaleString()} all-time records`}
+                : `Active Operational Workload: ${activeCounts[filter] || activeCounts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'}`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -560,7 +685,12 @@ export default function PatientsView({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); loadPatients(false, 'active'); }}
+              onClick={() => {
+                setWorkloadScope('active');
+                setFilter('All');
+                setCurrentPage(1);
+                window.dispatchEvent(new CustomEvent('hc_api_updated'));
+              }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -582,7 +712,11 @@ export default function PatientsView({
             </button>
             <button
               type="button"
-              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); loadPatients(false, 'all'); }}
+              onClick={() => {
+                setWorkloadScope('all');
+                setFilter('All');
+                setCurrentPage(1);
+              }}
               style={{
                 height: '30px',
                 padding: '0 12px',
@@ -598,9 +732,9 @@ export default function PatientsView({
                 gap: '5px',
                 transition: 'all 0.15s ease'
               }}
-              title="View all historical records"
+              title="View historical patients with doctor-linked care records"
             >
-              <span>📋 All Historical ({(historicalCounts[filter] || historicalCounts.All).toLocaleString()})</span>
+              <span>📋 All Historical ({historyLoading ? '…' : historicalTotal.toLocaleString()})</span>
             </button>
           </div>
 
@@ -609,7 +743,7 @@ export default function PatientsView({
             onChange={e => setSearch(e.target.value)}
             onClear={() => setSearch("")}
             placeholder="Search by Name, Patient ID, UHID..."
-            loading={isSearching || loading}
+            loading={isSearching || viewLoading}
             width="240px"
             accentColor="#0284c7"
           />
@@ -630,7 +764,10 @@ export default function PatientsView({
       {/* filter pills + pagination summary */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
         <div style={{ display: "flex", gap: "6px" }}>
-          {["All", "IP", "OP", "ER", "Discharged"].map(f => (
+          {(workloadScope === 'all'
+            ? ["All", "OP", "ER", "Discharged"]
+            : ["All", "IP", "OP", "ER", "Discharged"]
+          ).map(f => (
             <button key={f} type="button" onClick={() => setFilter(f)}
               style={{
                 height: "28px", padding: "0 12px", borderRadius: "14px", border: "1px solid #e3e6e8",
@@ -662,7 +799,7 @@ export default function PatientsView({
       {/* table */}
       <div style={{ background: "#fff", border: "1px solid #e3e6e8", borderRadius: "8px", overflowX: "auto", position: "relative" }}>
         {/* Shimmer loading progress bar */}
-        {(loading || isSearching) && (
+        {(viewLoading || isSearching) && (
           <div
             style={{
               position: "absolute",
@@ -679,7 +816,7 @@ export default function PatientsView({
         )}
 
         {/* Searching overlay */}
-        {(loading || isSearching) && rows.length > 0 && (
+        {(viewLoading || isSearching) && rows.length > 0 && (
           <div
             style={{
               position: "absolute",
@@ -710,7 +847,7 @@ export default function PatientsView({
           </div>
         )}
 
-        {loading && rows.length === 0 ? (
+        {viewLoading && rows.length === 0 ? (
           <div style={{ padding: "16px" }}>
             <ModuleLoadingScreen
               title="Loading Patient Directory..."

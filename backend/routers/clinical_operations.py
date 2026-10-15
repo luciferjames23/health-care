@@ -1314,6 +1314,8 @@ def get_all_patients_directory(
     category: Optional[str] = Query(None, description="Filter by category: All, IP, OP, ER, Discharged"),
     search: Optional[str] = Query(None, description="Search by Name, UHID, Doctor, or Diagnosis"),
     doctor_id: Optional[int] = Query(None, description="Filter by Doctor ID"),
+    doctor_name: Optional[str] = Query(None, description="Filter by doctor name"),
+    scope: Optional[str] = Query("active", description="Use 'historical' for all-time category records"),
     limit: Optional[int] = Query(None, description="Max records to return. Omit to fetch all records."),
     offset: int = Query(0, ge=0)
 ):
@@ -1335,6 +1337,275 @@ def get_all_patients_directory(
         doc_id_val = doctor_id if isinstance(doctor_id, int) else None
         cat = clean_cat
         domain_limit = clean_limit or 250
+
+        if isinstance(scope, str) and scope.strip().lower() == "historical":
+            historical_category = cat
+            if historical_category not in {"IP", "OP", "ER", "DISCHARGED"}:
+                raise HTTPException(status_code=400, detail="Historical scope requires IP, OP, ER, or Discharged category")
+
+            page_limit = max(1, min(domain_limit, 500))
+            page_offset = max(0, clean_offset)
+            where = []
+            params = []
+
+            if historical_category == "IP":
+                where = ["1=1"]
+                if doc_id_val:
+                    where.append("a.doctor_id = %s")
+                    params.append(doc_id_val)
+                elif doctor_name and doctor_name.strip():
+                    where.append("COALESCE(d.display_name, '') ILIKE %s")
+                    params.append(f"%{doctor_name.strip()}%")
+                if clean_search:
+                    where.append("""(
+                        p.first_name ILIKE %s OR p.last_name ILIKE %s OR
+                        p.patient_code ILIKE %s OR a.admission_number ILIKE %s
+                    )""")
+                    search_value = f"%{clean_search}%"
+                    params.extend([search_value] * 4)
+
+                from_clause = """
+                    FROM admissions a
+                    JOIN patients p ON p.id = a.patient_id
+                    LEFT JOIN doctors d ON d.id = a.doctor_id
+                """
+                where_sql = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
+                total = int((cur.fetchone() or {}).get("total") or 0)
+                cur.execute(f"""
+                    SELECT
+                        a.patient_id,
+                        p.patient_code,
+                        p.first_name,
+                        p.last_name,
+                        CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) AS patient_name,
+                        p.date_of_birth,
+                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                        p.gender,
+                        p.phone,
+                        p.preferred_language,
+                        a.admission_id,
+                        a.admission_number,
+                        a.admission_date,
+                        a.discharge_date,
+                        a.discharge_status,
+                        a.reason_for_admission AS diagnosis,
+                        COALESCE(w.ward_name, 'Inpatient Ward') AS department,
+                        COALESCE(d.display_name, 'Attending Physician') AS doctor,
+                        a.doctor_id,
+                        COALESCE(pi.insurance_provider, ic.insurance_provider, 'Self-pay') AS insurer,
+                        'IP' AS patient_type,
+                        COALESCE(a.discharge_status, 'Recorded') AS status
+                    {from_clause}
+                    LEFT JOIN wards w ON w.ward_id = a.ward_id
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM patient_insurance
+                        WHERE patient_id = p.id
+                        ORDER BY (LOWER(COALESCE(status, '')) = 'active') DESC, insurance_id DESC
+                        LIMIT 1
+                    ) pi ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM insurance_claims
+                        WHERE patient_id = p.id ORDER BY claim_date DESC, claim_id DESC LIMIT 1
+                    ) ic ON TRUE
+                    WHERE {where_sql}
+                    ORDER BY a.admission_date DESC NULLS LAST, a.admission_id DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params + [page_limit, page_offset]))
+                rows = cur.fetchall()
+
+            elif historical_category == "OP":
+                where = ["1=1"]
+                if doc_id_val:
+                    where.append("a.doctor_id = %s")
+                    params.append(doc_id_val)
+                elif doctor_name and doctor_name.strip():
+                    where.append("COALESCE(d.display_name, '') ILIKE %s")
+                    params.append(f"%{doctor_name.strip()}%")
+                if clean_search:
+                    where.append("""(
+                        p.first_name ILIKE %s OR p.last_name ILIKE %s OR
+                        p.patient_code ILIKE %s OR a.booking_id ILIKE %s
+                    )""")
+                    search_value = f"%{clean_search}%"
+                    params.extend([search_value] * 4)
+
+                from_clause = """
+                    FROM appointments a
+                    JOIN patients p ON p.id = a.patient_id
+                    LEFT JOIN doctors d ON d.id = a.doctor_id
+                    LEFT JOIN departments dep ON dep.id = a.department_id
+                """
+                where_sql = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
+                total = int((cur.fetchone() or {}).get("total") or 0)
+                cur.execute(f"""
+                    SELECT
+                        a.patient_id,
+                        p.patient_code,
+                        p.first_name,
+                        p.last_name,
+                        CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) AS patient_name,
+                        p.date_of_birth,
+                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                        p.gender,
+                        p.phone,
+                        p.preferred_language,
+                        a.id AS appointment_id,
+                        a.booking_id AS admission_number,
+                        a.appointment_date AS admission_date,
+                        a.status AS discharge_status,
+                        COALESCE(a.patient_reason, 'Outpatient visit') AS diagnosis,
+                        COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                        COALESCE(d.display_name, 'Attending Physician') AS doctor,
+                        a.doctor_id,
+                        COALESCE(pi.insurance_provider, ic.insurance_provider, 'Self-pay') AS insurer,
+                        'OP' AS patient_type,
+                        a.status AS status
+                    {from_clause}
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM patient_insurance
+                        WHERE patient_id = p.id
+                        ORDER BY (LOWER(COALESCE(status, '')) = 'active') DESC, insurance_id DESC
+                        LIMIT 1
+                    ) pi ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM insurance_claims
+                        WHERE patient_id = p.id ORDER BY claim_date DESC, claim_id DESC LIMIT 1
+                    ) ic ON TRUE
+                    WHERE {where_sql}
+                    ORDER BY a.appointment_date DESC, a.appointment_time DESC, a.id DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params + [page_limit, page_offset]))
+                rows = cur.fetchall()
+
+            elif historical_category == "ER":
+                where = ["1=1"]
+                if doc_id_val:
+                    where.append("COALESCE(et.doctor_name, '') ILIKE (SELECT display_name FROM doctors WHERE id = %s)")
+                    params.append(doc_id_val)
+                elif doctor_name and doctor_name.strip():
+                    where.append("COALESCE(et.doctor_name, '') ILIKE %s")
+                    params.append(f"%{doctor_name.strip()}%")
+                if clean_search:
+                    where.append("(et.patient_name ILIKE %s OR et.id ILIKE %s OR et.chief_complaint ILIKE %s)")
+                    search_value = f"%{clean_search}%"
+                    params.extend([search_value] * 3)
+
+                where_sql = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) AS total FROM emergency_triage et WHERE {where_sql}", params)
+                total = int((cur.fetchone() or {}).get("total") or 0)
+                cur.execute(f"""
+                    SELECT
+                        NULL::bigint AS patient_id,
+                        et.id AS patient_code,
+                        et.patient_name,
+                        NULL::date AS date_of_birth,
+                        NULL::int AS age,
+                        CASE WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'F' THEN 'Female'
+                             WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'M' THEN 'Male'
+                             ELSE 'Not recorded' END AS gender,
+                        NULL::text AS preferred_language,
+                        et.id AS admission_number,
+                        et.created_at AS admission_date,
+                        et.triage_level AS discharge_status,
+                        et.chief_complaint AS diagnosis,
+                        'Emergency Bay' AS department,
+                        et.doctor_name AS doctor,
+                        COALESCE(et.clinical_status, et.triage_level, 'Recorded') AS status,
+                        'ER' AS patient_type,
+                        'Emergency Cover' AS insurer
+                    FROM emergency_triage et
+                    WHERE {where_sql}
+                    ORDER BY et.created_at DESC, et.id DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params + [page_limit, page_offset]))
+                rows = cur.fetchall()
+
+            else:
+                where = ["1=1"]
+                if doc_id_val:
+                    where.append("(ds.doctor_id = %s OR a.doctor_id = %s)")
+                    params.extend([doc_id_val, doc_id_val])
+                elif doctor_name and doctor_name.strip():
+                    where.append("""(
+                        COALESCE(d.display_name, ds.primary_consultant, '') ILIKE %s
+                    )""")
+                    params.append(f"%{doctor_name.strip()}%")
+                if clean_search:
+                    where.append("""(
+                        p.first_name ILIKE %s OR p.last_name ILIKE %s OR
+                        p.patient_code ILIKE %s OR ds.diagnoses ILIKE %s OR
+                        a.admission_number ILIKE %s
+                    )""")
+                    search_value = f"%{clean_search}%"
+                    params.extend([search_value] * 5)
+
+                from_clause = """
+                    FROM discharge_summaries ds
+                    LEFT JOIN patients p ON p.id = ds.patient_id
+                    LEFT JOIN admissions a ON a.admission_id = ds.admission_id
+                    LEFT JOIN departments dep ON dep.id = a.department_id
+                    LEFT JOIN wards w ON w.ward_id = a.ward_id
+                    LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
+                """
+                where_sql = " AND ".join(where)
+                cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
+                total = int((cur.fetchone() or {}).get("total") or 0)
+                cur.execute(f"""
+                    SELECT
+                        ds.patient_id,
+                        p.patient_code,
+                        p.first_name,
+                        p.last_name,
+                        CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) AS patient_name,
+                        p.date_of_birth,
+                        EXTRACT(YEAR FROM AGE(p.date_of_birth))::int AS age,
+                        p.gender,
+                        p.preferred_language,
+                        ds.summary_id AS admission_id,
+                        a.admission_number,
+                        ds.admission_date,
+                        ds.discharge_date,
+                        ds.diagnoses AS diagnosis,
+                        COALESCE(
+                            NULLIF(BTRIM(dep.department_name), ''),
+                            NULLIF(BTRIM(w.ward_name), ''),
+                            'Inpatient Ward'
+                        ) AS department,
+                        COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS doctor,
+                        COALESCE(ds.doctor_id, a.doctor_id) AS doctor_id,
+                        'Discharged' AS patient_type,
+                        'Discharged' AS status,
+                        COALESCE(pi.insurance_provider, ic.insurance_provider, 'Self-pay') AS insurer
+                    {from_clause}
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM patient_insurance
+                        WHERE patient_id = ds.patient_id
+                        ORDER BY (LOWER(COALESCE(status, '')) = 'active') DESC, insurance_id DESC
+                        LIMIT 1
+                    ) pi ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT insurance_provider FROM insurance_claims
+                        WHERE patient_id = ds.patient_id
+                        ORDER BY claim_date DESC, claim_id DESC LIMIT 1
+                    ) ic ON TRUE
+                    WHERE {where_sql}
+                    ORDER BY ds.discharge_date DESC NULLS LAST, ds.summary_id DESC
+                    LIMIT %s OFFSET %s
+                """, tuple(params + [page_limit, page_offset]))
+                rows = cur.fetchall()
+
+            return {
+                "success": True,
+                "scope": "historical",
+                "category": historical_category,
+                "total": total,
+                "count": len(rows),
+                "limit": page_limit,
+                "offset": page_offset,
+                "data": rows,
+            }
 
         # 1. Inpatients (IP)
         if cat in ("ALL", "IP"):
@@ -2313,5 +2584,3 @@ def get_patient_ai_activity(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
-
-

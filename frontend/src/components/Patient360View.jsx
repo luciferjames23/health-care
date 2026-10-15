@@ -644,12 +644,17 @@ export default function Patient360View({
 
     const uhid = d.mrn || d.uhid || raw.patient_code || demo.patient_number || livePatientDetails?.patient_code || (rawPid ? `MER-PAT-${String(rawPid).padStart(7, '0')}` : 'MER-PAT-0000000');
     const age = liveAdmission?.age_at_admission || raw.age_at_admission || demo.age_at_admission || computedAge || livePatientDetails?.age || d.age || raw.age || '—';
-    const rawSex = liveAdmission?.gender || raw.gender || demo.gender || livePatientDetails?.gender || d.sex || d.gender || 'Unknown';
-    const sex = (rawSex.toLowerCase().startsWith('f'))
+    const rawSex = livePatientDetails?.gender || liveAdmission?.gender || raw.gender || demo.gender || d.sex || d.gender || 'Unknown';
+    const normalizedSex = rawSex.trim().toLowerCase();
+    const sex = normalizedSex.startsWith('f')
       ? 'Female'
-      : (rawSex.toLowerCase().startsWith('m') || rawSex.toLowerCase() === 'other')
+      : normalizedSex.startsWith('m')
         ? 'Male'
-        : rawSex;
+        : normalizedSex === 'other'
+          ? 'Other'
+          : ['unspecified', 'unknown', 'n/a', 'na'].includes(normalizedSex)
+            ? 'Not recorded'
+            : rawSex;
     const lang = d.language || d.lang || demo.preferred_language || raw.preferred_language || livePatientDetails?.preferred_language || 'English';
     const blood = d.bloodGroup || d.blood || demo.blood_group || raw.blood_group || livePatientDetails?.blood_group || 'B+';
     const phone = d.phone || demo.phone || raw.phone || livePatientDetails?.phone || (rawPid ? `+9198100${String(rawPid).slice(-4)}` : '+91 98100 00000');

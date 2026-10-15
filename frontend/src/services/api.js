@@ -711,6 +711,12 @@ export const apiService = {
     return await this.getDischargedPatients(params, options);
   },
 
+  async getInsuranceReviews(params = {}, options = {}) {
+    const q = new URLSearchParams();
+    if (params.limit) q.append('limit', params.limit);
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/insurance-reviews?${q.toString()}`, options);
+  },
+
   async getGeneratedDischargeSummariesSummary(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries/summary`, options);
   },
@@ -2274,6 +2280,8 @@ export const apiService = {
     if (params.search) query.append('search', params.search);
     if (params.patient_id) query.append('patient_id', params.patient_id);
     if (params.status) query.append('status', params.status);
+    if (params.scope) query.append('scope', params.scope);
+    if (params.doctor_id) query.append('doctor_id', params.doctor_id);
     if (params.page) query.append('page', params.page);
     if (params.per_page) query.append('per_page', params.per_page);
     return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients?${query.toString()}`, {
@@ -2289,6 +2297,8 @@ export const apiService = {
     if (params.category) query.append('category', params.category);
     if (params.search) query.append('search', params.search);
     if (params.doctor_id) query.append('doctor_id', params.doctor_id);
+    if (params.doctor_name) query.append('doctor_name', params.doctor_name);
+    if (params.scope) query.append('scope', params.scope);
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/all-patients?${query.toString()}`, {
@@ -3669,7 +3679,7 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
     if (processedAdmissionKeys.has(matchKey)) return;
     processedAdmissionKeys.add(matchKey);
 
-    const adm = (aid && admMap['adm_' + aid]) || admMap[pid] || {};
+    const adm = aid ? (admMap['adm_' + aid] || {}) : (admMap[pid] || {});
     const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
     const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
     const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
@@ -3708,4 +3718,3 @@ export function computeDischargeCasesCount(rawSummaries = [], rawAdmissions = []
   }
   return cases.length;
 }
-

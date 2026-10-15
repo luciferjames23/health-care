@@ -59,7 +59,7 @@ export const ROLE_PAGE_ACCESS = {
   'Auditor': null, // Full platform access
   'Doctor': [
     // 8 Core Data Pages (preserved)
-    'command', 'patients', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'diagnostic-coordination', 'radiology', 'discharge-agent', 'followup-agent',
+    'command', 'patients', 'patients-op', 'admissions', 'bedboard', 'discharge', 'clinical', 'criticalvalues', 'diagnostics', 'diagnostic-coordination', 'radiology', 'discharge-agent', 'followup-agent',
     // Operational & Clinical
     'appointments', 'emergency', 'pre-admission', 'soap', 'patient360', 'sbar', 'lab', 'surgery', 'otschedule', 'deathmlc', 'feedback',
     // Pharmacy & Supply Chain
@@ -342,4 +342,3 @@ export function getMeridianStore(onUpdate) {
   cachedInstance = { api, M, V, v6, erp5 };
   return cachedInstance;
 }
-

@@ -1191,6 +1191,7 @@ export interface RoleKpis {
 
   // Doctor-specific
   active_ip_cases?: number;
+  op_patients?: number;
   appointments_upcoming?: number;
   appointments_completed_today?: number;
   lab_orders_pending?: number;

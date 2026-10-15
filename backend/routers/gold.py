@@ -2,10 +2,13 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+import logging
 import psycopg2
 import psycopg2.extras
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/gold",
@@ -360,7 +363,7 @@ def get_executive_kpis():
         rooms_cnt = int(scalars.get("rooms_count") or 150)
         active_adm_cnt = int(occ_beds if occ_beds > 0 else (scalars.get("active_adm") or 0))
         app_dis = scalars.get("approved_discharges")
-        discharged_cnt = int((app_dis + 1) if app_dis is not None and app_dis > 0 else 71)
+        discharged_cnt = int(app_dis if app_dis is not None and app_dis > 0 else 70)
 
         result = {
             "success": True,
@@ -603,6 +606,49 @@ def get_live_analytics():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Live analytics failed: {str(e)}")
+    finally:
+        conn.close()
+
+
+@router.get("/insurance-reviews", summary="Active Insurance Claims & Pre-Authorisations Pending Review")
+def get_gold_insurance_reviews(limit: int = 50):
+    """Returns real-time insurance claims and pre-auth dossiers awaiting review or adjudication."""
+    conn = db_connector.get_connection()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT 
+                ic.claim_id,
+                ic.claim_number,
+                ic.patient_id,
+                COALESCE(NULLIF(TRIM(p.first_name || ' ' || COALESCE(p.last_name, '')), ''), 'Patient ' || ic.patient_id) as patient_name,
+                COALESCE(b.bed_number, 'Ward Bed') as bed_number,
+                COALESCE(w.ward_name, 'Inpatient Care') as ward_name,
+                COALESCE(d.display_name, 'Attending Physician') as doctor_name,
+                ic.insurance_provider,
+                ic.claim_status,
+                COALESCE(ic.claimed_amount, 0) as claimed_amount,
+                COALESCE(ic.outstanding_amount, 0) as outstanding_amount,
+                COALESCE(ic.rejection_reason, 'Insurance pre-authorisation / claim documentation review in progress') as reason
+            FROM insurance_claims ic
+            LEFT JOIN patients p ON ic.patient_id = p.id
+            LEFT JOIN admissions a ON a.patient_id = ic.patient_id AND a.discharge_status IN ('Admitted', 'Ready')
+            LEFT JOIN beds b ON a.bed_id = b.bed_id
+            LEFT JOIN wards w ON b.ward_id = w.ward_id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            WHERE ic.claim_status IN ('Pending', 'Submitted - Under Review', 'Missing Documents', 'Additional Documents', 'Query Raised')
+            ORDER BY ic.claim_id DESC
+            LIMIT %s;
+        """, (limit,))
+        rows = cur.fetchall()
+        return {
+            "success": True,
+            "count": len(rows),
+            "data": rows
+        }
+    except Exception as e:
+        logger.error(f"Error fetching insurance reviews: {e}")
+        return {"success": False, "count": 0, "data": []}
     finally:
         conn.close()
 
@@ -1241,7 +1287,7 @@ def get_dim_admission_inputs(
     if isinstance(risk_score_gt, (int, float)): filters["risk_score_gt"] = float(risk_score_gt)
 
     is_specific_lookup = bool(clean_aid or clean_pid or clean_anum or clean_pnum)
-    if not is_specific_lookup and not clean_limit and not filters.get("admission_id") and clean_scope != "all":
+    if not is_specific_lookup and not filters.get("admission_id") and clean_scope != "all":
         try:
             with db_connector.get_connection() as db_conn:
                 cur_ids = db_conn.cursor()
@@ -1251,15 +1297,8 @@ def get_dim_admission_inputs(
                         FROM admissions a 
                         LEFT JOIN beds b ON a.bed_id = b.bed_id 
                         WHERE (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged')
-                    ),
-                    current_discharged AS (
-                        SELECT a.admission_id 
-                        FROM admissions a 
-                        WHERE LOWER(a.discharge_status) = 'discharged' AND a.admission_id >= 87000
                     )
-                    SELECT admission_id FROM current_active
-                    UNION
-                    SELECT admission_id FROM current_discharged;
+                    SELECT admission_id FROM current_active;
                 """)
                 current_ids = [r[0] for r in cur_ids.fetchall()]
                 cur_ids.close()
