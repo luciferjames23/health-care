@@ -165,6 +165,7 @@ export default function PatientsView({
             const isReady = String(r.discharge_status || '').trim().toLowerCase() === 'ready';
             actualAdmitted.push({
               ...parsed,
+              doctor_id: r.doctor_id || parsed.doctor_id,
               name: pName,
               patient_name: pName,
               doctor: docName,

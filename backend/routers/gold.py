@@ -1245,11 +1245,10 @@ def get_dim_admission_inputs(
                 cur_ids = db_conn.cursor()
                 cur_ids.execute("""
                     WITH current_active AS (
-                        SELECT DISTINCT ON (b.bed_id) a.admission_id 
+                        SELECT a.admission_id 
                         FROM admissions a 
-                        JOIN beds b ON a.bed_id = b.bed_id 
-                        WHERE b.status = 'Occupied' AND (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged') 
-                        ORDER BY b.bed_id, a.admission_id DESC
+                        LEFT JOIN beds b ON a.bed_id = b.bed_id 
+                        WHERE (a.discharge_status IS NULL OR LOWER(a.discharge_status) != 'discharged')
                     ),
                     current_discharged AS (
                         SELECT a.admission_id 
@@ -1307,6 +1306,7 @@ def get_dim_admission_inputs(
                 SELECT {distinct_clause}
                     a.admission_id,
                     a.patient_id,
+                    a.doctor_id,
                     p.patient_code AS patient_number,
                     (p.first_name || ' ' || COALESCE(p.last_name, '')) AS patient_name,
                     p.first_name,
@@ -2232,12 +2232,24 @@ def update_dim_generated_discharge_summary(
                 db_connector.execute_custom_query(
                     f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = {target_aid}"
                 )
+                db_connector.execute_custom_query(
+                    f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = {target_aid} AND bed_id IS NOT NULL) OR bed_number IN (SELECT bed_number FROM dim_admission_inputs WHERE admission_id = {target_aid} AND bed_number IS NOT NULL)"
+                )
+                db_connector.execute_custom_query(
+                    f"UPDATE pre_admissions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE admission_id = {target_aid} AND status != 'CANCELLED'"
+                )
             elif target_pid:
                 db_connector.execute_custom_query(
                     f"UPDATE admissions SET discharge_status = 'Discharged', discharge_date = '{now_str}' WHERE patient_id = {target_pid}"
                 )
                 db_connector.execute_custom_query(
                     f"UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE patient_id = {target_pid}"
+                )
+                db_connector.execute_custom_query(
+                    f"UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE patient_id = {target_pid} AND bed_id IS NOT NULL) OR bed_number IN (SELECT bed_number FROM dim_admission_inputs WHERE patient_id = {target_pid} AND bed_number IS NOT NULL)"
+                )
+                db_connector.execute_custom_query(
+                    f"UPDATE pre_admissions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE patient_id = {target_pid} AND status != 'CANCELLED'"
                 )
         except Exception as e_adm:
             print(f"[WARN] Failed to sync admissions on gold discharge approval: {e_adm}")

@@ -465,6 +465,19 @@ def _perform_discharge_summary_update(identifier: str, payload: DischargeSummary
             except Exception as e_bed:
                 print(f"[WARN] Failed to release bed on discharge approval: {e_bed}")
 
+            # 4. Update linked pre_admissions status to COMPLETED
+            try:
+                if target_aid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE pre_admissions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE admission_id = {target_aid} AND status != 'CANCELLED'"
+                    )
+                elif target_pid:
+                    db_connector.execute_custom_query(
+                        f"UPDATE pre_admissions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE patient_id = {target_pid} AND status != 'CANCELLED'"
+                    )
+            except Exception as e_pa:
+                print(f"[WARN] Failed to sync pre_admissions on discharge approval: {e_pa}")
+
         elif approval_val in ("pending review", "pending approval", "in progress"):
             # If status was reverted back to pending, restore admission & bed status
             try:

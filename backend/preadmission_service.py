@@ -21,6 +21,78 @@ class PreAdmissionValidationError(Exception):
     pass
 
 
+CANONICAL_ADMISSION_TYPES: List[str] = [
+    "Direct Admission",
+    "Elective",
+    "Emergency",
+    "Urgent",
+    "Routine",
+    "Day Care",
+    "Maternity / Obstetric",
+    "Medical",
+    "Newborn / Neonatal",
+    "Observation",
+    "Psychiatric",
+    "Readmission",
+    "Rehabilitation",
+    "Surgical",
+    "Transfer In",
+    "Inpatient",
+]
+
+# Normalization mapping: maps lowercased canonical names and unambiguous legacy aliases to canonical form.
+ADMISSION_TYPE_MAP: Dict[str, str] = {
+    # Exact canonical (lowercase keys)
+    "direct admission": "Direct Admission",
+    "elective": "Elective",
+    "emergency": "Emergency",
+    "urgent": "Urgent",
+    "routine": "Routine",
+    "day care": "Day Care",
+    "maternity / obstetric": "Maternity / Obstetric",
+    "maternity/obstetric": "Maternity / Obstetric",
+    "maternity": "Maternity / Obstetric",
+    "medical": "Medical",
+    "newborn / neonatal": "Newborn / Neonatal",
+    "newborn/neonatal": "Newborn / Neonatal",
+    "neonatal": "Newborn / Neonatal",
+    "newborn": "Newborn / Neonatal",
+    "observation": "Observation",
+    "psychiatric": "Psychiatric",
+    "readmission": "Readmission",
+    "rehabilitation": "Rehabilitation",
+    "surgical": "Surgical",
+    "transfer in": "Transfer In",
+    "inpatient": "Inpatient",
+
+    # Unambiguous legacy values
+    "daycare": "Day Care",
+    "surgery": "Surgical",
+}
+
+
+def normalize_admission_type(admission_type: Optional[str]) -> str:
+    """
+    Validates and normalizes admission_type against canonical hospital admission types.
+    Preserves exact canonical names (e.g. 'Direct Admission', 'Day Care', 'Surgical').
+    Maps unambiguous legacy values (e.g. 'DAYCARE' -> 'Day Care', 'SURGERY' -> 'Surgical', 'INPATIENT' -> 'Inpatient').
+    Does NOT silently map 'Direct Admission' to 'Inpatient'.
+    Raises PreAdmissionValidationError for unsupported values.
+    """
+    if not admission_type or not str(admission_type).strip():
+        raise PreAdmissionValidationError("admission_type is required.")
+
+    raw = str(admission_type).strip()
+    key = raw.lower()
+
+    normalized = ADMISSION_TYPE_MAP.get(key)
+    if not normalized:
+        raise PreAdmissionValidationError(
+            f"Invalid admission_type '{raw}'. Allowed: {sorted(CANONICAL_ADMISSION_TYPES)}"
+        )
+    return normalized
+
+
 def generate_pre_admission_code(cur) -> str:
     """Generates a unique pre_admission_code (e.g., PAD0001)."""
     cur.execute("SELECT COUNT(*) FROM pre_admissions;")
@@ -98,11 +170,8 @@ def create_pre_admission(
         except ValueError:
             raise PreAdmissionValidationError("Invalid expected_admission_date format. Expected YYYY-MM-DD.")
 
-        # 7. Validate Admission Type
-        valid_types = {"INPATIENT", "SURGERY", "DAYCARE"}
-        adm_type_clean = admission_type.strip().upper()
-        if adm_type_clean not in valid_types:
-            raise PreAdmissionValidationError(f"Invalid admission_type '{admission_type}'. Allowed: {list(valid_types)}")
+        # 7. Validate & Normalize Admission Type
+        adm_type_clean = normalize_admission_type(admission_type)
 
         # 8. Handle existing active pre-admission records for patient
         cur.execute("""
@@ -466,12 +535,20 @@ def get_pre_admissions(
                    pa.expected_admission_date, TO_CHAR(pa.expected_checkin_time, 'HH24:MI') as expected_checkin_time,
                    pa.admission_type, pa.status, pa.pending_documents, pa.submitted_documents,
                    pa.instructions, pa.remarks, pa.created_at, pa.updated_at,
-                   (SELECT n.status FROM notifications n WHERE n.patient_id = pa.patient_id AND n.notification_type = 'ADMISSION_REMINDER' ORDER BY n.id DESC LIMIT 1) as last_notif_status
+                   (SELECT n.status FROM notifications n WHERE n.patient_id = pa.patient_id AND n.notification_type = 'ADMISSION_REMINDER' ORDER BY n.id DESC LIMIT 1) as last_notif_status,
+                   pa.admission_id, a.admission_number, a.discharge_status as admission_status,
+                   a.ward_id, w.ward_name,
+                   b.room_id, r.room_number,
+                   a.bed_id, b.bed_number, b.status as bed_status
             FROM pre_admissions pa
             LEFT JOIN patients p ON pa.patient_id = p.id
             LEFT JOIN doctors d ON pa.doctor_id = d.id
             LEFT JOIN departments dept ON pa.department_id = dept.id
             LEFT JOIN appointments appt ON pa.appointment_id = appt.id
+            LEFT JOIN admissions a ON pa.admission_id = a.admission_id
+            LEFT JOIN beds b ON a.bed_id = b.bed_id
+            LEFT JOIN rooms r ON b.room_id = r.room_id
+            LEFT JOIN wards w ON (a.ward_id = w.ward_id OR b.ward_id = w.ward_id)
         """
         conditions = []
         params = []
@@ -489,8 +566,8 @@ def get_pre_admissions(
             params.append(status.upper())
 
         if admission_type:
-            conditions.append("pa.admission_type = %s")
-            params.append(admission_type.upper())
+            conditions.append("LOWER(pa.admission_type) = LOWER(%s)")
+            params.append(admission_type.strip())
 
         if admission_date:
             conditions.append("pa.expected_admission_date = %s")
@@ -506,9 +583,11 @@ def get_pre_admissions(
                 LOWER(COALESCE(p.first_name || ' ' || COALESCE(p.last_name, ''), '')) LIKE %s OR
                 LOWER(COALESCE(p.phone, '')) LIKE %s OR
                 LOWER(COALESCE(p.whatsapp_number, '')) LIKE %s OR
-                LOWER(COALESCE(d.display_name, '')) LIKE %s
+                LOWER(COALESCE(d.display_name, '')) LIKE %s OR
+                LOWER(COALESCE(a.admission_number, '')) LIKE %s OR
+                LOWER(COALESCE(b.bed_number, '')) LIKE %s
             )""")
-            params.extend([s, s, s, s, s, s, s, s])
+            params.extend([s, s, s, s, s, s, s, s, s, s])
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
@@ -542,12 +621,536 @@ def get_pre_admissions(
                 "remarks": r[21],
                 "created_at": str(r[22]) if r[22] else None,
                 "updated_at": str(r[23]) if r[23] else None,
-                "notification_status": r[24] or "NOT_SENT"
+                "notification_status": r[24] or "NOT_SENT",
+                "admission_id": r[25],
+                "admission_number": r[26],
+                "admission_status": r[27],
+                "ward_id": r[28],
+                "ward_name": r[29],
+                "room_id": r[30],
+                "room_number": r[31],
+                "bed_id": r[32],
+                "bed_number": r[33],
+                "bed_status": r[34] or ("Occupied" if r[32] else "Pending Allocation")
             })
         return result
     except Exception as e:
         print(f"[ERROR] Failed to query pre-admissions: {e}")
         return []
+    finally:
+        cur.close()
+        conn.close()
+
+
+def confirm_or_link_admission(pre_admission_id: int, cur=None, conn=None) -> Dict[str, Any]:
+    """
+    Authoritatively creates or links an inpatient admission for a confirmed pre-admission.
+    Ensures:
+      - Idempotency: reuses existing active admission if already linked or active for patient.
+      - Patient identity preserved: references existing patient_id.
+      - Doctor & Department mapped: uses pre_admission doctor_id and department_id.
+      - Valid patient_visits record linked to admissions.visit_id for clinical/SOAP continuity.
+      - dim_admission_inputs synchronized so patient appears in Admissions and Clinical workspaces.
+      - Dual foreign key linkage: pre_admissions.admission_id <-> admissions.pre_admission_id.
+    """
+    should_close = False
+    if conn is None:
+        conn = db_config.get_db_connection()
+        cur = conn.cursor()
+        should_close = True
+
+    try:
+        # Lock pre-admission record
+        cur.execute("""
+            SELECT id, pre_admission_code, patient_id, doctor_id, department_id,
+                   admission_type, expected_admission_date, instructions, remarks, admission_id, status
+            FROM pre_admissions
+            WHERE id = %s
+            FOR UPDATE;
+        """, (pre_admission_id,))
+        pa_row = cur.fetchone()
+        if not pa_row:
+            raise PreAdmissionValidationError(f"Pre-admission ID {pre_admission_id} not found.")
+
+        (pa_id, pa_code, pat_id, doc_id, dept_id,
+         adm_type, exp_date, instructions, remarks, existing_adm_id, cur_status) = pa_row
+
+        try:
+            clean_adm_type = normalize_admission_type(adm_type) if adm_type else "Elective"
+        except PreAdmissionValidationError:
+            clean_adm_type = str(adm_type or "Elective").strip()
+        clinical_reason = instructions or remarks or f"Scheduled {clean_adm_type} Admission"
+
+        # 1. Check if pre_admissions already has a valid active admission linked
+        if existing_adm_id:
+            cur.execute("""
+                SELECT admission_id, admission_number, patient_id, discharge_status, ward_id, bed_id
+                FROM admissions
+                WHERE admission_id = %s;
+            """, (existing_adm_id,))
+            linked_adm = cur.fetchone()
+            if linked_adm:
+                adm_id, adm_num, adm_pid, disc_st, w_id, b_id = linked_adm
+                if str(disc_st or "").strip().lower() != "discharged":
+                    # Synchronize doctor, department, admission_type, and clinical reason
+                    cur.execute("""
+                        UPDATE admissions
+                        SET doctor_id = %s,
+                            department_id = %s,
+                            admission_type = COALESCE(NULLIF(%s, ''), admission_type),
+                            reason_for_admission = COALESCE(NULLIF(%s, ''), reason_for_admission),
+                            pre_admission_id = %s
+                        WHERE admission_id = %s;
+                    """, (doc_id, dept_id, clean_adm_type, clinical_reason, pa_id, adm_id))
+
+                    # Ensure active patient_visits record is linked
+                    cur.execute("SELECT visit_id FROM admissions WHERE admission_id = %s;", (adm_id,))
+                    v_check = cur.fetchone()
+                    if not v_check or not v_check[0]:
+                        cur.execute("""
+                            SELECT visit_id FROM patient_visits
+                            WHERE patient_id = %s AND doctor_id = %s AND (visit_status IS NULL OR visit_status IN ('In Progress', 'Active'))
+                            ORDER BY visit_id DESC LIMIT 1;
+                        """, (pat_id, doc_id))
+                        v_row = cur.fetchone()
+                        if v_row:
+                            visit_id = v_row[0]
+                        else:
+                            cur.execute("SELECT COALESCE(MAX(visit_id), 0) + 1 FROM patient_visits;")
+                            visit_id = cur.fetchone()[0]
+                            cur.execute("""
+                                INSERT INTO patient_visits (
+                                    visit_id, patient_id, doctor_id, department_id,
+                                    visit_date, visit_type, chief_complaint, visit_status
+                                ) VALUES (
+                                    %s, %s, %s, %s,
+                                    CURRENT_TIMESTAMP, 'Inpatient', %s, 'In Progress'
+                                );
+                            """, (visit_id, pat_id, doc_id, dept_id, clinical_reason))
+                        cur.execute("UPDATE admissions SET visit_id = %s WHERE admission_id = %s;", (visit_id, adm_id))
+
+                    # Synchronize dim_admission_inputs
+                    cur.execute("SELECT display_name, specialization, qualification FROM doctors WHERE id = %s;", (doc_id,))
+                    d_row = cur.fetchone()
+                    doc_name, doc_spec, doc_qual = d_row if d_row else ("Attending Physician", "General Medicine", "MBBS, MD")
+                    cur.execute("""
+                        UPDATE dim_admission_inputs
+                        SET attending_doctor = %s,
+                            doctor_specialization = %s,
+                            doctor_qualification = %s,
+                            admission_type = COALESCE(NULLIF(%s, ''), admission_type),
+                            reason_for_admission = COALESCE(NULLIF(%s, ''), reason_for_admission)
+                        WHERE admission_id = %s;
+                    """, (doc_name, doc_spec, doc_qual, clean_adm_type, clinical_reason, adm_id))
+
+                    if should_close:
+                        conn.commit()
+                    return {
+                        "success": True,
+                        "admission_id": adm_id,
+                        "admission_number": adm_num,
+                        "patient_id": adm_pid,
+                        "discharge_status": disc_st,
+                        "ward_id": w_id,
+                        "bed_id": b_id,
+                        "already_linked": True,
+                        "message": f"Admission {adm_num} already linked."
+                    }
+
+        # 2. Check if patient already has an active inpatient admission under the SAME doctor
+        cur.execute("""
+            SELECT admission_id, admission_number, patient_id, discharge_status, ward_id, bed_id
+            FROM admissions
+            WHERE patient_id = %s AND doctor_id = %s AND (discharge_status IS NULL OR LOWER(discharge_status) != 'discharged')
+            ORDER BY admission_id DESC LIMIT 1;
+        """, (pat_id, doc_id))
+        active_adm = cur.fetchone()
+        if active_adm:
+            adm_id, adm_num, adm_pid, disc_st, w_id, b_id = active_adm
+            cur.execute("""
+                UPDATE pre_admissions
+                SET admission_id = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s;
+            """, (adm_id, pa_id))
+            cur.execute("""
+                UPDATE admissions
+                SET pre_admission_id = %s
+                WHERE admission_id = %s AND pre_admission_id IS NULL;
+            """, (pa_id, adm_id))
+            if should_close:
+                conn.commit()
+            return {
+                "success": True,
+                "admission_id": adm_id,
+                "admission_number": adm_num,
+                "patient_id": adm_pid,
+                "discharge_status": disc_st,
+                "ward_id": w_id,
+                "bed_id": b_id,
+                "already_linked": False,
+                "linked_existing": True,
+                "message": f"Linked active admission {adm_num} to pre-admission {pa_code}."
+            }
+
+        # 3. Create a new authoritative inpatient admission
+        cur.execute("""
+            SELECT GREATEST(
+                (SELECT COALESCE(MAX(admission_id), 0) FROM admissions),
+                (SELECT COALESCE(MAX(admission_id), 0) FROM dim_admission_inputs)
+            ) + 1;
+        """)
+        next_adm_id = cur.fetchone()[0]
+        adm_number = f"MER-ADM-{str(next_adm_id).zfill(7)}"
+
+        # Ensure an active patient_visits record exists for clinical/SOAP continuity
+        cur.execute("""
+            SELECT visit_id FROM patient_visits
+            WHERE patient_id = %s AND doctor_id = %s AND (visit_status IS NULL OR visit_status IN ('In Progress', 'Active'))
+            ORDER BY visit_id DESC LIMIT 1;
+        """, (pat_id, doc_id))
+        visit_row = cur.fetchone()
+        if visit_row:
+            visit_id = visit_row[0]
+        else:
+            cur.execute("SELECT COALESCE(MAX(visit_id), 0) + 1 FROM patient_visits;")
+            next_visit_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO patient_visits (
+                    visit_id, patient_id, doctor_id, department_id,
+                    visit_date, visit_type, chief_complaint, visit_status
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    CURRENT_TIMESTAMP, 'Inpatient', %s, 'In Progress'
+                ) RETURNING visit_id;
+            """, (next_visit_id, pat_id, doc_id, dept_id, instructions or remarks or "Pre-Admission Clearance"))
+            visit_id = cur.fetchone()[0]
+
+        try:
+            clean_adm_type = normalize_admission_type(adm_type) if adm_type else "Elective"
+        except PreAdmissionValidationError:
+            clean_adm_type = str(adm_type or "Elective").strip()
+
+        clinical_reason = instructions or remarks or "Pre-Admission Clearance"
+
+        # Insert into admissions table
+        cur.execute("""
+            INSERT INTO admissions (
+                admission_id, admission_number, patient_id, visit_id,
+                doctor_id, department_id, ward_id, bed_id,
+                admission_date, admission_type, admission_source,
+                reason_for_admission, discharge_status, pre_admission_id
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, NULL, NULL,
+                CURRENT_TIMESTAMP, %s, 'Pre-Admission',
+                %s, 'Admitted', %s
+            ) RETURNING admission_id;
+        """, (
+            next_adm_id, adm_number, pat_id, visit_id,
+            doc_id, dept_id, clean_adm_type,
+            clinical_reason, pa_id
+        ))
+        created_adm_id = cur.fetchone()[0]
+
+        # Update pre_admissions with linked admission_id
+        cur.execute("""
+            UPDATE pre_admissions
+            SET admission_id = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s;
+        """, (created_adm_id, pa_id))
+
+        # Populate dim_admission_inputs for lakehouse / gold view consistency
+        cur.execute("""
+            SELECT p.patient_code, p.first_name, p.last_name, p.gender, p.date_of_birth,
+                   p.blood_group, p.phone, p.email, p.address
+            FROM patients p WHERE p.id = %s;
+        """, (pat_id,))
+        p_row = cur.fetchone()
+        pat_code, fn, ln, gender, dob, blood_group, phone, email, addr = (
+            p_row if p_row else ("PAT-0000", "Patient", "", "Other", None, "O+", "", "", "")
+        )
+
+        cur.execute("SELECT display_name, specialization, qualification FROM doctors WHERE id = %s;", (doc_id,))
+        d_row = cur.fetchone()
+        doc_name, doc_spec, doc_qual = (
+            d_row if d_row else ("Dr. Attending Physician", "General Medicine", "MBBS, MD")
+        )
+
+        cur.execute("""
+            INSERT INTO dim_admission_inputs (
+                admission_id, admission_number, patient_id, patient_number,
+                first_name, last_name, gender, age_at_admission, blood_group,
+                date_of_birth, preferred_language, phone, email, address,
+                admission_date, admission_type, admission_source, reason_for_admission,
+                discharge_status, current_stay_days, attending_doctor, doctor_specialization,
+                doctor_qualification, primary_diagnosis, secondary_diagnoses,
+                latest_temperature, latest_heart_rate, latest_systolic_bp, latest_diastolic_bp,
+                latest_oxygen_saturation, bill_number, bill_net_amount, bill_status,
+                bill_clearance_status, outstanding_balance, gold_ingestion_time,
+                bed_number, room_number, ward_name
+            ) VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, 35, %s,
+                %s, 'English', %s, %s, %s,
+                CURRENT_TIMESTAMP, %s, 'Pre-Admission', %s,
+                'Admitted', 1, %s, %s,
+                %s, %s, '[]',
+                98.6, 72, 120, 80,
+                98.0, %s, 0.0, 'Pending',
+                'Pending', 0.0, CURRENT_TIMESTAMP,
+                'Pending Allocation', 'Pending', 'Pending Allocation'
+            )
+            ON CONFLICT (admission_id) DO UPDATE SET
+                discharge_status = 'Admitted',
+                ward_name = EXCLUDED.ward_name,
+                room_number = EXCLUDED.room_number,
+                bed_number = EXCLUDED.bed_number;
+        """, (
+            created_adm_id, adm_number, pat_id, pat_code or f"PAT-{pat_id}",
+            fn, ln, gender or "Other", blood_group or "O+",
+            dob, phone or "", email or "", addr or "",
+            clean_adm_type, clinical_reason,
+            doc_name, doc_spec or "General Medicine", doc_qual or "MBBS, MD",
+            clinical_reason, f"BILL-{30500 + created_adm_id % 1000}"
+        ))
+
+        if should_close:
+            conn.commit()
+
+        try:
+            from connectors.databricks_connector import DatabricksConnector
+            DatabricksConnector().clear_cache()
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "admission_id": created_adm_id,
+            "admission_number": adm_number,
+            "patient_id": pat_id,
+            "discharge_status": "Admitted",
+            "ward_id": None,
+            "bed_id": None,
+            "newly_created": True,
+            "message": f"Inpatient admission {adm_number} created and linked to pre-admission {pa_code}."
+        }
+
+    except Exception as e:
+        if should_close and conn:
+            conn.rollback()
+        raise e
+    finally:
+        if should_close and conn and not conn.closed:
+            cur.close()
+            conn.close()
+
+
+def allocate_bed_for_admission(
+    admission_id: int,
+    ward_id: int,
+    room_id: int,
+    bed_id: int,
+    doctor_id_restriction: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Allocates or transfers a bed for an authoritative admission.
+    Validates:
+      1. Admission exists and is active (not Discharged).
+      2. If doctor_id_restriction is provided, validates admission doctor matches.
+      3. Selected bed exists, belongs to room_id and ward_id, and room belongs to ward.
+      4. Selected bed is 'Available' (or currently assigned to this admission).
+      5. Re-allocates safely: releases any previously assigned bed back to 'Available'.
+      6. Sets target bed status to 'Occupied'.
+      7. Updates admissions.ward_id and admissions.bed_id.
+      8. Synchronizes dim_admission_inputs (ward_name, room_number, bed_number).
+      9. Atomic transaction with rollback on failure.
+    """
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. Lock Admission
+        cur.execute("""
+            SELECT a.admission_id, a.admission_number, a.patient_id, a.doctor_id, a.ward_id, a.bed_id, a.discharge_status,
+                   pa.status as pre_adm_status
+            FROM admissions a
+            LEFT JOIN pre_admissions pa ON (a.pre_admission_id = pa.id OR a.admission_id = pa.admission_id)
+            WHERE a.admission_id = %s
+            FOR UPDATE OF a;
+        """, (admission_id,))
+        adm_row = cur.fetchone()
+        if not adm_row:
+            raise PreAdmissionValidationError(f"Admission ID {admission_id} not found.")
+
+        aid, adm_num, pat_id, doc_id, old_ward_id, old_bed_id, disc_st, pa_st = adm_row
+        if str(disc_st or "").strip().lower() == "discharged":
+            raise PreAdmissionValidationError(f"Cannot allocate a bed to discharged admission {adm_num}.")
+
+        if str(pa_st or "").strip().upper() in ("CANCELLED", "COMPLETED"):
+            raise PreAdmissionValidationError(f"Cannot allocate bed: Linked pre-admission is {str(pa_st).lower()}.")
+
+        if doctor_id_restriction is not None and doc_id != doctor_id_restriction:
+            raise PreAdmissionValidationError("Unauthorized: Admission is assigned to another doctor.")
+
+        # 2. Lock & Validate Bed, Room, Ward hierarchy
+        cur.execute("""
+            SELECT b.bed_id, b.bed_number, b.status, b.room_id, b.ward_id,
+                   r.room_number, r.ward_id as room_ward_id,
+                   w.ward_name
+            FROM beds b
+            JOIN rooms r ON b.room_id = r.room_id
+            JOIN wards w ON b.ward_id = w.ward_id
+            WHERE b.bed_id = %s
+            FOR UPDATE;
+        """, (bed_id,))
+        bed_row = cur.fetchone()
+        if not bed_row:
+            raise PreAdmissionValidationError(f"Bed ID {bed_id} not found.")
+
+        bid, b_num, b_status, b_room_id, b_ward_id, r_num, r_ward_id, w_name = bed_row
+
+        if b_ward_id != ward_id:
+            raise PreAdmissionValidationError(f"Bed {b_num} belongs to ward ID {b_ward_id}, not selected ward ID {ward_id}.")
+        if b_room_id != room_id:
+            raise PreAdmissionValidationError(f"Bed {b_num} belongs to room ID {b_room_id}, not selected room ID {room_id}.")
+        if r_ward_id != ward_id:
+            raise PreAdmissionValidationError(f"Room {r_num} does not belong to selected ward ID {ward_id}.")
+
+        # 3. Availability check (Idempotent if already assigned to this admission)
+        if old_bed_id == bed_id:
+            return {
+                "success": True,
+                "admission_id": aid,
+                "admission_number": adm_num,
+                "bed_id": bed_id,
+                "bed_number": b_num,
+                "room_id": room_id,
+                "room_number": r_num,
+                "ward_id": ward_id,
+                "ward_name": w_name,
+                "message": f"Bed {b_num} is already allocated to admission {adm_num}."
+            }
+
+        if str(b_status).strip().lower() != "available":
+            raise PreAdmissionValidationError(f"Bed {b_num} is currently '{b_status}' and cannot be allocated.")
+
+        # 4. Release old bed if another bed was previously assigned
+        if old_bed_id and old_bed_id != bed_id:
+            cur.execute("UPDATE beds SET status = 'Available' WHERE bed_id = %s;", (old_bed_id,))
+
+        # 5. Mark new bed Occupied
+        cur.execute("UPDATE beds SET status = 'Occupied' WHERE bed_id = %s;", (bed_id,))
+
+        # 6. Update admission record
+        cur.execute("""
+            UPDATE admissions
+            SET ward_id = %s, bed_id = %s
+            WHERE admission_id = %s;
+        """, (ward_id, bed_id, aid))
+
+        # 7. Synchronize dim_admission_inputs
+        cur.execute("SELECT display_name, specialization FROM doctors WHERE id = %s;", (doc_id,))
+        d_info = cur.fetchone()
+        doc_disp_name = d_info[0] if d_info else "Attending Physician"
+        doc_spec_name = d_info[1] if d_info else "General Medicine"
+
+        cur.execute("""
+            UPDATE dim_admission_inputs
+            SET ward_name = %s,
+                room_number = %s,
+                bed_number = %s,
+                discharge_status = 'Admitted',
+                attending_doctor = COALESCE(NULLIF(%s, ''), attending_doctor),
+                doctor_specialization = COALESCE(NULLIF(%s, ''), doctor_specialization)
+            WHERE admission_id = %s;
+        """, (w_name, r_num, b_num, doc_disp_name, doc_spec_name, aid))
+
+        conn.commit()
+
+        try:
+            from connectors.databricks_connector import DatabricksConnector
+            DatabricksConnector().clear_cache()
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "admission_id": aid,
+            "admission_number": adm_num,
+            "patient_id": pat_id,
+            "bed_id": bed_id,
+            "bed_number": b_num,
+            "room_id": room_id,
+            "room_number": r_num,
+            "ward_id": ward_id,
+            "ward_name": w_name,
+            "message": f"Successfully allocated Bed {b_num} (Room: {r_num}, Ward: {w_name}) to admission {adm_num}."
+        }
+    except Exception as e:
+        conn.rollback()
+        if isinstance(e, PreAdmissionValidationError):
+            raise e
+        raise PreAdmissionValidationError(f"Database error during bed allocation: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_available_beds_hierarchy(ward_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Returns available beds grouped by ward and room for clean allocation UI."""
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        query = """
+            SELECT w.ward_id, w.ward_name, w.ward_type, w.floor_number,
+                   r.room_id, r.room_number, r.room_type,
+                   b.bed_id, b.bed_number, b.bed_type, b.daily_charge, b.status
+            FROM beds b
+            JOIN rooms r ON b.room_id = r.room_id
+            JOIN wards w ON b.ward_id = w.ward_id
+            WHERE b.status = 'Available'
+        """
+        params = []
+        if ward_id:
+            query += " AND b.ward_id = %s"
+            params.append(ward_id)
+        query += " ORDER BY w.ward_name, r.room_number, b.bed_number;"
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+        wards_map = {}
+        for r in rows:
+            (wid, wname, wtype, floor, rid, rnum, rtype, bid, bnum, btype, charge, bstatus) = r
+            if wid not in wards_map:
+                wards_map[wid] = {
+                    "ward_id": wid,
+                    "ward_name": wname,
+                    "ward_type": wtype,
+                    "floor_number": floor,
+                    "rooms": {}
+                }
+            if rid not in wards_map[wid]["rooms"]:
+                wards_map[wid]["rooms"][rid] = {
+                    "room_id": rid,
+                    "room_number": rnum,
+                    "room_type": rtype,
+                    "beds": []
+                }
+            wards_map[wid]["rooms"][rid]["beds"].append({
+                "bed_id": bid,
+                "bed_number": bnum,
+                "bed_type": btype,
+                "daily_charge": float(charge) if charge else 0.0,
+                "status": bstatus
+            })
+
+        result = []
+        for wid, w in wards_map.items():
+            rooms_list = []
+            for rid, r in w["rooms"].items():
+                rooms_list.append(r)
+            w["rooms"] = rooms_list
+            result.append(w)
+        return result
     finally:
         cur.close()
         conn.close()
@@ -560,17 +1163,24 @@ def update_pre_admission_status(
     pending_documents: Optional[str] = None,
     remarks: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Updates pre-admission status and document tracking."""
+    """
+    Updates pre-admission status and document tracking.
+    When transitioning to CONFIRMED, READY, or READY_FOR_ADMISSION:
+    authoritatively creates or links the inpatient admission in the same transaction!
+    """
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT id, status FROM pre_admissions WHERE id = %s;", (pre_admission_id,))
+        cur.execute("SELECT id, status, admission_id FROM pre_admissions WHERE id = %s;", (pre_admission_id,))
         row = cur.fetchone()
         if not row:
             return {"success": False, "error": f"Pre-admission ID {pre_admission_id} not found."}
 
+        current_pa_id, old_status, linked_aid = row
+
         updates = []
         params = []
+        st_clean = None
         if status:
             valid_statuses = {"PENDING", "CONTACTED", "CONFIRMED", "DOCUMENTS_PENDING", "READY", "READY_FOR_ADMISSION", "ESCALATED", "COMPLETED", "CANCELLED"}
             st_clean = status.strip().upper()
@@ -591,17 +1201,21 @@ def update_pre_admission_status(
             updates.append("remarks = %s")
             params.append(remarks)
 
-        if not updates:
-            return {"success": True, "message": "No changes specified."}
+        if updates:
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(pre_admission_id)
+            sql = f"UPDATE pre_admissions SET {', '.join(updates)} WHERE id = %s;"
+            cur.execute(sql, params)
 
-        updates.append("updated_at = CURRENT_TIMESTAMP")
-        params.append(pre_admission_id)
+        admission_info = None
 
-        sql = f"UPDATE pre_admissions SET {', '.join(updates)} WHERE id = %s;"
-        cur.execute(sql, params)
+        # ── Business Rule: If transitioning to CONFIRMED, READY, or READY_FOR_ADMISSION,
+        # create or link authoritative inpatient admission
+        if st_clean in {"CONFIRMED", "READY", "READY_FOR_ADMISSION"}:
+            admission_info = confirm_or_link_admission(pre_admission_id, cur=cur, conn=conn)
 
         # If cancelled, ensure any linked admission is discharged and bed is freed
-        if status and status.strip().upper() == 'CANCELLED':
+        if st_clean == 'CANCELLED':
             cur.execute("SELECT admission_id FROM pre_admissions WHERE id = %s;", (pre_admission_id,))
             linked_adm_row = cur.fetchone()
             if linked_adm_row and linked_adm_row[0]:
@@ -610,9 +1224,25 @@ def update_pre_admission_status(
                 cur.execute("UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = %s;", (linked_aid,))
                 cur.execute("UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = %s AND bed_id IS NOT NULL);", (linked_aid,))
 
+        # If completed, ensure linked admission is marked Discharged and bed is freed
+        if st_clean == 'COMPLETED':
+            cur.execute("SELECT admission_id FROM pre_admissions WHERE id = %s;", (pre_admission_id,))
+            linked_adm_row = cur.fetchone()
+            if linked_adm_row and linked_adm_row[0]:
+                linked_aid = linked_adm_row[0]
+                cur.execute("UPDATE admissions SET discharge_status = 'Discharged', discharge_date = CURRENT_DATE WHERE admission_id = %s AND (discharge_status IS NULL OR LOWER(discharge_status) != 'discharged');", (linked_aid,))
+                cur.execute("UPDATE dim_admission_inputs SET discharge_status = 'Discharged' WHERE admission_id = %s;", (linked_aid,))
+                cur.execute("UPDATE beds SET status = 'Available' WHERE bed_id IN (SELECT bed_id FROM admissions WHERE admission_id = %s AND bed_id IS NOT NULL);", (linked_aid,))
+
         conn.commit()
 
-        return {"success": True, "message": "Pre-admission updated successfully."}
+        res_payload = {"success": True, "message": "Pre-admission updated successfully."}
+        if admission_info:
+            res_payload["admission"] = admission_info
+            res_payload["admission_id"] = admission_info.get("admission_id")
+            res_payload["admission_number"] = admission_info.get("admission_number")
+
+        return res_payload
     except Exception as e:
         conn.rollback()
         return {"success": False, "error": str(e)}

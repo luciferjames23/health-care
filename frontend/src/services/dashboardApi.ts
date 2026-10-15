@@ -869,6 +869,79 @@ export interface PreAdmissionItem {
   created_at?: string | null;
   updated_at?: string | null;
   notification_status?: string | null;
+  admission_id?: number | null;
+  admission_number?: string | null;
+  admission_status?: string | null;
+  ward_id?: number | null;
+  ward_name?: string | null;
+  room_id?: number | null;
+  room_number?: string | null;
+  bed_id?: number | null;
+  bed_number?: string | null;
+  bed_status?: string | null;
+}
+
+export interface AvailableBed {
+  bed_id: number;
+  bed_number: string;
+  bed_type: string;
+  daily_charge: number;
+  status: string;
+}
+
+export interface AvailableRoom {
+  room_id: number;
+  room_number: string;
+  room_type: string;
+  beds: AvailableBed[];
+}
+
+export interface AvailableWard {
+  ward_id: number;
+  ward_name: string;
+  ward_type: string;
+  floor_number: number;
+  rooms: AvailableRoom[];
+}
+
+export async function fetchAvailableBedsHierarchy(wardId?: number): Promise<{ wards: AvailableWard[] }> {
+  const qs = wardId ? `?ward_id=${wardId}` : '';
+  const data = await apiFetch<{ wards?: AvailableWard[] }>(`/api/dashboard/beds/available${qs}`);
+  return { wards: Array.isArray(data?.wards) ? data.wards : [] };
+}
+
+export async function allocatePreAdmissionBed(
+  id: number,
+  payload: { ward_id: number; room_id: number; bed_id: number }
+): Promise<{
+  success: boolean;
+  admission_id?: number;
+  admission_number?: string;
+  bed_id?: number;
+  bed_number?: string;
+  ward_name?: string;
+  room_number?: string;
+  message?: string;
+  error?: string;
+}> {
+  const data = await apiFetch<any>(`/api/dashboard/pre-admissions/${id}/allocate-bed`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data ?? { success: false, error: 'Bed allocation failed' };
+}
+
+export async function confirmAndAdmitPreAdmission(id: number): Promise<{
+  success: boolean;
+  admission_id?: number;
+  admission_number?: string;
+  error?: string;
+  message?: string;
+}> {
+  const data = await apiFetch<any>(`/api/dashboard/pre-admissions/${id}/confirm-and-admit`, {
+    method: 'POST',
+  });
+  return data ?? { success: false, error: 'Confirmation failed' };
 }
 
 export interface NewPreAdmissionPayload {

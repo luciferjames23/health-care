@@ -3,12 +3,15 @@ import {
   fetchPreAdmissions, createPreAdmission, updatePreAdmissionStatus,
   sendPreAdmissionNotification, fetchPreAdmissionConversation,
   fetchDoctors, fetchDepartments, fetchPatients,
+  allocatePreAdmissionBed, confirmAndAdmitPreAdmission, fetchAvailableBedsHierarchy,
   format12HourTime,
-  type PreAdmissionItem, type Doctor, type Department, type Patient
+  type PreAdmissionItem, type Doctor, type Department, type Patient,
+  type AvailableWard, type AvailableRoom, type AvailableBed
 } from '../../services/dashboardApi';
 import {
   BedDouble, FileText, Bell, CheckCircle, MessageSquare, RefreshCw,
-  Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert
+  Plus, Search, Filter, AlertTriangle, Eye, Send, X, Clock, User, Check, ShieldAlert,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ModuleLoadingScreen, { CardGridSkeleton, TableSkeleton } from '../../components/ModuleLoadingScreen';
@@ -236,10 +239,22 @@ const STATUS_OPTIONS = [
 ];
 
 const ADMISSION_TYPES = [
-  'Emergency', 'Elective', 'Urgent', 'Routine', 'Direct Admission',
-  'Transfer In', 'Day Care', 'Maternity / Obstetric', 'Newborn / Neonatal',
-  'Psychiatric', 'Rehabilitation', 'Observation', 'Readmission',
-  'Surgical', 'Medical'
+  'Direct Admission',
+  'Elective',
+  'Emergency',
+  'Urgent',
+  'Routine',
+  'Day Care',
+  'Maternity / Obstetric',
+  'Medical',
+  'Newborn / Neonatal',
+  'Observation',
+  'Psychiatric',
+  'Readmission',
+  'Rehabilitation',
+  'Surgical',
+  'Transfer In',
+  'Inpatient'
 ];
 
 interface SearchableOption {
@@ -257,7 +272,9 @@ const SearchableSelect: React.FC<{
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
-}> = ({ label, options, value, onChange, placeholder, disabled, required }) => {
+  hasError?: boolean;
+  errorMsg?: string;
+}> = ({ label, options, value, onChange, placeholder, disabled, required, hasError, errorMsg }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapperRef = React.useRef<HTMLDivElement>(null);
@@ -287,7 +304,14 @@ const SearchableSelect: React.FC<{
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative', width: '100%' }}>
-      <label style={modalLabelStyle}>{label} {required && '*'}</label>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+        <label style={modalLabelStyle}>{label} {required && '*'}</label>
+        {errorMsg && (
+          <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 500 }}>
+            {errorMsg}
+          </span>
+        )}
+      </div>
 
       {/* Hidden input for HTML form validation */}
       <input
@@ -315,7 +339,8 @@ const SearchableSelect: React.FC<{
           justifyContent: 'space-between',
           cursor: disabled ? 'not-allowed' : 'pointer',
           background: disabled ? (selectedOpt ? '#f8fafc' : '#f4f5f6') : '#fff',
-          borderColor: open ? 'oklch(0.5 0.1 200)' : '#e3e6e8',
+          borderColor: hasError ? '#ef4444' : (open ? 'oklch(0.5 0.1 200)' : '#e3e6e8'),
+          boxShadow: hasError ? '0 0 0 1px #ef4444' : undefined,
           color: disabled ? '#334155' : '#15181b',
           fontWeight: disabled && selectedOpt ? 500 : 400,
         }}
@@ -445,6 +470,15 @@ const PreAdmissionPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showBedModal, setShowBedModal] = useState(false);
+
+  // Bed allocation modal state
+  const [availableWards, setAvailableWards] = useState<AvailableWard[]>([]);
+  const [selectedWardId, setSelectedWardId] = useState('');
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [selectedBedId, setSelectedBedId] = useState('');
+  const [loadingBeds, setLoadingBeds] = useState(false);
+  const [bedSubmitting, setBedSubmitting] = useState(false);
 
   // Selected item state
   const [selectedPa, setSelectedPa] = useState<PreAdmissionItem | null>(null);
@@ -466,6 +500,18 @@ const PreAdmissionPage: React.FC = () => {
   const [formRemarks, setFormRemarks] = useState('');
   const [formDocs, setFormDocs] = useState('Government ID, Insurance Card, Doctor Referral Note');
   const [submitting, setSubmitting] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const clearFieldError = (field: string) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    setModalError(null);
+  };
 
   // Status update form
   const [newStatus, setNewStatus] = useState('');
@@ -492,10 +538,19 @@ const PreAdmissionPage: React.FC = () => {
     }
   };
 
+  const isDoctorRole = Boolean(
+    user && (
+      String(user.role).toLowerCase() === 'doctor' ||
+      String((user as any)?.role).toUpperCase() === 'DOCTOR'
+    )
+  );
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const docId = isDoctorRole ? (user?.doctorId || (user as any)?.doctor_id) : undefined;
       const res = await fetchPreAdmissions({
+        doctor_id: docId ? Number(docId) : undefined,
         search: search || undefined,
         status: statusFilter || undefined,
         admission_type: typeFilter || undefined,
@@ -508,7 +563,7 @@ const PreAdmissionPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, typeFilter, dateFilter]);
+  }, [search, statusFilter, typeFilter, dateFilter, isDoctorRole, user]);
 
   useEffect(() => {
     const t = setTimeout(loadData, 300);
@@ -522,16 +577,11 @@ const PreAdmissionPage: React.FC = () => {
     fetchPatients({ per_page: 100 }).then(res => setPatients(res.patients || []));
   }, []);
 
-  const isDoctorRole = Boolean(
-    user && (
-      String(user.role).toLowerCase() === 'doctor' ||
-      String((user as any)?.role).toUpperCase() === 'DOCTOR'
-    )
-  );
-
   // Handle Doctor change in modal to auto-select department
   const handleDoctorSelect = useCallback((docIdStr: string) => {
     setFormDoctorId(docIdStr);
+    clearFieldError('doctor');
+    clearFieldError('department');
     if (!docIdStr) {
       setFormDeptId('');
       return;
@@ -544,6 +594,7 @@ const PreAdmissionPage: React.FC = () => {
 
   const handleDeptSelect = (deptIdStr: string) => {
     setFormDeptId(deptIdStr);
+    clearFieldError('department');
     if (formDoctorId && !isDoctorRole) {
       const selectedDoc = doctors.find(d => String(d.id) === String(formDoctorId));
       if (selectedDoc && String(selectedDoc.department_id) !== deptIdStr) {
@@ -640,11 +691,36 @@ const PreAdmissionPage: React.FC = () => {
   // Create Admission Submission
   const handleCreateAdmission = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formPatientId || !formDoctorId || !formDeptId || !formDate || !formType) {
-      showToastMsg('Please fill all required fields.', 'error');
+    if (submitting) return; // Prevent duplicate submissions
+
+    // Field-level client validation
+    const errors: Record<string, string> = {};
+    if (!formPatientId) {
+      errors.patient = 'Please select a patient';
+    }
+    if (!formDoctorId) {
+      errors.doctor = 'Please select an attending doctor';
+    }
+    if (!formDeptId) {
+      errors.department = 'Please select a department';
+    }
+    if (!formDate) {
+      errors.date = 'Expected admission date is required';
+    }
+    if (!formType || !ADMISSION_TYPES.includes(formType)) {
+      errors.admission_type = 'Please select a valid admission type';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setModalError('Please fill all required fields before registering.');
       return;
     }
+
     setSubmitting(true);
+    setModalError(null);
+    setFieldErrors({});
+
     try {
       const res = await createPreAdmission({
         patient_id: Number(formPatientId),
@@ -657,9 +733,9 @@ const PreAdmissionPage: React.FC = () => {
         remarks: formRemarks,
         pending_documents: formDocs
       });
-      if (res.success) {
-        // notification_status is 'SUBMITTED' when Meta API accepted the message,
-        // undefined/null when the notification was not attempted or failed.
+
+      if (res && res.success) {
+        // Notification feedback
         const notifOk = res.notification_status === 'SUBMITTED' || res.notification_status === 'SENT';
         if (notifOk) {
           const numDisplay = res.whatsapp_number ? ` (${res.whatsapp_number})` : '';
@@ -668,23 +744,60 @@ const PreAdmissionPage: React.FC = () => {
             'success'
           );
         } else {
-          // Admission DB record was committed; only the WhatsApp dispatch failed.
           const errDetail = res.notification_error || res.notification_detail || 'Check remarks for provider error';
           showToastMsg(
             `⚠️ Admission registered (Code: ${res.pre_admission_code}). WhatsApp notification not delivered: ${errDetail}`,
             'error'
           );
         }
+
+        // Close modal and reset form ONLY on backend confirmed success
         setShowAddModal(false);
-        // Reset form
         setFormPatientId('');
-        setFormDoctorId('');
-        setFormDeptId('');
+        if (!isDoctorRole) {
+          setFormDoctorId('');
+          setFormDeptId('');
+        }
         setFormDate('');
+        setFormTime('09:00');
+        setFormType('Elective');
+        setFormInstructions('');
+        setFormRemarks('');
+        setFormDocs('Government ID, Insurance Card, Doctor Referral Note');
+        setModalError(null);
+        setFieldErrors({});
+
         loadData();
       } else {
-        showToastMsg(`❌ Registration failed: ${res.error || 'Database error'}`, 'error');
+        // Registration failed: Keep modal OPEN, preserve ALL entered values!
+        const errMsg = res?.error || res?.message || 'Registration failed. Please review your submission.';
+        setModalError(errMsg);
+
+        // Assign to field errors if error specifies field
+        const lower = errMsg.toLowerCase();
+        const fErrors: Record<string, string> = {};
+        if (lower.includes('admission_type') || lower.includes('admission type')) {
+          fErrors.admission_type = errMsg;
+        }
+        if (lower.includes('doctor')) {
+          fErrors.doctor = errMsg;
+        }
+        if (lower.includes('department')) {
+          fErrors.department = errMsg;
+        }
+        if (lower.includes('patient')) {
+          fErrors.patient = errMsg;
+        }
+        if (lower.includes('date')) {
+          fErrors.date = errMsg;
+        }
+        if (Object.keys(fErrors).length > 0) {
+          setFieldErrors(fErrors);
+        }
       }
+    } catch (err: any) {
+      const netError = err?.message || 'An unexpected network error occurred while communicating with the server.';
+      setModalError(netError);
     } finally {
       setSubmitting(false);
     }
@@ -722,6 +835,79 @@ const PreAdmissionPage: React.FC = () => {
     }
   };
 
+  const handleOpenBedModal = async (pa: PreAdmissionItem) => {
+    setSelectedPa(pa);
+    setSelectedWardId(pa.ward_id ? String(pa.ward_id) : '');
+    setSelectedRoomId(pa.room_id ? String(pa.room_id) : '');
+    setSelectedBedId(pa.bed_id ? String(pa.bed_id) : '');
+    setShowBedModal(true);
+    setLoadingBeds(true);
+    try {
+      const res = await fetchAvailableBedsHierarchy();
+      setAvailableWards(res?.wards || []);
+      // If patient already has a ward, initialize it; otherwise auto-select first ward
+      if (!pa.ward_id && res?.wards && res.wards.length > 0) {
+        const firstW = res.wards[0];
+        setSelectedWardId(String(firstW.ward_id));
+        if (firstW.rooms && firstW.rooms.length > 0) {
+          const firstR = firstW.rooms[0];
+          setSelectedRoomId(String(firstR.room_id));
+          if (firstR.beds && firstR.beds.length > 0) {
+            setSelectedBedId(String(firstR.beds[0].bed_id));
+          }
+        }
+      }
+    } catch (err: any) {
+      showToastMsg(`Failed to load available beds: ${err.message}`, 'error');
+    } finally {
+      setLoadingBeds(false);
+    }
+  };
+
+  const handleAllocateBedSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPa || !selectedWardId || !selectedRoomId || !selectedBedId) {
+      showToastMsg('Please select Ward, Room, and Bed.', 'error');
+      return;
+    }
+    setBedSubmitting(true);
+    try {
+      const res = await allocatePreAdmissionBed(selectedPa.id, {
+        ward_id: Number(selectedWardId),
+        room_id: Number(selectedRoomId),
+        bed_id: Number(selectedBedId)
+      });
+      if (res.success) {
+        showToastMsg(`✓ ${res.message || 'Bed allocated successfully!'}`, 'success');
+        setShowBedModal(false);
+        loadData();
+      } else {
+        showToastMsg(`❌ Bed allocation failed: ${res.error}`, 'error');
+      }
+    } catch (err: any) {
+      showToastMsg(`❌ Bed allocation failed: ${err.message}`, 'error');
+    } finally {
+      setBedSubmitting(false);
+    }
+  };
+
+  const handleConfirmAndAdmit = async (pa: PreAdmissionItem) => {
+    setSubmitting(true);
+    try {
+      const res = await confirmAndAdmitPreAdmission(pa.id);
+      if (res.success) {
+        showToastMsg(`✓ Pre-admission confirmed & Inpatient Admission created (${res.admission_number || ''})!`, 'success');
+        loadData();
+      } else {
+        showToastMsg(`❌ Confirmation failed: ${res.error}`, 'error');
+      }
+    } catch (err: any) {
+      showToastMsg(`❌ Error: ${err.message}`, 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // KPIs
   const totalCount = preAdmissions?.length || 0;
   const pendingCount = (preAdmissions || []).filter(p => p.status === 'PENDING' || p.status === 'CONTACTED').length;
@@ -730,6 +916,8 @@ const PreAdmissionPage: React.FC = () => {
   const completedCount = (preAdmissions || []).filter(p => p.status === 'COMPLETED').length;
 
   const handleOpenAddModal = () => {
+    setModalError(null);
+    setFieldErrors({});
     setShowAddModal(true);
     if (isDoctorRole) {
       const docId = user?.doctorId || (user as any)?.doctor_id;
@@ -741,6 +929,12 @@ const PreAdmissionPage: React.FC = () => {
       setFormDoctorId('');
       setFormDeptId('');
     }
+  };
+
+  const handleCloseAddModal = () => {
+    setShowAddModal(false);
+    setModalError(null);
+    setFieldErrors({});
   };
 
   return (
@@ -955,17 +1149,18 @@ const PreAdmissionPage: React.FC = () => {
             <div>Try adjusting your search criteria or register a new admission.</div>
           </div>
         ) : (
-          <table style={{ width: '100%', minWidth: '1150px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <table style={{ width: '100%', minWidth: '1200px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
             <thead>
               <tr style={{ background: '#f6f7f8', borderBottom: '1px solid #e3e6e8' }}>
-                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Code</th>
-                <th style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Patient Details</th>
-                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Type</th>
-                <th style={{ padding: '10px 12px', width: '160px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Expected Date & Time</th>
-                <th style={{ padding: '10px 12px', minWidth: '170px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Department & Doctor</th>
-                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
-                <th style={{ padding: '10px 12px', width: '120px', minWidth: '120px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>WhatsApp Notif</th>
-                <th style={{ padding: '10px 12px', width: '140px', minWidth: '140px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
+                <th style={{ padding: '10px 12px', width: '100px', minWidth: '100px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Code</th>
+                <th style={{ padding: '10px 12px', minWidth: '170px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Patient Details</th>
+                <th style={{ padding: '10px 12px', width: '90px', minWidth: '90px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Type</th>
+                <th style={{ padding: '10px 12px', width: '145px', minWidth: '145px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Expected Date & Time</th>
+                <th style={{ padding: '10px 12px', minWidth: '160px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Doctor & Dept</th>
+                <th style={{ padding: '10px 12px', minWidth: '180px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>IP Admission & Bed</th>
+                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Status</th>
+                <th style={{ padding: '10px 12px', width: '110px', minWidth: '110px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>WhatsApp Notif</th>
+                <th style={{ padding: '10px 12px', width: '270px', minWidth: '270px', fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '.04em', color: '#52585e', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -973,6 +1168,24 @@ const PreAdmissionPage: React.FC = () => {
                 const sBadge = getStatusBadge(pa.status || 'Pending');
                 const nBadge = getNotificationBadge(pa.notification_status || 'Pending');
                 const tBadge = getTypeBadge(pa.admission_type || 'Elective');
+                const isConfirmedOrReady = Boolean(
+                  pa.status && (
+                    pa.status === 'CONFIRMED' ||
+                    pa.status === 'READY' ||
+                    pa.status === 'READY_FOR_ADMISSION'
+                  )
+                );
+                const isCancelledOrCompleted = Boolean(
+                  pa.status && (
+                    pa.status === 'CANCELLED' ||
+                    pa.status === 'COMPLETED'
+                  )
+                );
+                const hasBed = Boolean(
+                  pa.bed_number &&
+                  pa.bed_number !== 'Pending' &&
+                  pa.bed_number !== 'Pending Allocation'
+                );
 
                 return (
                   <tr
@@ -984,7 +1197,7 @@ const PreAdmissionPage: React.FC = () => {
                     <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px', fontWeight: 600, color: 'oklch(0.5 0.1 200)', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       {pa.pre_admission_code}
                     </td>
-                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
+                    <td style={{ padding: '10px 12px', minWidth: '170px', verticalAlign: 'middle' }}>
                       <div style={{ fontWeight: 600, color: '#15181b', whiteSpace: 'nowrap' }}>{pa.patient_name}</div>
                       <div style={{ fontSize: '10.5px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap', marginTop: '1px' }}>
                         ID: {pa.patient_code} · {pa.patient_phone}
@@ -1013,11 +1226,51 @@ const PreAdmissionPage: React.FC = () => {
                         Check-in: {format12HourTime(pa.expected_checkin_time)}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 12px', minWidth: '170px', verticalAlign: 'middle' }}>
+                    <td style={{ padding: '10px 12px', minWidth: '160px', verticalAlign: 'middle' }}>
                       <div style={{ fontWeight: 500, color: '#15181b', whiteSpace: 'nowrap' }}>
                         {pa.doctor_name ? (pa.doctor_name.startsWith('Dr.') ? pa.doctor_name : `Dr. ${pa.doctor_name}`) : 'Unassigned'}
                       </div>
                       <div style={{ fontSize: '10.5px', color: '#8a9096', whiteSpace: 'nowrap', marginTop: '1px' }}>{pa.department_name}</div>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: '180px', verticalAlign: 'middle' }}>
+                      {pa.admission_number ? (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11px', fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
+                            <BedDouble size={12} />
+                            {pa.admission_number}
+                          </div>
+                          <div style={{ fontSize: '10.5px', marginTop: '2px', color: hasBed ? '#15803d' : '#b45309', fontWeight: 500 }}>
+                            {hasBed
+                              ? `${pa.ward_name ? pa.ward_name + ' · ' : ''}${pa.room_number ? 'RM-' + pa.room_number + ' / ' : ''}${pa.bed_number}`
+                              : (isCancelledOrCompleted ? 'Bed Released' : '⏳ Pending Bed Allocation')}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {pa.status === 'CANCELLED' ? (
+                            <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 500 }}>Cancelled</span>
+                          ) : pa.status === 'COMPLETED' ? (
+                            <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 500 }}>Completed</span>
+                          ) : isConfirmedOrReady ? (
+                            <>
+                              <span style={{ fontSize: '10.5px', color: '#8a9096', fontStyle: 'italic' }}>Not Admitted</span>
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmAndAdmit(pa)}
+                                title="Confirm Pre-Admission and Create Inpatient Admission"
+                                style={{
+                                  height: '22px', padding: '0 8px', borderRadius: '4px', border: '1px solid #cbd5e1',
+                                  background: '#f8fafc', color: '#1e293b', fontSize: '10.5px', fontWeight: 600, cursor: 'pointer'
+                                }}
+                              >
+                                + Admit
+                              </button>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: '10.5px', color: '#8a9096', fontStyle: 'italic' }}>Pending Confirmation</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                       <span
@@ -1056,39 +1309,73 @@ const PreAdmissionPage: React.FC = () => {
                         {nBadge.label}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <td style={{ padding: '10px 12px', width: '270px', minWidth: '270px', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '96px 28px 64px 64px', gap: '6px', alignItems: 'center' }}>
+                        {/* 1. Bed Allocation (Eligible only when confirmed/ready) */}
+                        {isConfirmedOrReady ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBedModal(pa)}
+                            title={hasBed ? `Reallocate Bed (${pa.bed_number})` : 'Allocate Inpatient Bed'}
+                            style={{
+                              height: '26px', padding: '0 6px', borderRadius: '4px',
+                              border: hasBed ? '1px solid #bbf7d0' : '1px solid #fed7aa',
+                              background: hasBed ? '#f0fdf4' : '#fff7ed',
+                              color: hasBed ? '#166534' : '#c2410c',
+                              fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                              width: '96px', boxSizing: 'border-box'
+                            }}
+                          >
+                            <BedDouble size={11} /> {hasBed ? 'Bed' : 'Assign Bed'}
+                          </button>
+                        ) : (
+                          <div style={{ width: '96px' }} />
+                        )}
+
+                        {/* 2. WhatsApp Notification */}
                         <button
                           type="button"
                           onClick={() => handleNotify(pa.id)}
                           title="Resend WhatsApp Notification"
+                          disabled={pa.status === 'CANCELLED'}
                           style={{
-                            height: '24px', padding: '0 7px', borderRadius: '4px', border: '1px solid #e3e6e8',
-                            background: '#fff', color: '#15181b', fontSize: '11px', cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 3
+                            height: '26px', width: '28px', padding: 0, borderRadius: '4px', border: '1px solid #e3e6e8',
+                            background: pa.status === 'CANCELLED' ? '#f8fafc' : '#fff',
+                            color: pa.status === 'CANCELLED' ? '#94a3b8' : '#15181b',
+                            fontSize: '11px', cursor: pa.status === 'CANCELLED' ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            boxSizing: 'border-box'
                           }}
                         >
                           <Send size={11} />
                         </button>
+
+                        {/* 3. WhatsApp Conversation */}
                         <button
                           type="button"
                           onClick={() => handleOpenChat(pa)}
                           title="View Patient WhatsApp Conversation"
                           style={{
-                            height: '24px', padding: '0 8px', borderRadius: '4px', border: '1px solid #e3e6e8',
+                            height: '26px', width: '64px', padding: '0 6px', borderRadius: '4px', border: '1px solid #e3e6e8',
                             background: '#fff', color: '#15181b', fontSize: '11px', fontWeight: 500, cursor: 'pointer',
-                            display: 'inline-flex', alignItems: 'center', gap: 4
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+                            boxSizing: 'border-box'
                           }}
                         >
-                          <MessageSquare size={12} color="#25D366" /> Chat
+                          <MessageSquare size={11} color="#25D366" /> Chat
                         </button>
+
+                        {/* 4. Status Update */}
                         <button
                           type="button"
                           onClick={() => handleOpenStatusModal(pa)}
+                          title="Update Pre-Admission Status"
                           style={{
-                            height: '24px', padding: '0 8px', borderRadius: '4px', border: 0,
+                            height: '26px', width: '64px', padding: '0 6px', borderRadius: '4px', border: 0,
                             background: 'oklch(0.5 0.1 200)', color: '#fff', fontSize: '11px', fontWeight: 600,
-                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center'
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            boxSizing: 'border-box'
                           }}
                         >
                           Update
@@ -1106,7 +1393,7 @@ const PreAdmissionPage: React.FC = () => {
       {/* ── Modal: Register New Admission ──────────────────────────────────── */}
       {showAddModal && (
         <div style={modalBackdropStyle}>
-          <div style={{ ...modalBoxStyle, maxWidth: 620 }}>
+          <div style={{ ...modalBoxStyle, maxWidth: 640 }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #e3e6e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fbfbfc' }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <BedDouble size={16} color="oklch(0.5 0.1 200)" />
@@ -1114,12 +1401,54 @@ const PreAdmissionPage: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddModal(false)}
+                onClick={handleCloseAddModal}
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#8a9096', display: 'flex', alignItems: 'center', padding: '2px' }}
               >
                 <X size={16} />
               </button>
             </div>
+
+            {/* General Registration/API Error Banner: Top of modal above form */}
+            {modalError && (
+              <div
+                id="modal-registration-error-banner"
+                style={{
+                  margin: '12px 16px 0 16px',
+                  padding: '10px 14px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  color: '#991b1b',
+                  fontSize: '12.5px',
+                  lineHeight: '1.4'
+                }}
+              >
+                <AlertCircle size={16} style={{ color: '#dc2626', flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, marginBottom: '2px' }}>Registration Error</div>
+                  <div>{modalError}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalError(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#dc2626',
+                    cursor: 'pointer',
+                    padding: '0 2px',
+                    fontSize: '14px',
+                    lineHeight: 1
+                  }}
+                  title="Dismiss error"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             <form onSubmit={handleCreateAdmission} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <div style={{ padding: '16px', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1128,8 +1457,13 @@ const PreAdmissionPage: React.FC = () => {
                     label="Select Patient"
                     options={patientOptions}
                     value={formPatientId}
-                    onChange={setFormPatientId}
+                    onChange={val => {
+                      setFormPatientId(val);
+                      clearFieldError('patient');
+                    }}
                     placeholder="-- Search & Select Patient (Name, ID, Phone) --"
+                    hasError={Boolean(fieldErrors.patient)}
+                    errorMsg={fieldErrors.patient}
                     required
                   />
                 </div>
@@ -1142,6 +1476,8 @@ const PreAdmissionPage: React.FC = () => {
                     onChange={handleDoctorSelect}
                     placeholder="-- Search & Select Doctor --"
                     disabled={isDoctorRole}
+                    hasError={Boolean(fieldErrors.doctor)}
+                    errorMsg={fieldErrors.doctor}
                     required
                   />
                 </div>
@@ -1154,16 +1490,32 @@ const PreAdmissionPage: React.FC = () => {
                     onChange={handleDeptSelect}
                     placeholder={isDoctorRole ? "-- Auto-filled when Doctor is selected --" : "-- Search & Select Department --"}
                     disabled={isDoctorRole}
+                    hasError={Boolean(fieldErrors.department)}
+                    errorMsg={fieldErrors.department}
                     required
                   />
                 </div>
 
                 <div>
-                  <label style={modalLabelStyle}>Admission Type *</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                    <label style={modalLabelStyle}>Admission Type *</label>
+                    {fieldErrors.admission_type && (
+                      <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 500 }}>
+                        {fieldErrors.admission_type}
+                      </span>
+                    )}
+                  </div>
                   <select
-                    style={modalSelectStyle}
+                    style={{
+                      ...modalSelectStyle,
+                      borderColor: fieldErrors.admission_type ? '#ef4444' : '#e3e6e8',
+                      boxShadow: fieldErrors.admission_type ? '0 0 0 1px #ef4444' : undefined,
+                    }}
                     value={formType}
-                    onChange={e => setFormType(e.target.value)}
+                    onChange={e => {
+                      setFormType(e.target.value);
+                      clearFieldError('admission_type');
+                    }}
                     required
                   >
                     {ADMISSION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1171,23 +1523,51 @@ const PreAdmissionPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label style={modalLabelStyle}>Expected Date *</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                    <label style={modalLabelStyle}>Expected Date *</label>
+                    {fieldErrors.date && (
+                      <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 500 }}>
+                        {fieldErrors.date}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="date"
-                    style={modalInputStyle}
+                    style={{
+                      ...modalInputStyle,
+                      borderColor: fieldErrors.date ? '#ef4444' : '#e3e6e8',
+                      boxShadow: fieldErrors.date ? '0 0 0 1px #ef4444' : undefined,
+                    }}
                     value={formDate}
-                    onChange={e => setFormDate(e.target.value)}
+                    onChange={e => {
+                      setFormDate(e.target.value);
+                      clearFieldError('date');
+                    }}
                     required
                   />
                 </div>
 
                 <div>
-                  <label style={modalLabelStyle}>Expected Check-in Time</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+                    <label style={modalLabelStyle}>Expected Check-in Time</label>
+                    {fieldErrors.time && (
+                      <span style={{ color: '#dc2626', fontSize: '11px', fontWeight: 500 }}>
+                        {fieldErrors.time}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="time"
-                    style={modalInputStyle}
+                    style={{
+                      ...modalInputStyle,
+                      borderColor: fieldErrors.time ? '#ef4444' : '#e3e6e8',
+                      boxShadow: fieldErrors.time ? '0 0 0 1px #ef4444' : undefined,
+                    }}
                     value={formTime}
-                    onChange={e => setFormTime(e.target.value)}
+                    onChange={e => {
+                      setFormTime(e.target.value);
+                      clearFieldError('time');
+                    }}
                   />
                 </div>
 
@@ -1226,9 +1606,17 @@ const PreAdmissionPage: React.FC = () => {
               </div>
 
               <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#fbfbfc' }}>
-                <button type="button" style={btnSecondary} onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" style={btnPrimary} disabled={submitting}>
-                  {submitting ? 'Registering & Sending WhatsApp...' : 'Register Admission'}
+                <button type="button" style={btnSecondary} onClick={handleCloseAddModal}>Cancel</button>
+                <button
+                  type="submit"
+                  style={{
+                    ...btnPrimary,
+                    opacity: submitting ? 0.7 : 1,
+                    cursor: submitting ? 'not-allowed' : 'pointer'
+                  }}
+                  disabled={submitting}
+                >
+                  {submitting ? 'Registering Admission...' : 'Register Admission'}
                 </button>
               </div>
             </form>
@@ -1298,6 +1686,168 @@ const PreAdmissionPage: React.FC = () => {
                 <button type="button" style={btnSecondary} onClick={() => setShowStatusModal(false)}>Cancel</button>
                 <button type="submit" style={btnPrimary} disabled={submitting}>
                   {submitting ? 'Saving...' : 'Save Updates'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Ward, Room & Bed Allocation ────────────────────────────── */}
+      {showBedModal && selectedPa && (
+        <div style={modalBackdropStyle}>
+          <div style={{ ...modalBoxStyle, maxWidth: 520 }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e3e6e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fbfbfc' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#15181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <BedDouble size={16} color="oklch(0.5 0.1 200)" />
+                  Inpatient Bed Allocation
+                </div>
+                <div style={{ fontSize: '11px', color: '#8a9096', fontFamily: 'ui-monospace, Menlo, monospace', marginTop: '1px' }}>
+                  {selectedPa.pre_admission_code} · {selectedPa.patient_name} ({selectedPa.patient_code})
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBedModal(false)}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#8a9096', display: 'flex', alignItems: 'center', padding: '2px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAllocateBedSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '11.5px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Attending Doctor: </span>
+                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{selectedPa.doctor_name}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Department: </span>
+                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{selectedPa.department_name}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Admission Type: </span>
+                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{selectedPa.admission_type}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Linked Admission: </span>
+                    <span style={{ fontWeight: 600, color: 'oklch(0.5 0.1 200)' }}>
+                      {selectedPa.admission_number || 'Will be created & linked on allocation'}
+                    </span>
+                  </div>
+                </div>
+
+                {loadingBeds ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#8a9096' }}>
+                    Loading available beds hierarchy...
+                  </div>
+                ) : availableWards.length === 0 ? (
+                  <div style={{ padding: '16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '12px' }}>
+                    ⚠️ No available beds found in the hospital. Please check Bed Board or discharge recovering patients.
+                  </div>
+                ) : (
+                  <>
+                    {/* Ward Selector */}
+                    <div>
+                      <label style={modalLabelStyle}>1. Select Inpatient Ward *</label>
+                      <select
+                        style={modalSelectStyle}
+                        value={selectedWardId}
+                        onChange={e => {
+                          const wId = e.target.value;
+                          setSelectedWardId(wId);
+                          const w = availableWards.find(x => String(x.ward_id) === wId);
+                          if (w && w.rooms && w.rooms.length > 0) {
+                            setSelectedRoomId(String(w.rooms[0].room_id));
+                            if (w.rooms[0].beds && w.rooms[0].beds.length > 0) {
+                              setSelectedBedId(String(w.rooms[0].beds[0].bed_id));
+                            } else {
+                              setSelectedBedId('');
+                            }
+                          } else {
+                            setSelectedRoomId('');
+                            setSelectedBedId('');
+                          }
+                        }}
+                        required
+                      >
+                        <option value="">-- Choose Ward --</option>
+                        {availableWards.map(w => (
+                          <option key={w.ward_id} value={w.ward_id}>
+                            {w.ward_name} (Floor {w.floor_number} · {w.ward_type})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Room Selector */}
+                    <div>
+                      <label style={modalLabelStyle}>2. Select Room *</label>
+                      <select
+                        style={modalSelectStyle}
+                        value={selectedRoomId}
+                        onChange={e => {
+                          const rId = e.target.value;
+                          setSelectedRoomId(rId);
+                          const w = availableWards.find(x => String(x.ward_id) === selectedWardId);
+                          const r = w?.rooms?.find(x => String(x.room_id) === rId);
+                          if (r && r.beds && r.beds.length > 0) {
+                            setSelectedBedId(String(r.beds[0].bed_id));
+                          } else {
+                            setSelectedBedId('');
+                          }
+                        }}
+                        disabled={!selectedWardId}
+                        required
+                      >
+                        <option value="">-- Choose Room --</option>
+                        {(() => {
+                          const w = availableWards.find(x => String(x.ward_id) === selectedWardId);
+                          return (w?.rooms || []).map(r => (
+                            <option key={r.room_id} value={r.room_id}>
+                              Room {r.room_number} ({r.room_type} · {r.beds.length} available bed{r.beds.length > 1 ? 's' : ''})
+                            </option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+
+                    {/* Bed Selector */}
+                    <div>
+                      <label style={modalLabelStyle}>3. Select Bed *</label>
+                      <select
+                        style={modalSelectStyle}
+                        value={selectedBedId}
+                        onChange={e => setSelectedBedId(e.target.value)}
+                        disabled={!selectedRoomId}
+                        required
+                      >
+                        <option value="">-- Choose Available Bed --</option>
+                        {(() => {
+                          const w = availableWards.find(x => String(x.ward_id) === selectedWardId);
+                          const r = w?.rooms?.find(x => String(x.room_id) === selectedRoomId);
+                          return (r?.beds || []).map(b => (
+                            <option key={b.bed_id} value={b.bed_id}>
+                              {b.bed_number} — {b.bed_type} (₹{b.daily_charge.toLocaleString('en-IN')}/day)
+                            </option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div style={{ padding: '10px 16px', borderTop: '1px solid #e3e6e8', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: '#fbfbfc' }}>
+                <button type="button" style={btnSecondary} onClick={() => setShowBedModal(false)}>Cancel</button>
+                <button
+                  type="submit"
+                  style={btnPrimary}
+                  disabled={bedSubmitting || !selectedBedId}
+                >
+                  {bedSubmitting ? 'Allocating Bed...' : 'Confirm Bed Allocation'}
                 </button>
               </div>
             </form>

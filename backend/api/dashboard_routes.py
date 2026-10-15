@@ -4391,6 +4391,12 @@ class PreAdmissionStatusUpdateRequest(BaseModel):
     remarks: Optional[str] = None
 
 
+class BedAllocationRequest(BaseModel):
+    ward_id: int
+    room_id: int
+    bed_id: int
+
+
 @router.get("/pre-admissions")
 def list_pre_admissions(
     search: Optional[str] = Query(None),
@@ -4613,4 +4619,170 @@ def get_patient_pre_admissions(patient_id: int, current_user: dict = Depends(get
         patient_id=patient_id
     )
     return {"pre_admissions": results}
+
+
+@router.get("/beds/available")
+def get_available_beds_endpoint(
+    ward_id: Optional[int] = Query(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """Returns available beds grouped hierarchically by ward and room."""
+    try:
+        wards = preadmission_service.get_available_beds_hierarchy(ward_id=ward_id)
+        return {"wards": wards}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch available beds: {str(e)}")
+
+
+@router.post("/pre-admissions/{id}/confirm-and-admit")
+def confirm_and_admit_pre_admission_endpoint(
+    id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Explicitly confirms a pre-admission and authoritatively creates or links the inpatient admission.
+    Enforces doctor ownership check if user is a Doctor.
+    """
+    role = str(current_user.get("role") or "").upper()
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT status, doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+        pa_row = cur.fetchone()
+        if not pa_row:
+            raise HTTPException(status_code=404, detail=f"Pre-admission ID {id} not found.")
+        st_clean = str(pa_row[0] or "").strip().upper()
+        if st_clean in ("CANCELLED", "COMPLETED"):
+            raise HTTPException(status_code=400, detail=f"Cannot admit: Pre-admission is {st_clean.lower()}.")
+        if role == "DOCTOR":
+            target_doc_id = resolve_target_doctor_id(current_user, None, cur)
+            if pa_row[1] != target_doc_id:
+                raise HTTPException(status_code=403, detail="Unauthorized: You cannot confirm pre-admissions assigned to another doctor.")
+    finally:
+        cur.close()
+        conn.close()
+
+    res = preadmission_service.update_pre_admission_status(
+        pre_admission_id=id,
+        status="CONFIRMED"
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Confirmation failed"))
+    return res
+
+
+@router.post("/pre-admissions/{id}/allocate-bed")
+def allocate_pre_admission_bed_endpoint(
+    id: int,
+    req: BedAllocationRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Allocates a bed for a pre-admission:
+    - Enforces lifecycle eligibility (only CONFIRMED, READY, or READY_FOR_ADMISSION allowed).
+    - Rejects CANCELLED, COMPLETED, or unconfirmed pending records.
+    - Validates bed availability, ward and room hierarchy.
+    - Atomically assigns bed and synchronizes dim_admission_inputs.
+    - Enforces doctor ownership check if user is a Doctor.
+    """
+    role = str(current_user.get("role") or "").upper()
+    doc_restriction = None
+    if role == "DOCTOR":
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            doc_restriction = resolve_target_doctor_id(current_user, None, cur)
+            cur.execute("SELECT doctor_id FROM pre_admissions WHERE id = %s;", (id,))
+            pa_row = cur.fetchone()
+            if not pa_row or pa_row[0] != doc_restriction:
+                raise HTTPException(status_code=403, detail="Unauthorized: You cannot allocate beds for another doctor's patient.")
+        finally:
+            cur.close()
+            conn.close()
+
+    # 1. Fetch pre-admission record to check linked admission and status eligibility
+    conn = get_conn()
+    cur = conn.cursor()
+    linked_aid = None
+    try:
+        cur.execute("SELECT admission_id, status FROM pre_admissions WHERE id = %s;", (id,))
+        pa_r = cur.fetchone()
+        if not pa_r:
+            raise HTTPException(status_code=404, detail=f"Pre-admission ID {id} not found.")
+        linked_aid, pa_status = pa_r
+        clean_status = str(pa_status or "").strip().upper()
+        if clean_status in ("CANCELLED", "COMPLETED"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot allocate bed: Pre-admission is already {clean_status.lower()}."
+            )
+        if clean_status not in ("CONFIRMED", "READY", "READY_FOR_ADMISSION"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot allocate bed: Pre-admission must be confirmed before bed allocation (current status: {pa_status})."
+            )
+    finally:
+        cur.close()
+        conn.close()
+
+    # If not yet linked to an active admission, confirm & link it first
+    if not linked_aid:
+        conf_res = preadmission_service.confirm_or_link_admission(id)
+        if not conf_res.get("success"):
+            raise HTTPException(status_code=400, detail=conf_res.get("error", "Failed to create/link admission."))
+        linked_aid = conf_res.get("admission_id")
+
+    # 2. Allocate the bed
+    try:
+        alloc_res = preadmission_service.allocate_bed_for_admission(
+            admission_id=linked_aid,
+            ward_id=req.ward_id,
+            room_id=req.room_id,
+            bed_id=req.bed_id,
+            doctor_id_restriction=doc_restriction
+        )
+        return alloc_res
+    except preadmission_service.PreAdmissionValidationError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to allocate bed: {str(e)}")
+
+
+@router.post("/admissions/{admission_id}/allocate-bed")
+def allocate_admission_bed_endpoint(
+    admission_id: int,
+    req: BedAllocationRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Direct bed allocation endpoint for any active admission."""
+    role = str(current_user.get("role") or "").upper()
+    doc_restriction = None
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT admission_id, discharge_status FROM admissions WHERE admission_id = %s;", (admission_id,))
+        adm_r = cur.fetchone()
+        if not adm_r:
+            raise HTTPException(status_code=404, detail=f"Admission ID {admission_id} not found.")
+        if str(adm_r[1] or "").strip().lower() == "discharged":
+            raise HTTPException(status_code=400, detail="Cannot allocate bed: Admission is already discharged.")
+        if role == "DOCTOR":
+            doc_restriction = resolve_target_doctor_id(current_user, None, cur)
+    finally:
+        cur.close()
+        conn.close()
+
+    try:
+        res = preadmission_service.allocate_bed_for_admission(
+            admission_id=admission_id,
+            ward_id=req.ward_id,
+            room_id=req.room_id,
+            bed_id=req.bed_id,
+            doctor_id_restriction=doc_restriction
+        )
+        return res
+    except preadmission_service.PreAdmissionValidationError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to allocate bed: {str(e)}")
 
