@@ -3,7 +3,7 @@ import { ImagingHistoryButton } from './ImagingHistory';
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
-import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime } from './RadiologyShared';
+import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, StatusBadge, InfoRow, btn, primaryBtn, statusRank, formatTableDateTime, isDateInRange } from './RadiologyShared';
 import RagAssistantPanel from './RagAssistantPanel';
 
 const POLL_MS = 5000;
@@ -34,6 +34,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
   const [sort, setSort] = useState('default');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const reviewerName = useMemo(() => {
     if (!currentUser?.name) return 'Dr. Arjun Menon (Radiologist)';
@@ -147,6 +148,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     const source = [...(data?.studies || [])];
     const q = query.trim().toLowerCase();
     let rows = source.filter(s => {
+      if (!isDateInRange(s.analyzed_at || s.created_at || s.metadata?.study_date, dateRange.dateFrom, dateRange.dateTo)) return false;
       const status = s.combined_assessment?.status || 'ROUTINE';
       const meta = s.metadata || {};
       const hay = [s.display_study_id, s.study_id, s.patient_id, s.patient_code, s.patient_name, s.original_patient_id, s.source_filename, s.reviewed_by, s.radiologist_finding, meta.patient_id, meta.patient_name, meta.patient_id_mapped, meta.patient_code, meta.PatientID, meta.PatientName, meta.modality, meta.Modality, status].join(' ').toLowerCase();
@@ -170,7 +172,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
       return rank || ((b.triage?.probability || 0) - (a.triage?.probability || 0));
     });
     return rows;
-  }, [data, filter, query, sort]);
+  }, [data, filter, query, sort, dateRange]);
 
   const tabs = [
     ['orders', 'X-ray Orders'],
@@ -221,7 +223,7 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     {tab === 'analysis' && detail?.order_id && <div style={{ marginBottom: 12 }}><ImagingHistoryButton orderId={detail.order_id} label="Compare with prior X-ray" /></div>}
     {tab === 'worklist' && (!data ? <Loading /> : <>
       <SummaryCards counts={data.counts} />
-      <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />
+      <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} onDateChange={setDateRange} dateRange={dateRange} />
       <StudyTable studies={visibleStudies} onOpen={openStudy} />
     </>)}
 

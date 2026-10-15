@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
 import {
   PageHeading, Toolbar, Loading, ErrorBox, Card, StatusBadge,
-  btn, primaryBtn, cell, formatTableDateTime
+  btn, primaryBtn, cell, formatTableDateTime, isDateInRange
 } from './RadiologyShared';
 
 const POLL_MS = 5000;
@@ -30,6 +30,7 @@ export default function ResultsCriticalValuesView({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
   const [sort, setSort] = useState('default');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [modalStudy, setModalStudy] = useState(null);
   const [modalDetail, setModalDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -122,13 +123,14 @@ export default function ResultsCriticalValuesView({
         status,
         s.combined_assessment?.reason
       ].join(' ').toLowerCase();
-      return (filter === 'All' || status === filter) && (!q || hay.includes(q));
+      const inDate = isDateInRange(s.analyzed_at || s.created_at || s.metadata?.study_date, dateRange.dateFrom, dateRange.dateTo);
+      return inDate && (filter === 'All' || status === filter) && (!q || hay.includes(q));
     });
     if (sort === 'probability') rows.sort((a, b) => (b.triage?.probability || 0) - (a.triage?.probability || 0));
     else if (sort === 'oldest') rows.sort((a, b) => new Date(a.analyzed_at || 0) - new Date(b.analyzed_at || 0));
     else if (sort === 'newest') rows.sort((a, b) => new Date(b.analyzed_at || 0) - new Date(a.analyzed_at || 0));
     return rows;
-  }, [data, filter, query, sort]);
+  }, [data, filter, query, sort, dateRange]);
 
   return (
     <div>
@@ -261,6 +263,8 @@ export default function ResultsCriticalValuesView({
             sort={sort}
             setSort={sortValue => setSort(sortValue)}
             onRefresh={refresh}
+            onDateChange={setDateRange}
+            dateRange={dateRange}
           />
 
           <Card style={{ padding: 0, overflow: 'hidden' }}>

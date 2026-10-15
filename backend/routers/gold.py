@@ -7,6 +7,7 @@ import psycopg2
 import psycopg2.extras
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
+from services.patient_department_service import patient_department_expression
 
 logger = logging.getLogger(__name__)
 
@@ -1371,6 +1372,7 @@ def get_dim_admission_inputs(
                     b.bed_type,
                     r.room_number,
                     w.ward_name,
+                    {patient_department_expression("dep", "doctor_dep")} AS department,
                     COALESCE(d.display_name, 'Attending Physician') AS attending_doctor,
                     d.specialization AS doctor_specialization,
                     COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurance_provider,
@@ -1381,6 +1383,8 @@ def get_dim_admission_inputs(
                 LEFT JOIN beds b ON a.bed_id = b.bed_id
                 LEFT JOIN rooms r ON b.room_id = r.room_id
                 LEFT JOIN wards w ON b.ward_id = w.ward_id
+                LEFT JOIN departments dep ON dep.id = a.department_id
+                LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 LEFT JOIN LATERAL (
                     SELECT insurance_provider
                     FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_date DESC, claim_id DESC LIMIT 1
@@ -1429,12 +1433,22 @@ def get_dim_admission_inputs(
 
                 bed_map = {}
                 if adm_ids:
-                    cur.execute("""
-                        SELECT a.admission_id, a.patient_id, b.bed_number, r.room_number, w.ward_name, b.bed_type
+                    cur.execute(f"""
+                        SELECT
+                            a.admission_id,
+                            a.patient_id,
+                            b.bed_number,
+                            r.room_number,
+                            w.ward_name,
+                            b.bed_type,
+                            {patient_department_expression("dep", "doctor_dep")} AS department
                         FROM admissions a
                         JOIN beds b ON a.bed_id = b.bed_id
                         JOIN rooms r ON b.room_id = r.room_id
                         JOIN wards w ON b.ward_id = w.ward_id
+                        LEFT JOIN doctors d ON d.id = a.doctor_id
+                        LEFT JOIN departments dep ON dep.id = a.department_id
+                        LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                         WHERE a.admission_id = ANY(%s);
                     """, (adm_ids,))
                     bed_map = {r['admission_id']: r for r in cur.fetchall()}
@@ -1477,6 +1491,7 @@ def get_dim_admission_inputs(
                         row['room_number'] = b_info['room_number']
                         row['ward_name'] = b_info['ward_name']
                         row['bed_type'] = b_info['bed_type']
+                        row['department'] = b_info['department']
 
                     c_info = claim_map.get(row.get('patient_id'))
                     i_info = ins_map.get(row.get('patient_id'))

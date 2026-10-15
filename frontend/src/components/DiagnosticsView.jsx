@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { radiologyApi } from '../services/radiologyApi';
-import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, InfoRow, btn, primaryBtn, formatTableDateTime } from './RadiologyShared';
+import { PageHeading, SummaryCards, StudyTable, Toolbar, Loading, ErrorBox, Card, InfoRow, btn, primaryBtn, formatTableDateTime, isDateInRange } from './RadiologyShared';
 
 const POLL_MS = 5000;
 
@@ -10,6 +10,7 @@ export default function DiagnosticsView({ onOpenRadiologyStudy, onSelectPatient 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('All');
   const [sort, setSort] = useState('default');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [selected, setSelected] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -27,6 +28,7 @@ export default function DiagnosticsView({ onOpenRadiologyStudy, onSelectPatient 
     let rows = [...(data?.studies || [])];
     const q = query.trim().toLowerCase();
     rows = rows.filter(s => {
+      if (!isDateInRange(s.analyzed_at || s.created_at || s.metadata?.study_date, dateRange.dateFrom, dateRange.dateTo)) return false;
       const status = s.combined_assessment?.status || 'ROUTINE';
       const meta = s.metadata || {};
       const hay = [s.display_study_id, s.study_id, s.patient_id, s.patient_code, s.patient_name, s.original_patient_id, s.source_filename, meta.patient_id, meta.patient_name, meta.patient_id_mapped, meta.patient_code, meta.modality, status].join(' ').toLowerCase();
@@ -36,7 +38,7 @@ export default function DiagnosticsView({ onOpenRadiologyStudy, onSelectPatient 
     else if (sort === 'oldest') rows.sort((a, b) => new Date(a.analyzed_at || 0) - new Date(b.analyzed_at || 0));
     else if (sort === 'newest') rows.sort((a, b) => new Date(b.analyzed_at || 0) - new Date(a.analyzed_at || 0));
     return rows;
-  }, [data, filter, query, sort]);
+  }, [data, filter, query, sort, dateRange]);
 
   const open = async id => {
     setSelected(null);
@@ -48,7 +50,7 @@ export default function DiagnosticsView({ onOpenRadiologyStudy, onSelectPatient 
     <Card style={{ marginBottom: 12 }}><div style={{ fontSize: 11.5, lineHeight: 1.5 }}><b>Imaging status</b> is read-only workflow visibility. Opening a study uses the stored result; it does not perform AI inference again.</div></Card>
     {error ? <ErrorBox error={error} /> : !data ? <Loading /> : <>
       <SummaryCards counts={data.counts} />
-      <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} />
+      <Toolbar query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} onDateChange={setDateRange} dateRange={dateRange} />
       <StudyTable studies={studies} onOpen={id => { setSelected(id); }} />
       {selected && <DiagnosticsDetail study={data.studies.find(s => s.study_id === selected)} onOpen={() => open(selected)} onClose={() => setSelected(null)} onSelectPatient={onSelectPatient} />}
     </>}

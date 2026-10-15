@@ -4,6 +4,7 @@ import ModuleLoadingScreen, { CardGridSkeleton, TableSkeleton } from './ModuleLo
 import TablePagination from './TablePagination';
 import BillingTransparencyDrawer from './BillingTransparencyDrawer';
 import { labCollectionEventsApi } from '../services/labCollectionEventsApi';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter.jsx';
 
 // Common badge and card helpers
 const cardStyle = {
@@ -368,6 +369,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
   const [triageColorFilter, setTriageColorFilter] = useState('All');
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [mlcOnly, setMlcOnly] = useState(false);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   useEffect(() => {
     setScopeFilter(activeDoctorName ? 'my' : 'all');
@@ -394,7 +396,8 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
           acuity: r.acuity || (r.triage_level === 'Red' ? 'ESI-1 (clinician)' : r.triage_level === 'Yellow' ? 'ESI-2 (clinician)' : 'Not triaged'),
           critical: r.critical_alert,
           mlc: Boolean(r.mlc_flag),
-          status: r.clinical_status || 'Awaiting triage'
+          status: r.clinical_status || 'Awaiting triage',
+          date: r.date || r.arrival_time || r.created_at || r.arrival
         }));
         setData(mapped);
       } else {
@@ -461,11 +464,14 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, pageSize, scopeFilter, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly]);
+  }, [query, pageSize, scopeFilter, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly, dateRange]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return currentScopedList.filter(d => {
+      // Date filter
+      if (!isDateInRange(d.date || d.arrival, dateRange.dateFrom, dateRange.dateTo)) return false;
+
       // Structured filters (AND semantics)
       if (acuityFilter !== 'All' && d.acuity !== acuityFilter) return false;
       if (statusFilter !== 'All' && d.status !== statusFilter) return false;
@@ -491,7 +497,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
       }
       return true;
     });
-  }, [currentScopedList, query, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly]);
+  }, [currentScopedList, query, acuityFilter, statusFilter, bayFilter, triageColorFilter, criticalOnly, mlcOnly, dateRange]);
 
   const untriagedCount = currentScopedList.filter(d => d.acuity === 'Not triaged' || d.status === 'Awaiting triage').length;
   const awaitingBedCount = currentScopedList.filter(d => d.status === 'Awaiting bed').length;
@@ -829,6 +835,8 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
 
       {/* Structured Filter Bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+
         <select
           value={acuityFilter}
           onChange={(e) => setAcuityFilter(e.target.value)}
@@ -1527,6 +1535,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedWard, setSelectedWard] = useState('All Wards');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -1562,7 +1571,8 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
             diet: r.diet_type || 'Standard',
             overdueMeds: r.overdue_meds || '—',
             flag: r.flag_status || 'Normal',
-            ward: r.ward_name || 'General Multi-Specialty Ward'
+            ward: r.ward_name || 'General Multi-Specialty Ward',
+            date: r.created_at || r.task_date || r.admission_date || r.date || ''
           });
         }
         setData(mapped);
@@ -1696,6 +1706,8 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
       const matchesWard = selectedWard === 'All Wards' || item.ward.toLowerCase() === selectedWard.toLowerCase();
       if (!matchesWard) return false;
 
+      if (!isDateInRange(item.date, dateRange.dateFrom, dateRange.dateTo)) return false;
+
       if (selectedFilter === 'Escalate') {
         return (item.flag && (item.flag.toLowerCase().includes('escalate') || item.flag.toLowerCase().includes('critical'))) || Number(item.ews) >= 3;
       }
@@ -1707,11 +1719,11 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
       }
       return true;
     });
-  }, [data, searchQuery, selectedWard, selectedFilter]);
+  }, [data, searchQuery, selectedWard, selectedFilter, dateRange]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedWard, selectedFilter, pageSize]);
+  }, [searchQuery, selectedWard, selectedFilter, dateRange, pageSize]);
 
   // Pagination calculations
   const totalRows = filtered.length;
@@ -1771,6 +1783,7 @@ export function NursingWorkspaceView({ onOpenDrawer, onOpenModal }) {
             }}
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <button
           type="button"
           onClick={handleExportCSV}
@@ -2033,6 +2046,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
   const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
   const [selectedFilter, setSelectedFilter] = useState('All'); // 'All' | 'Overdue' | 'Due' | 'Scheduled' | 'Given'
   const [selectedCardId, setSelectedCardId] = useState(null);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -2055,7 +2069,8 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
           prescriber: r.prescribed_by || 'Dr. Amit Sharma',
           verification: r.verification_status || 'Verified',
           nurse: r.administered_by || '',
-          signedAt: r.signed_at || ''
+          signedAt: r.signed_at || '',
+          date: r.scheduled_date || r.date || r.created_at || r.signed_at || ''
         }));
         setData(mapped);
       } else {
@@ -2180,6 +2195,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
         item.prescriber.toLowerCase().includes(q);
 
       if (!matchesSearch) return false;
+      if (!isDateInRange(item.date, dateRange.dateFrom, dateRange.dateTo)) return false;
 
       if (selectedFilter === 'Overdue') {
         return item.stage === 'Critical' || item.status === 'Overdue' || item.isOverdue;
@@ -2195,11 +2211,11 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
       }
       return true;
     });
-  }, [data, searchQuery, selectedFilter]);
+  }, [data, searchQuery, selectedFilter, dateRange]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedFilter, pageSize]);
+  }, [searchQuery, selectedFilter, pageSize, dateRange]);
 
   // Pagination for Table view
   const totalRows = filtered.length;
@@ -2293,6 +2309,7 @@ export function MedicationAdminView({ onOpenDrawer, onOpenModal }) {
             }}
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <button
           type="button"
           onClick={handleExportCSV}
@@ -2634,6 +2651,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const loadSurgeryData = async () => {
     setLoading(true);
@@ -2658,7 +2676,9 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
           isDelayed: r.is_delayed ?? false,
           bloodReserved: r.blood_reserved || '2 PRBC Reserved',
           sterileVerified: r.sterile_set_verified ?? true,
-          pacuBed: r.pacu_bed || ''
+          pacuBed: r.pacu_bed || '',
+          scheduledDate: r.scheduled_date || r.surgery_date || r.date || '',
+          createdAt: r.created_at || ''
         }));
         setData(mapped);
       } else {
@@ -2915,6 +2935,8 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const filtered = data.filter(item => {
     if (workloadScope === 'active' && selectedFilter === 'All' && item.stage === 'Completed') return false;
 
+    if (!isDateInRange(item.start || item.scheduledDate || item.createdAt, dateRange.dateFrom, dateRange.dateTo)) return false;
+
     const matchesSearch =
       item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -3036,6 +3058,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
             }}
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <button
           type="button"
           onClick={handleExportCSV}
@@ -3499,6 +3522,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const loadBloodData = async () => {
     setLoading(true);
@@ -3515,7 +3539,9 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
           screening: r.screening_notes || '',
           storage: r.storage_location || '—',
           reservedFor: r.reserved_for || '—',
-          status: r.status || 'Active · available'
+          status: r.status || 'Active · available',
+          collection_date: r.collection_date || r.collected_date || '',
+          created_at: r.created_at || ''
         }));
         setData(mapped);
       } else {
@@ -3631,6 +3657,8 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
 
   // Filter & Search
   const filtered = data.filter(item => {
+    if (!isDateInRange(item.collection_date || item.collected || item.created_at || item.expiry, dateRange.dateFrom, dateRange.dateTo)) return false;
+
     const matchesSearch =
       item.unitId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.group.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -3697,6 +3725,7 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
             }}
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <button
           type="button"
           onClick={handleExportCSV}
@@ -3924,14 +3953,16 @@ function useLabListControls(orders, sortPending = false) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [priorityFilter, setPriorityFilter] = useState('All');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, priorityFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, priorityFilter, dateRange, pageSize]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     const rows = orders.filter(order => {
+      if (!isDateInRange(order.ordered_date || order.created_at, dateRange.dateFrom, dateRange.dateTo)) return false;
       const searchable = [order.lab_order_id, order.patient_name, order.patient_code,
       order.visit_id, order.admission_id, order.test_name, order.test_code,
       order.status, order.priority, order.doctor, order.ordered_date, order.source]
@@ -3948,13 +3979,14 @@ function useLabListControls(orders, sortPending = false) {
       });
     }
     return rows;
-  }, [orders, search, statusFilter, priorityFilter, sortPending]);
+  }, [orders, search, statusFilter, priorityFilter, dateRange, sortPending]);
 
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   const statuses = [...new Set(orders.map(order => order.status).filter(Boolean))];
   const priorities = [...new Set(orders.map(order => order.priority).filter(Boolean))];
   return {
     search, setSearch, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
+    dateRange, setDateRange,
     page, setPage, pageSize, setPageSize, filtered, pageRows, statuses, priorities
   };
 }
@@ -3965,6 +3997,9 @@ function LabListFilters({ controls }) {
     <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', padding: '12px 14px' }}>
       <input aria-label="Search lab orders" placeholder="Search order, patient, test, doctor..." value={controls.search}
         onChange={event => controls.setSearch(event.target.value)} style={{ ...fieldStyle, flex: '1 1 260px', minWidth: '220px' }} />
+      {controls.dateRange !== undefined && controls.setDateRange && (
+        <DateRangeFilter value={controls.dateRange} onChange={controls.setDateRange} />
+      )}
       <select aria-label="Filter by status" value={controls.statusFilter} onChange={event => controls.setStatusFilter(event.target.value)} style={fieldStyle}>
         <option value="All">All statuses</option>
         {controls.statuses.map(status => <option key={status} value={status}>{status}</option>)}
@@ -4011,6 +4046,7 @@ export function LabDashboardView({ onOpenDrawer }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [priorityFilter, setPriorityFilter] = useState('All');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [availablePriorities, setAvailablePriorities] = useState(['Routine', 'Urgent', 'Emergency', 'STAT']);
@@ -4031,12 +4067,16 @@ export function LabDashboardView({ onOpenDrawer }) {
   const { orders, total, allOrdersTotal, activeOrdersTotal, summary, loading, error } = useLabOrders({
     page, pageSize, search: search.trim(), status: statusFilter, priority: priorityFilter, activeOnly,
   });
+  const filteredOrders = useMemo(() => {
+    return orders.filter(order => isDateInRange(order.ordered_date || order.created_at, dateRange.dateFrom, dateRange.dateTo));
+  }, [orders, dateRange]);
   const controls = {
     search, setSearch: value => { setSearch(value); setPage(1); },
     statusFilter, setStatusFilter: value => { setStatusFilter(value); setPage(1); },
     priorityFilter, setPriorityFilter: value => { setPriorityFilter(value); setPage(1); },
+    dateRange, setDateRange: value => { setDateRange(value); setPage(1); },
     page, setPage, pageSize, setPageSize: value => { setPageSize(value); setPage(1); },
-    filtered: orders, pageRows: orders,
+    filtered: filteredOrders, pageRows: filteredOrders,
     statuses: [...new Set([...availableStatuses, ...orders.map(order => order.status).filter(Boolean)])],
     priorities: [...new Set([...availablePriorities, ...orders.map(order => order.priority).filter(Boolean)])],
   };
@@ -5417,6 +5457,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const loadData = async () => {
     setLoading(true);
@@ -5437,7 +5478,8 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
           mlcDetails: r.mlc_details || (r.is_mlc ? 'Yes · Medico-Legal' : 'No'),
           certificate: r.mccd_status || 'Pending',
           body: r.mortuary_bay || r.body_handed_over_to || 'Mortuary Bay',
-          bill: r.bill_status || 'Compassionate Review · Closed'
+          bill: r.bill_status || 'Compassionate Review · Closed',
+          created_at: r.created_at || ''
         }));
         setData(mapped);
       } else {
@@ -5534,6 +5576,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
 
   // Filtering
   const filtered = data.filter(item => {
+    if (!isDateInRange(item.time || item.created_at, dateRange.dateFrom, dateRange.dateTo)) return false;
     return (
       item.regNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.patient.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -5587,6 +5630,7 @@ export function DeathMlcView({ onOpenDrawer, onOpenModal }) {
             }}
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <button
           type="button"
           onClick={handleExportCSV}

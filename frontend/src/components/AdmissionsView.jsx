@@ -3,6 +3,7 @@ import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, match
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import SearchInput from './SearchInput';
 import TablePagination from './TablePagination';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
 export default function AdmissionsView({
   onSelectPatient,
@@ -24,6 +25,7 @@ export default function AdmissionsView({
   const [selectedWard, setSelectedWard] = useState('All');
   const [wardOptions, setWardOptions] = useState([]);
   const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   useEffect(() => {
     if (search.trim()) {
@@ -161,6 +163,13 @@ export default function AdmissionsView({
       if (selectedWard !== 'All' && item.ward !== selectedWard) {
         return false;
       }
+      // Date filter
+      if (dateRange && (dateRange.dateFrom || dateRange.dateTo)) {
+        const itemDate = item.admission_date || item.admission_time || item.admitted_at || item.date;
+        if (!isDateInRange(itemDate, dateRange.dateFrom, dateRange.dateTo)) {
+          return false;
+        }
+      }
       // Search
       if (!debouncedSearch.trim()) return true;
       const s = debouncedSearch.toLowerCase();
@@ -175,7 +184,7 @@ export default function AdmissionsView({
              (item.bed && item.bed.toLowerCase().includes(s)) ||
              (item.ward && item.ward.toLowerCase().includes(s));
     });
-  }, [scopedAdmissions, selectedType, selectedWard, debouncedSearch]);
+  }, [scopedAdmissions, selectedType, selectedWard, debouncedSearch, dateRange]);
 
   // KPIs dynamically derived from DB
   const totalAdmissions = scopedAdmissions.length;
@@ -427,6 +436,14 @@ export default function AdmissionsView({
               <option key={w} value={w}>{w}</option>
             ))}
           </select>
+
+          {/* Date Filter */}
+          <DateRangeFilter
+            onChange={(val) => {
+              setDateRange(val);
+              setCurrentPage(1);
+            }}
+          />
         </div>
 
         <SearchInput

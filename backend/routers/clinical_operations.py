@@ -20,6 +20,8 @@ import psycopg2.extras
 from db.postgres_connector import PostgresConnector
 from api.auth_helper import decode_token, get_current_user, security
 from services.lab_demo_result_service import generate_demo_result
+from services.patient_department_service import patient_department_expression
+from services.patient_history_scope_service import historical_active_patient_exclusion
 from services.vital_signs_service import record_vital_observation
 
 router = APIRouter(
@@ -1368,6 +1370,8 @@ def get_all_patients_directory(
                     FROM admissions a
                     JOIN patients p ON p.id = a.patient_id
                     LEFT JOIN doctors d ON d.id = a.doctor_id
+                    LEFT JOIN departments dep ON dep.id = a.department_id
+                    LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 """
                 where_sql = " AND ".join(where)
                 cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
@@ -1390,14 +1394,13 @@ def get_all_patients_directory(
                         a.discharge_date,
                         a.discharge_status,
                         a.reason_for_admission AS diagnosis,
-                        COALESCE(w.ward_name, 'Inpatient Ward') AS department,
+                        {patient_department_expression("dep", "doctor_dep")} AS department,
                         COALESCE(d.display_name, 'Attending Physician') AS doctor,
                         a.doctor_id,
                         COALESCE(pi.insurance_provider, ic.insurance_provider, 'Self-pay') AS insurer,
                         'IP' AS patient_type,
                         COALESCE(a.discharge_status, 'Recorded') AS status
                     {from_clause}
-                    LEFT JOIN wards w ON w.ward_id = a.ward_id
                     LEFT JOIN LATERAL (
                         SELECT insurance_provider FROM patient_insurance
                         WHERE patient_id = p.id
@@ -1422,6 +1425,36 @@ def get_all_patients_directory(
                 elif doctor_name and doctor_name.strip():
                     where.append("COALESCE(d.display_name, '') ILIKE %s")
                     params.append(f"%{doctor_name.strip()}%")
+                discharge_doctor_filter = ""
+                if doc_id_val:
+                    discharge_doctor_filter = "AND COALESCE(ds.doctor_id, discharge_admission.doctor_id) = %s"
+                    params.append(doc_id_val)
+                elif doctor_name and doctor_name.strip():
+                    discharge_doctor_filter = """AND COALESCE(discharge_doctor.display_name, ds.primary_consultant, '') ILIKE %s"""
+                    params.append(f"%{doctor_name.strip()}%")
+                where.append(f"""
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM discharge_summaries ds
+                        LEFT JOIN admissions discharge_admission
+                          ON discharge_admission.admission_id = ds.admission_id
+                        LEFT JOIN doctors discharge_doctor
+                          ON discharge_doctor.id = COALESCE(ds.doctor_id, discharge_admission.doctor_id)
+                        WHERE ds.patient_id = p.id
+                          {discharge_doctor_filter}
+                    )
+                """)
+                where.append("""
+                    a.id = (
+                        SELECT MAX(latest_appointment.id)
+                        FROM appointments latest_appointment
+                        WHERE latest_appointment.patient_id = a.patient_id
+                          AND latest_appointment.doctor_id = a.doctor_id
+                    )
+                """)
+                active_exclusion, active_params = historical_active_patient_exclusion("p", doc_id_val)
+                where.append(active_exclusion)
+                params.extend(active_params)
                 if clean_search:
                     where.append("""(
                         p.first_name ILIKE %s OR p.last_name ILIKE %s OR
@@ -1435,9 +1468,10 @@ def get_all_patients_directory(
                     JOIN patients p ON p.id = a.patient_id
                     LEFT JOIN doctors d ON d.id = a.doctor_id
                     LEFT JOIN departments dep ON dep.id = a.department_id
+                    LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 """
                 where_sql = " AND ".join(where)
-                cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
+                cur.execute(f"SELECT COUNT(DISTINCT a.patient_id) AS total {from_clause} WHERE {where_sql}", params)
                 total = int((cur.fetchone() or {}).get("total") or 0)
                 cur.execute(f"""
                     SELECT
@@ -1456,7 +1490,7 @@ def get_all_patients_directory(
                         a.appointment_date AS admission_date,
                         a.status AS discharge_status,
                         COALESCE(a.patient_reason, 'Outpatient visit') AS diagnosis,
-                        COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                        {patient_department_expression("dep", "doctor_dep")} AS department,
                         COALESCE(d.display_name, 'Attending Physician') AS doctor,
                         a.doctor_id,
                         COALESCE(pi.insurance_provider, ic.insurance_provider, 'Self-pay') AS insurer,
@@ -1532,6 +1566,28 @@ def get_all_patients_directory(
                         COALESCE(d.display_name, ds.primary_consultant, '') ILIKE %s
                     )""")
                     params.append(f"%{doctor_name.strip()}%")
+                latest_summary_doctor_filter = ""
+                if doc_id_val:
+                    latest_summary_doctor_filter = "AND COALESCE(latest_ds.doctor_id, latest_admission.doctor_id) = %s"
+                    params.append(doc_id_val)
+                elif doctor_name and doctor_name.strip():
+                    latest_summary_doctor_filter = """AND COALESCE(latest_doctor.display_name, latest_ds.primary_consultant, '') ILIKE %s"""
+                    params.append(f"%{doctor_name.strip()}%")
+                where.append(f"""
+                    ds.summary_id = (
+                        SELECT MAX(latest_ds.summary_id)
+                        FROM discharge_summaries latest_ds
+                        LEFT JOIN admissions latest_admission
+                          ON latest_admission.admission_id = latest_ds.admission_id
+                        LEFT JOIN doctors latest_doctor
+                          ON latest_doctor.id = COALESCE(latest_ds.doctor_id, latest_admission.doctor_id)
+                        WHERE latest_ds.patient_id = ds.patient_id
+                          {latest_summary_doctor_filter}
+                    )
+                """)
+                active_exclusion, active_params = historical_active_patient_exclusion("p", doc_id_val)
+                where.append(active_exclusion)
+                params.extend(active_params)
                 if clean_search:
                     where.append("""(
                         p.first_name ILIKE %s OR p.last_name ILIKE %s OR
@@ -1545,12 +1601,12 @@ def get_all_patients_directory(
                     FROM discharge_summaries ds
                     LEFT JOIN patients p ON p.id = ds.patient_id
                     LEFT JOIN admissions a ON a.admission_id = ds.admission_id
-                    LEFT JOIN departments dep ON dep.id = a.department_id
-                    LEFT JOIN wards w ON w.ward_id = a.ward_id
                     LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
+                    LEFT JOIN departments dep ON dep.id = COALESCE(a.department_id, d.department_id)
+                    LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 """
                 where_sql = " AND ".join(where)
-                cur.execute(f"SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
+                cur.execute(f"SELECT COUNT(DISTINCT ds.patient_id) AS total {from_clause} WHERE {where_sql}", params)
                 total = int((cur.fetchone() or {}).get("total") or 0)
                 cur.execute(f"""
                     SELECT
@@ -1568,11 +1624,7 @@ def get_all_patients_directory(
                         ds.admission_date,
                         ds.discharge_date,
                         ds.diagnoses AS diagnosis,
-                        COALESCE(
-                            NULLIF(BTRIM(dep.department_name), ''),
-                            NULLIF(BTRIM(w.ward_name), ''),
-                            'Inpatient Ward'
-                        ) AS department,
+                        {patient_department_expression("dep", "doctor_dep")} AS department,
                         COALESCE(d.display_name, ds.primary_consultant, 'Attending Physician') AS doctor,
                         COALESCE(ds.doctor_id, a.doctor_id) AS doctor_id,
                         'Discharged' AS patient_type,
@@ -1639,7 +1691,7 @@ def get_all_patients_directory(
                     a.discharge_date,
                     a.discharge_status,
                     COALESCE(a.reason_for_admission, 'Inpatient Admission') AS diagnosis,
-                    COALESCE(w.ward_name, 'General Ward') AS department,
+                    {patient_department_expression("dep", "doctor_dep")} AS department,
                     COALESCE(b.bed_number, 'BED-001') AS bed_number,
                     COALESCE(d.display_name, 'Dr. Sneha Das') AS doctor,
                     'IP' AS patient_type,
@@ -1653,8 +1705,9 @@ def get_all_patients_directory(
                 FROM admissions a
                 JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN doctors d ON d.id = a.doctor_id
+                LEFT JOIN departments dep ON dep.id = a.department_id
+                LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 LEFT JOIN beds b ON b.bed_id = a.bed_id
-                LEFT JOIN wards w ON w.ward_id = a.ward_id
                 LEFT JOIN LATERAL (
                     SELECT insurance_provider 
                     FROM insurance_claims 
@@ -1683,7 +1736,7 @@ def get_all_patients_directory(
             ]
             op_params = []
             if doc_id_val:
-                op_where.append("(la.doctor_id = %s OR la.doctor_id IS NULL)")
+                op_where.append("la.doctor_id = %s")
                 op_params.append(doc_id_val)
             if clean_search:
                 op_where.append("(p.first_name ILIKE %s OR p.last_name ILIKE %s OR p.patient_code ILIKE %s OR (p.first_name || ' ' || COALESCE(p.last_name, '')) ILIKE %s OR la.booking_id ILIKE %s)")
@@ -1726,9 +1779,9 @@ def get_all_patients_directory(
                     COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS primary_diagnosis,
                     COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS chief_complaint,
                     COALESCE(la.reason_for_visit, pv.chief_complaint, 'Outpatient Clinical Follow-up') AS reason_for_visit,
-                    COALESCE(dep.department_name, 'Outpatient Clinic') AS department,
+                    {patient_department_expression("dep", "doctor_dep")} AS department,
                     'OPD Desk' AS bed_number,
-                    COALESCE(d.display_name, 'Dr. Amit Sharma') AS doctor,
+                    COALESCE(d.display_name, 'Unassigned Doctor') AS doctor,
                     'OP' AS patient_type,
                     COALESCE(la.status, 'CONFIRMED') AS status,
                     COALESCE(ic.insurance_provider, pi.insurance_provider, 'Self-Pay') AS insurer,
@@ -1737,6 +1790,7 @@ def get_all_patients_directory(
                 LEFT JOIN latest_apt la ON la.patient_id = p.id
                 LEFT JOIN doctors d ON d.id = la.doctor_id
                 LEFT JOIN departments dep ON dep.id = la.department_id
+                LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 LEFT JOIN patient_visits pv ON pv.appointment_id = la.apt_id
                 LEFT JOIN LATERAL (
                     SELECT insurance_provider FROM insurance_claims WHERE patient_id = p.id ORDER BY claim_id DESC LIMIT 1
@@ -1754,6 +1808,15 @@ def get_all_patients_directory(
         if cat in ("ALL", "ER"):
             er_where = ["et.id IS NOT NULL"]
             er_params = []
+            if doc_id_val:
+                er_where.append("""
+                    EXISTS (
+                        SELECT 1 FROM doctors er_doctor
+                        WHERE er_doctor.id = %s
+                          AND LOWER(BTRIM(er_doctor.display_name)) = LOWER(BTRIM(et.doctor_name))
+                    )
+                """)
+                er_params.append(doc_id_val)
             if clean_search:
                 er_where.append("(et.patient_name ILIKE %s OR et.id ILIKE %s OR et.chief_complaint ILIKE %s)")
                 s_param = f"%{clean_search}%"
@@ -1827,7 +1890,7 @@ def get_all_patients_directory(
                     a.discharge_date,
                     'Discharged' AS discharge_status,
                     COALESCE(ds.diagnoses, a.reason_for_admission, 'Inpatient Care') AS diagnosis,
-                    COALESCE(w.ward_name, 'Inpatient Ward') AS department,
+                    {patient_department_expression("dep", "doctor_dep")} AS department,
                     'Released' AS bed_number,
                     COALESCE(ds.primary_consultant, d.display_name, 'Attending Doctor') AS doctor,
                     'Discharged' AS patient_type,
@@ -1838,7 +1901,8 @@ def get_all_patients_directory(
                 JOIN patients p ON p.id = a.patient_id
                 LEFT JOIN dim_generated_discharge_summaries ds ON ds.admission_id = a.admission_id
                 LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
-                LEFT JOIN wards w ON w.ward_id = a.ward_id
+                LEFT JOIN departments dep ON dep.id = a.department_id
+                LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 WHERE {' AND '.join(dis_where)}
                 ORDER BY p.id, a.discharge_date DESC, a.admission_id DESC
                 LIMIT %s;

@@ -3,6 +3,7 @@ import { apiService } from '../services/api';
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import SearchInput from './SearchInput';
 import TablePagination from './TablePagination';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
 // Design tokens
 const cardStyle = {
@@ -47,7 +48,7 @@ export function PharmacyStatsSkeleton({ count = 4 }) {
   );
 }
 
-function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel, extraActions }) {
+function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', onNew, newLabel, extraActions, onDateChange, dateRange }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px', flexWrap: 'wrap' }}>
       <div>
@@ -67,6 +68,7 @@ function Header({ title, subtitle, count, onExport, exportLabel = 'Export CSV', 
         </div>
       </div>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {onDateChange && <DateRangeFilter onChange={onDateChange} value={dateRange} />}
         {extraActions}
         {onExport && (
           <button
@@ -131,6 +133,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
   const [pageSize, setPageSize] = useState(15);
   const [totalCount, setTotalCount] = useState(0);
   const [actionLoading, setActionLoading] = useState(null);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const reqIdRef = useRef(0);
 
   // Debounce search to eliminate race conditions and avoid unnecessary requests
@@ -248,6 +251,10 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
   const dispensedCount = stats?.dispensed ?? data.filter(r => (r.status || '').toLowerCase() === 'dispensed').length;
   const totalItems = stats?.total_items ?? (data.length * 2);
 
+  const displayedData = useMemo(() => {
+    return data.filter(rx => isDateInRange(rx.prescribed_date || rx.date || rx.created_at, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
@@ -257,6 +264,8 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'prescription', title: 'New Prescription Entry' })}
         newLabel="+ Prescribe Medication"
         onExport={() => alert('Exporting prescriptions from database')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -309,18 +318,20 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <span style={{ position: 'absolute', left: '10px', color: '#94a3b8', fontSize: '13px', pointerEvents: 'none' }}>
-            🔍
-          </span>
-          <input
-            type="text"
-            placeholder="Search by Rx #, Patient, Doctor, or Drug..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{
-              padding: '7px 56px 7px 32px',
-              fontSize: '12px',
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <span style={{ position: 'absolute', left: '10px', color: '#94a3b8', fontSize: '13px', pointerEvents: 'none' }}>
+              🔍
+            </span>
+            <input
+              type="text"
+              placeholder="Search by Rx #, Patient, Doctor, or Drug..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                padding: '7px 56px 7px 32px',
+                fontSize: '12px',
               borderRadius: '6px',
               border: isSearching ? '1px solid #0f766e' : '1px solid #cbd5e1',
               width: '320px',
@@ -358,6 +369,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
               ✕
             </button>
           )}
+        </div>
         </div>
       </div>
 
@@ -465,7 +477,7 @@ export function PrescriptionsView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map((rx, idx) => {
+              {displayedData.map((rx, idx) => {
                 const rxNo = rx.prescription_number || rx.rx_number || rx.id;
                 const patName = rx.patient_name || rx.patient || 'Patient';
                 const patCode = rx.patient_uhid || rx.patientId || rx.patientCode || 'PAT-001';
@@ -573,6 +585,7 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchDrugs = async () => {
     try {
@@ -596,10 +609,14 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
     fetchDrugs();
   }, [filter, search]);
 
+  const filteredData = useMemo(() => {
+    return data.filter(d => isDateInRange(d.created_at || d.updated_at || d.effective_date, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   const paginatedData = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return data.slice(start, start + pageSize);
-  }, [data, page, pageSize]);
+    return filteredData.slice(start, start + pageSize);
+  }, [filteredData, page, pageSize]);
 
   const handleRowClick = (d) => {
     if (!onOpenDrawer) return;
@@ -651,6 +668,8 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'drug', title: 'Add Formulary Drug Master' })}
         newLabel="+ Add Formulary Drug"
         onExport={() => alert('Exporting drug master formulary')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -703,15 +722,18 @@ export function DrugMasterView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search generic, brand, category, or code..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search generic, brand, category, or code..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -831,6 +853,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
   const [pageSize, setPageSize] = useState(15);
   const [totalCount, setTotalCount] = useState(0);
   const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const reqIdRef = useRef(0);
 
   useEffect(() => {
@@ -919,6 +942,10 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
   const dispensedToday = stats?.dispensed_today ?? data.filter(s => (s.status || '').toLowerCase() === 'dispensed').length;
   const pendingCount = stats?.pending_delivery ?? data.filter(s => (s.status || '').toLowerCase() !== 'dispensed').length;
 
+  const displayedData = useMemo(() => {
+    return data.filter(s => isDateInRange(s.sale_date || s.time || s.date || s.created_at, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
@@ -976,6 +1003,8 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'pharmacy', title: 'New Pharmacy Dispense Record' })}
         newLabel="+ Dispense Order"
         onExport={() => alert('Exporting pharmacy transactions')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -1031,15 +1060,18 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search by sale #, patient, Rx #..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search by sale #, patient, Rx #..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -1055,9 +1087,9 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
               tableColumns={8}
             />
           </div>
-        ) : data.length === 0 ? (
+        ) : displayedData.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            {debouncedSearch ? `No pharmacy sales found matching "${debouncedSearch}".` : 'No pharmacy sales records found in database.'}
+            {debouncedSearch ? `No pharmacy sales found matching "${debouncedSearch}".` : 'No pharmacy sales records found matching the filter.'}
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -1073,7 +1105,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
               </tr>
             </thead>
             <tbody>
-              {data.map((s, idx) => {
+              {displayedData.map((s, idx) => {
                 const saleNo = s.sale_number || s.txn_number || s.id;
                 const patName = s.patient_name || s.patient || 'Patient';
                 const patUhid = s.patient_uhid || s.bed || s.ward || 'OPD';
@@ -1158,6 +1190,7 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [totalCount, setTotalCount] = useState(0);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchInventory = async () => {
     try {
@@ -1240,6 +1273,10 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
   const expiringCount = stats?.expiring_soon ?? 9;
   const totalValuation = stats?.total_valuation ?? 24600422;
 
+  const displayedData = useMemo(() => {
+    return data.filter(item => isDateInRange(item.expiry_date || item.expiry || item.created_at || item.received_date, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const startRecord = totalCount > 0 ? (page - 1) * pageSize + 1 : 0;
   const endRecord = Math.min(page * pageSize, totalCount);
@@ -1253,6 +1290,8 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'inventory', title: 'Receive New Stock Batch' })}
         newLabel="+ Inward Stock Batch"
         onExport={() => alert('Exporting inventory batches')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -1311,15 +1350,18 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search batch #, drug, location, supplier..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search batch #, drug, location, supplier..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -1335,7 +1377,7 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
               tableColumns={8}
             />
           </div>
-        ) : data.length === 0 ? (
+        ) : displayedData.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📦</div>
             <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '14px' }}>No matching medication batches found</div>
@@ -1361,7 +1403,7 @@ export function InventoryView({ onOpenDrawer, onOpenModal }) {
                 </tr>
               </thead>
               <tbody>
-                {data.map(item => {
+                {displayedData.map(item => {
                   const batchNo = item.batch_number || item.batch || item.id;
                   const drugName = item.drug_name || item.drug || 'Medication Batch';
                   const brandName = item.brand_name || item.brand || item.generic_name || 'Generic';
@@ -1448,6 +1490,7 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
   const [data, setData] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchStores = async () => {
     try {
@@ -1512,6 +1555,10 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
   const totalSkus = stats?.total_skus ?? data.reduce((acc, s) => acc + (s.totalSkus ?? s.total_skus ?? 0), 0);
   const totalValuation = stats?.total_valuation ?? data.reduce((acc, s) => acc + (s.valuation ?? s.total_valuation ?? 0), 0);
 
+  const displayedData = useMemo(() => {
+    return data.filter(st => isDateInRange(st.created_at || st.updated_at || st.last_audited, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
@@ -1521,6 +1568,8 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'store', title: 'Register New Hospital Sub-Store' })}
         newLabel="+ Add Store Depot"
         onExport={() => alert('Exporting stores directory')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -1550,6 +1599,10 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
       )}
 
       {/* Stores Cards Grid */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+        <DateRangeFilter onChange={setDateRange} value={dateRange} />
+      </div>
+
       {loading && data.length === 0 ? (
         <div style={{ padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
           <ModuleLoadingScreen
@@ -1567,7 +1620,7 @@ export function StoresView({ onOpenDrawer, onOpenModal }) {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
-          {data.map(st => {
+          {displayedData.map(st => {
             const storeCode = st.code || st.store_code || 'STR';
             const storeName = st.name || st.store_name || 'Hospital Depot';
             const supervisor = st.supervisor || st.incharge || 'Store Supervisor';
@@ -1649,6 +1702,7 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchProcurement = async () => {
     try {
@@ -1672,10 +1726,14 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
     fetchProcurement();
   }, [filter, search]);
 
+  const filteredData = useMemo(() => {
+    return data.filter(po => isDateInRange(po.order_date || po.orderDate || po.created_at || po.expected_delivery, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   const paginatedData = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return data.slice(start, start + pageSize);
-  }, [data, page, pageSize]);
+    return filteredData.slice(start, start + pageSize);
+  }, [filteredData, page, pageSize]);
 
   const handleRowClick = (po) => {
     if (!onOpenDrawer) return;
@@ -1739,6 +1797,8 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'procurement', title: 'Create Hospital Purchase Order' })}
         newLabel="+ Create Purchase Order"
         onExport={() => alert('Exporting purchase orders')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -1791,15 +1851,18 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search PO #, vendor, items..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search PO #, vendor, items..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -1815,9 +1878,9 @@ export function ProcurementView({ onOpenDrawer, onOpenModal }) {
               tableColumns={7}
             />
           </div>
-        ) : data.length === 0 ? (
+        ) : filteredData.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            No purchase order records found in database.
+            No purchase order records found matching the filter.
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
@@ -1917,6 +1980,7 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchVendors = async () => {
     try {
@@ -1940,10 +2004,14 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
     fetchVendors();
   }, [filter, search]);
 
+  const filteredData = useMemo(() => {
+    return data.filter(v => isDateInRange(v.contract_start || v.created_at || v.contract_end || v.contract_date, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   const paginatedData = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return data.slice(start, start + pageSize);
-  }, [data, page, pageSize]);
+    return filteredData.slice(start, start + pageSize);
+  }, [filteredData, page, pageSize]);
 
   const handleRowClick = (v) => {
     if (!onOpenDrawer) return;
@@ -1997,6 +2065,8 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'vendor', title: 'Onboard New Hospital Supplier' })}
         newLabel="+ Onboard Vendor"
         onExport={() => alert('Exporting vendor directory')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -2043,15 +2113,18 @@ export function VendorsView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search vendor name, GSTIN, category, or contact..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search vendor name, GSTIN, category, or contact..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -2171,6 +2244,7 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [actionLoading, setActionLoading] = useState(null);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const fetchCssd = async () => {
     try {
@@ -2194,10 +2268,14 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
     fetchCssd();
   }, [filter, search]);
 
+  const filteredData = useMemo(() => {
+    return data.filter(c => isDateInRange(c.cycle_date || c.cycleDate || c.created_at || c.expiry_date, dateRange.dateFrom, dateRange.dateTo));
+  }, [data, dateRange]);
+
   const paginatedData = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return data.slice(start, start + pageSize);
-  }, [data, page, pageSize]);
+    return filteredData.slice(start, start + pageSize);
+  }, [filteredData, page, pageSize]);
 
   const handleRelease = async (record, e) => {
     if (e) e.stopPropagation();
@@ -2272,6 +2350,8 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'cssd', title: 'Initiate Sterilization Cycle' })}
         newLabel="+ New Sterilizer Cycle"
         onExport={() => alert('Exporting CSSD sterilization registry')}
+        onDateChange={setDateRange}
+        dateRange={dateRange}
       />
 
       {/* Stats Cards */}
@@ -2324,15 +2404,18 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
             </button>
           ))}
         </div>
-        <SearchInput
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          onClear={() => setSearch('')}
-          placeholder="Search cycle #, equipment, surgical pack, operator..."
-          loading={loading}
-          width="280px"
-          accentColor="#0f766e"
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <DateRangeFilter onChange={setDateRange} value={dateRange} />
+          <SearchInput
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
+            placeholder="Search cycle #, equipment, surgical pack, operator..."
+            loading={loading}
+            width="280px"
+            accentColor="#0f766e"
+          />
+        </div>
       </div>
 
       {/* Main Table */}
@@ -2348,9 +2431,9 @@ export function CssdView({ onOpenDrawer, onOpenModal }) {
               tableColumns={8}
             />
           </div>
-        ) : data.length === 0 ? (
+        ) : filteredData.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            No CSSD sterilization cycle records found in database.
+            No CSSD sterilization cycle records found matching the filter.
           </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>

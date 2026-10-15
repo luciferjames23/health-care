@@ -40,6 +40,8 @@ import db_config
 import preadmission_service
 import services.patient_service as patient_service
 import utils.cache_service as cache_service
+from services.patient_department_service import patient_department_expression
+from services.patient_history_scope_service import historical_active_patient_exclusion
 from utils.phone_utils import normalize_phone
 from api.auth_helper import get_current_user, require_admin, require_doctor_or_admin
 
@@ -1090,11 +1092,26 @@ def get_patients(
                     ) OR EXISTS (
                         SELECT 1 FROM admissions adm
                         WHERE adm.patient_id = patients.id AND adm.doctor_id IS NOT NULL
+                    ) OR EXISTS (
+                        SELECT 1
+                        FROM discharge_summaries ds
+                        LEFT JOIN admissions adm ON adm.admission_id = ds.admission_id
+                        WHERE ds.patient_id = patients.id
+                          AND COALESCE(ds.doctor_id, adm.doctor_id) IS NOT NULL
                     )
                 )
             """)
         elif target_doctor_id is not None:
-            conditions.append("""
+            historical_discharge_exists = """
+                OR EXISTS (
+                    SELECT 1
+                    FROM discharge_summaries ds
+                    LEFT JOIN admissions adm ON adm.admission_id = ds.admission_id
+                    WHERE ds.patient_id = patients.id
+                      AND COALESCE(ds.doctor_id, adm.doctor_id) = %s
+                )
+            """ if historical_scope else ""
+            conditions.append(f"""
                 (EXISTS (
                     SELECT 1 FROM appointments a 
                     WHERE a.patient_id = patients.id AND a.doctor_id = %s
@@ -1104,9 +1121,16 @@ def get_patients(
                 ) OR EXISTS (
                     SELECT 1 FROM admissions adm
                     WHERE adm.patient_id = patients.id AND adm.doctor_id = %s
-                ))
+                ) {historical_discharge_exists})
             """)
             params.extend([target_doctor_id, target_doctor_id, target_doctor_id])
+            if historical_scope:
+                params.append(target_doctor_id)
+
+        if historical_scope:
+            active_exclusion, active_params = historical_active_patient_exclusion("patients", target_doctor_id)
+            conditions.append(active_exclusion)
+            params.extend(active_params)
 
         if patient_id is not None:
             conditions.append("patients.id = %s")
@@ -1131,11 +1155,16 @@ def get_patients(
 
         # Paginate
         offset = (page - 1) * per_page
+        patient_department_doctor_filter = (
+            f"AND care.doctor_id = {int(target_doctor_id)}"
+            if target_doctor_id is not None else ""
+        )
         cur.execute(
             f"""
             SELECT patients.id, patients.patient_code, patients.first_name, patients.last_name,
                    patients.date_of_birth, patients.gender, patients.phone, patients.whatsapp_number,
                    patients.email, patients.city, patients.blood_group, patients.preferred_language,
+                   patient_care_department.department,
                    COALESCE(
                        NULLIF(BTRIM(pi.insurance_provider), ''),
                        NULLIF(BTRIM(ic.insurance_provider), ''),
@@ -1144,6 +1173,56 @@ def get_patients(
                    patients.status, patients.created_at, patients.guardian_patient_id,
                    patients.guardian_phone, patients.relationship_to_contact, patients.is_dependent
             FROM patients
+            LEFT JOIN LATERAL (
+                SELECT {patient_department_expression("care_department", "care_doctor_department")} AS department
+                FROM (
+                    SELECT
+                        a.department_id,
+                        a.doctor_id,
+                        a.appointment_date::timestamp AS care_date,
+                        a.id AS record_id
+                    FROM appointments a
+                    WHERE a.patient_id = patients.id
+
+                    UNION ALL
+
+                    SELECT
+                        pa.department_id,
+                        pa.doctor_id,
+                        pa.expected_admission_date::timestamp AS care_date,
+                        pa.id AS record_id
+                    FROM pre_admissions pa
+                    WHERE pa.patient_id = patients.id
+
+                    UNION ALL
+
+                    SELECT
+                        adm.department_id,
+                        adm.doctor_id,
+                        adm.admission_date::timestamp AS care_date,
+                        adm.admission_id AS record_id
+                    FROM admissions adm
+                    WHERE adm.patient_id = patients.id
+
+                    UNION ALL
+
+                    SELECT
+                        COALESCE(adm.department_id, doc.department_id) AS department_id,
+                        COALESCE(ds.doctor_id, adm.doctor_id) AS doctor_id,
+                        ds.discharge_date::timestamp AS care_date,
+                        ds.summary_id AS record_id
+                    FROM discharge_summaries ds
+                    LEFT JOIN admissions adm ON adm.admission_id = ds.admission_id
+                    LEFT JOIN doctors doc ON doc.id = COALESCE(ds.doctor_id, adm.doctor_id)
+                    WHERE ds.patient_id = patients.id
+                ) care
+                LEFT JOIN departments care_department ON care_department.id = care.department_id
+                LEFT JOIN doctors care_doctor ON care_doctor.id = care.doctor_id
+                LEFT JOIN departments care_doctor_department ON care_doctor_department.id = care_doctor.department_id
+                WHERE TRUE {patient_department_doctor_filter}
+                ORDER BY care.care_date DESC NULLS LAST, care.record_id DESC
+                LIMIT 1
+            ) patient_care_department ON TRUE
             LEFT JOIN LATERAL (
                 SELECT insurance_provider
                 FROM patient_insurance
@@ -1159,7 +1238,7 @@ def get_patients(
                 LIMIT 1
             ) ic ON TRUE
             {where}
-            ORDER BY patients.created_at DESC
+            ORDER BY patients.created_at DESC, patients.id DESC
             LIMIT %s OFFSET %s;
             """,
             params + [per_page, offset],

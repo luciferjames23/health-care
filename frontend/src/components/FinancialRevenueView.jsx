@@ -3,6 +3,7 @@ import { financialApi } from "../services/financialApi";
 import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
+import DateRangeFilter, { isDateInRange } from "./DateRangeFilter";
 import BillingTransparencyDrawer from "./BillingTransparencyDrawer";
 import ClaimExclusionModal from "./ClaimExclusionModal";
 import ClaimAppealDrawer from "./ClaimAppealDrawer";
@@ -240,6 +241,17 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const [claimsViewMode, setClaimsViewMode] = useState("kanban"); // 'table' | 'kanban'
   const [workloadScope, setWorkloadScope] = useState("active"); // 'active' | 'all'
   const [claimsKanbanPages, setClaimsKanbanPages] = useState({});
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
+
+  const displayBills = useMemo(() => {
+    if (!dateRange.dateFrom && !dateRange.dateTo) return bills;
+    return bills.filter(b => isDateInRange(b.bill_date || b.created_at || b.date, dateRange.dateFrom, dateRange.dateTo));
+  }, [bills, dateRange]);
+
+  const displayClaims = useMemo(() => {
+    if (!dateRange.dateFrom && !dateRange.dateTo) return claims;
+    return claims.filter(c => isDateInRange(c.claim_date || c.created_at || c.date || c.settlement_date, dateRange.dateFrom, dateRange.dateTo));
+  }, [claims, dateRange]);
 
   // Finance Dashboard State
   const [dashboardData, setDashboardData] = useState(null);
@@ -992,6 +1004,14 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             </div>
           )}
 
+          <DateRangeFilter
+            onChange={(val) => {
+              setDateRange(val);
+              setBillPage(1);
+              setClaimPage(1);
+            }}
+          />
+
           <SearchInput
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1306,7 +1326,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             )}
 
             {/* Table Rows */}
-            {!loadingBills && bills.map((b) => {
+            {!loadingBills && displayBills.map((b) => {
               const est = Number(b.gross_amount) || Number(b.total) || 1;
               const act = Number(b.total) || 0;
               const v = act - est;
@@ -2017,7 +2037,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 <span>Claim status</span>
               </div>
 
-              {claims.map((cl) => (
+              {displayClaims.map((cl) => (
                 <div
                   key={cl.claim_id}
                   onClick={() => openClaimDrawer(cl)}

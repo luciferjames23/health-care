@@ -3,9 +3,10 @@ import { apiService, parseAdmissionLlmRecord, extractDischargedPatientIds, match
 import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
 import TablePagination from './TablePagination';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
 export default function ClinicalWorkspaceView({
-  doctorName = 'Dr. Priya Patel',
+  doctorName = 'Dr. Pallavi Patel',
   userRole = 'Doctor',
   onSelectPatient,
   onOpenSoap,
@@ -17,6 +18,7 @@ export default function ClinicalWorkspaceView({
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   const isDoctor = userRole === 'Doctor' || (doctorName && userRole !== 'Hospital Management' && userRole !== 'Admin');
   const activeDoctorName = isDoctor ? doctorName : null;
@@ -92,7 +94,11 @@ export default function ClinicalWorkspaceView({
   }, [patientList, activeDoctorName]);
 
   const filtered = useMemo(() => {
-    return scopedPatientList.filter(p => {
+    let list = scopedPatientList;
+    if (dateRange && (dateRange.dateFrom || dateRange.dateTo)) {
+      list = list.filter(p => isDateInRange(p.admitted || p.admission_date || p.admission_time || p.date, dateRange.dateFrom, dateRange.dateTo));
+    }
+    return list.filter(p => {
       if (!search.trim()) return true;
       const s = search.toLowerCase().trim();
       const isDigits = /^\d+$/.test(s);
@@ -107,7 +113,7 @@ export default function ClinicalWorkspaceView({
              (p.mrn && p.mrn.toLowerCase().includes(s)) ||
              (p.doctor && p.doctor.toLowerCase().includes(s));
     });
-  }, [scopedPatientList, search]);
+  }, [scopedPatientList, search, dateRange]);
 
   const paginated = useMemo(() => {
     return filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -191,6 +197,12 @@ export default function ClinicalWorkspaceView({
 
         {activeTab === 'roster' && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <DateRangeFilter
+              onChange={(val) => {
+                setDateRange(val);
+                setPage(1);
+              }}
+            />
             <input
               type="text"
               value={search}

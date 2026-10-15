@@ -1,5 +1,7 @@
 import React from 'react';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
+export { isDateInRange, DateRangeFilter };
 
 export const statusRank = { 'HIGH PRIORITY': 0, 'REVIEW FLAG': 1, 'ROUTINE': 2 };
 
@@ -55,10 +57,11 @@ export function SummaryCards({ counts }) {
   </div>;
 }
 
-export function Toolbar({ query, setQuery, filter, setFilter, sort, setSort, onRefresh }) {
+export function Toolbar({ query, setQuery, filter, setFilter, sort, setSort, onRefresh, onDateChange, dateRange }) {
   const filters = ['All', 'HIGH PRIORITY', 'REVIEW FLAG', 'ROUTINE'];
   return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 12 }}>
     <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search study, patient, modality…" style={{ height: 30, minWidth: 220, flex: '1 1 220px', border: '1px solid #d9dddf', borderRadius: 6, padding: '0 9px', fontSize: 11.5, outline: 'none' }} />
+    <DateRangeFilter value={dateRange} onChange={onDateChange} />
     {filters.map(label => <button key={label} type="button" onClick={() => setFilter(label)} style={filter === label ? primaryBtn : btn}>{label}</button>)}
     <select value={sort} onChange={e => setSort(e.target.value)} style={{ height: 30, border: '1px solid #d9dddf', borderRadius: 6, padding: '0 8px', background: '#fff', fontSize: 11.5 }}>
       <option value="default">Default priority</option>

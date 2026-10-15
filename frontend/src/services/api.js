@@ -2726,7 +2726,7 @@ export function parseAdmissionLlmRecord(record) {
   const doctorSpecialty = record.doctor_specialization || adm.doctor_specialization || 'Clinical Specialist';
   const wardName = record.ward_name || adm.ward_name || 'Emerald Semi-Private';
   const bedNum = record.bed_number || 'Unassigned';
-  const department = record.department_name || wardName || doctorSpecialty || 'General Medicine';
+  const department = record.department || record.department_name || wardName || doctorSpecialty || 'General Medicine';
   const insurer = record.insurer || record.insurance_provider || adm.insurance_provider || (bill.bill_insurance_portion > 0 ? 'Star Health / TPA' : 'Direct Billing / Corporate');
 
   return {

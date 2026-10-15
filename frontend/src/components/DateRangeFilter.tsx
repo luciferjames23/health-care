@@ -124,14 +124,29 @@ export function calculateDateRange(preset: DatePreset, customFrom?: string, cust
   }
 }
 
+export function isDateInRange(itemDateStr?: string | Date | null, dateFrom?: string, dateTo?: string): boolean {
+  if (!dateFrom && !dateTo) return true;
+  if (!itemDateStr) return false;
+  let ymd = '';
+  if (typeof itemDateStr === 'string') {
+    ymd = itemDateStr.slice(0, 10);
+  } else if (itemDateStr instanceof Date) {
+    ymd = toYMD(itemDateStr);
+  }
+  if (!ymd || ymd.length < 10) return false;
+  if (dateFrom && ymd < dateFrom) return false;
+  if (dateTo && ymd > dateTo) return false;
+  return true;
+}
+
 export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
-  initialPreset = 'this_month',
+  initialPreset = 'all_time',
   initialFrom,
   initialTo,
   onChange,
   className = '',
 }) => {
-  const [preset, setPreset] = useState<DatePreset>(initialPreset || 'this_month');
+  const [preset, setPreset] = useState<DatePreset>(initialPreset || 'all_time');
   const [customFrom, setCustomFrom] = useState<string>(initialFrom || toYMD(new Date()));
   const [customTo, setCustomTo] = useState<string>(initialTo || toYMD(new Date()));
 
@@ -149,75 +164,87 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
     <div
       className={`date-range-filter-container ${className}`}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
         flexWrap: 'wrap',
-        background: 'var(--bg-secondary)',
-        padding: '6px 12px',
-        borderRadius: 'var(--radius-md, 8px)',
-        border: '1px solid var(--border)',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--primary)', fontWeight: 600, fontSize: 13 }}>
-        <Calendar size={15} />
-        <span>Date Range:</span>
-      </div>
-
-      <select
-        value={preset || 'this_month'}
-        onChange={(e) => setPreset(e.target.value as DatePreset)}
+      <div
         style={{
-          padding: '6px 12px',
-          border: '1.5px solid var(--border)',
-          borderRadius: 'var(--radius-sm, 6px)',
-          fontSize: 13,
-          fontWeight: 500,
-          background: 'var(--bg-primary)',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          background: '#f6f7f8',
+          border: '1px solid #e3e6e8',
+          borderRadius: '6px',
+          padding: '0 8px',
+          height: '30px',
         }}
       >
-        <option value="all_time">All Time</option>
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-        <option value="tomorrow">Tomorrow</option>
-        <option value="this_week">This Week</option>
-        <option value="last_week">Last Week</option>
-        <option value="this_month">This Month</option>
-        <option value="last_month">Last Month</option>
-        <option value="next_7_days">Next 7 Days</option>
-        <option value="next_30_days">Next 30 Days</option>
-        <option value="custom">Custom Date Range</option>
-      </select>
+        <Calendar size={13} style={{ color: 'oklch(0.5 0.1 200)' }} />
+        <span style={{ fontSize: '11px', fontWeight: 600, color: 'oklch(0.4 0.1 200)' }}>Date:</span>
+        <select
+          value={preset || 'all_time'}
+          onChange={(e) => setPreset(e.target.value as DatePreset)}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            fontSize: '12px',
+            color: '#15181b',
+            outline: 'none',
+            cursor: 'pointer',
+            fontWeight: 500,
+            fontFamily: "var(--sans, 'Public Sans', sans-serif)",
+          }}
+        >
+          <option value="all_time">All Time</option>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="tomorrow">Tomorrow</option>
+          <option value="this_week">This Week</option>
+          <option value="last_week">Last Week</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="next_7_days">Next 7 Days</option>
+          <option value="next_30_days">Next 30 Days</option>
+          <option value="custom">Custom Date Range</option>
+        </select>
+      </div>
 
       {preset === 'custom' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <input
             type="date"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
             style={{
-              padding: '5px 8px',
-              border: '1.5px solid var(--border)',
-              borderRadius: 'var(--radius-sm, 6px)',
-              fontSize: 12,
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
+              height: '30px',
+              padding: '0 8px',
+              border: '1px solid #e3e6e8',
+              borderRadius: '6px',
+              fontSize: '12px',
+              background: '#fff',
+              color: '#15181b',
+              outline: 'none',
+              fontFamily: "var(--sans, 'Public Sans', sans-serif)",
             }}
           />
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>→</span>
+          <span style={{ fontSize: '11px', color: '#8a9096' }}>→</span>
           <input
             type="date"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
             style={{
-              padding: '5px 8px',
-              border: '1.5px solid var(--border)',
-              borderRadius: 'var(--radius-sm, 6px)',
-              fontSize: 12,
-              background: 'var(--bg-primary)',
-              color: 'var(--text-primary)',
+              height: '30px',
+              padding: '0 8px',
+              border: '1px solid #e3e6e8',
+              borderRadius: '6px',
+              fontSize: '12px',
+              background: '#fff',
+              color: '#15181b',
+              outline: 'none',
+              fontFamily: "var(--sans, 'Public Sans', sans-serif)",
             }}
           />
         </div>

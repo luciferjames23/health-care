@@ -5,6 +5,7 @@ import ModuleLoadingScreen, { TableSkeleton } from "./ModuleLoadingScreen";
 import PatientRegistrationModal from "./PatientRegistrationModal";
 import SearchInput from "./SearchInput";
 import TablePagination from "./TablePagination";
+import DateRangeFilter, { isDateInRange } from "./DateRangeFilter";
 
 function getStatusPill(status) {
   if (!status) return { bg: "#f2f3f4", fg: "#52585e", label: "Unknown" };
@@ -71,6 +72,7 @@ export default function PatientsView({
   const [isSearching, setIsSearching] = useState(false);
   const [filter, setFilter] = useState(initialFilter || "All");
   const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
 
   useEffect(() => {
     if (initialFilter) {
@@ -121,7 +123,10 @@ export default function PatientsView({
             { forceRefresh: true }
           ).catch(() => ({ data: [] })),
           apiService.getAllPatientsDirectory({ category: 'OP' }, { forceRefresh: true }).catch(() => ({ data: [] })),
-          apiService.getAllPatientsDirectory({ category: 'ER' }, { forceRefresh: true }).catch(() => ({ data: [] })),
+          apiService.getAllPatientsDirectory({
+            category: 'ER',
+            doctor_id: activeDoctorId || undefined,
+          }, { forceRefresh: true }).catch(() => ({ data: [] })),
         ]);
         const allDirRes = { data: [] };
         if (!alive) return;
@@ -170,7 +175,7 @@ export default function PatientsView({
               age: r.age_at_admission || parsed.age || 45,
               sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : r.gender.toLowerCase().startsWith('m') ? 'M' : r.gender) : (parsed.sex || 'F'),
               gender: r.gender || parsed.gender || 'Unknown',
-              department: r.ward_name || r.department || matchedSummary?.department || parsed.department || 'Emerald Semi-Private',
+              department: r.department || matchedSummary?.department || parsed.department || r.ward_name || 'General Medicine',
               doctor: docName,
               diagnosis: cleanDiagnosis(matchedSummary?.diagnoses || r.primary_diagnosis || parsed.diagnosis || ''),
               _type: "Discharged",
@@ -274,7 +279,7 @@ export default function PatientsView({
             sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
             gender: r.gender || 'Male',
             language: r.preferred_language || 'English',
-            department: r.department || 'Outpatient Clinic',
+            department: r.department || 'General Medicine',
             doctor: cleanDoctorName(r.doctor || 'Consultant Doctor'),
             insurer: r.insurer || r.insurance_provider || 'Self-Pay',
             status: r.status || 'CONFIRMED',
@@ -306,7 +311,7 @@ export default function PatientsView({
             sex: r.gender ? (r.gender.toLowerCase().startsWith('f') ? 'F' : 'M') : 'M',
             gender: r.gender || 'Male',
             language: r.preferred_language || 'English',
-            department: r.bed_number ? `${r.department} (${r.bed_number})` : (r.department || 'Emergency Bay'),
+            department: r.department || 'Emergency',
             doctor: cleanDoctorName(r.doctor || 'Dr. Divya Verma'),
             insurer: r.insurer || 'Emergency Cover',
             status: r.status || 'Active Triage',
@@ -443,6 +448,13 @@ export default function PatientsView({
       );
     }
 
+    if (dateRange && (dateRange.dateFrom || dateRange.dateTo)) {
+      list = list.filter(p => {
+        const itemDate = p.admission_date || p.discharge_date || p.appointment_date || p.date || p.admitted_at || p.created_at;
+        return isDateInRange(itemDate, dateRange.dateFrom, dateRange.dateTo);
+      });
+    }
+
     if (!debouncedSearch.trim()) return list;
     const s = debouncedSearch.toLowerCase().trim();
     const isDigits = /^\d+$/.test(s);
@@ -545,7 +557,7 @@ export default function PatientsView({
           sex: gender,
           gender,
           language: patient.preferred_language || 'Not recorded',
-          department: 'Patient Registry',
+          department: patient.department || currentUser?.department || 'General Medicine',
           doctor: activeDoctorName || '—',
           insurer: patient.insurance_provider || patient.insurer || 'Self-pay',
           _type: 'Patient',
@@ -559,7 +571,7 @@ export default function PatientsView({
     });
 
     return () => { cancelled = true; };
-  }, [workloadScope, safeCurrentPage, pageSize, debouncedSearch, activeDoctorName]);
+  }, [workloadScope, safeCurrentPage, pageSize, debouncedSearch, activeDoctorName, activeDoctorId]);
 
   useEffect(() => {
     if (workloadScope !== 'all') return undefined;
@@ -674,9 +686,9 @@ export default function PatientsView({
             {viewLoading
               ? "Loading patients…"
               : workloadScope === 'all'
-                ? `${historicalTotal.toLocaleString()} historical patient records${isDoctor && activeDoctorName ? ` assigned to ${activeDoctorName}` : ' across the hospital'}`
+                ? `${historicalTotal.toLocaleString()} historical patients, excluding the active workload`
               : isDoctor && activeDoctorName
-                ? `Doctor Scope: ${activeDoctorName} · Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
+                ? `Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
                 : `Active Operational Workload: ${activeCounts[filter] || activeCounts.All} active ${filter === 'OP' ? 'clinic cases' : filter === 'IP' ? 'inpatients' : filter === 'Discharged' ? 'discharged patients' : 'patients'}`}
           </div>
         </div>
@@ -732,11 +744,18 @@ export default function PatientsView({
                 gap: '5px',
                 transition: 'all 0.15s ease'
               }}
-              title="View historical patients with doctor-linked care records"
+              title="View past-care patients, excluding patients in the active workload"
             >
               <span>📋 All Historical ({historyLoading ? '…' : historicalTotal.toLocaleString()})</span>
             </button>
           </div>
+
+          <DateRangeFilter
+            onChange={(val) => {
+              setDateRange(val);
+              setCurrentPage(1);
+            }}
+          />
 
           <SearchInput
             value={search}
@@ -763,7 +782,7 @@ export default function PatientsView({
 
       {/* filter pills + pagination summary */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-        <div style={{ display: "flex", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
           {(workloadScope === 'all'
             ? ["All", "OP", "ER", "Discharged"]
             : ["All", "IP", "OP", "ER", "Discharged"]
@@ -785,6 +804,11 @@ export default function PatientsView({
               </span>
             </button>
           ))}
+          {workloadScope === 'all' && (
+            <span style={{ marginLeft: "4px", fontSize: "11px", color: "#64748b" }}>
+              All = unique patients; OP and Discharged counts are non-overlapping patient groups.
+            </span>
+          )}
         </div>
 
         {totalRows > 0 && (
