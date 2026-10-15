@@ -1717,6 +1717,7 @@ def get_lab_orders(
     priority: Optional[str] = None,
     available_priorities: bool = False,
     available_statuses: bool = False,
+    active_only: bool = False,
     limit: int = 100,
     offset: int = 0,
     _user: dict = Depends(require_authenticated_lab_reader),
@@ -1745,6 +1746,19 @@ def get_lab_orders(
             return {"success": True, "statuses": [row['status'] for row in cur.fetchall()]}
         where_clauses = ["1=1"]
         params = []
+
+        active_patient_order_filter = """(
+            lo.admission_id IN (
+                SELECT admission_id FROM dim_admission_inputs
+                WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged'
+            )
+            OR lo.patient_id IN (
+                SELECT patient_id FROM dim_admission_inputs
+                WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged'
+            )
+        )"""
+        if active_only:
+            where_clauses.append(active_patient_order_filter)
 
         if patient_id is not None:
             where_clauses.append("lo.patient_id = %s")
@@ -1784,6 +1798,8 @@ def get_lab_orders(
         # Same unfiltered all-orders count used by the executive KPI.
         cur.execute("SELECT COUNT(*) AS total FROM lab_orders")
         all_orders_total = int((cur.fetchone() or {}).get('total') or 0)
+        cur.execute(f"SELECT COUNT(*) AS total FROM lab_orders lo WHERE {active_patient_order_filter}")
+        active_orders_total = int((cur.fetchone() or {}).get('total') or 0)
 
         cur.execute(f"""
             SELECT COUNT(*) as total 
@@ -1933,6 +1949,7 @@ def get_lab_orders(
         return {
             "success": True,
             "all_orders_total": all_orders_total,
+            "active_orders_total": active_orders_total,
             "total": total_count,
             "count": len(formatted),
             "summary": {

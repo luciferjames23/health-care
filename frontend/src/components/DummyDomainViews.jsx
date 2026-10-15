@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { apiService, matchesDoctor } from '../services/api';
-import ModuleLoadingScreen, { TableSkeleton } from './ModuleLoadingScreen';
+import ModuleLoadingScreen, { CardGridSkeleton, TableSkeleton } from './ModuleLoadingScreen';
 import TablePagination from './TablePagination';
 import BillingTransparencyDrawer from './BillingTransparencyDrawer';
 import { labCollectionEventsApi } from '../services/labCollectionEventsApi';
@@ -3889,10 +3889,11 @@ export function BloodBankView({ onOpenDrawer, onOpenModal }) {
 // -----------------------------------------------------------------------------
 // 8. LAB DASHBOARD & LIS (lab)
 // -----------------------------------------------------------------------------
-function useLabOrders({ page = 1, pageSize = 333, search = '', status = 'All', priority = 'All' } = {}) {
+function useLabOrders({ page = 1, pageSize = 333, search = '', status = 'All', priority = 'All', activeOnly = false } = {}) {
   const [orders, setOrders] = useState([]);
   const [total, setTotal] = useState(0);
   const [allOrdersTotal, setAllOrdersTotal] = useState(0);
+  const [activeOrdersTotal, setActiveOrdersTotal] = useState(0);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -3902,14 +3903,14 @@ function useLabOrders({ page = 1, pageSize = 333, search = '', status = 'All', p
     setLoading(true);
     apiService.getPatientLabOrders({
       limit: pageSize, offset: (page - 1) * pageSize, search,
-      status, priority,
+      status, priority, active_only: activeOnly,
     }, { forceRefresh: true })
-      .then(response => { if (active) { setOrders(response?.data || []); setTotal(Number(response?.total) || 0); setAllOrdersTotal(Number(response?.all_orders_total ?? response?.total) || 0); setSummary(response?.summary || null); setError(''); } })
+      .then(response => { if (active) { setOrders(response?.data || []); setTotal(Number(response?.total) || 0); setAllOrdersTotal(Number(response?.all_orders_total ?? response?.total) || 0); setActiveOrdersTotal(Number(response?.active_orders_total) || 0); setSummary(response?.summary || null); setError(''); } })
       .catch(err => { if (active) setError(err.message || 'Unable to load laboratory orders.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [refreshKey, page, pageSize, search, status, priority]);
-  return { orders, total, allOrdersTotal, summary, loading, error, refresh: () => setRefreshKey(value => value + 1) };
+  }, [refreshKey, page, pageSize, search, status, priority, activeOnly]);
+  return { orders, total, allOrdersTotal, activeOrdersTotal, summary, loading, error, refresh: () => setRefreshKey(value => value + 1) };
 }
 
 function labResultText(order) {
@@ -4014,6 +4015,7 @@ export function LabDashboardView({ onOpenDrawer }) {
   const [pageSize, setPageSize] = useState(15);
   const [availablePriorities, setAvailablePriorities] = useState(['Routine', 'Urgent', 'Emergency', 'STAT']);
   const [availableStatuses, setAvailableStatuses] = useState(['Pending', 'Completed']);
+  const [activeOnly, setActiveOnly] = useState(true);
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -4026,8 +4028,8 @@ export function LabDashboardView({ onOpenDrawer }) {
     }).catch(() => { });
     return () => { active = false; };
   }, []);
-  const { orders, total, allOrdersTotal, summary, loading, error } = useLabOrders({
-    page, pageSize, search: search.trim(), status: statusFilter, priority: priorityFilter,
+  const { orders, total, allOrdersTotal, activeOrdersTotal, summary, loading, error } = useLabOrders({
+    page, pageSize, search: search.trim(), status: statusFilter, priority: priorityFilter, activeOnly,
   });
   const controls = {
     search, setSearch: value => { setSearch(value); setPage(1); },
@@ -4038,7 +4040,8 @@ export function LabDashboardView({ onOpenDrawer }) {
     statuses: [...new Set([...availableStatuses, ...orders.map(order => order.status).filter(Boolean)])],
     priorities: [...new Set([...availablePriorities, ...orders.map(order => order.priority).filter(Boolean)])],
   };
-  if (loading && !orders.length) {
+  const initialLoading = loading && !summary;
+  if (initialLoading) {
     return <ModuleLoadingScreen title="Loading Lab Dashboard..." subtitle="Retrieving live laboratory workload and result summaries..." badgeText="Live Lab Sync" layout="table" statCount={4} tableRows={6} tableColumns={5} />;
   }
   const pending = summary?.pending ?? 0;
@@ -4053,14 +4056,29 @@ export function LabDashboardView({ onOpenDrawer }) {
           {total.toLocaleString('en-IN')} orders match current filters
         </div>}
       </div>
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <StatCard label="Pending Orders" value={loading ? 'N/A' : pending} sub="Awaiting lab processing" color="#d97706" />
-        <StatCard label="Completed Orders" value={loading ? 'N/A' : completed} sub="From the authoritative lab API" color="#059669" />
-        <StatCard label="Critical Results" value={loading ? 'N/A' : critical} sub="Flagged results recorded" color="#dc2626" />
-        <StatCard label="Average LIS TAT" value={loading ? 'N/A' : averageTat} sub="Orders with recorded results" color="#0284c7" />
+      <div role="group" aria-label="Laboratory order history scope" style={{ display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e2e8f0', padding: '0 0 12px' }}>
+        <button type="button" aria-pressed={activeOnly} onClick={() => { setActiveOnly(true); setPage(1); }} style={{ border: `1px solid ${activeOnly ? '#14b8a6' : '#cbd5e1'}`, borderRadius: '6px', padding: '8px 12px', background: activeOnly ? '#ccfbf1' : '#fff', color: activeOnly ? '#0f766e' : '#334155', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+          ⚡ Orders for Active Patients ({activeOrdersTotal.toLocaleString('en-IN')})
+        </button>
+        <button type="button" aria-pressed={!activeOnly} onClick={() => { setActiveOnly(false); setPage(1); }} style={{ border: `1px solid ${!activeOnly ? '#14b8a6' : '#cbd5e1'}`, borderRadius: '6px', padding: '8px 12px', background: !activeOnly ? '#ccfbf1' : '#fff', color: !activeOnly ? '#0f766e' : '#334155', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+          ▤ All Historical ({allOrdersTotal.toLocaleString('en-IN')})
+        </button>
+      </div>
+      <div aria-busy={loading} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', position: 'relative' }}>
+        {loading ? (
+          <div role="status" aria-label="Updating laboratory summary" style={{ flex: '1 1 100%' }}>
+            <CardGridSkeleton count={4} />
+          </div>
+        ) : <>
+          <StatCard label="Pending Orders" value={pending} sub="Awaiting lab processing" color="#d97706" />
+          <StatCard label="Completed Orders" value={completed} sub="From the authoritative lab API" color="#059669" />
+          <StatCard label="Critical Results" value={critical} sub="Flagged results recorded" color="#dc2626" />
+          <StatCard label="Average LIS TAT" value={averageTat} sub="Orders with recorded results" color="#0284c7" />
+        </>}
       </div>
       <LabListFilters controls={controls} />
-      <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
+      <div aria-busy={loading} aria-live="polite" style={{ ...cardStyle, padding: 0, overflowX: 'auto', position: 'relative' }}>
+        {loading ? <div role="status" aria-label="Updating laboratory orders"><TableSkeleton rows={6} columns={6} /></div> : <>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
           <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
             <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
@@ -4085,6 +4103,7 @@ export function LabDashboardView({ onOpenDrawer }) {
         </table>
         {!loading && !error && <TablePagination total={total} page={controls.page} pageSize={controls.pageSize}
           onPageChange={controls.setPage} onPageSizeChange={controls.setPageSize} label="orders" />}
+        </>}
       </div>
     </div>
   );

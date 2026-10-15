@@ -100,6 +100,7 @@ export const NAV_GROUPS = [
   {
     title: 'AI PLATFORM',
     items: [
+      { id: 'management-copilot', label: 'AG-21 Management Copilot' },
       { id: 'assistant', label: 'Hospital Assistant' },
       { id: 'ai-desk', label: 'AI Patient Desk' },
       { id: 'patient-chat', label: 'Patient Portal Chat', badge: 'Interactive' },

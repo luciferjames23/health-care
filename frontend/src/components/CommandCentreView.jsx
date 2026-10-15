@@ -488,17 +488,18 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
         ? 'Emergency count unavailable'
         : 'Active emergency triage & critical admissions',
       c: 'oklch(0.5 0.18 25)', target: 'emergency',
-    },
-    // Lab — role-scoped for Lab/Doctor, hospital-wide for management
+    },    // Lab — role-scoped for Lab/Doctor, hospital-wide for management
     {
       id: 'lab',
       t: 'Lab Tests',
-      v: (rk.orders_pending ?? rk.lab_orders_active ?? rk.lab_orders_pending ?? em.lab_orders)?.toLocaleString() ?? (loading ? null : '—'),
-      sub: !loading && rk.orders_pending == null && rk.lab_orders_active == null && rk.lab_orders_pending == null && em.lab_orders == null
-        ? 'Lab test count unavailable'
-        : rk.orders_pending != null
-          ? `${rk.orders_pending} pending · ${rk.orders_today ?? 0} ordered today`
-          : 'Active orders for current IP & Emergency patients',
+      v: (rk.lab_orders_active ?? em.lab_orders ?? rk.orders_pending ?? rk.lab_orders_pending)?.toLocaleString('en-IN') ?? (loading ? null : '—'),
+      sub: em.lab_orders != null
+        ? `${Number(em.lab_orders).toLocaleString('en-IN')} orders for active patients · ${Number(em.lab_orders_all_time || 0).toLocaleString('en-IN')} all-time records`
+        : (!loading && rk.orders_pending == null && rk.lab_orders_active == null && rk.lab_orders_pending == null && em.lab_orders == null
+          ? 'Lab test count unavailable'
+          : (rk.orders_pending != null
+            ? `${rk.orders_pending} pending · ${rk.orders_today ?? 0} ordered today`
+            : 'Active orders for current IP & Emergency patients')),
       c: '#15181b', target: 'lab',
     },
     // Revenue — role-scoped amounts, exec totals for management

@@ -269,6 +269,7 @@ def get_executive_kpis():
                  WHERE admission_id IN (SELECT admission_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
                     OR patient_id IN (SELECT patient_id FROM dim_admission_inputs WHERE LOWER(COALESCE(discharge_status, '')) != 'discharged')
                 ) as lab_count,
+                (SELECT COUNT(*) FROM lab_orders) as lab_orders_all_time,
 
                 (SELECT COUNT(*) FROM agent_action_logs) as agent_runs,
                 (SELECT COUNT(*) FROM doctors) as doctors_count,
@@ -368,6 +369,7 @@ def get_executive_kpis():
             "emergency_load": int(scalars.get("emergency_count") or 0),
             "emergency_total": int(scalars.get("emergency_count") or 14),
             "lab_orders": int(scalars.get("lab_count") or 0),
+            "lab_orders_all_time": int(scalars.get("lab_orders_all_time") or 0),
             "total_beds": tot_beds,
             "occupied_beds": occ_beds,
             "active_admissions": active_adm_cnt,

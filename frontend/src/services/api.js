@@ -195,6 +195,56 @@ async function fetchCachedJson(url, options = {}) {
 export const apiService = {
   financial: financialApi,
 
+  // AG-21 Management Copilot APIs. These requests bypass the shared SWR cache
+  // so authorization failures can never fall back to data fetched by another role.
+  async getAg21Summary() {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/ag21/summary`, { cache: 'no-store' });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const error = new Error(errBody?.detail || `HTTP error ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+    return await res.json();
+  },
+
+  async getAg21Bottlenecks(params = {}) {
+    const query = new URLSearchParams();
+    if (params.category) query.set('category', params.category);
+    if (params.management_category) query.set('management_category', params.management_category);
+    if (params.source_agent) query.set('source_agent', params.source_agent);
+    if (params.priority) query.set('priority', params.priority);
+    if (params.page) query.set('page', String(params.page));
+    if (params.page_size) query.set('page_size', String(params.page_size));
+    if (params.limit) query.set('limit', String(params.limit));
+    const queryString = query.toString();
+    const url = `${API_BASE_URL}/api/v1/ag21/bottlenecks${queryString ? `?${queryString}` : ''}`;
+    const res = await fetchWithTimeout(url, { cache: 'no-store' });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const error = new Error(errBody?.detail || `HTTP error ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+    return await res.json();
+  },
+
+  async queryAg21(question, contextQuestion, contextItems) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/ag21/query`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context_question: contextQuestion || undefined, context_items: contextItems || undefined }),
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const error = new Error(errBody?.detail || `HTTP error ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
+    return await res.json();
+  },
+
   // Feedback & Grievances Agent (AG-05) APIs
   async getFeedbackSummary(options = {}) {
     return await fetchCachedJson(`${API_BASE_URL}/api/feedback/summary`, { revalidateMs: 2000, ...options });
@@ -2269,6 +2319,7 @@ export const apiService = {
     if (params.search) query.append('search', params.search);
     if (params.status && params.status !== 'All') query.append('status', params.status);
     if (params.priority && params.priority !== 'All') query.append('priority', params.priority);
+    if (params.active_only) query.append('active_only', 'true');
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/labs?${query.toString()}`, {

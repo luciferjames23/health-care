@@ -237,6 +237,11 @@ export function isPageAllowed(role, page) {
   if (!role) return false;
   const roleStr = String(role).toLowerCase();
 
+  // AG-21 management access mirrors the backend allowlist. The API remains authoritative.
+  if (page === 'management-copilot') {
+    return ['admin', 'system admin', 'hospital management', 'ai administrator'].includes(roleStr);
+  }
+
   // Explicit Role-Based Restrictions
   if (page === 'doctor-portal' && (roleStr === 'admin' || roleStr === 'hospital management')) {
     return false; // Doctor Clinical Desk removed from Admin Portal

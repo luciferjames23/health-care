@@ -25,6 +25,7 @@ import AlertsDrawer from './components/AlertsDrawer';
 import MasterModal from './components/MasterModal';
 import XrayOrdersView from './components/XrayOrdersView';
 import PatientPortalView from './components/PatientPortalView';
+import AG21ManagementCopilotView from './components/AG21ManagementCopilotView';
 
 const AG10_ALLOWED_ROLES = new Set([
   'doctor', 'nurse', 'laboratory', 'pathologist', 'radiologist',
@@ -652,6 +653,10 @@ export default function App() {
           ) : <>
             {activePage === 'command' && (
               <CommandCentreView onNavigate={(p) => handleNavigate(p)} onAskAi={handleAskAi} role={role} user={auth} />
+            )}
+
+            {activePage === 'management-copilot' && (
+              <AG21ManagementCopilotView userRole={role} />
             )}
 
             {activePage === 'clinical' && (
