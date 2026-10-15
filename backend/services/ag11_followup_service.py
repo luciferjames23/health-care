@@ -38,12 +38,156 @@ import voice.whatsapp_client as whatsapp_client
 from utils.phone_utils import normalize_phone
 
 
+_ag11_tables_ensured = False
+
+def ensure_ag11_tables(conn=None):
+    global _ag11_tables_ensured
+    if _ag11_tables_ensured:
+        return
+    should_close = False
+    if conn is None:
+        try:
+            conn = db_config.get_db_connection()
+            should_close = True
+        except Exception as e:
+            print(f"[AG11_INIT_WARN] Could not acquire db connection to ensure tables: {e}")
+            return
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ag11_followup_plans (
+                id BIGSERIAL PRIMARY KEY,
+                patient_id BIGINT NOT NULL,
+                discharge_summary_id BIGINT,
+                admission_id BIGINT,
+                procedure_name VARCHAR(255),
+                discharge_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+                care_plan_notes TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uq_ag11_plan_patient_summary UNIQUE (patient_id, discharge_summary_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_plans_patient ON ag11_followup_plans(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_plans_status ON ag11_followup_plans(status);
+            CREATE INDEX IF NOT EXISTS idx_ag11_plans_discharge_date ON ag11_followup_plans(discharge_date);
+
+            CREATE TABLE IF NOT EXISTS ag11_followup_tasks (
+                id BIGSERIAL PRIMARY KEY,
+                plan_id BIGINT NOT NULL,
+                patient_id BIGINT NOT NULL,
+                followup_day INT NOT NULL,
+                due_date TIMESTAMP WITH TIME ZONE NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'SCHEDULED',
+                idempotency_key VARCHAR(255) UNIQUE,
+                outbound_wamid VARCHAR(255),
+                sent_at TIMESTAMP WITH TIME ZONE,
+                delivered_at TIMESTAMP WITH TIME ZONE,
+                completed_at TIMESTAMP WITH TIME ZONE,
+                retry_count INT DEFAULT 0,
+                last_error TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_tasks_plan ON ag11_followup_tasks(plan_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_tasks_patient ON ag11_followup_tasks(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_tasks_due_status ON ag11_followup_tasks(due_date, status);
+            CREATE INDEX IF NOT EXISTS idx_ag11_tasks_idempotency ON ag11_followup_tasks(idempotency_key);
+
+            CREATE TABLE IF NOT EXISTS ag11_patient_responses (
+                id BIGSERIAL PRIMARY KEY,
+                task_id BIGINT,
+                plan_id BIGINT,
+                patient_id BIGINT NOT NULL,
+                conversation_id BIGINT,
+                inbound_wamid VARCHAR(255),
+                response_type VARCHAR(50) NOT NULL,
+                raw_text TEXT,
+                structured_answers JSONB DEFAULT '{}'::jsonb,
+                ai_classification VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_responses_task ON ag11_patient_responses(task_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_responses_patient ON ag11_patient_responses(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_responses_type ON ag11_patient_responses(response_type);
+
+            CREATE TABLE IF NOT EXISTS ag11_callbacks (
+                id BIGSERIAL PRIMARY KEY,
+                plan_id BIGINT,
+                task_id BIGINT,
+                patient_id BIGINT NOT NULL,
+                conversation_id BIGINT,
+                requested_reason TEXT NOT NULL,
+                priority VARCHAR(20) NOT NULL DEFAULT 'MEDIUM',
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                assigned_to_user_id BIGINT,
+                acknowledged_at TIMESTAMP WITH TIME ZONE,
+                completed_at TIMESTAMP WITH TIME ZONE,
+                outcome_notes TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_callbacks_patient ON ag11_callbacks(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_callbacks_status ON ag11_callbacks(status);
+            CREATE INDEX IF NOT EXISTS idx_ag11_callbacks_priority ON ag11_callbacks(priority);
+
+            CREATE TABLE IF NOT EXISTS ag11_clinical_escalations (
+                id BIGSERIAL PRIMARY KEY,
+                plan_id BIGINT,
+                task_id BIGINT,
+                patient_id BIGINT NOT NULL,
+                escalation_id BIGINT,
+                symptom_summary TEXT NOT NULL,
+                severity VARCHAR(20) NOT NULL DEFAULT 'HIGH',
+                status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+                assigned_team VARCHAR(100) DEFAULT 'Nursing & Clinical Desk',
+                assigned_to_user_id BIGINT,
+                disposition_notes TEXT,
+                acknowledged_at TIMESTAMP WITH TIME ZONE,
+                resolved_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_escalations_patient ON ag11_clinical_escalations(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_ag11_escalations_status ON ag11_clinical_escalations(status);
+            CREATE INDEX IF NOT EXISTS idx_ag11_escalations_severity ON ag11_clinical_escalations(severity);
+
+            CREATE TABLE IF NOT EXISTS ag11_communication_consent (
+                id BIGSERIAL PRIMARY KEY,
+                patient_id BIGINT UNIQUE NOT NULL,
+                consent_given BOOLEAN NOT NULL DEFAULT TRUE,
+                preferred_language VARCHAR(20) NOT NULL DEFAULT 'ENGLISH',
+                opted_out_at TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_ag11_consent_patient ON ag11_communication_consent(patient_id);
+        """)
+        conn.commit()
+        cur.close()
+        _ag11_tables_ensured = True
+        print("[AG11_INIT] Successfully ensured all ag11_* database tables.")
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"[AG11_INIT_WARN] Failed to ensure ag11 tables: {e}")
+    finally:
+        if should_close:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def scan_and_create_followup_plans() -> Dict[str, Any]:
     """
     Scans dim_generated_discharge_summaries for approved discharges
     and auto-creates ag11_followup_plans with Day 3, Day 7, and Day 14 tasks.
     Idempotent via (patient_id, discharge_summary_id) unique constraint.
     """
+    ensure_ag11_tables()
     conn = db_config.get_db_connection()
     conn.autocommit = False
     cur = conn.cursor()
@@ -152,6 +296,7 @@ def process_due_followup_tasks() -> Dict[str, Any]:
     verifies consent, constructs localized WhatsApp check-in messages,
     and dispatches via WhatsApp integration.
     """
+    ensure_ag11_tables()
     conn = db_config.get_db_connection()
     conn.autocommit = False
     cur = conn.cursor()
