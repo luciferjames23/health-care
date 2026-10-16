@@ -812,10 +812,10 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
             })
 
         # ──────────────────────────────────────────────────────────────────────
-        # BILLING
-        # Billing queue, pending bills, today's collections
+        # BILLING & INSURANCE
+        # Revenue cycle, billing queue, pending bills, claims pipeline
         # ──────────────────────────────────────────────────────────────────────
-        elif role == "BILLING":
+        elif role in ("BILLING", "INSURANCE"):
             result.update({
                 "bills_pending":       scalar(
                     "SELECT COUNT(*) FROM bills "
@@ -834,6 +834,14 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "SELECT COALESCE(SUM(net_amount),0) FROM bills "
                     "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
                 ),
+                "revenue_collected":   scalar(
+                    "SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - "
+                    "COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"
+                ),
+                "bill_total_count":    scalar(
+                    "SELECT COUNT(*) FROM bills "
+                    "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
+                ),
                 "patients_today":      scalar(
                     "SELECT COUNT(DISTINCT patient_id) FROM bills "
                     "WHERE DATE(bill_date) = %s;", (today,)
@@ -843,23 +851,8 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "WHERE UPPER(COALESCE(status,'')) = 'PENDING';"
                 ),
                 "open_escalations":    scalar("SELECT COUNT(*) FROM escalations WHERE UPPER(status) = 'OPEN';"),
-                "claims_outstanding":  scalar(
-                    "SELECT COUNT(*) FROM insurance_claims "
-                    "WHERE LOWER(claim_status) IN ('pending','under review','submitted');"
-                ),
-            })
-
-        # ──────────────────────────────────────────────────────────────────────
-        # INSURANCE
-        # Pre-auth pipeline, active claims, outstanding amounts
-        # ──────────────────────────────────────────────────────────────────────
-        elif role == "INSURANCE":
-            result.update({
-                "pre_auth_pending":    scalar(
-                    "SELECT COUNT(*) FROM pre_admissions "
-                    "WHERE UPPER(COALESCE(status,'')) = 'PENDING';"
-                ),
                 "claims_total":        scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "claims_count":        scalar("SELECT COUNT(*) FROM insurance_claims;"),
                 "claims_pending":      scalar(
                     "SELECT COUNT(*) FROM insurance_claims "
                     "WHERE LOWER(claim_status) IN ('pending','submitted','under review');"
@@ -872,6 +865,10 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "SELECT COUNT(*) FROM insurance_claims "
                     "WHERE LOWER(claim_status) IN ('rejected','denied');"
                 ),
+                "claims_outstanding":  scalar(
+                    "SELECT COUNT(*) FROM insurance_claims "
+                    "WHERE LOWER(claim_status) IN ('pending','under review','submitted');"
+                ),
                 "outstanding_amount":  scalar(
                     "SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"
                 ),
@@ -881,6 +878,9 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 "active_admissions":   scalar(
                     "SELECT COUNT(*) FROM dim_admission_inputs "
                     "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
+                ),
+                "appointments_today":  scalar(
+                    "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)
                 ),
             })
 

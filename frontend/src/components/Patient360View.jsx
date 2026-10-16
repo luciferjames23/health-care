@@ -1215,6 +1215,22 @@ export default function Patient360View({
     return Math.max(0, p.billNetAmount - pharmacySum - labSum);
   }, [liveBill, p.billNetAmount, pharmacySum, labSum]);
 
+  const hospitalSectionTitle = useMemo(() => {
+    if (p.isOP) return 'Outpatient Consultation & Clinical Services';
+    if (p.isER) return 'Emergency Triage & Bay Observation Care';
+
+    const serviceTypes = (liveBill?.items || []).map(item =>
+      `${item.service_category || ''} ${item.service_name || item.service_code || (!item.service_category && !item.service_name ? item.description || '' : '')}`
+    ).join(' ');
+    if (/canteen|dietary|food/i.test(serviceTypes) && !/bed|room|accommodation/i.test(serviceTypes)) {
+      return 'Inpatient Canteen & Dietary Services';
+    }
+    if (/bed|room|accommodation/i.test(serviceTypes)) {
+      return 'Inpatient Bed Accommodation & Hospital Base Care';
+    }
+    return 'Inpatient Services & Itemized Charges';
+  }, [p.isOP, p.isER, liveBill]);
+
   // Dynamic Overview Journey Timeline items derived from live clinical and billing facts
   const timeline = useMemo(() => {
     const list = [];
@@ -1866,7 +1882,7 @@ export default function Patient360View({
             { t: 'Bill status: Settled', bg: '#dcfce7', fg: '#15803d' }
           ],
           facts: [
-            { k: 'Hospital & Bed Charges', v: `₹${hospitalSum.toLocaleString('en-IN')}` },
+            { k: hospitalSectionTitle, v: `₹${hospitalSum.toLocaleString('en-IN')}` },
             { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
             { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
             { k: 'Total Billed (Net)', v: `₹${p.billNetAmount.toLocaleString('en-IN')}`, b: true },
@@ -1911,7 +1927,7 @@ export default function Patient360View({
             : { t: 'Pending Settlement', bg: '#fef3c7', fg: '#92400e' }
         ],
         facts: [
-          { k: p.isOP ? 'Consultation & Clinical Services' : (p.isER ? 'Emergency Evaluation & Triage' : 'Hospital & Bed Charges'), v: `₹${hospitalSum.toLocaleString('en-IN')}` },
+          { k: hospitalSectionTitle, v: `₹${hospitalSum.toLocaleString('en-IN')}` },
           { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
           { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
           { k: 'Total Billed (Net)', v: `₹${net.toLocaleString('en-IN')}`, b: true },
@@ -3717,27 +3733,33 @@ export default function Patient360View({
             <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>{p.isOP ? '🩺' : (p.isER ? '🚑' : '🏥')}</span>
-                <span>{p.isOP ? 'Outpatient Consultation & Clinical Services' : (p.isER ? 'Emergency Triage & Bay Observation Care' : 'Inpatient Bed Accommodation & Hospital Base Care')}</span>
+                <span>{hospitalSectionTitle}</span>
               </div>
               <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 600, color: '#15181b' }}>
                 Subtotal: ₹{hospitalSum.toLocaleString('en-IN')}
               </span>
             </div>
             <TableContainer
-              cols={['Service Description', 'Code', 'Date', 'Qty / Stay', 'Unit Rate', 'Net Amount']}
+              cols={['Service / Billing Details', 'Code', 'Date', 'Qty / Stay', 'Unit Rate', 'Net Amount']}
               grid="minmax(220px, 1.4fr) 110px 120px 120px 120px 140px"
               rows={
                 (liveBill?.items && liveBill.items.length > 0)
                   ? liveBill.items.map((bi, i) => [
-                      bi.description || (p.isOP ? 'Outpatient Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : `Inpatient Bed & Dietary Care #${i + 1}`)),
-                      bi.service_code || (p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'BED-CLR')),
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, whiteSpace: 'normal' }}>
+                        <span style={{ fontWeight: 600 }}>{bi.service_name || bi.description || (p.isOP ? 'Outpatient Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : `Inpatient Service #${i + 1}`))}</span>
+                        {bi.description && bi.service_name && bi.description !== bi.service_name && (
+                          <span style={{ fontSize: '10px', color: '#64748b' }}>Stored bill description: {bi.description}</span>
+                        )}
+                        {bi.service_category && <span style={{ fontSize: '10px', color: '#64748b' }}>Category: {bi.service_category}</span>}
+                      </div>,
+                      bi.service_code || '—',
                       bi.service_date ? new Date(bi.service_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today'),
                       `${bi.quantity || 1} ${Number(bi.quantity) > 1 ? 'days' : 'unit'}`,
                       `₹${Number(bi.unit_price || 0).toLocaleString('en-IN')}`,
                       `₹${Number(bi.net_amount || bi.gross_amount || 0).toLocaleString('en-IN')}`
                     ])
                   : (hospitalSum > 0 ? [
-                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient Base Fee & Clinical Nursing Care'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'BASE-FEE'), p.admittedDate || 'Today', '1 unit', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
+                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient charge · itemized service details unavailable'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : '—'), p.admittedDate || 'Today', '—', '—', `₹${hospitalSum.toLocaleString('en-IN')}`]
                     ] : [])
               }
               onRowClick={handleOpenBillDrawer}
@@ -3831,7 +3853,7 @@ export default function Patient360View({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
               <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>{p.isOP ? 'Consultation & Services' : (p.isER ? 'Emergency Evaluation' : 'Hospital Stay & Nursing')}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>{hospitalSectionTitle}</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
                   ₹{hospitalSum.toLocaleString('en-IN')}
                 </div>
