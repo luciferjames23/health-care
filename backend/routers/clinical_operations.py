@@ -1456,6 +1456,18 @@ def get_all_patients_directory(
                           {discharge_doctor_filter}
                     )
                 """)
+                active_ip_doctor_filter = "AND active_ip.doctor_id = %s" if doc_id_val else ""
+                if doc_id_val:
+                    params.append(doc_id_val)
+                where.append(f"""
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM admissions active_ip
+                        WHERE active_ip.patient_id = p.id
+                          {active_ip_doctor_filter}
+                          AND LOWER(COALESCE(active_ip.discharge_status, '')) IN ('admitted', 'ready')
+                    )
+                """)
                 where.append("""
                     a.id = (
                         SELECT MAX(latest_appointment.id)
@@ -1594,6 +1606,18 @@ def get_all_patients_directory(
 
             else:
                 where = ["1=1"]
+                active_ip_doctor_filter = "AND active_ip.doctor_id = %s" if doc_id_val else ""
+                if doc_id_val:
+                    params.append(doc_id_val)
+                where.append(f"""
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM admissions active_ip
+                        WHERE active_ip.patient_id = ds.patient_id
+                          {active_ip_doctor_filter}
+                          AND LOWER(COALESCE(active_ip.discharge_status, '')) IN ('admitted', 'ready')
+                    )
+                """)
                 if doc_id_val:
                     where.append("(ds.doctor_id = %s OR a.doctor_id = %s)")
                     params.extend([doc_id_val, doc_id_val])
@@ -1865,6 +1889,9 @@ def get_all_patients_directory(
                     )
                 """)
                 er_params.append(doc_id_val)
+            elif clean_doctor_name:
+                er_where.append("et.doctor_name ILIKE %s")
+                er_params.append(f"%{clean_doctor_name}%")
             if clean_search:
                 er_where.append("(et.patient_name ILIKE %s OR et.id ILIKE %s OR et.chief_complaint ILIKE %s)")
                 s_param = f"%{clean_search}%"

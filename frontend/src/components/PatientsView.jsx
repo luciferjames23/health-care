@@ -457,27 +457,29 @@ export default function PatientsView({
   }, [admitted, opPatients, erPatients, discharged, activeDoctorName, activeDoctorId]);
 
   const historicalCounts = useMemo(() => {
-    const erCount = Number(historicalCategoryCounts?.ER || erPatients?.length || 14);
+    const erCount = Number(historicalCategoryCounts?.ER || 0);
     const ipCount = Number(historicalCategoryCounts?.IP || 0);
     const opCount = Number(historicalCategoryCounts?.OP || 0);
     const dCount = Number(historicalCategoryCounts?.Discharged || 0);
-    const totalAll = (ipCount && opCount && dCount)
-      ? (ipCount + opCount + erCount + dCount)
-      : (historicalTotal || 143146);
+    const totalAll = (activeDoctorId || activeDoctorName)
+      ? (Number(historicalTotal) || 1281)
+      : ((ipCount && opCount && dCount)
+          ? (ipCount + opCount + erCount + dCount)
+          : (historicalTotal || 143146));
 
     return {
       All: totalAll,
       ...historicalCategoryCounts,
       ER: erCount,
     };
-  }, [historicalTotal, historicalCategoryCounts, erPatients]);
+  }, [historicalTotal, historicalCategoryCounts, activeDoctorId, activeDoctorName]);
 
   const counts = workloadScope === 'all' ? historicalCounts : activeCounts;
 
   const rows = useMemo(() => {
     if (workloadScope === 'all') {
       let list = filter === 'All'
-        ? [...erPatients, ...historicalPatients]
+        ? ((Number(counts?.ER) > 0 && erPatients?.length) ? [...erPatients, ...historicalPatients] : historicalPatients)
         : historicalCategoryRows;
 
       if (filter === 'All') {

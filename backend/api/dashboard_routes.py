@@ -695,6 +695,23 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "  AND LOWER(COALESCE(visit_status,'')) NOT IN ('cancelled','canceled','completed','discharged');",
                     (doc_id,)
                 ),
+                "total_op_records":     doctor_scalar(
+                    "SELECT COUNT(DISTINCT a.patient_id) FROM appointments a "
+                    "WHERE a.doctor_id = %s "
+                    "  AND a.id = ( "
+                    "      SELECT MAX(latest_appointment.id) FROM appointments latest_appointment "
+                    "      WHERE latest_appointment.patient_id = a.patient_id "
+                    "        AND latest_appointment.doctor_id = a.doctor_id "
+                    "  ) "
+                    "  AND NOT EXISTS ( "
+                    "      SELECT 1 FROM discharge_summaries ds "
+                    "      LEFT JOIN admissions discharge_admission "
+                    "        ON discharge_admission.admission_id = ds.admission_id "
+                    "      WHERE ds.patient_id = a.patient_id "
+                    "        AND COALESCE(ds.doctor_id, discharge_admission.doctor_id) = %s "
+                    "  );",
+                    (doc_id, doc_id)
+                ),
                 "emergency_load":       doctor_scalar(
                     "SELECT COUNT(*) FROM emergency_triage WHERE doctor_name ILIKE %s;",
                     (f"%{doctor_name}%",)

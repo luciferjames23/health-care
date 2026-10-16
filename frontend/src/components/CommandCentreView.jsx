@@ -341,7 +341,7 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
           total_discharges: rkv.total_discharges ?? exec?.total_discharges ?? 87319,
           active_discharges: 171,
           op_patients: rkv.op_patients ?? exec?.op_patients ?? null,
-          total_op_records: rkv.total_op_records ?? exec?.total_op_records ?? 55776,
+          total_op_records: rkv.total_op_records ?? (isDoctor ? null : exec?.total_op_records ?? 55776),
           total_admissions: exec?.total_admissions ?? 47096,
           appointments_active: rkv.appointments_active ?? exec?.appointments ?? 472,
           appointments_total: rkv.appointments_total ?? exec?.all_time_appointments ?? 151403,
@@ -494,8 +494,8 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'op_patients',
       t: 'Outpatient (OP) Count',
-      v: liveKpis?.total_op_records != null ? Number(liveKpis.total_op_records).toLocaleString() : (loading ? null : '55,776'),
-      sub: 'All-time outpatient clinic records',
+      v: liveKpis?.total_op_records != null ? Number(liveKpis.total_op_records).toLocaleString() : (loading ? null : normaliseRole(role) === 'doctor' ? '—' : '55,776'),
+      sub: normaliseRole(role) === 'doctor' ? 'All-time OP patients assigned to you' : 'All-time outpatient clinic records',
       c: 'oklch(0.45 0.14 175)', target: 'patients-op',
     },
     {
