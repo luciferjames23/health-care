@@ -30,7 +30,12 @@ async function request(url, options = {}) {
 }
 
 export const financialApi = {
-  getOverview: () => request('/api/finance/overview'),
+  getOverview: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.dateFrom || params.date_from) q.append('date_from', params.dateFrom || params.date_from);
+    if (params.dateTo || params.date_to) q.append('date_to', params.dateTo || params.date_to);
+    return request(`/api/finance/overview${q.toString() ? `?${q.toString()}` : ''}`);
+  },
 
   getBills: (params = {}) => {
     const q = new URLSearchParams();
@@ -38,6 +43,8 @@ export const financialApi = {
     if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
     if (params.status) q.append('status', params.status);
     if (params.search) q.append('search', params.search);
+    if (params.dateFrom || params.date_from) q.append('date_from', params.dateFrom || params.date_from);
+    if (params.dateTo || params.date_to) q.append('date_to', params.dateTo || params.date_to);
     if (params.sortBy || params.sort_by) q.append('sort_by', params.sortBy || params.sort_by);
     if (params.order) q.append('order', params.order);
     return request(`/api/finance/bills?${q.toString()}`);
@@ -54,6 +61,8 @@ export const financialApi = {
     if (params.status) q.append('status', params.status);
     if (params.provider) q.append('provider', params.provider);
     if (params.search) q.append('search', params.search);
+    if (params.dateFrom || params.date_from) q.append('date_from', params.dateFrom || params.date_from);
+    if (params.dateTo || params.date_to) q.append('date_to', params.dateTo || params.date_to);
     return request(`/api/finance/insurance-claims?${q.toString()}`);
   },
 
@@ -113,6 +122,8 @@ export const financialApi = {
     if (params.pageSize || params.page_size) q.append('page_size', params.pageSize || params.page_size);
     if (params.status && params.status !== "All") q.append('status', params.status);
     if (params.search && params.search.trim()) q.append('search', params.search.trim());
+    if (params.dateFrom || params.date_from) q.append('date_from', params.dateFrom || params.date_from);
+    if (params.dateTo || params.date_to) q.append('date_to', params.dateTo || params.date_to);
     return request(`/api/finance/dashboard${q.toString() ? '?' + q.toString() : ''}`);
   },
 

@@ -180,7 +180,10 @@ def get_insurance_coverage_schedule(cov_limit: float, pol_type: Optional[str] = 
 
 
 @router.get("/overview")
-def get_financial_overview():
+def get_financial_overview(
+    date_from: Optional[str] = Query(None, description="Start date for financial metrics (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date for financial metrics (YYYY-MM-DD)"),
+):
     """
     Get top-level KPI metrics across Bills, Insurance Claims, and Payments.
     """
@@ -196,16 +199,19 @@ def get_financial_overview():
                 COALESCE(SUM(discount_amount), 0) as total_discount,
                 COALESCE(SUM(tax_amount), 0) as total_tax,
                 COALESCE(SUM(net_amount), 0) as total_net,
-                COALESCE(SUM(insurance_amount), 0) as total_insurance_share,
-                COALESCE(SUM(patient_amount), 0) as total_patient_due,
+                COALESCE(SUM(CASE WHEN LOWER(COALESCE(bill_status, '')) <> 'settled' THEN insurance_amount ELSE 0 END), 0) as total_insurance_share,
+                COALESCE(SUM(CASE WHEN LOWER(COALESCE(bill_status, '')) <> 'settled' THEN patient_amount ELSE 0 END), 0) as total_patient_due,
                 COALESCE(SUM(CASE WHEN bill_status = 'Settled' THEN net_amount ELSE 0 END), 0) as settled_revenue,
                 COALESCE(SUM(CASE WHEN bill_status = 'Pending' THEN net_amount ELSE 0 END), 0) as pending_revenue,
                 COALESCE(SUM(CASE WHEN bill_status = 'Partially Paid' THEN net_amount ELSE 0 END), 0) as partial_revenue,
                 COUNT(CASE WHEN bill_status = 'Settled' THEN 1 END) as settled_count,
                 COUNT(CASE WHEN bill_status = 'Pending' THEN 1 END) as pending_count,
                 COUNT(CASE WHEN bill_status = 'Partially Paid' THEN 1 END) as partial_count
-            FROM bills
-        """)
+                        FROM bills
+                        WHERE LOWER(COALESCE(bill_status, '')) NOT IN ('void', 'voided', 'cancelled', 'canceled', 'deleted')
+                            AND (%s IS NULL OR bill_date::date >= %s::date)
+                            AND (%s IS NULL OR bill_date::date <= %s::date)
+                """, (date_from, date_from, date_to, date_to))
         bill_stats = serialize_row(cur, cur.fetchone())
 
         # Insurance Claims KPIs
@@ -218,19 +224,29 @@ def get_financial_overview():
                 COALESCE(SUM(settled_amount), 0) as total_settled,
                 COUNT(CASE WHEN claim_status = 'Settled Cashless' THEN 1 END) as settled_claims_count,
                 COUNT(CASE WHEN claim_status = 'Partially Approved' THEN 1 END) as partial_claims_count
-            FROM insurance_claims
-        """)
+                        FROM insurance_claims
+                        WHERE (%s IS NULL OR claim_date >= %s::date)
+                            AND (%s IS NULL OR claim_date <= %s::date)
+                """, (date_from, date_from, date_to, date_to))
         claim_stats = serialize_row(cur, cur.fetchone())
 
         # Payments Summary
         cur.execute("""
             SELECT 
-                COUNT(*) as total_payments,
-                COALESCE(SUM(CASE WHEN payment_status = 'SUCCESS' THEN amount ELSE 0 END), 0) as total_collected,
-                COUNT(CASE WHEN payment_status = 'SUCCESS' THEN 1 END) as success_payment_count,
-                COUNT(CASE WHEN payment_status = 'PENDING' THEN 1 END) as pending_payment_count
-            FROM payments
-        """)
+                                COUNT(*) as total_payments,
+                                COALESCE(SUM(CASE WHEN LOWER(payment_status) = 'success' THEN amount ELSE 0 END), 0)
+                                    - COALESCE((
+                                            SELECT SUM(r.refund_amount) FROM refunds r
+                                            WHERE LOWER(r.status) = 'success'
+                                                AND (%s IS NULL OR r.refund_date::date >= %s::date)
+                                                AND (%s IS NULL OR r.refund_date::date <= %s::date)
+                                        ), 0) as total_collected,
+                                COUNT(CASE WHEN LOWER(payment_status) = 'success' THEN 1 END) as success_payment_count,
+                                COUNT(CASE WHEN LOWER(payment_status) = 'pending' THEN 1 END) as pending_payment_count
+                        FROM payments
+                        WHERE (%s IS NULL OR payment_date::date >= %s::date)
+                            AND (%s IS NULL OR payment_date::date <= %s::date)
+                """, (date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to))
         payment_stats = serialize_row(cur, cur.fetchone())
 
         return {
@@ -253,6 +269,8 @@ def get_bills(
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     sort_by: str = Query("bill_id"),
     order: str = Query("desc")
 ):
@@ -302,6 +320,13 @@ def get_bills(
                  CONCAT(COALESCE(p.first_name, dai.first_name, ''), ' ', COALESCE(p.last_name, dai.last_name, '')) ILIKE %s)
             """)
             params.extend([search_term, search_term, search_term, search_term, search_term, search_term, search_term, search_term])
+
+        if date_from:
+            where_clauses.append("b.bill_date::date >= %s::date")
+            params.append(date_from)
+        if date_to:
+            where_clauses.append("b.bill_date::date <= %s::date")
+            params.append(date_to)
             
         where_sql = " AND ".join(where_clauses)
         
@@ -360,7 +385,11 @@ def get_bills(
                 pi.coverage_limit as pi_coverage_limit,
                 (SELECT COUNT(*) FROM bill_items bi WHERE bi.bill_id = b.bill_id) as item_count,
                 (SELECT COUNT(*) FROM payments py WHERE py.bill_id = b.bill_id AND py.payment_status = 'SUCCESS') as payment_count,
-                (SELECT COALESCE(SUM(py.amount), 0) FROM payments py WHERE py.bill_id = b.bill_id AND py.payment_status = 'SUCCESS') as paid_amount
+                GREATEST(
+                    (SELECT COALESCE(SUM(py.amount), 0) FROM payments py WHERE py.bill_id = b.bill_id AND LOWER(py.payment_status) = 'success')
+                    - (SELECT COALESCE(SUM(r.refund_amount), 0) FROM refunds r WHERE r.bill_id = b.bill_id AND LOWER(r.status) = 'success'),
+                    0
+                ) as paid_amount
             FROM bills b
             LEFT JOIN patients p ON b.patient_id = p.id
             LEFT JOIN admissions a ON b.admission_id = a.admission_id
@@ -966,22 +995,14 @@ def get_bill_detail(bill_id: Any):
         pol_type = bill_meta.get("pi_policy_type") or "Comprehensive Health Cover"
         cov_limit = float(bill_meta.get("pi_coverage_limit") or (500000.0 if detected_insurer != "Self-Pay" else 0.0))
         
-        # Ensure gross_amount and net_amount dynamically reflect all itemized subsections (Care + Pharmacy + Labs)
-        items_sum = sum(float(it.get("net_amount") or it.get("gross_amount") or 0.0) for it in items)
-        pharmacy_sum = sum(float(pi.get("net_amount") or (float(pi.get("quantity", 1)) * float(pi.get("unit_price", 0))) or 0.0) for pi in pharmacy_items)
-        lab_sum = sum(float(li.get("unit_price") or li.get("net_amount") or 0.0) for li in lab_items)
-        combined_itemized_gross = items_sum + pharmacy_sum + lab_sum
-        
-        if combined_itemized_gross > 0 and combined_itemized_gross > float(bill_meta.get("gross_amount") or 0.0):
-            bill_meta["gross_amount"] = combined_itemized_gross
-            bill_meta["net_amount"] = combined_itemized_gross - float(bill_meta.get("discount_amount") or 0.0) + float(bill_meta.get("tax_amount") or 0.0)
-
         b_status = bill_meta.get("bill_status") or "Settled"
         paid_sum = sum(float(p.get("amount") or 0.0) for p in payments if str(p.get("payment_status", "")).upper() == "SUCCESS")
-        if b_status in ("Settled", "Paid") and paid_sum == 0:
-            paid_sum = float(bill_meta.get("patient_amount") or bill_meta.get("net_amount") or 0.0)
-            
-        balance_due = 0.0 if b_status in ("Settled", "Paid") else max(0.0, float(bill_meta.get("patient_amount") or bill_meta.get("net_amount") or 0.0) - paid_sum)
+        cur.execute("SELECT COALESCE(SUM(refund_amount), 0) FROM refunds WHERE bill_id = %s AND LOWER(status) = 'success';", (resolved_bid or -1,))
+        refunded_sum = float(cur.fetchone()[0] or 0.0)
+        paid_sum = max(0.0, paid_sum - refunded_sum)
+
+        is_bill_settled = str(b_status).strip().lower() in ("settled", "paid", "cleared")
+        balance_due = 0.0 if is_bill_settled else max(0.0, float(bill_meta.get("net_amount") or 0.0) - paid_sum)
         net_amt = float(bill_meta.get("net_amount") or 0.0)
         ins_amt = float(bill_meta.get("insurance_amount") or 0.0)
         avail_cov = max(0.0, cov_limit - ins_amt) if (cov_limit > 0 and b_status in ("Settled", "Paid") and ins_amt > 0) else cov_limit
@@ -1033,7 +1054,9 @@ def get_insurance_claims(
     page_size: int = Query(20, ge=1, le=500),
     status: Optional[str] = Query(None),
     provider: Optional[str] = Query(None),
-    search: Optional[str] = Query(None)
+    search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None)
 ):
     """
     Get paginated insurance claims prioritized for currently admitted patients,
@@ -1052,20 +1075,28 @@ def get_insurance_claims(
         # 1. Summary KPI stats for claims
         cur.execute("""
             SELECT 
-                COUNT(CASE WHEN c.claim_status ILIKE '%submitted%' OR c.claim_status ILIKE '%awaiting%' THEN 1 END) as submitted,
-                COUNT(CASE WHEN c.claim_status ILIKE '%review%' OR c.claim_status ILIKE '%query%' OR c.claim_status ILIKE '%missing%' OR c.claim_status ILIKE '%additional%' THEN 1 END) as under_review,
-                COUNT(CASE WHEN c.claim_status ILIKE '%approved%' THEN 1 END) as approved,
-                COUNT(CASE WHEN c.claim_status ILIKE '%rejected%' THEN 1 END) as rejected,
-                COUNT(CASE WHEN c.claim_status ILIKE '%settled%' THEN 1 END) as settled,
-                COUNT(CASE WHEN c.claim_status ILIKE '%ready%' OR c.claim_status ILIKE '%pending%' THEN 1 END) as claim_ready,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%submitted%%' OR c.claim_status ILIKE '%%awaiting%%' THEN 1 END) as submitted,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%review%%' OR c.claim_status ILIKE '%%query%%' OR c.claim_status ILIKE '%%missing%%' OR c.claim_status ILIKE '%%additional%%' THEN 1 END) as under_review,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%approved%%' THEN 1 END) as approved,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%rejected%%' THEN 1 END) as rejected,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%settled%%' THEN 1 END) as settled,
+                COUNT(CASE WHEN c.claim_status ILIKE '%%ready%%' OR c.claim_status ILIKE '%%pending%%' THEN 1 END) as claim_ready,
                 COALESCE(SUM(c.outstanding_amount), 0) as total_outstanding,
                 COUNT(*) as total_claims
-            FROM insurance_claims c
-        """)
+                        FROM insurance_claims c
+                        WHERE (%s IS NULL OR c.claim_date >= %s::date)
+                            AND (%s IS NULL OR c.claim_date <= %s::date)
+                """, (date_from, date_from, date_to, date_to))
         claim_stats = serialize_row(cur, cur.fetchone())
         
         where_clauses = ["1=1"]
         params = []
+        if date_from:
+            where_clauses.append("c.claim_date >= %s::date")
+            params.append(date_from)
+        if date_to:
+            where_clauses.append("c.claim_date <= %s::date")
+            params.append(date_to)
         
         if clean_status and clean_status.lower() != "all":
             st_clean = clean_status.strip().lower()
@@ -1332,6 +1363,8 @@ def get_claims_analytics():
 def get_finance_dashboard(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(15, ge=1, le=100)
 ):
@@ -1360,10 +1393,12 @@ def get_finance_dashboard(
                 COUNT(*) as count,
                 COALESCE(SUM(amount), 0) as total_amount
             FROM payments
-            WHERE payment_status = 'SUCCESS'
+                        WHERE LOWER(payment_status) = 'success'
+                            AND (%s IS NULL OR payment_date::date >= %s::date)
+                            AND (%s IS NULL OR payment_date::date <= %s::date)
             GROUP BY payment_method, payment_status
             ORDER BY total_amount DESC
-        """)
+                """, (date_from, date_from, date_to, date_to))
         raw_modes = serialize_rows(cur, cur.fetchall())
         total_mode_amt = sum(float(m.get("total_amount") or 0) for m in raw_modes) or 1.0
         payment_modes = []
@@ -1378,7 +1413,7 @@ def get_finance_dashboard(
         
         # 2. Service category breakdown from billing_services
         cur.execute("""
-            SELECT 
+            SELECT
                 bs.service_category,
                 COUNT(bi.bill_item_id) as items_billed,
                 COALESCE(SUM(bi.gross_amount), 0) as gross_billed,
@@ -1386,38 +1421,99 @@ def get_finance_dashboard(
                 COALESCE(SUM(bi.net_amount), 0) as net_revenue
             FROM billing_services bs
             LEFT JOIN bill_items bi ON bs.billing_service_id = bi.billing_service_id
+            LEFT JOIN bills item_bill ON item_bill.bill_id = bi.bill_id
+            WHERE bi.bill_item_id IS NULL OR (
+                item_bill.bill_id IS NOT NULL
+                AND LOWER(COALESCE(item_bill.bill_status, '')) NOT IN ('void', 'voided', 'cancelled', 'canceled', 'deleted')
+                AND (%s IS NULL OR item_bill.bill_date::date >= %s::date)
+                AND (%s IS NULL OR item_bill.bill_date::date <= %s::date)
+            )
             GROUP BY bs.service_category
             ORDER BY net_revenue DESC
-        """)
+        """, (date_from, date_from, date_to, date_to))
         categories = serialize_rows(cur, cur.fetchall())
         
         # 3. Clinical Specialty / Departmental Revenue Breakdown
         cur.execute("""
+            WITH bill_categorized AS (
+                SELECT 
+                    b.bill_id,
+                    b.net_amount,
+                    CASE 
+                        WHEN bs.service_category = 'Canteen' OR bi.description ILIKE '%%Dietary%%' OR bi.description ILIKE '%%Canteen%%' THEN 'Inpatient Dietary & Canteen'
+                        WHEN bs.service_category = 'Pharmacy' OR d_vis.department_name = 'Pharmacy' OR d_adm.department_name = 'Pharmacy' THEN 'Pharmacy & Medications'
+                        WHEN bs.service_category = 'Laboratory & Diagnostic' OR d_vis.department_name = 'Laboratory' OR d_adm.department_name = 'Laboratory' THEN 'Laboratory & Diagnostics'
+                        WHEN d_vis.department_name = 'Surgery' OR d_adm.department_name = 'Surgery' OR dai.doctor_specialization = 'Surgeon' THEN 'Surgery & OT'
+                        WHEN d_vis.department_name = 'Emergency' OR d_adm.department_name = 'Emergency' OR dai.doctor_specialization = 'ER Physician' THEN 'Emergency Care'
+                        WHEN d_vis.department_name = 'Intensive Care Unit' OR d_adm.department_name = 'Intensive Care Unit' OR dai.doctor_specialization = 'Intensivist' THEN 'Critical Care (ICU)'
+                        WHEN d_vis.department_name = 'Oncology' OR d_adm.department_name = 'Oncology' OR dai.doctor_specialization = 'Oncologist' THEN 'Oncology'
+                        WHEN d_vis.department_name = 'Orthopedics' OR d_adm.department_name = 'Orthopedics' OR dai.doctor_specialization = 'Orthopedist' THEN 'Orthopedics'
+                        WHEN d_vis.department_name = 'Administration' OR d_adm.department_name = 'Administration' OR dai.doctor_specialization = 'Administrator' THEN 'Hospital Room & Inpatient Care'
+                        WHEN dai.doctor_specialization IS NOT NULL AND dai.doctor_specialization NOT IN ('Administrator', 'Pharmacologist') THEN dai.doctor_specialization
+                        ELSE 'General Medicine & Consultations'
+                    END AS department
+                FROM bills b
+                LEFT JOIN (
+                    SELECT DISTINCT ON (bill_id) bill_id, billing_service_id, description 
+                    FROM bill_items 
+                    ORDER BY bill_id, bill_item_id
+                ) bi ON b.bill_id = bi.bill_id
+                LEFT JOIN billing_services bs ON bi.billing_service_id = bs.billing_service_id
+                LEFT JOIN patient_visits pv ON b.visit_id = pv.visit_id
+                LEFT JOIN departments d_vis ON pv.department_id = d_vis.id
+                LEFT JOIN admissions a ON b.admission_id = a.admission_id
+                LEFT JOIN departments d_adm ON a.department_id = d_adm.id
+                LEFT JOIN dim_admission_inputs dai ON b.admission_id = dai.admission_id
+                WHERE LOWER(COALESCE(b.bill_status, '')) NOT IN ('void', 'voided', 'cancelled', 'canceled', 'deleted')
+                    AND (%s IS NULL OR b.bill_date::date >= %s::date)
+                    AND (%s IS NULL OR b.bill_date::date <= %s::date)
+            )
             SELECT 
-                COALESCE(dai.doctor_specialization, d.department_name, 'General Medicine') as department,
-                COUNT(b.bill_id) as bills_count,
-                COALESCE(SUM(b.net_amount), 0) as revenue
-            FROM bills b
-            LEFT JOIN dim_admission_inputs dai ON b.admission_id = dai.admission_id OR b.patient_id = dai.patient_id
-            LEFT JOIN admissions a ON b.admission_id = a.admission_id
-            LEFT JOIN departments d ON a.department_id = d.id
-            GROUP BY COALESCE(dai.doctor_specialization, d.department_name, 'General Medicine')
-            ORDER BY revenue DESC
-            LIMIT 10
-        """)
+                department,
+                CASE 
+                    WHEN department IN ('Inpatient Dietary & Canteen', 'Pharmacy & Medications', 'Laboratory & Diagnostics', 'Hospital Room & Inpatient Care') THEN 'other'
+                    ELSE 'clinical'
+                END AS stream_type,
+                COUNT(*) as bills_count,
+                COALESCE(SUM(net_amount), 0) as revenue
+            FROM bill_categorized
+            GROUP BY department
+            ORDER BY revenue DESC;
+        """, (date_from, date_from, date_to, date_to))
         dept_revenue = serialize_rows(cur, cur.fetchall())
         
         # 4. AR Aging Analysis
         cur.execute("""
+            WITH payment_totals AS (
+                SELECT bill_id,
+                       SUM(amount) FILTER (WHERE LOWER(payment_status) = 'success') AS paid_amount
+                FROM payments
+                WHERE bill_id IS NOT NULL
+                GROUP BY bill_id
+            ), refund_totals AS (
+                SELECT bill_id, SUM(refund_amount) AS refunded_amount
+                FROM refunds
+                WHERE bill_id IS NOT NULL AND LOWER(status) = 'success'
+                GROUP BY bill_id
+            ), open_balances AS (
+                SELECT b.bill_id, b.bill_date,
+                       GREATEST(COALESCE(b.net_amount, 0) - COALESCE(p.paid_amount, 0)
+                                + COALESCE(r.refunded_amount, 0), 0) AS outstanding
+                FROM bills b
+                LEFT JOIN payment_totals p ON p.bill_id = b.bill_id
+                LEFT JOIN refund_totals r ON r.bill_id = b.bill_id
+                WHERE LOWER(COALESCE(b.bill_status, '')) NOT IN ('settled', 'void', 'voided', 'cancelled', 'canceled', 'deleted')
+                  AND (%s IS NULL OR b.bill_date::date >= %s::date)
+                  AND (%s IS NULL OR b.bill_date::date <= %s::date)
+            )
             SELECT 
-                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date <= 30 THEN b.patient_amount ELSE 0 END), 0) as aging_0_30,
-                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date BETWEEN 31 AND 60 THEN b.patient_amount ELSE 0 END), 0) as aging_31_60,
-                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date BETWEEN 61 AND 90 THEN b.patient_amount ELSE 0 END), 0) as aging_61_90,
-                COALESCE(SUM(CASE WHEN CURRENT_DATE - b.bill_date::date > 90 THEN b.patient_amount ELSE 0 END), 0) as aging_90_plus,
-                COALESCE(SUM(b.patient_amount), 0) as total_ar_outstanding
-            FROM bills b
-            WHERE b.bill_status != 'Settled'
-        """)
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - bill_date::date <= 30 THEN outstanding ELSE 0 END), 0) as aging_0_30,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - bill_date::date BETWEEN 31 AND 60 THEN outstanding ELSE 0 END), 0) as aging_31_60,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - bill_date::date BETWEEN 61 AND 90 THEN outstanding ELSE 0 END), 0) as aging_61_90,
+                COALESCE(SUM(CASE WHEN CURRENT_DATE - bill_date::date > 90 THEN outstanding ELSE 0 END), 0) as aging_90_plus,
+                COALESCE(SUM(outstanding), 0) as total_ar_outstanding
+            FROM open_balances
+        """, (date_from, date_from, date_to, date_to))
         ar_aging = serialize_row(cur, cur.fetchone())
         
         # 5. Recent Live Payments & Ledger Transactions with Pagination
@@ -1457,7 +1553,7 @@ def get_finance_dashboard(
                     COALESCE(py.patient_id, b.patient_id) as patient_id,
                     py.amount,
                     COALESCE(py.payment_method, 'UPI') as payment_method,
-                    COALESCE(py.payment_status, 'SUCCESS') as payment_status,
+                    COALESCE(py.payment_status, 'UNKNOWN') as payment_status,
                     COALESCE(py.payment_reference, CONCAT('PAY-', LPAD(py.id::text, 6, '0'))) as payment_reference,
                     py.payment_date,
                     b.bill_number,
@@ -1470,41 +1566,6 @@ def get_finance_dashboard(
                 LEFT JOIN bills b ON py.bill_id = b.bill_id
                 LEFT JOIN patients p ON py.patient_id = p.id
                 LEFT JOIN patients pb ON b.patient_id = pb.id
-                
-                UNION ALL
-                
-                SELECT
-                    b.bill_id as payment_id,
-                    b.bill_id,
-                    b.patient_id,
-                    CASE 
-                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('settled', 'paid', 'cleared') THEN b.net_amount
-                        WHEN COALESCE(b.patient_amount, 0) > 0 THEN b.patient_amount
-                        ELSE b.net_amount
-                    END as amount,
-                    CASE 
-                        WHEN COALESCE(b.insurance_amount, 0) > 0 THEN 'Insurance / TPA'
-                        ELSE 'UPI'
-                    END as payment_method,
-                    CASE 
-                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('settled', 'paid', 'cleared') THEN 'SUCCESS'
-                        WHEN LOWER(COALESCE(b.bill_status, '')) LIKE '%%part%%' THEN 'PARTIALLY PAID'
-                        WHEN LOWER(COALESCE(b.bill_status, '')) IN ('failed', 'disputed', 'voided') THEN 'FAILED'
-                        ELSE 'PENDING'
-                    END as payment_status,
-                    CONCAT('PAY-', LPAD(b.bill_id::text, 6, '0')) as payment_reference,
-                    COALESCE(b.bill_date, NOW()) as payment_date,
-                    b.bill_number,
-                    COALESCE(
-                        NULLIF(TRIM(CONCAT(p.first_name, ' ', p.last_name)), ''),
-                        'Enrolled Patient'
-                    ) as patient_name,
-                    p.patient_code
-                FROM bills b
-                LEFT JOIN patients p ON b.patient_id = p.id
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM payments py WHERE py.bill_id = b.bill_id
-                )
             )
         """
 
@@ -1548,26 +1609,49 @@ def get_finance_dashboard(
                 COALESCE(SUM(insurance_amount), 0) as insurance_settlements
             FROM bills
             WHERE bill_date IS NOT NULL
+              AND LOWER(COALESCE(bill_status, '')) NOT IN ('void', 'voided', 'cancelled', 'canceled', 'deleted')
+              AND (%s IS NULL OR bill_date::date >= %s::date)
+              AND (%s IS NULL OR bill_date::date <= %s::date)
             GROUP BY TO_CHAR(bill_date, 'YYYY-MM')
             ORDER BY month DESC
             LIMIT 12
-        """)
+        """, (date_from, date_from, date_to, date_to))
         monthly_trend = serialize_rows(cur, cur.fetchall())
         monthly_trend.reverse()
         
         # 7. Summary KPIs
         cur.execute("""
             SELECT 
-                COALESCE(SUM(net_amount), 0) as total_billed,
-                COALESCE(SUM(CASE WHEN bill_status = 'Settled' THEN net_amount ELSE 0 END), 0) as total_settled,
-                COALESCE(SUM(patient_amount), 0) as total_patient_due,
-                COALESCE(SUM(insurance_amount), 0) as total_insurance_due,
+                                COALESCE(SUM(net_amount), 0) as total_billed,
+                                COALESCE(SUM(CASE WHEN LOWER(COALESCE(bill_status, '')) = 'settled' THEN net_amount ELSE 0 END), 0) as total_settled,
+                                COALESCE(SUM(CASE WHEN LOWER(COALESCE(bill_status, '')) NOT IN ('settled', 'void', 'voided', 'cancelled', 'canceled', 'deleted') THEN patient_amount ELSE 0 END), 0) as total_patient_due,
+                                COALESCE(SUM(CASE WHEN LOWER(COALESCE(bill_status, '')) NOT IN ('settled', 'void', 'voided', 'cancelled', 'canceled', 'deleted') THEN insurance_amount ELSE 0 END), 0) as total_insurance_due,
+                                COALESCE(SUM(tax_amount), 0) as total_tax,
                 COUNT(*) as total_invoices,
-                COUNT(CASE WHEN bill_status = 'Settled' THEN 1 END) as settled_invoices,
-                (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE payment_status = 'SUCCESS') as total_collected
-            FROM bills
-        """)
+                                COUNT(CASE WHEN LOWER(COALESCE(bill_status, '')) = 'settled' THEN 1 END) as settled_invoices,
+                                (SELECT COALESCE(SUM(amount), 0) FROM payments
+                                 WHERE LOWER(payment_status) = 'success'
+                                     AND (%s IS NULL OR payment_date::date >= %s::date)
+                                     AND (%s IS NULL OR payment_date::date <= %s::date))
+                                    - (SELECT COALESCE(SUM(refund_amount), 0) FROM refunds
+                                         WHERE LOWER(status) = 'success'
+                                             AND (%s IS NULL OR refund_date::date >= %s::date)
+                                             AND (%s IS NULL OR refund_date::date <= %s::date)) as total_collected
+                        FROM bills
+                        WHERE LOWER(COALESCE(bill_status, '')) NOT IN ('void', 'voided', 'cancelled', 'canceled', 'deleted')
+                            AND (%s IS NULL OR bill_date::date >= %s::date)
+                            AND (%s IS NULL OR bill_date::date <= %s::date)
+                """, (date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to))
         kpi_row = serialize_row(cur, cur.fetchone())
+
+        cur.execute("""
+                        SELECT COALESCE(SUM(net_amount), 0)
+                        FROM pharmacy_sales
+                        WHERE LOWER(COALESCE(payment_status, '')) NOT IN ('void', 'cancelled', 'canceled', 'refunded')
+                            AND (%s IS NULL OR sale_date::date >= %s::date)
+                            AND (%s IS NULL OR sale_date::date <= %s::date)
+                """, (date_from, date_from, date_to, date_to))
+        pharmacy_revenue = float(cur.fetchone()[0] or 0)
         
         total_pages = (total_payment_count + page_size - 1) // page_size if total_payment_count > 0 else 1
         return {
@@ -1582,7 +1666,8 @@ def get_finance_dashboard(
             "page_size": page_size,
             "total_pages": total_pages,
             "monthly_trend": monthly_trend,
-            "kpis": kpi_row
+            "kpis": kpi_row,
+            "pharmacy_revenue": pharmacy_revenue
         }
     except Exception as e:
         logger.error(f"Error fetching finance dashboard: {e}")

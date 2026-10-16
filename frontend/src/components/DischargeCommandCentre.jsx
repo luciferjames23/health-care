@@ -4,6 +4,7 @@ import DischargeSummaryModal from './DischargeSummaryModal';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
 import TablePagination from './TablePagination';
+import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
 const STATUS_STYLES = {
@@ -123,9 +124,8 @@ export const checkPatientVitalsNormal = (adm) => {
 function createCaseInitialState(base) {
   if (!base) return {};
   const statusLower = String(base.rawRecord?.approval_status || '').trim().toLowerCase();
-  const isApprovedInSummary = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
   const isCompleted = !!base.isCompleted;
-  const isReady = !isCompleted && (base.category === 'Ready' || statusLower === 'pending approval' || isApprovedInSummary);
+  const isReady = !isCompleted && (base.category === 'Ready' || statusLower === 'pending approval');
   const isApproval = !isReady && !isCompleted && base.category === 'Approval required';
   const isBlocked = !isReady && !isCompleted && base.category === 'Blocked';
   const blocker = isReady || isCompleted ? '' : (base.blocker || '');
@@ -289,8 +289,9 @@ export default function DischargeCommandCentre({
   const activeDoctorName = isDoctor ? doctorName : null;
 
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'table'
-  const [scopeFilter, setScopeFilter] = useState('active'); // 'active' or 'all'
+  const [scopeFilter, setScopeFilter] = useState('all'); // 'all' - overall data scope
   const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const [activeCaseId, setActiveCaseId] = useState(null);
   const [selectedCardId, setSelectedCardId] = useState(null);
   const [activeDrawer, setActiveDrawer] = useState(null); // 'bill', 'insurance', or null
@@ -299,6 +300,7 @@ export default function DischargeCommandCentre({
   const [error, setError] = useState(null);
   const [rawSummaries, setRawSummaries] = useState(() => _memSummaries || []);
   const [rawHistoricalSummaries, setRawHistoricalSummaries] = useState(() => _memHistSummaries || []);
+  const [historicalTotal, setHistoricalTotal] = useState(87319);
   const [rawAdmissions, setRawAdmissions] = useState(() => _memAdmissions || []);
   const [rawBeds, setRawBeds] = useState(() => _memBeds || []);
   const [rawWards, setRawWards] = useState(() => _memWards || []);
@@ -306,12 +308,19 @@ export default function DischargeCommandCentre({
   const [toasts, setToasts] = useState([]);
 
   // Load historical discharges for All-time scope
-  const loadHistoricalDischarges = useCallback(async () => {
+  const loadHistoricalDischarges = useCallback(async (dateFrom = '', dateTo = '') => {
     try {
-      const res = await apiService.getDischargedPatients({ scope: 'all', limit: 250 }, { forceRefresh: true });
-      if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
+      const res = await apiService.getDischargedPatients({
+        scope: 'all',
+        limit: 250,
+        discharge_date_from: dateFrom || undefined,
+        discharge_date_to: dateTo || undefined,
+      }, { forceRefresh: true });
+      if (res && Array.isArray(res.data)) {
         _memHistSummaries = res.data;
         setRawHistoricalSummaries(res.data);
+        const total = Number(res.total_records ?? res.total ?? res.data.length);
+        if (Number.isFinite(total)) setHistoricalTotal(total);
       }
     } catch (e) {
       console.warn('Error loading historical discharges:', e);
@@ -474,13 +483,14 @@ export default function DischargeCommandCentre({
 
       const statusLower = String(parsed.approval_status || c.approval_status || '').trim().toLowerCase();
       const isApproved = statusLower === 'approved' || statusLower === 'signed' || statusLower === 'signed off' || statusLower === 'completed';
+      const isPendingApproval = statusLower === 'pending approval';
       const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
       const hasActiveAdmission = Boolean(adm && String(adm.discharge_status || '').toLowerCase() !== 'discharged' && (adm.admission_id || adm.patient_id));
       const isDone = isDischarged || (isApproved && !hasActiveAdmission);
 
-      let category = isDone ? 'Completed' : 'Ready';
-      let blocker = isDone ? 'All steps completed' : 'Clear';
-      let initialStatus = isDone ? 'Completed' : 'Ready';
+      let category = isDone ? 'Completed' : isPendingApproval ? 'Ready' : hasActiveAdmission ? 'In progress' : 'Approval required';
+      let blocker = isDone ? 'All steps completed' : category === 'Ready' ? 'Clear' : category === 'In progress' ? 'awaiting patient discharge' : 'discharge summary approval';
+      let initialStatus = category;
 
       const doctorName = cleanDoctorName((isApproved
         ? (parsed.doctor_name || adm.attending_doctor)
@@ -532,12 +542,14 @@ export default function DischargeCommandCentre({
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
         discharge_date: c.discharge_date || adm.discharge_date || null,
+        dateFilterValue: c.discharge_date || adm.discharge_date || adm.admission_date || c.admission_date || null,
         dischargeTime: actualDischargeTime || (isApproved ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
         intentAt: c.intent_at || adm.intent_at || '09:00 AM',
         initialEta: dynamicEta,
         owner: isDone ? (doctorName || 'Dr. Pallavi Patel') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
         blocker,
+        activeApprovedSummary: isApproved && hasActiveAdmission,
         initialStatus,
         isCompleted: isDone,
         isCleared: isBillCleared,
@@ -610,7 +622,6 @@ export default function DischargeCommandCentre({
       const effectiveBal = isBillCleared ? 0 : rawBal;
       const insCoverage = isBillCleared ? billNet : Math.max(0, billNet - effectiveBal);
       const isDischarged = String(adm.discharge_status || '').toLowerCase() === 'discharged';
-      const isReadyInDb = String(adm.discharge_status || '').toLowerCase() === 'ready';
       const claimStatus = isBillCleared ? 'Approved' : String(adm.claim_status || adm.insurance_status || adm.llm_input_json?.insurance?.claims?.[0]?.claim_status || '').trim();
       const isClaimApproved = isBillCleared || claimStatus.toLowerCase().includes('approv') || claimStatus.toLowerCase().includes('settle');
       const isClaimRejected = !isBillCleared && (claimStatus.toLowerCase().includes('reject') || claimStatus.toLowerCase().includes('deni'));
@@ -624,10 +635,6 @@ export default function DischargeCommandCentre({
         category = 'Completed';
         blocker = 'All steps completed';
         initialStatus = 'Completed';
-      } else if (isReadyInDb) {
-        category = 'Ready';
-        blocker = 'Clear';
-        initialStatus = 'Ready';
       } else if (isClaimRejected) {
         category = 'Blocked';
         blocker = 'insurance appeal';
@@ -719,6 +726,7 @@ export default function DischargeCommandCentre({
         patient_number: adm.patient_number || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
         discharge_date: adm.discharge_date || null,
+        dateFilterValue: adm.discharge_date || adm.admission_date || null,
         dischargeTime: actualDischargeTime || dynamicEta,
         intentAt: '09:15 AM',
         initialEta: dynamicEta,
@@ -852,6 +860,11 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
+      } else if (base.activeApprovedSummary) {
+        computedCategory = 'In progress';
+        statusLabel = 'In progress · patient discharge';
+        statusKind = 'pending';
+        blockerText = base.blocker || 'awaiting patient discharge';
       } else if (openBlocked.length > 0) {
         computedCategory = 'Blocked';
         statusLabel = `Blocked · ${openBlocked[0]}`;
@@ -867,6 +880,11 @@ export default function DischargeCommandCentre({
         statusLabel = `In progress · ${openPending[0]}`;
         statusKind = 'pending';
         blockerText = openPending.join(' → ');
+      } else if (base.category === 'In progress') {
+        computedCategory = 'In progress';
+        statusLabel = 'In progress · patient discharge';
+        statusKind = 'pending';
+        blockerText = base.blocker || 'awaiting patient discharge';
       } else if (base.hasSummary === false && st.category !== 'Ready') {
         computedCategory = 'Approval required';
         statusLabel = 'Approval required · summary';
@@ -926,7 +944,7 @@ export default function DischargeCommandCentre({
       const insurer = item.insurance_provider || (idx % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
       const admissionId = item.admission_id || item.hadm_id || `ADM-${pid}`;
       const diag = cleanDiagnosis(item.diagnoses || item.discharge_diagnosis || 'Clinical Recovery & Discharge');
-      const caseId = `DIS-HIST-${item.summary_id || item.id || idx + 1}`;
+      const caseId = `DIS-HIST-${item.source_table || 'legacy'}-${item.summary_id || item.id || idx + 1}`;
 
       return {
         id: caseId,
@@ -948,6 +966,7 @@ export default function DischargeCommandCentre({
         pendingCount: 0,
         owner: doctorName,
         discharge_date: dDate,
+        dateFilterValue: item.discharge_date || item.admission_date || null,
         dischargeTime: dTime,
         dischargedAt: dTime,
         intentAt: '09:00 AM',
@@ -1154,6 +1173,13 @@ export default function DischargeCommandCentre({
       // In all historical database scope, merge active cases with historical discharge records
       list = [...historicalCases, ...enrichedCases];
     }
+    if (dateRange.dateFrom || dateRange.dateTo) {
+      list = list.filter(c => isDateInRange(
+        c.dateFilterValue || c.discharge_date || c.admission_date,
+        dateRange.dateFrom,
+        dateRange.dateTo
+      ));
+    }
     if (!search.trim()) return list;
     const s = search.toLowerCase();
     return list.filter(c => {
@@ -1167,7 +1193,7 @@ export default function DischargeCommandCentre({
         c.id.toLowerCase().includes(s)
       );
     });
-  }, [enrichedCases, historicalCases, scopeFilter, search]);
+  }, [enrichedCases, historicalCases, scopeFilter, search, dateRange]);
 
   // Sorting (9 Columns: Patient, Doctor, Insurer, Intent, Critical path, Pending, Owner, Age, Status)
   const sortedCases = useMemo(() => {
@@ -1210,9 +1236,9 @@ export default function DischargeCommandCentre({
     const blocked = enrichedCases.filter(c => c.category === 'Blocked' && !c.isCompleted).length;
     const approval = enrichedCases.filter(c => c.category === 'Approval required' && !c.isCompleted).length;
     const inProgress = enrichedCases.filter(c => c.category === 'In progress' && !c.isCompleted).length;
-    const completed = scopeFilter === 'all' ? 46925 : (activeCompletedCases.length || 70);
+    const completed = scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70);
     return { ready, blocked, approval, inProgress, completed };
-  }, [enrichedCases, activeCompletedCases, scopeFilter]);
+  }, [enrichedCases, activeCompletedCases, scopeFilter, historicalTotal]);
 
   // ─────────────────────────────────────────────────────────────
   // WORKFLOW STATE TRANSITIONS
@@ -3614,62 +3640,19 @@ export default function DischargeCommandCentre({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing ${activeCasesCount} assigned active discharge case${activeCasesCount === 1 ? '' : 's'}`
-              : `Active Operational Workload: ${activeCasesCount} active discharge cases · Historical Database: 46,925 all-time records`}
+              : `Overall Discharge Records: ${historicalTotal.toLocaleString()} total records`}
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Quick Workload Scope Toggles */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              onClick={() => { setScopeFilter('active'); setPage(1); }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: scopeFilter === 'active' ? 700 : 500,
-                cursor: 'pointer',
-                border: scopeFilter === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: scopeFilter === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: scopeFilter === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="Filter to Active discharge cases (matches Executive Dashboard)"
-            >
-              <span>⚡ Active Cases ({activeCasesCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setScopeFilter('all');
-                setPage(1);
-                loadHistoricalDischarges();
-              }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: scopeFilter === 'all' ? 700 : 500,
-                cursor: 'pointer',
-                border: scopeFilter === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: scopeFilter === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: scopeFilter === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="View all historical discharge records"
-            >
-              <span>📋 All Historical (46,925)</span>
-            </button>
-          </div>
+          <DateRangeFilter
+            loading={loading}
+            onChange={value => {
+              setDateRange(value);
+              setPage(1);
+              loadHistoricalDischarges(value.dateFrom, value.dateTo);
+            }}
+          />
 
           <input
             type="text"
@@ -3904,7 +3887,7 @@ export default function DischargeCommandCentre({
             const colPage = kanbanColPages[col.key] || 1;
             const COL_PAGE_SIZE = 5;
             const totalColCount = isCompletedCol
-              ? (scopeFilter === 'all' ? 46925 : (activeCompletedCases.length || 70))
+              ? (scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70))
               : colCases.length;
             const totalColPages = Math.max(1, Math.ceil(totalColCount / COL_PAGE_SIZE));
             const validColPage = Math.min(colPage, totalColPages);
@@ -4159,7 +4142,7 @@ export default function DischargeCommandCentre({
 
           {/* Pagination Footer */}
           <TablePagination
-            total={scopeFilter === 'all' ? 46925 : sortedCases.length}
+            total={scopeFilter === 'all' ? historicalTotal : sortedCases.length}
             page={page}
             pageSize={pageSize}
             onPageChange={setPage}

@@ -134,7 +134,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
       }
     } catch (err) {
       console.error('Failed to load doctors data:', err);
-      setError('Unable to load doctor roster from database.');
+      setError('Unable to load doctor  from database.');
     } finally {
       setLoading(false);
     }
@@ -423,7 +423,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
   const selectedDoctorObj = useMemo(() => {
     if (!schedDoctorFilter) return null;
     return activeDoctors.find(d => String(d.id) === String(schedDoctorFilter)) ||
-           doctors.find(d => String(d.id) === String(schedDoctorFilter));
+      doctors.find(d => String(d.id) === String(schedDoctorFilter));
   }, [activeDoctors, doctors, schedDoctorFilter]);
 
   const activeSchedulesCount = useMemo(() => {
@@ -501,7 +501,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
             fontWeight: 600, fontSize: '12.5px', cursor: 'pointer'
           }}
         >
-          👨‍⚕️ Doctor Roster ({doctors.length})
+          👨‍⚕️ Doctor  ({doctors.length})
         </button>
         <button
           type="button"
@@ -1139,7 +1139,7 @@ export default function DoctorsView({ onNavigate, userRole = 'Hospital Managemen
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ fontSize: '16px', fontWeight: 700 }}>+ Add New Doctor Roster Profile</div>
+              <div style={{ fontSize: '16px', fontWeight: 700 }}>+ Add New Doctor  Profile</div>
               <button type="button" onClick={() => setShowAddModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#8a9096' }}>✕</button>
             </div>
             <form onSubmit={handleAddDoctorSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

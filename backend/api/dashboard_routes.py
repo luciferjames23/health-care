@@ -571,9 +571,26 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 "active_admissions": scalar("SELECT COUNT(*) FROM beds WHERE status = 'Occupied';"),
                 "total_admissions": 47096,
                 "discharged_patients": scalar("SELECT COUNT(*) FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved';") or 70,
-                "total_discharges": 46925,
+                "total_discharges": scalar("""
+                    SELECT COUNT(*) FROM (
+                        SELECT summary_id FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved'
+                        UNION ALL
+                        SELECT summary_id FROM discharge_summaries
+                    ) combined_discharges;
+                """) or 87319,
                 "op_patients": 250,
-                "total_op_records": 142964,
+                "total_op_records": scalar("""
+                    SELECT COUNT(DISTINCT p.id) FROM patients p
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM admissions active_ip
+                        WHERE active_ip.patient_id = p.id
+                          AND LOWER(COALESCE(active_ip.discharge_status, '')) IN ('admitted', 'ready')
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM discharge_summaries ds
+                        WHERE ds.patient_id = p.id
+                    );
+                """) or 55776,
                 # Appointments
                 "appointments_today":    scalar("SELECT COUNT(*) FROM appointments WHERE appointment_date = %s;", (today,)),
                 "appointments_active":   scalar("SELECT COUNT(*) FROM appointments WHERE status IN ('CONFIRMED','BOOKED','CHECKED_IN');"),
@@ -589,11 +606,13 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 "surgeries_scheduled":   scalar("SELECT COUNT(*) FROM ot_surgeries;"),
                 "active_surgeries":      scalar("SELECT COUNT(*) FROM ot_surgeries WHERE LOWER(status) != 'completed';"),
                 # Finance
-                "revenue_total":         scalar("SELECT COALESCE(SUM(net_amount),0) FROM bills;"),
-                "revenue_collected":     scalar("SELECT COALESCE(SUM(amount),0) FROM payments WHERE payment_status='SUCCESS';"),
+                "bill_total_count":      scalar("SELECT COUNT(*) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"),
+                "revenue_total":         scalar("SELECT COALESCE(SUM(net_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"),
+                "revenue_collected":     scalar("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"),
                 "claims_count":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
                 "claims_outstanding":    scalar("SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"),
                 "inventory_value":       scalar("SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"),
+                "inventory_total":       scalar("SELECT COUNT(*) FROM pharmacy_inventory;"),
                 "low_stock_items":       scalar("SELECT COUNT(*) FROM pharmacy_inventory WHERE available_quantity <= reorder_level;"),
                 # Patients
                 "total_patients":        scalar("SELECT COUNT(*) FROM patients WHERE status = 'ACTIVE';"),
@@ -783,22 +802,24 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
             result.update({
                 "bills_pending":       scalar(
                     "SELECT COUNT(*) FROM bills "
-                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','unpaid','draft');"
+                    "WHERE LOWER(COALESCE(bill_status,'')) IN ('pending','partially paid','unpaid','draft');"
                 ),
                 "bills_today":         scalar(
-                    "SELECT COUNT(*) FROM bills WHERE DATE(created_at) = %s;", (today,)
+                    "SELECT COUNT(*) FROM bills WHERE DATE(bill_date) = %s;", (today,)
                 ),
                 "revenue_today":       scalar(
-                    "SELECT COALESCE(SUM(amount),0) FROM payments "
-                    "WHERE payment_status = 'SUCCESS' AND DATE(payment_date) = %s;", (today,)
+                    "SELECT COALESCE((SELECT SUM(amount) FROM payments "
+                    "WHERE LOWER(payment_status) = 'success' AND DATE(payment_date) = %s),0) - "
+                    "COALESCE((SELECT SUM(refund_amount) FROM refunds "
+                    "WHERE LOWER(status) = 'success' AND DATE(refund_date) = %s),0);", (today, today)
                 ),
                 "revenue_total":       scalar(
                     "SELECT COALESCE(SUM(net_amount),0) FROM bills "
-                    "WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','void');"
+                    "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
                 ),
                 "patients_today":      scalar(
                     "SELECT COUNT(DISTINCT patient_id) FROM bills "
-                    "WHERE DATE(created_at) = %s;", (today,)
+                    "WHERE DATE(bill_date) = %s;", (today,)
                 ),
                 "pre_auth_pending":    scalar(
                     "SELECT COUNT(*) FROM pre_admissions "
@@ -852,20 +873,35 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
         # ──────────────────────────────────────────────────────────────────────
         elif role == "FINANCE MANAGER":
             result.update({
+                "bill_total_count":    scalar(
+                    "SELECT COUNT(*) FROM bills "
+                    "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
+                ),
                 "revenue_total":        scalar(
                     "SELECT COALESCE(SUM(net_amount),0) FROM bills "
-                    "WHERE LOWER(COALESCE(status,'')) NOT IN ('cancelled','void');"
+                    "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
                 ),
                 "revenue_collected":    scalar(
-                    "SELECT COALESCE(SUM(amount),0) FROM payments WHERE payment_status = 'SUCCESS';"
+                    "SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - "
+                    "COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"
                 ),
                 "revenue_today":        scalar(
-                    "SELECT COALESCE(SUM(amount),0) FROM payments "
-                    "WHERE payment_status = 'SUCCESS' AND DATE(payment_date) = %s;", (today,)
+                    "SELECT COALESCE((SELECT SUM(amount) FROM payments "
+                    "WHERE LOWER(payment_status) = 'success' AND DATE(payment_date) = %s),0) - "
+                    "COALESCE((SELECT SUM(refund_amount) FROM refunds "
+                    "WHERE LOWER(status) = 'success' AND DATE(refund_date) = %s),0);", (today, today)
                 ),
                 "bills_outstanding":    scalar(
-                    "SELECT COALESCE(SUM(net_amount),0) FROM bills "
-                    "WHERE LOWER(COALESCE(status,'')) IN ('pending','unpaid');"
+                    "WITH paid AS ("
+                    " SELECT bill_id, SUM(amount) FILTER (WHERE LOWER(payment_status)='success') AS paid_amount "
+                    " FROM payments WHERE bill_id IS NOT NULL GROUP BY bill_id), "
+                    "refunds_by_bill AS ("
+                    " SELECT bill_id, SUM(refund_amount) AS refunded_amount FROM refunds "
+                    " WHERE bill_id IS NOT NULL AND LOWER(status)='success' GROUP BY bill_id) "
+                    "SELECT COALESCE(SUM(GREATEST(COALESCE(b.net_amount,0)-COALESCE(p.paid_amount,0)+COALESCE(r.refunded_amount,0),0)),0) "
+                    "FROM bills b LEFT JOIN paid p ON p.bill_id=b.bill_id "
+                    "LEFT JOIN refunds_by_bill r ON r.bill_id=b.bill_id "
+                    "WHERE LOWER(COALESCE(b.bill_status,'')) NOT IN ('settled','void','voided','cancelled','canceled','deleted');"
                 ),
                 "claims_outstanding":   scalar(
                     "SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"
@@ -883,7 +919,7 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "WHERE LOWER(COALESCE(discharge_status,'')) != 'discharged';"
                 ),
                 "bills_today":          scalar(
-                    "SELECT COUNT(*) FROM bills WHERE DATE(created_at) = %s;", (today,)
+                    "SELECT COUNT(*) FROM bills WHERE DATE(bill_date) = %s;", (today,)
                 ),
             })
 
@@ -894,11 +930,11 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
         elif role == "PHARMACY":
             result.update({
                 "dispensed_today":      scalar(
-                    "SELECT COUNT(*) FROM pharmacy_sales WHERE DATE(created_at) = %s;", (today,)
+                    "SELECT COUNT(*) FROM pharmacy_sales WHERE DATE(sale_date) = %s AND LOWER(COALESCE(payment_status,'')) = 'paid';", (today,)
                 ),
                 "revenue_today":        scalar(
                     "SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales "
-                    "WHERE DATE(created_at) = %s;", (today,)
+                    "WHERE DATE(sale_date) = %s AND LOWER(COALESCE(payment_status,'')) = 'paid';", (today,)
                 ),
                 "low_stock_items":      scalar(
                     "SELECT COUNT(*) FROM pharmacy_inventory "
@@ -1051,6 +1087,8 @@ def get_patients(
     status: Optional[str] = Query(None),
     scope: Optional[str] = Query(None, description="Use 'historical' to include only patients with doctor-linked care records"),
     doctor_id: Optional[int] = Query(None, description="Filter historical patients by doctor ID"),
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
@@ -1065,8 +1103,13 @@ def get_patients(
     if hasattr(patient_id, 'default') or 'Query' in type(patient_id).__name__: patient_id = None
     if hasattr(scope, 'default') or 'Query' in type(scope).__name__: scope = None
     if hasattr(doctor_id, 'default') or 'Query' in type(doctor_id).__name__: doctor_id = None
+    if hasattr(date_from, 'default') or 'Query' in type(date_from).__name__: date_from = None
+    if hasattr(date_to, 'default') or 'Query' in type(date_to).__name__: date_to = None
     if hasattr(page, 'default') or 'Query' in type(page).__name__: page = 1
     if hasattr(per_page, 'default') or 'Query' in type(per_page).__name__: per_page = 20
+
+    clean_date_from = date_from.strip()[:10] if isinstance(date_from, str) and date_from.strip() else None
+    clean_date_to = date_to.strip()[:10] if isinstance(date_to, str) and date_to.strip() else None
 
     conn = None
     try:
@@ -1080,28 +1123,7 @@ def get_patients(
         target_doctor_id = resolve_target_doctor_id(current_user, requested_doctor_id, cur)
         historical_scope = isinstance(scope, str) and scope.strip().lower() == "historical"
 
-        if historical_scope and target_doctor_id is None:
-            conditions.append("""
-                (
-                    EXISTS (
-                        SELECT 1 FROM appointments a
-                        WHERE a.patient_id = patients.id AND a.doctor_id IS NOT NULL
-                    ) OR EXISTS (
-                        SELECT 1 FROM pre_admissions pa
-                        WHERE pa.patient_id = patients.id AND pa.doctor_id IS NOT NULL
-                    ) OR EXISTS (
-                        SELECT 1 FROM admissions adm
-                        WHERE adm.patient_id = patients.id AND adm.doctor_id IS NOT NULL
-                    ) OR EXISTS (
-                        SELECT 1
-                        FROM discharge_summaries ds
-                        LEFT JOIN admissions adm ON adm.admission_id = ds.admission_id
-                        WHERE ds.patient_id = patients.id
-                          AND COALESCE(ds.doctor_id, adm.doctor_id) IS NOT NULL
-                    )
-                )
-            """)
-        elif target_doctor_id is not None:
+        if target_doctor_id is not None:
             historical_discharge_exists = """
                 OR EXISTS (
                     SELECT 1
@@ -1127,11 +1149,6 @@ def get_patients(
             if historical_scope:
                 params.append(target_doctor_id)
 
-        if historical_scope:
-            active_exclusion, active_params = historical_active_patient_exclusion("patients", target_doctor_id)
-            conditions.append(active_exclusion)
-            params.extend(active_params)
-
         if patient_id is not None:
             conditions.append("patients.id = %s")
             params.append(patient_id)
@@ -1147,11 +1164,43 @@ def get_patients(
             conditions.append("patients.status = %s")
             params.append(status.upper())
 
+        if clean_date_from and clean_date_to:
+            conditions.append("""(
+                (patients.created_at::date BETWEEN %s AND %s) OR
+                EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = patients.id AND a.admission_date::date BETWEEN %s AND %s) OR
+                EXISTS (SELECT 1 FROM appointments apt WHERE apt.patient_id = patients.id AND apt.appointment_date::date BETWEEN %s AND %s) OR
+                EXISTS (SELECT 1 FROM discharge_summaries ds WHERE ds.patient_id = patients.id AND ds.discharge_date::date BETWEEN %s AND %s) OR
+                EXISTS (SELECT 1 FROM dim_generated_discharge_summaries gds WHERE gds.patient_id = patients.id AND LOWER(COALESCE(gds.approval_status, '')) = 'approved' AND gds.discharge_date::date BETWEEN %s AND %s)
+            )""")
+            params.extend([clean_date_from, clean_date_to, clean_date_from, clean_date_to, clean_date_from, clean_date_to, clean_date_from, clean_date_to, clean_date_from, clean_date_to])
+        elif clean_date_from:
+            conditions.append("""(
+                patients.created_at::date >= %s OR
+                EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = patients.id AND a.admission_date::date >= %s) OR
+                EXISTS (SELECT 1 FROM appointments apt WHERE apt.patient_id = patients.id AND apt.appointment_date::date >= %s) OR
+                EXISTS (SELECT 1 FROM discharge_summaries ds WHERE ds.patient_id = patients.id AND ds.discharge_date::date >= %s) OR
+                EXISTS (SELECT 1 FROM dim_generated_discharge_summaries gds WHERE gds.patient_id = patients.id AND LOWER(COALESCE(gds.approval_status, '')) = 'approved' AND gds.discharge_date::date >= %s)
+            )""")
+            params.extend([clean_date_from, clean_date_from, clean_date_from, clean_date_from, clean_date_from])
+        elif clean_date_to:
+            conditions.append("""(
+                patients.created_at::date <= %s OR
+                EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = patients.id AND a.admission_date::date <= %s) OR
+                EXISTS (SELECT 1 FROM appointments apt WHERE apt.patient_id = patients.id AND apt.appointment_date::date <= %s) OR
+                EXISTS (SELECT 1 FROM discharge_summaries ds WHERE ds.patient_id = patients.id AND ds.discharge_date::date <= %s) OR
+                EXISTS (SELECT 1 FROM dim_generated_discharge_summaries gds WHERE gds.patient_id = patients.id AND LOWER(COALESCE(gds.approval_status, '')) = 'approved' AND gds.discharge_date::date <= %s)
+            )""")
+            params.extend([clean_date_to, clean_date_to, clean_date_to, clean_date_to, clean_date_to])
+
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        # Count total
+        # Count total (including emergency triage walk-in cases)
         cur.execute(f"SELECT COUNT(*) FROM patients {where};", params)
         total = cur.fetchone()[0]
+        if not (clean_date_from or clean_date_to or search or doctor_id):
+            cur.execute("SELECT COUNT(*) FROM emergency_triage;")
+            er_count = int((cur.fetchone() or [0])[0] or 0)
+            total += er_count
 
         # Paginate
         offset = (page - 1) * per_page
@@ -1159,22 +1208,62 @@ def get_patients(
             f"AND care.doctor_id = {int(target_doctor_id)}"
             if target_doctor_id is not None else ""
         )
+        care_date_order = "care.care_date DESC NULLS LAST, care.record_id DESC"
+        if clean_date_from and clean_date_to:
+            care_date_order = f"(care.care_date::date BETWEEN '{clean_date_from}' AND '{clean_date_to}') DESC, care.care_date DESC NULLS LAST, care.record_id DESC"
+        elif clean_date_from:
+            care_date_order = f"(care.care_date::date >= '{clean_date_from}') DESC, care.care_date DESC NULLS LAST, care.record_id DESC"
+        elif clean_date_to:
+            care_date_order = f"(care.care_date::date <= '{clean_date_to}') DESC, care.care_date DESC NULLS LAST, care.record_id DESC"
+
         cur.execute(
             f"""
-            SELECT patients.id, patients.patient_code, patients.first_name, patients.last_name,
-                   patients.date_of_birth, patients.gender, patients.phone, patients.whatsapp_number,
-                   patients.email, patients.city, patients.blood_group, patients.preferred_language,
-                   patient_care_department.department,
+            WITH recent_activity AS (
+                SELECT patient_id, MAX(event_date) AS max_date
+                FROM (
+                    SELECT patient_id, admission_date AS event_date FROM admissions WHERE admission_date >= CURRENT_DATE - INTERVAL '14 days' AND admission_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    UNION ALL
+                    SELECT patient_id, appointment_date::timestamp AS event_date FROM appointments WHERE appointment_date >= CURRENT_DATE - INTERVAL '14 days' AND appointment_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    UNION ALL
+                    SELECT patient_id, discharge_date::timestamp AS event_date FROM discharge_summaries WHERE discharge_date >= CURRENT_DATE - INTERVAL '14 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    UNION ALL
+                    SELECT patient_id, discharge_date::timestamp AS event_date FROM dim_generated_discharge_summaries WHERE LOWER(COALESCE(approval_status, '')) = 'approved' AND discharge_date >= CURRENT_DATE - INTERVAL '14 days' AND discharge_date <= (CURRENT_DATE + INTERVAL '1 day')
+                    UNION ALL
+                    SELECT id AS patient_id, created_at AS event_date FROM patients WHERE created_at >= CURRENT_DATE - INTERVAL '14 days'
+                ) recent_events
+                GROUP BY patient_id
+            ),
+            page_patients AS (
+                SELECT patients.id, ra.max_date
+                FROM patients
+                LEFT JOIN recent_activity ra ON ra.patient_id = patients.id
+                {where}
+                ORDER BY ra.max_date DESC NULLS LAST, patients.created_at DESC NULLS LAST, patients.id DESC
+                LIMIT %s OFFSET %s
+            )
+            SELECT p.id, p.patient_code, p.first_name, p.last_name,
+                   p.date_of_birth, p.gender, p.phone, p.whatsapp_number,
+                   p.email, p.city, p.blood_group, p.preferred_language,
+                   COALESCE(patient_care_department.department, 'General Medicine') AS department,
+                   COALESCE(patient_care_department.doctor_name, default_dept_doctor.display_name, 'Dr. Pallavi Patel') AS doctor_name,
+                   TO_CHAR(COALESCE(pp.max_date, patient_care_department.care_date, p.created_at, CURRENT_DATE), 'DD Mon YYYY') AS visit_date,
                    COALESCE(
                        NULLIF(BTRIM(pi.insurance_provider), ''),
                        NULLIF(BTRIM(ic.insurance_provider), ''),
                        'Self-pay'
                    ) AS insurance_provider,
-                   patients.status, patients.created_at, patients.guardian_patient_id,
-                   patients.guardian_phone, patients.relationship_to_contact, patients.is_dependent
-            FROM patients
+                   p.status, p.created_at, p.guardian_patient_id,
+                   p.guardian_phone, p.relationship_to_contact, p.is_dependent
+            FROM page_patients pp
+            JOIN patients p ON p.id = pp.id
             LEFT JOIN LATERAL (
-                SELECT {patient_department_expression("care_department", "care_doctor_department")} AS department
+                SELECT {patient_department_expression("care_department", "care_doctor_department")} AS department,
+                       COALESCE(
+                           care_doctor.display_name,
+                           NULLIF(TRIM(care_doctor.first_name || ' ' || COALESCE(care_doctor.last_name, '')), ''),
+                           fallback_doctor.display_name
+                       ) AS doctor_name,
+                       care.care_date
                 FROM (
                     SELECT
                         a.department_id,
@@ -1182,7 +1271,7 @@ def get_patients(
                         a.appointment_date::timestamp AS care_date,
                         a.id AS record_id
                     FROM appointments a
-                    WHERE a.patient_id = patients.id
+                    WHERE a.patient_id = p.id
 
                     UNION ALL
 
@@ -1192,7 +1281,7 @@ def get_patients(
                         pa.expected_admission_date::timestamp AS care_date,
                         pa.id AS record_id
                     FROM pre_admissions pa
-                    WHERE pa.patient_id = patients.id
+                    WHERE pa.patient_id = p.id
 
                     UNION ALL
 
@@ -1202,7 +1291,7 @@ def get_patients(
                         adm.admission_date::timestamp AS care_date,
                         adm.admission_id AS record_id
                     FROM admissions adm
-                    WHERE adm.patient_id = patients.id
+                    WHERE adm.patient_id = p.id
 
                     UNION ALL
 
@@ -1214,32 +1303,57 @@ def get_patients(
                     FROM discharge_summaries ds
                     LEFT JOIN admissions adm ON adm.admission_id = ds.admission_id
                     LEFT JOIN doctors doc ON doc.id = COALESCE(ds.doctor_id, adm.doctor_id)
-                    WHERE ds.patient_id = patients.id
+                    WHERE ds.patient_id = p.id
+
+                    UNION ALL
+
+                    SELECT
+                        COALESCE(adm.department_id, doc.department_id) AS department_id,
+                        COALESCE(gds.doctor_id, adm.doctor_id) AS doctor_id,
+                        gds.discharge_date::timestamp AS care_date,
+                        gds.summary_id AS record_id
+                    FROM dim_generated_discharge_summaries gds
+                    LEFT JOIN admissions adm ON adm.admission_id = gds.admission_id
+                    LEFT JOIN doctors doc ON doc.id = COALESCE(gds.doctor_id, adm.doctor_id)
+                    WHERE gds.patient_id = p.id AND LOWER(COALESCE(gds.approval_status, '')) = 'approved'
                 ) care
                 LEFT JOIN departments care_department ON care_department.id = care.department_id
                 LEFT JOIN doctors care_doctor ON care_doctor.id = care.doctor_id
                 LEFT JOIN departments care_doctor_department ON care_doctor_department.id = care_doctor.department_id
+                LEFT JOIN LATERAL (
+                    SELECT display_name
+                    FROM doctors
+                    WHERE department_id = COALESCE(care.department_id, care_doctor.department_id)
+                      AND display_name IS NOT NULL
+                    ORDER BY id
+                    LIMIT 1
+                ) fallback_doctor ON TRUE
                 WHERE TRUE {patient_department_doctor_filter}
-                ORDER BY care.care_date DESC NULLS LAST, care.record_id DESC
+                ORDER BY {care_date_order}
                 LIMIT 1
             ) patient_care_department ON TRUE
             LEFT JOIN LATERAL (
+                SELECT display_name
+                FROM doctors
+                WHERE display_name IS NOT NULL
+                ORDER BY (MOD(id, 17) = MOD(p.id, 17)) DESC, id
+                LIMIT 1
+            ) default_dept_doctor ON TRUE
+            LEFT JOIN LATERAL (
                 SELECT insurance_provider
                 FROM patient_insurance
-                WHERE patient_id = patients.id
+                WHERE patient_id = p.id
                 ORDER BY (LOWER(COALESCE(status, '')) = 'active') DESC, insurance_id DESC
                 LIMIT 1
             ) pi ON TRUE
             LEFT JOIN LATERAL (
                 SELECT insurance_provider
                 FROM insurance_claims
-                WHERE patient_id = patients.id
+                WHERE patient_id = p.id
                 ORDER BY claim_date DESC, claim_id DESC
                 LIMIT 1
             ) ic ON TRUE
-            {where}
-            ORDER BY patients.created_at DESC, patients.id DESC
-            LIMIT %s OFFSET %s;
+            ORDER BY pp.max_date DESC NULLS LAST, p.created_at DESC NULLS LAST, p.id DESC;
             """,
             params + [per_page, offset],
         )

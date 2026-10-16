@@ -852,7 +852,7 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [totalCount, setTotalCount] = useState(0);
-  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [workloadScope, setWorkloadScope] = useState('all'); // 'all' - overall data scope
   const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
   const reqIdRef = useRef(0);
 
@@ -950,56 +950,8 @@ export function PharmacyView({ onOpenDrawer, onOpenModal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Header
         title="Central Pharmacy Operations & Dispensing"
-        subtitle="Active Operational Workload: 171 active inpatient & OP sales · Historical Database: 2,77,109 all-time records"
+        subtitle="Overall Pharmacy Transactions: 2,77,109 total records"
         count={totalSales}
-        extraActions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('active'); setPage(1); fetchSales('active'); }}
-              style={{
-                height: '32px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'active' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="Filter to Active sales (matches Executive Dashboard)"
-            >
-              <span>⚡ Active Sales (171)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('all'); setPage(1); fetchSales('all'); }}
-              style={{
-                height: '32px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'all' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="View all historical pharmacy transactions"
-            >
-              <span>📋 All Historical (277,109)</span>
-            </button>
-          </div>
-        }
         onNew={() => onOpenModal && onOpenModal({ kind: 'create', coll: 'pharmacy', title: 'New Pharmacy Dispense Record' })}
         newLabel="+ Dispense Order"
         onExport={() => alert('Exporting pharmacy transactions')}

@@ -360,7 +360,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [scopeFilter, setScopeFilter] = useState(activeDoctorName ? 'my' : 'all');
-  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [workloadScope, setWorkloadScope] = useState('all'); // 'all' - overall data scope
 
   // Additional structured filters
   const [acuityFilter, setAcuityFilter] = useState('All');
@@ -470,7 +470,7 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
     const q = query.trim().toLowerCase();
     return currentScopedList.filter(d => {
       // Date filter
-      if (!isDateInRange(d.date || d.arrival, dateRange.dateFrom, dateRange.dateTo)) return false;
+      if (!isDateInRange(d.date || d.created_at || d.arrival, dateRange.dateFrom, dateRange.dateTo)) return false;
 
       // Structured filters (AND semantics)
       if (acuityFilter !== 'All' && d.acuity !== acuityFilter) return false;
@@ -637,59 +637,12 @@ export function EmergencyView({ onOpenDrawer, onOpenModal, doctorName = null, us
                 </span>
               </span>
             ) : (
-              `Active Operational Workload: ${allCount} active emergency triage · Historical Database: ${allCount} all-time records`
+              `Overall Emergency Records: ${allCount} total records`
             )}
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Quick Workload Scope Toggles */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('active'); setCurrentPage(1); }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'active' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="Filter to Active emergency cases (matches Executive Dashboard)"
-            >
-              <span>⚡ Active Triage ({allCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('all'); setCurrentPage(1); }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'all' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="View all emergency records"
-            >
-              <span>📋 All Historical ({allCount})</span>
-            </button>
-          </div>
 
           <button
             type="button"
@@ -2648,7 +2601,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const [viewMode, setViewMode] = useState('Kanban'); // 'Kanban' | 'Table'
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [selectedCardId, setSelectedCardId] = useState(null);
-  const [workloadScope, setWorkloadScope] = useState('active'); // 'active' | 'all'
+  const [workloadScope, setWorkloadScope] = useState('all'); // 'all' - overall data scope
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [dateRange, setDateRange] = useState({ dateFrom: '', dateTo: '', preset: 'all_time' });
@@ -2935,7 +2888,7 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
   const filtered = data.filter(item => {
     if (workloadScope === 'active' && selectedFilter === 'All' && item.stage === 'Completed') return false;
 
-    if (!isDateInRange(item.start || item.scheduledDate || item.createdAt, dateRange.dateFrom, dateRange.dateTo)) return false;
+    if (!isDateInRange(item.scheduledDate || item.date || item.createdAt || item.start, dateRange.dateFrom, dateRange.dateTo)) return false;
 
     const matchesSearch =
       item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -2987,54 +2940,8 @@ export function SurgeryOTView({ onOpenDrawer, onOpenModal }) {
               OT & surgery
             </h1>
             <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>
-              Active Operational Workload: {activeSurgeriesCount} active scheduled · Historical Database: {data.length || 32} all-time records
+              Overall Surgery Records: {data.length || 32} total records
             </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('active'); setPage(1); }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'active' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'active' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'active' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'active' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="Filter to Active scheduled surgeries (matches Executive Dashboard)"
-            >
-              <span>⚡ Active Scheduled ({activeSurgeriesCount})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setWorkloadScope('all'); setPage(1); }}
-              style={{
-                height: '30px',
-                padding: '0 12px',
-                borderRadius: '6px',
-                fontSize: '11.5px',
-                fontWeight: workloadScope === 'all' ? 700 : 500,
-                cursor: 'pointer',
-                border: workloadScope === 'all' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-                background: workloadScope === 'all' ? 'oklch(0.96 0.04 180)' : '#fff',
-                color: workloadScope === 'all' ? 'oklch(0.35 0.12 180)' : '#52585e',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                transition: 'all 0.15s ease'
-              }}
-              title="View all historical surgery records"
-            >
-              <span>📋 All Historical ({data.length || 32})</span>
-            </button>
           </div>
         </div>
       </div>
@@ -4119,30 +4026,30 @@ export function LabDashboardView({ onOpenDrawer }) {
       <LabListFilters controls={controls} />
       <div aria-busy={loading} aria-live="polite" style={{ ...cardStyle, padding: 0, overflowX: 'auto', position: 'relative' }}>
         {loading ? <div role="status" aria-label="Updating laboratory orders"><TableSkeleton rows={6} columns={6} /></div> : <>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-          <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-            <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
-            <th style={{ padding: '10px 14px' }}>Test</th><th style={{ padding: '10px 14px' }}>Priority</th><th style={{ padding: '10px 14px' }}>Status</th>
-            <th style={{ padding: '10px 14px' }}>Result Summary</th>
-          </tr></thead>
-          <tbody>
-            {!loading && error && <tr><td colSpan={6} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
-            {!error && !controls.filtered.length && <tr><td colSpan={6} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{total ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
-            {!error && controls.pageRows.map(order => {
-              const demo = (order.results || []).some(result => result.result_source === 'DEMO_GENERATED');
-              return <tr key={order.lab_order_id} onClick={() => openLabOrder(order, onOpenDrawer)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
-                <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
-                <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
-                <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#334155')}>{order.priority || 'Routine'}</span></td>
-                <td style={{ padding: '10px 14px' }}>{order.status}</td>
-                <td style={{ padding: '10px 14px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
-              </tr>;
-            })}
-          </tbody>
-        </table>
-        {!loading && !error && <TablePagination total={total} page={controls.page} pageSize={controls.pageSize}
-          onPageChange={controls.setPage} onPageSizeChange={controls.setPageSize} label="orders" />}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+            <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+              <th style={{ padding: '10px 14px' }}>Order ID</th><th style={{ padding: '10px 14px' }}>Patient</th>
+              <th style={{ padding: '10px 14px' }}>Test</th><th style={{ padding: '10px 14px' }}>Priority</th><th style={{ padding: '10px 14px' }}>Status</th>
+              <th style={{ padding: '10px 14px' }}>Result Summary</th>
+            </tr></thead>
+            <tbody>
+              {!loading && error && <tr><td colSpan={6} role="alert" style={{ padding: '18px', textAlign: 'center', color: '#991b1b' }}>{error}</td></tr>}
+              {!error && !controls.filtered.length && <tr><td colSpan={6} style={{ padding: '18px', textAlign: 'center', color: '#64748b' }}>{total ? 'No laboratory orders match the selected filters or search.' : 'No laboratory orders found.'}</td></tr>}
+              {!error && controls.pageRows.map(order => {
+                const demo = (order.results || []).some(result => result.result_source === 'DEMO_GENERATED');
+                return <tr key={order.lab_order_id} onClick={() => openLabOrder(order, onOpenDrawer)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                  <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
+                  <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
+                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
+                  <td style={{ padding: '10px 14px' }}><span style={pillStyle('#f1f5f9', '#334155')}>{order.priority || 'Routine'}</span></td>
+                  <td style={{ padding: '10px 14px' }}>{order.status}</td>
+                  <td style={{ padding: '10px 14px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+          {!loading && !error && <TablePagination total={total} page={controls.page} pageSize={controls.pageSize}
+            onPageChange={controls.setPage} onPageSizeChange={controls.setPageSize} label="orders" />}
         </>}
       </div>
     </div>
@@ -6562,7 +6469,6 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
           <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
         </div>
         <input
@@ -6583,7 +6489,6 @@ export function HrEmployeeView({ onOpenDrawer, onOpenModal }) {
             <ModuleLoadingScreen
               title="Loading HR & Employee Service Copilot..."
               subtitle="Retrieving real-time staff queries, HR knowledge policies, and AI confidence evaluations..."
-              badgeText="Live PostgreSQL Sync"
               showKpis={false}
               tableRows={8}
               tableColumns={7}
@@ -7238,7 +7143,6 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
       {/* Filter and Search Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={pillStyle('#e0f2fe', '#0369a1')}>Live PostgreSQL Sync</span>
           <span style={{ fontSize: '12px', color: '#64748b' }}>Showing {startRow}–{endRow} of {totalCount} records</span>
         </div>
         <input
@@ -7259,7 +7163,6 @@ export function AdminSystemView({ module = 'Integration Architecture', onOpenDra
             <ModuleLoadingScreen
               title={`Loading ${module}...`}
               subtitle={`Retrieving real-time ${module.toLowerCase()} records from PostgreSQL database...`}
-              badgeText="Live PostgreSQL Sync"
               showKpis={false}
               tableRows={8}
               tableColumns={8}

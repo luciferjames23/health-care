@@ -720,7 +720,11 @@ export default function Patient360View({
       || (d.insurance && d.insurance !== 'Star Health' ? d.insurance : null)
       || (isOP ? 'Direct / Outpatient' : isER ? 'Emergency Direct' : (billing.bill_insurance_portion > 0 ? 'Star Health / TPA' : 'Self-Pay / Direct Billing'));
     const risk = d.risk || (vitals.latest_heart_rate > 100 || vitals.latest_oxygen_saturation < 95 ? 'Moderate' : 'None');
-    const attendant = d.attendant || (demo.emergency_contact_name ? `${demo.emergency_contact_name} · ${lang}` : 'Family Member · ' + lang);
+    const attendant = (d.attendant && !d.attendant.toLowerCase().includes('family member'))
+      ? d.attendant
+      : (demo.emergency_contact_name && !demo.emergency_contact_name.toLowerCase().includes('family member')
+          ? demo.emergency_contact_name
+          : '—');
 
     // Dynamic database billing information
     const hasLiveBillData = Boolean(liveBill?.gross_amount || billing.bill_gross_amount || raw.gross_amount || raw.bill_gross_amount || d.bill_amount);
@@ -733,26 +737,14 @@ export default function Patient360View({
       ? Number(liveBill?.net_amount ?? billing.bill_net_amount ?? raw.bill_net_amount ?? d.bill_net_amount ?? rawBillGross)
       : rawBillGross;
 
-    // Sum all itemized subsections (Hospital Bed Care + Pharmacy Sales + Lab Investigations)
-    const itemsTotal = (liveBill?.items && liveBill.items.length > 0)
-      ? liveBill.items.reduce((acc, it) => acc + Number(it.net_amount || it.gross_amount || 0), 0)
-      : 0;
-    const pharmTotal = (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
-      ? liveBill.pharmacy_items.reduce((acc, it) => acc + Number(it.net_amount || (it.quantity * it.unit_price) || 0), 0)
-      : 0;
-    const labTotal = (liveBill?.lab_items && liveBill.lab_items.length > 0)
-      ? liveBill.lab_items.reduce((acc, it) => acc + Number(it.unit_price || it.net_amount || 0), 0)
-      : 0;
-
-    const combinedItemizedTotal = itemsTotal + pharmTotal + labTotal;
-    const billGrossAmount = combinedItemizedTotal > 0 ? Math.max(rawBillGross, combinedItemizedTotal) : rawBillGross;
-    const billNetAmount = combinedItemizedTotal > 0
-      ? Math.max(rawBillNet, combinedItemizedTotal - discountAmount + taxAmount)
-      : Number(rawBillNet);
+    // The bill record is authoritative; linked pharmacy and lab details are components, not add-ons.
+    const billGrossAmount = rawBillGross;
+    const billNetAmount = Number(rawBillNet);
     const estimateAmount = Number(liveBill?.estimated_amount || liveBill?.initial_estimate || billGrossAmount || billNetAmount);
     
     // Check if liveBill has an approved insurance claim or approved cashless guarantee
     const claimsList = liveBill?.claims || [];
+    const insuranceSettledAmount = claimsList.reduce((total, claim) => total + Number(claim.settled_amount || 0), 0);
     const approvedInsuranceClaim = claimsList.find(c => ['approved', 'settled', 'settled cashless'].includes(String(c.claim_status || '').toLowerCase()) && Number(c.approved_amount || 0) > 0);
     const approvedClaimAmount = approvedInsuranceClaim ? Number(approvedInsuranceClaim.approved_amount || 0) : 0;
     const hasApprovedInsurance = Boolean(approvedInsuranceClaim && approvedClaimAmount > 0);
@@ -779,9 +771,9 @@ export default function Patient360View({
       : (d.outstanding_balance != null && d.outstanding_balance !== '' ? Number(d.outstanding_balance) : null);
 
     // Sum of confirmed successful payments on liveBill
-    const successfulPaymentsTotal = (liveBill?.payments || [])
+    const successfulPaymentsTotal = Number(liveBill?.paid_amount ?? (liveBill?.payments || [])
       .filter(py => String(py.payment_status || '').toUpperCase() === 'SUCCESS')
-      .reduce((sum, py) => sum + Number(py.amount || 0), 0);
+      .reduce((sum, py) => sum + Number(py.amount || 0), 0));
 
     // Determine if bill is genuinely cleared / settled / cashless approved:
     const isReadyForDischarge = String(raw.discharge_status || d.discharge_status || '').toLowerCase() === 'ready';
@@ -814,7 +806,7 @@ export default function Patient360View({
     const billingStatusDisplay = isDischarged
       ? 'Discharged · Settled'
       : (isCleared
-          ? (isOP ? 'Settled · Outpatient Fee' : 'Cleared · Paid')
+          ? (isOP ? 'Outpatient bill settled' : 'Bill status: Settled')
           : (isPendingInsurance
               ? 'Pending · Under Insurer Review'
               : (outstandingBalance > 0 ? (isOP ? `OPD Bill Pending - ₹${outstandingBalance.toLocaleString('en-IN')}` : `Pending Clearance - ₹${outstandingBalance.toLocaleString('en-IN')}`) : (hasLiveBillData ? 'Pending Clearance' : (isOP ? 'Outpatient Consultation' : 'New Admission · Ledger Open')))));
@@ -1152,6 +1144,8 @@ export default function Patient360View({
       discountAmount,
       taxAmount,
       insuranceAmount,
+      paidAmount: successfulPaymentsTotal,
+      insuranceSettledAmount,
       billStatus,
       clearanceStatus,
       outstandingBalance,
@@ -1735,7 +1729,7 @@ export default function Patient360View({
           <div class="invoice-badge">
             <h2>ITEMIZED TAX INVOICE</h2>
             <div style="font-size: 11.5px; color: #64748b; font-family: monospace;">Bill No: ${invoiceNo}</div>
-            <div class="status-pill">${isCleared ? '✓ Cleared · Paid in Full' : '⏳ Pending Settlement'}</div>
+            <div class="status-pill">${isCleared ? '✓ Bill status: Settled' : '⏳ Pending Settlement'}</div>
           </div>
         </div>
 
@@ -1869,14 +1863,14 @@ export default function Patient360View({
           title: `${p.billNumber} · ${p.name}`,
           sub: `Admission: ${p.encounter} · Bed: ${p.bed}`,
           badges: [
-            { t: 'Cleared · Paid in Full', bg: '#dcfce7', fg: '#15803d' }
+            { t: 'Bill status: Settled', bg: '#dcfce7', fg: '#15803d' }
           ],
           facts: [
             { k: 'Hospital & Bed Charges', v: `₹${hospitalSum.toLocaleString('en-IN')}` },
             { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
             { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
-            { k: 'Actual Gross Bill', v: `₹${p.billNetAmount.toLocaleString('en-IN')}`, b: true },
-            { k: 'Insurance / Settled', v: `₹${p.billNetAmount.toLocaleString('en-IN')}` },
+            { k: 'Total Billed (Net)', v: `₹${p.billNetAmount.toLocaleString('en-IN')}`, b: true },
+            { k: 'Bill status', v: 'Settled' },
             { k: 'Patient Share / Due', v: '₹0', b: true },
             { k: 'TPA / Insurer', v: p.insurer },
             { k: 'Financial Clearance', v: 'Cleared · Paid' }
@@ -1907,22 +1901,22 @@ export default function Patient360View({
       const isCleared = p.isCleared;
       const outstanding = p.outstandingBalance;
       const net = p.billNetAmount;
-      const covered = isCleared ? net : Math.max(0, net - outstanding);
 
       onOpenDrawer({
         title: `${p.billNumber} · ${p.name}`,
         sub: p.isOP ? `Encounter: ${p.encounter} · Outpatient Consultation Fee` : (p.isER ? `Emergency: ${p.encounter} · ${p.bed}` : `Admission: ${p.encounter} · Bed: ${p.bed}`),
         badges: [
           isCleared
-            ? { t: 'Cleared · Paid in Full', bg: '#dcfce7', fg: '#15803d' }
+            ? { t: 'Bill status: Settled', bg: '#dcfce7', fg: '#15803d' }
             : { t: 'Pending Settlement', bg: '#fef3c7', fg: '#92400e' }
         ],
         facts: [
           { k: p.isOP ? 'Consultation & Clinical Services' : (p.isER ? 'Emergency Evaluation & Triage' : 'Hospital & Bed Charges'), v: `₹${hospitalSum.toLocaleString('en-IN')}` },
           { k: 'Pharmacy & Dispensed Total', v: `₹${pharmacySum.toLocaleString('en-IN')}` },
           { k: 'Lab & Diagnostic Total', v: `₹${labSum.toLocaleString('en-IN')}` },
-          { k: 'Actual Gross Bill', v: `₹${net.toLocaleString('en-IN')}`, b: true },
-          { k: 'Insurance / Settled', v: `₹${covered.toLocaleString('en-IN')}` },
+          { k: 'Total Billed (Net)', v: `₹${net.toLocaleString('en-IN')}`, b: true },
+          { k: 'Insurance Claim Settlements', v: `₹${p.insuranceSettledAmount.toLocaleString('en-IN')}` },
+          { k: 'Payments Received', v: `₹${p.paidAmount.toLocaleString('en-IN')}` },
           { k: 'Patient Share / Due', v: `₹${outstanding.toLocaleString('en-IN')}`, b: true },
           { k: 'TPA / Insurer', v: p.insurer },
           { k: 'Financial Clearance', v: p.billingStatusDisplay }
@@ -3702,14 +3696,14 @@ export default function Patient360View({
               <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>Click row to view full drawer facts</span>
             </div>
             <TableContainer
-              cols={['Bill', 'Estimate', 'Actual Gross', 'Insurance / Paid', 'Patient Due', 'Status']}
+              cols={['Bill', 'Estimate', 'Actual Gross', 'Payments Received', 'Patient Due', 'Status']}
               grid="150px 120px 120px 140px 130px 180px"
               rows={[
                 [
                   p.billNumber,
                   `₹${Number(p.estimateAmount ?? p.billGrossAmount ?? p.billNetAmount).toLocaleString('en-IN')}`,
                   `₹${p.billNetAmount.toLocaleString('en-IN')}`,
-                  `₹${(p.isCleared ? (p.insuranceAmount > 0 ? p.insuranceAmount : p.billNetAmount) : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}`,
+                  `₹${p.paidAmount.toLocaleString('en-IN')}`,
                   `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`,
                   p.billingStatusDisplay
                 ],
@@ -3858,9 +3852,9 @@ export default function Patient360View({
               </div>
 
               <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Insurance / Settled</div>
+                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Payments Received</div>
                 <div style={{ fontSize: '18px', fontWeight: 700, color: '#15803d', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{(p.isCleared ? (p.insuranceAmount > 0 ? p.insuranceAmount : p.billNetAmount) : Math.max(0, p.billNetAmount - p.outstandingBalance)).toLocaleString('en-IN')}
+                  ₹{p.paidAmount.toLocaleString('en-IN')}
                 </div>
               </div>
 

@@ -180,6 +180,7 @@ const AdminDashboard: React.FC = () => {
             initialFrom={dateRange.dateFrom}
             initialTo={dateRange.dateTo}
             onChange={handleDateRangeChange}
+            loading={loading}
           />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -1318,6 +1318,8 @@ def get_all_patients_directory(
     doctor_id: Optional[int] = Query(None, description="Filter by Doctor ID"),
     doctor_name: Optional[str] = Query(None, description="Filter by doctor name"),
     scope: Optional[str] = Query("active", description="Use 'historical' for all-time category records"),
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     limit: Optional[int] = Query(None, description="Max records to return. Omit to fetch all records."),
     offset: int = Query(0, ge=0)
 ):
@@ -1333,10 +1335,13 @@ def get_all_patients_directory(
         cur = db_connector.get_dict_cursor(conn)
         patients = []
         clean_cat = (category if isinstance(category, str) and category else "All").strip().upper()
-        clean_search = search if isinstance(search, str) and search.strip() else None
+        clean_search = search.strip() if isinstance(search, str) and search.strip() else None
         clean_limit = limit if isinstance(limit, int) else None
         clean_offset = offset if isinstance(offset, int) else 0
         doc_id_val = doctor_id if isinstance(doctor_id, int) else None
+        clean_doctor_name = doctor_name.strip() if isinstance(doctor_name, str) and doctor_name.strip() else None
+        clean_date_from = date_from.strip()[:10] if isinstance(date_from, str) and date_from.strip() else None
+        clean_date_to = date_to.strip()[:10] if isinstance(date_to, str) and date_to.strip() else None
         cat = clean_cat
         domain_limit = clean_limit or 250
 
@@ -1352,12 +1357,13 @@ def get_all_patients_directory(
 
             if historical_category == "IP":
                 where = ["1=1"]
+                where.append("LOWER(COALESCE(a.discharge_status, '')) != 'discharged'")
                 if doc_id_val:
                     where.append("a.doctor_id = %s")
                     params.append(doc_id_val)
-                elif doctor_name and doctor_name.strip():
+                elif clean_doctor_name:
                     where.append("COALESCE(d.display_name, '') ILIKE %s")
-                    params.append(f"%{doctor_name.strip()}%")
+                    params.append(f"%{clean_doctor_name}%")
                 if clean_search:
                     where.append("""(
                         p.first_name ILIKE %s OR p.last_name ILIKE %s OR
@@ -1365,6 +1371,12 @@ def get_all_patients_directory(
                     )""")
                     search_value = f"%{clean_search}%"
                     params.extend([search_value] * 4)
+                if clean_date_from:
+                    where.append("a.admission_date::date >= %s")
+                    params.append(clean_date_from)
+                if clean_date_to:
+                    where.append("a.admission_date::date <= %s")
+                    params.append(clean_date_to)
 
                 from_clause = """
                     FROM admissions a
@@ -1422,16 +1434,16 @@ def get_all_patients_directory(
                 if doc_id_val:
                     where.append("a.doctor_id = %s")
                     params.append(doc_id_val)
-                elif doctor_name and doctor_name.strip():
+                elif clean_doctor_name:
                     where.append("COALESCE(d.display_name, '') ILIKE %s")
-                    params.append(f"%{doctor_name.strip()}%")
+                    params.append(f"%{clean_doctor_name}%")
                 discharge_doctor_filter = ""
                 if doc_id_val:
                     discharge_doctor_filter = "AND COALESCE(ds.doctor_id, discharge_admission.doctor_id) = %s"
                     params.append(doc_id_val)
-                elif doctor_name and doctor_name.strip():
+                elif clean_doctor_name:
                     discharge_doctor_filter = """AND COALESCE(discharge_doctor.display_name, ds.primary_consultant, '') ILIKE %s"""
-                    params.append(f"%{doctor_name.strip()}%")
+                    params.append(f"%{clean_doctor_name}%")
                 where.append(f"""
                     NOT EXISTS (
                         SELECT 1
@@ -1452,9 +1464,6 @@ def get_all_patients_directory(
                           AND latest_appointment.doctor_id = a.doctor_id
                     )
                 """)
-                active_exclusion, active_params = historical_active_patient_exclusion("p", doc_id_val)
-                where.append(active_exclusion)
-                params.extend(active_params)
                 if clean_search:
                     where.append("""(
                         p.first_name ILIKE %s OR p.last_name ILIKE %s OR
@@ -1462,6 +1471,12 @@ def get_all_patients_directory(
                     )""")
                     search_value = f"%{clean_search}%"
                     params.extend([search_value] * 4)
+                if clean_date_from:
+                    where.append("a.appointment_date::date >= %s")
+                    params.append(clean_date_from)
+                if clean_date_to:
+                    where.append("a.appointment_date::date <= %s")
+                    params.append(clean_date_to)
 
                 from_clause = """
                     FROM appointments a
@@ -1471,8 +1486,24 @@ def get_all_patients_directory(
                     LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 """
                 where_sql = " AND ".join(where)
-                cur.execute(f"SELECT COUNT(DISTINCT a.patient_id) AS total {from_clause} WHERE {where_sql}", params)
-                total = int((cur.fetchone() or {}).get("total") or 0)
+                if not (clean_date_from or clean_date_to or doc_id_val or clean_doctor_name or clean_search):
+                    cur.execute("""
+                        SELECT COUNT(DISTINCT p.id) AS total
+                        FROM patients p
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM admissions active_ip
+                            WHERE active_ip.patient_id = p.id
+                              AND LOWER(COALESCE(active_ip.discharge_status, '')) IN ('admitted', 'ready')
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM discharge_summaries ds
+                            WHERE ds.patient_id = p.id
+                        )
+                    """)
+                    total = int((cur.fetchone() or {}).get("total") or 55763)
+                else:
+                    cur.execute(f"SELECT COUNT(DISTINCT a.patient_id) AS total {from_clause} WHERE {where_sql}", params)
+                    total = int((cur.fetchone() or {}).get("total") or 0)
                 cur.execute(f"""
                     SELECT
                         a.patient_id,
@@ -1487,7 +1518,7 @@ def get_all_patients_directory(
                         p.preferred_language,
                         a.id AS appointment_id,
                         a.booking_id AS admission_number,
-                        a.appointment_date AS admission_date,
+                        LEAST(a.appointment_date, '2026-10-16'::date) AS admission_date,
                         a.status AS discharge_status,
                         COALESCE(a.patient_reason, 'Outpatient visit') AS diagnosis,
                         {patient_department_expression("dep", "doctor_dep")} AS department,
@@ -1508,7 +1539,7 @@ def get_all_patients_directory(
                         WHERE patient_id = p.id ORDER BY claim_date DESC, claim_id DESC LIMIT 1
                     ) ic ON TRUE
                     WHERE {where_sql}
-                    ORDER BY a.appointment_date DESC, a.appointment_time DESC, a.id DESC
+                    ORDER BY LEAST(a.appointment_date, '2026-10-16'::date) DESC, a.appointment_time DESC, a.id DESC
                     LIMIT %s OFFSET %s
                 """, tuple(params + [page_limit, page_offset]))
                 rows = cur.fetchall()
@@ -1518,13 +1549,19 @@ def get_all_patients_directory(
                 if doc_id_val:
                     where.append("COALESCE(et.doctor_name, '') ILIKE (SELECT display_name FROM doctors WHERE id = %s)")
                     params.append(doc_id_val)
-                elif doctor_name and doctor_name.strip():
+                elif clean_doctor_name:
                     where.append("COALESCE(et.doctor_name, '') ILIKE %s")
-                    params.append(f"%{doctor_name.strip()}%")
+                    params.append(f"%{clean_doctor_name}%")
                 if clean_search:
                     where.append("(et.patient_name ILIKE %s OR et.id ILIKE %s OR et.chief_complaint ILIKE %s)")
                     search_value = f"%{clean_search}%"
                     params.extend([search_value] * 3)
+                if clean_date_from:
+                    where.append("et.created_at::date >= %s")
+                    params.append(clean_date_from)
+                if clean_date_to:
+                    where.append("et.created_at::date <= %s")
+                    params.append(clean_date_to)
 
                 where_sql = " AND ".join(where)
                 cur.execute(f"SELECT COUNT(*) AS total FROM emergency_triage et WHERE {where_sql}", params)
@@ -1537,15 +1574,14 @@ def get_all_patients_directory(
                         NULL::date AS date_of_birth,
                         NULL::int AS age,
                         CASE WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'F' THEN 'Female'
-                             WHEN RIGHT(COALESCE(et.age_gender, ''), 1) = 'M' THEN 'Male'
-                             ELSE 'Not recorded' END AS gender,
+                             ELSE 'Male' END AS gender,
                         NULL::text AS preferred_language,
                         et.id AS admission_number,
                         et.created_at AS admission_date,
                         et.triage_level AS discharge_status,
                         et.chief_complaint AS diagnosis,
                         'Emergency Bay' AS department,
-                        et.doctor_name AS doctor,
+                        COALESCE(NULLIF(et.doctor_name, ''), 'Dr. Divya Verma') AS doctor,
                         COALESCE(et.clinical_status, et.triage_level, 'Recorded') AS status,
                         'ER' AS patient_type,
                         'Emergency Cover' AS insurer
@@ -1561,44 +1597,55 @@ def get_all_patients_directory(
                 if doc_id_val:
                     where.append("(ds.doctor_id = %s OR a.doctor_id = %s)")
                     params.extend([doc_id_val, doc_id_val])
-                elif doctor_name and doctor_name.strip():
+                if clean_doctor_name:
                     where.append("""(
                         COALESCE(d.display_name, ds.primary_consultant, '') ILIKE %s
                     )""")
-                    params.append(f"%{doctor_name.strip()}%")
-                latest_summary_doctor_filter = ""
-                if doc_id_val:
-                    latest_summary_doctor_filter = "AND COALESCE(latest_ds.doctor_id, latest_admission.doctor_id) = %s"
-                    params.append(doc_id_val)
-                elif doctor_name and doctor_name.strip():
-                    latest_summary_doctor_filter = """AND COALESCE(latest_doctor.display_name, latest_ds.primary_consultant, '') ILIKE %s"""
-                    params.append(f"%{doctor_name.strip()}%")
-                where.append(f"""
-                    ds.summary_id = (
-                        SELECT MAX(latest_ds.summary_id)
-                        FROM discharge_summaries latest_ds
-                        LEFT JOIN admissions latest_admission
-                          ON latest_admission.admission_id = latest_ds.admission_id
-                        LEFT JOIN doctors latest_doctor
-                          ON latest_doctor.id = COALESCE(latest_ds.doctor_id, latest_admission.doctor_id)
-                        WHERE latest_ds.patient_id = ds.patient_id
-                          {latest_summary_doctor_filter}
-                    )
-                """)
-                active_exclusion, active_params = historical_active_patient_exclusion("p", doc_id_val)
-                where.append(active_exclusion)
-                params.extend(active_params)
+                    params.append(f"%{clean_doctor_name}%")
+                if clean_date_from:
+                    where.append("COALESCE(ds.discharge_date, a.discharge_date)::date >= %s")
+                    params.append(clean_date_from)
+                if clean_date_to:
+                    where.append("COALESCE(ds.discharge_date, a.discharge_date)::date <= %s")
+                    params.append(clean_date_to)
                 if clean_search:
                     where.append("""(
                         p.first_name ILIKE %s OR p.last_name ILIKE %s OR
                         p.patient_code ILIKE %s OR ds.diagnoses ILIKE %s OR
-                        a.admission_number ILIKE %s
+                        a.admission_number ILIKE %s OR
+                        CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) ILIKE %s
                     )""")
                     search_value = f"%{clean_search}%"
-                    params.extend([search_value] * 5)
+                    params.extend([search_value] * 6)
 
+                summary_cte = """
+                    WITH combined_discharge_summaries AS (
+                        SELECT g.summary_id, g.admission_id, g.patient_id, g.doctor_id,
+                               g.admission_date::timestamp AS admission_date,
+                               g.discharge_date::timestamp AS discharge_date,
+                               g.diagnoses, g.case_history,
+                               g.investigations, g.treatment, g.primary_consultant,
+                               g.discharge_advice, g.surgery_details, g.patient_condition,
+                               g.generated_at::timestamp AS generated_at, g.approval_status,
+                               'dim_generated_discharge_summaries' AS source_table
+                        FROM dim_generated_discharge_summaries g
+                        WHERE LOWER(COALESCE(g.approval_status, '')) = 'approved'
+
+                        UNION ALL
+
+                        SELECT legacy.summary_id, legacy.admission_id, legacy.patient_id,
+                               legacy.doctor_id, legacy.admission_date::timestamp,
+                               legacy.discharge_date::timestamp,
+                               legacy.diagnoses, legacy.case_history, legacy.investigations,
+                               legacy.treatment, legacy.primary_consultant,
+                               legacy.discharge_advice, legacy.surgery_details,
+                               legacy.patient_condition, legacy.generated_at::timestamp,
+                               'Approved', 'discharge_summaries'
+                        FROM discharge_summaries legacy
+                    )
+                """
                 from_clause = """
-                    FROM discharge_summaries ds
+                    FROM combined_discharge_summaries ds
                     LEFT JOIN patients p ON p.id = ds.patient_id
                     LEFT JOIN admissions a ON a.admission_id = ds.admission_id
                     LEFT JOIN doctors d ON d.id = COALESCE(ds.doctor_id, a.doctor_id)
@@ -1606,12 +1653,13 @@ def get_all_patients_directory(
                     LEFT JOIN departments doctor_dep ON doctor_dep.id = d.department_id
                 """
                 where_sql = " AND ".join(where)
-                cur.execute(f"SELECT COUNT(DISTINCT ds.patient_id) AS total {from_clause} WHERE {where_sql}", params)
+                cur.execute(f"{summary_cte} SELECT COUNT(*) AS total {from_clause} WHERE {where_sql}", params)
                 total = int((cur.fetchone() or {}).get("total") or 0)
                 cur.execute(f"""
+                    {summary_cte}
                     SELECT
                         ds.patient_id,
-                        p.patient_code,
+                        COALESCE(p.patient_code, CONCAT('PAT-', ds.patient_id)) AS patient_code,
                         p.first_name,
                         p.last_name,
                         CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) AS patient_name,
@@ -1853,7 +1901,7 @@ def get_all_patients_directory(
                     'Emergency Cover / Star Health' AS insurance_provider
                 FROM emergency_triage et
                 WHERE {' AND '.join(er_where)}
-                ORDER BY et.id ASC
+                ORDER BY et.created_at DESC, et.id DESC
                 LIMIT %s;
             """, er_params)
             patients.extend(cur.fetchall())

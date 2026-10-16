@@ -96,7 +96,7 @@ export default function ClinicalWorkspaceView({
   const filtered = useMemo(() => {
     let list = scopedPatientList;
     if (dateRange && (dateRange.dateFrom || dateRange.dateTo)) {
-      list = list.filter(p => isDateInRange(p.admitted || p.admission_date || p.admission_time || p.date, dateRange.dateFrom, dateRange.dateTo));
+      list = list.filter(p => isDateInRange(p.admission_date || p.admitted || p.admission_time || p.date, dateRange.dateFrom, dateRange.dateTo));
     }
     return list.filter(p => {
       if (!search.trim()) return true;

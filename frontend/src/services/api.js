@@ -696,6 +696,8 @@ export const apiService = {
     if (params.admission_id) queryParams.append("admission_id", params.admission_id);
     if (params.approval_status) queryParams.append("approval_status", params.approval_status);
     if (params.attending_physician) queryParams.append("attending_physician", params.attending_physician);
+    if (params.discharge_date_from) queryParams.append("discharge_date_from", params.discharge_date_from);
+    if (params.discharge_date_to) queryParams.append("discharge_date_to", params.discharge_date_to);
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
     if (params.scope) queryParams.append("scope", params.scope);
@@ -2284,6 +2286,8 @@ export const apiService = {
     if (params.doctor_id) query.append('doctor_id', params.doctor_id);
     if (params.page) query.append('page', params.page);
     if (params.per_page) query.append('per_page', params.per_page);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
     return await fetchCachedJson(`${API_BASE_URL}/api/dashboard/patients?${query.toString()}`, {
       ...options,
       headers: {
@@ -2299,6 +2303,8 @@ export const apiService = {
     if (params.doctor_id) query.append('doctor_id', params.doctor_id);
     if (params.doctor_name) query.append('doctor_name', params.doctor_name);
     if (params.scope) query.append('scope', params.scope);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
     if (params.limit) query.append('limit', params.limit);
     if (params.offset) query.append('offset', params.offset);
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/clinical-ops/all-patients?${query.toString()}`, {
@@ -2619,9 +2625,12 @@ export function filterDischargedPatients(admissions = [], discharges = []) {
  * e.g. "Dr. Ravi Reddy, MBBS, MS (Administrator)" -> "Dr. Ravi Reddy"
  */
 export function cleanDoctorName(doc) {
-  if (!doc) return 'Attending Physician';
+  if (!doc) return 'Dr. General Practitioner';
   if (typeof doc !== 'string') return String(doc);
   let cleaned = doc.trim();
+  if (cleaned === '—' || cleaned === '-' || cleaned === 'Dr. —' || cleaned === 'Dr. -' || cleaned.toLowerCase() === 'null') {
+    return 'Dr. General Practitioner';
+  }
   // Remove parenthetical roles or specialties: e.g. (Administrator), (Cardiologist), (General Medicine)
   cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();
   cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/g, '').trim();

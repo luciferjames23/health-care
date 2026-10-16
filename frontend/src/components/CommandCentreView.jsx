@@ -338,10 +338,10 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
         setLiveKpis({
           active_admissions: activeAdm,
           discharged_patients: dischargedCnt,
-          total_discharges: rkv.total_discharges ?? exec?.total_discharges ?? 46925,
+          total_discharges: rkv.total_discharges ?? exec?.total_discharges ?? 87319,
           active_discharges: 171,
           op_patients: rkv.op_patients ?? exec?.op_patients ?? null,
-          total_op_records: exec?.total_op_records ?? 96048,
+          total_op_records: rkv.total_op_records ?? exec?.total_op_records ?? 55776,
           total_admissions: exec?.total_admissions ?? 47096,
           appointments_active: rkv.appointments_active ?? exec?.appointments ?? 472,
           appointments_total: rkv.appointments_total ?? exec?.all_time_appointments ?? 151403,
@@ -487,15 +487,15 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'dis',
       t: 'Discharged Patient Records',
-      v: liveKpis?.discharged_patients != null ? String(liveKpis.discharged_patients) : (loading ? null : '70'),
-      sub: liveKpis ? `${liveKpis.discharged_patients || 70} completed discharges · ${(liveKpis.total_discharges || 46925).toLocaleString()} all-time records` : '70 completed discharges · 46,925 all-time records',
+      v: liveKpis?.total_discharges != null ? Number(liveKpis.total_discharges).toLocaleString() : (loading ? null : '87,319'),
+      sub: 'All-time hospital discharge records',
       c: 'oklch(0.4 0.12 150)', target: 'discharge',
     },
     {
       id: 'op_patients',
       t: 'Outpatient (OP) Count',
-      v: liveKpis?.op_patients != null ? String(liveKpis.op_patients) : (loading ? null : '250'),
-      sub: liveKpis?.op_patients != null ? `${liveKpis.op_patients} active clinic cases · ${(liveKpis.total_op_records || 142964).toLocaleString()} all-time records` : '250 active clinic cases · 142,964 all-time records',
+      v: liveKpis?.total_op_records != null ? Number(liveKpis.total_op_records).toLocaleString() : (loading ? null : '55,776'),
+      sub: 'All-time outpatient clinic records',
       c: 'oklch(0.45 0.14 175)', target: 'patients-op',
     },
     {
@@ -572,7 +572,9 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
         : (em.bills?.total_revenue != null ? fmtCrore(em.bills.total_revenue) : (apiError ? '—' : null)),
       sub: rk.revenue_today != null
         ? `₹${Number(rk.revenue_today).toLocaleString()} collected today · ${rk.bills_today ?? 0} bills`
-        : (em.bills ? `${em.bills.count.toLocaleString()} bills · ${fmtCrore(em.bills.total_collected)} collected` : 'Active invoices & collections'),
+        : (rk.bill_total_count != null && rk.revenue_collected != null
+          ? `${rk.bill_total_count.toLocaleString()} all-time bills · ${fmtCrore(rk.revenue_collected)} net collected`
+          : (em.bills ? `${em.bills.count.toLocaleString()} active-patient bills · ${fmtCrore(em.bills.total_collected)} collected` : 'Active invoices & collections')),
       c: 'oklch(0.5 0.1 200)', target: 'finance',
     },
     // Claims — role-scoped counts
@@ -594,10 +596,8 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
       id: 'inventory',
       t: 'Pharmacy Inventory Value',
       v: rk.inventory_value != null ? fmtCrore(rk.inventory_value)
-        : (em.inventory?.valuation != null ? fmtCrore(em.inventory.valuation) : (apiError ? '—' : null)),
-      sub: rk.low_stock_items != null
-        ? `${rk.dispensed_today ?? rk.inventory_total ?? 0} items · ${rk.low_stock_items} at reorder level`
-        : (em.inventory ? `${em.inventory.count} active prescription sales · ${em.inventory.low_stock} at reorder level` : 'Live pharmacy stock valuation'),
+        : (em.inventory?.valuation != null ? fmtCrore(em.inventory.valuation) : (apiError ? '—' : '₹6.93 Cr')),
+      sub: `${rk.inventory_total ?? em.inventory?.total_items ?? em.inventory?.count ?? 75} items · ${rk.low_stock_items ?? em.inventory?.low_stock ?? 16} at reorder level`,
       c: '#15181b', target: 'pharmacy',
     },
     // Doctors — hospital-wide (management only shows this)

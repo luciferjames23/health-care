@@ -277,6 +277,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
           initialFrom={dateRange.dateFrom}
           initialTo={dateRange.dateTo}
           onChange={val => setDateRange(val)}
+          loading={loading}
         />
         <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>
           🔒 Showing ONLY your clinical records
@@ -307,7 +308,13 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
           )}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {summary?.appointments.total ?? 0} appointment(s) in selected range
+          {loading ? (
+            <span style={{ color: '#2563EB', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> Fetching records for selected range...
+            </span>
+          ) : (
+            `${summary?.appointments.total ?? 0} appointment(s) in selected range`
+          )}
         </div>
       </div>
 

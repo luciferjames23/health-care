@@ -1181,6 +1181,7 @@ export interface RoleKpis {
   doctors_active?: number;
   surgeries_scheduled?: number;
   active_surgeries?: number;
+  bill_total_count?: number;
   revenue_total?: number;
   revenue_collected?: number;
   claims_count?: number;

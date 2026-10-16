@@ -861,6 +861,7 @@ export default function App() {
               />
             )}
             {activePage === 'ai-desk' && <AIPatientDesk />}
+            {activePage === 'escalations' && <EscalationPage />}
             {activePage === 'pre-admission' && <PreAdmissionPage />}
             {(activePage === 'doctor-management' || activePage === 'doctors') && (
               <DoctorsView
