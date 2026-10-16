@@ -3519,14 +3519,75 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                   <span>
                     {drawerData.type === "preauth"
                       ? "Services & Items Under Preauthorisation"
-                      : (drawerData.type === "claim" ? "Claimed Line Items & Charges" : "Line items · estimate → actual")}
+                      : (drawerData.type === "claim" ? "Claimed Line Items & Charges" : "Itemized bill breakdown")}
                   </span>
                   {drawerData.data.items?.length > 0 && (
                     <span style={{ fontSize: "11px", color: PALETTE.muted }}>{drawerData.data.items.length} item{drawerData.data.items.length === 1 ? "" : "s"}</span>
                   )}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
-                  {drawerData.data.items && drawerData.data.items.length > 0 ? (
+                  {drawerData.type === "bill" ? (
+                    drawerData.data.items?.length > 0 ? (
+                      <>
+                        {drawerData.data.items.map((item, index) => {
+                          const quantity = Number(item.quantity) || 1;
+                          const gross = Number(item.gross_amount ?? quantity * Number(item.unit_price || 0));
+                          const discount = Number(item.discount_amount) || 0;
+                          const tax = Number(item.tax_amount) || 0;
+                          const net = Number(item.net_amount ?? gross - discount + tax);
+                          const metadata = [item.service_code, item.service_category, fmtDate(item.service_date)]
+                            .filter(value => value && value !== "—");
+
+                          return (
+                            <div key={item.bill_item_id || index} style={{ padding: "10px 0", borderBottom: `1px solid ${PALETTE.borderLight}` }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 600, color: PALETTE.text }}>
+                                    {item.service_name || item.description || item.item_name || "Bill item"}
+                                  </div>
+                                  {item.description && item.service_name && item.description !== item.service_name && (
+                                    <div style={{ color: PALETTE.text2, fontSize: "11px", marginTop: "2px" }}>{item.description}</div>
+                                  )}
+                                  <div style={{ color: PALETTE.muted, fontSize: "10.5px", marginTop: "3px" }}>
+                                    {metadata.length ? metadata.join(" · ") : "Service details not recorded"}
+                                  </div>
+                                </div>
+                                <div style={{ flexShrink: 0, textAlign: "right" }}>
+                                  <div style={{ color: PALETTE.muted, fontSize: "10px" }}>Net amount</div>
+                                  <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700 }}>{inr(net)}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px", marginTop: "8px", padding: "8px", background: "#f8fafc", borderRadius: "4px" }}>
+                                {[
+                                  ["Quantity", quantity],
+                                  ["Unit rate", inr(item.unit_price)],
+                                  ["Gross", inr(gross)],
+                                  ["Discount", inr(discount)],
+                                  ["Tax", inr(tax)],
+                                  ["Net", inr(net)],
+                                ].map(([label, value]) => (
+                                  <div key={label}>
+                                    <div style={{ color: PALETTE.muted, fontSize: "10px" }}>{label}</div>
+                                    <div style={{ color: PALETTE.text, fontFamily: "ui-monospace, Menlo, monospace", fontSize: "11px", fontWeight: label === "Net" ? 700 : 500 }}>{value}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "4px", fontSize: "11px", color: PALETTE.text2 }}>
+                          <span>{drawerData.data.items.length} line item{drawerData.data.items.length === 1 ? "" : "s"}</span>
+                          <strong style={{ color: PALETTE.text }}>
+                            Itemized net: {inr(drawerData.data.items.reduce((sum, item) => sum + Number(item.net_amount ?? item.gross_amount ?? 0), 0))}
+                          </strong>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ padding: "10px 0", color: PALETTE.muted }}>
+                        No itemized charges are recorded for this bill.
+                      </div>
+                    )
+                  ) : drawerData.data.items && drawerData.data.items.length > 0 ? (
                     drawerData.data.items.map((it, idx) => (
                       <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid #f8fafc" }}>
                         <div>
