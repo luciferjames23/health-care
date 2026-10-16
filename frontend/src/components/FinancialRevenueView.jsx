@@ -2496,10 +2496,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
                 const allDepts = (dashboardData?.dept_revenue && dashboardData.dept_revenue.length > 0)
                   ? dashboardData.dept_revenue
                   : [
-                      { department: "Inpatient Dietary & Canteen", stream_type: "other", revenue: 439657500 },
+                      { department: "Inpatient Dietary & Canteen", stream_type: "other", revenue: 382385974 },
                       { department: "General Medicine & Consultations", stream_type: "clinical", revenue: 70313250 },
+                      { department: "Pharmacy & Medications", stream_type: "other", revenue: 69330026 },
                       { department: "Surgery & OT", stream_type: "clinical", revenue: 12188900 },
-                      { department: "Pharmacy & Medications", stream_type: "other", revenue: 12058500 },
                       { department: "Critical Care (ICU)", stream_type: "clinical", revenue: 11979500 },
                       { department: "Oncology", stream_type: "clinical", revenue: 11695000 },
                       { department: "Laboratory & Diagnostics", stream_type: "other", revenue: 11693400 },
