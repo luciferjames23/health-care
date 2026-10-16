@@ -608,7 +608,7 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 # Finance
                 "bill_total_count":      scalar("SELECT COUNT(*) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"),
                 "revenue_total":         scalar("SELECT COALESCE(SUM(net_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"),
-                "revenue_collected":     scalar("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"),
+                "revenue_collected":     scalar("SELECT COALESCE(SUM(net_amount), 0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) = 'settled';") + scalar("SELECT COALESCE(SUM(p.amount),0) FROM payments p JOIN bills b ON p.bill_id=b.bill_id WHERE LOWER(p.payment_status)='success' AND LOWER(COALESCE(b.bill_status,''))!='settled';"),
                 "claims_count":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
                 "claims_total":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
                 "claims_outstanding":    scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
@@ -838,10 +838,7 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "SELECT COALESCE(SUM(net_amount),0) FROM bills "
                     "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
                 ),
-                "revenue_collected":   scalar(
-                    "SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - "
-                    "COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"
-                ),
+                "revenue_collected":   scalar("SELECT COALESCE(SUM(net_amount), 0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) = 'settled';") + scalar("SELECT COALESCE(SUM(p.amount),0) FROM payments p JOIN bills b ON p.bill_id=b.bill_id WHERE LOWER(p.payment_status)='success' AND LOWER(COALESCE(b.bill_status,''))!='settled';"),
                 "bill_total_count":    scalar(
                     "SELECT COUNT(*) FROM bills "
                     "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
@@ -902,10 +899,7 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "SELECT COALESCE(SUM(net_amount),0) FROM bills "
                     "WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"
                 ),
-                "revenue_collected":    scalar(
-                    "SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - "
-                    "COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"
-                ),
+                "revenue_collected":    scalar("SELECT COALESCE(SUM(net_amount), 0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) = 'settled';") + scalar("SELECT COALESCE(SUM(p.amount),0) FROM payments p JOIN bills b ON p.bill_id=b.bill_id WHERE LOWER(p.payment_status)='success' AND LOWER(COALESCE(b.bill_status,''))!='settled';"),
                 "revenue_today":        scalar(
                     "SELECT COALESCE((SELECT SUM(amount) FROM payments "
                     "WHERE LOWER(payment_status) = 'success' AND DATE(payment_date) = %s),0) - "

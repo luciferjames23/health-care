@@ -233,21 +233,39 @@ def get_financial_overview(
         # Payments Summary
         cur.execute("""
             SELECT 
-                                COUNT(*) as total_payments,
-                                COALESCE(SUM(CASE WHEN LOWER(payment_status) = 'success' THEN amount ELSE 0 END), 0)
-                                    - COALESCE((
-                                            SELECT SUM(r.refund_amount) FROM refunds r
-                                            WHERE LOWER(r.status) = 'success'
-                                                AND (%s IS NULL OR r.refund_date::date >= %s::date)
-                                                AND (%s IS NULL OR r.refund_date::date <= %s::date)
-                                        ), 0) as total_collected,
-                                COUNT(CASE WHEN LOWER(payment_status) = 'success' THEN 1 END) as success_payment_count,
-                                COUNT(CASE WHEN LOWER(payment_status) = 'pending' THEN 1 END) as pending_payment_count
-                        FROM payments
-                        WHERE (%s IS NULL OR payment_date::date >= %s::date)
-                            AND (%s IS NULL OR payment_date::date <= %s::date)
-                """, (date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to))
+                COUNT(*) as total_payments,
+                COALESCE(SUM(CASE WHEN LOWER(payment_status) = 'success' THEN amount ELSE 0 END), 0)
+                    - COALESCE((
+                            SELECT SUM(r.refund_amount) FROM refunds r
+                            WHERE LOWER(r.status) = 'success'
+                                AND (%s IS NULL OR r.refund_date::date >= %s::date)
+                                AND (%s IS NULL OR r.refund_date::date <= %s::date)
+                        ), 0) as total_collected,
+                COUNT(CASE WHEN LOWER(payment_status) = 'success' THEN 1 END) as success_payment_count,
+                COUNT(CASE WHEN LOWER(payment_status) = 'pending' THEN 1 END) as pending_payment_count
+            FROM payments
+            WHERE (%s IS NULL OR payment_date::date >= %s::date)
+                AND (%s IS NULL OR payment_date::date <= %s::date)
+        """, (date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to))
         payment_stats = serialize_row(cur, cur.fetchone())
+
+        # Total collections = settled bills revenue (discharged & settled) + gateway collections on open bills
+        # Aligns Total Billed (₹59.31 Cr) = Total Collected (₹55.25 Cr) + AR Outstanding (₹4.06 Cr)
+        gateway_collected = float(payment_stats.get("total_collected") or 0)
+        settled_rev = float(bill_stats.get("settled_revenue") or 0)
+        cur.execute("""
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM payments p
+            JOIN bills b ON p.bill_id = b.bill_id
+            WHERE LOWER(p.payment_status) = 'success'
+              AND LOWER(COALESCE(b.bill_status, '')) != 'settled'
+              AND (%s IS NULL OR p.payment_date::date >= %s::date)
+              AND (%s IS NULL OR p.payment_date::date <= %s::date)
+        """, (date_from, date_from, date_to, date_to))
+        open_bills_paid = float(cur.fetchone()[0] or 0)
+        payment_stats["gateway_collected"] = gateway_collected
+        payment_stats["settled_collected"] = settled_rev
+        payment_stats["total_collected"] = settled_rev + open_bills_paid
 
         return {
             "success": True,
@@ -1788,6 +1806,22 @@ def get_finance_dashboard(
                             AND (%s IS NULL OR bill_date::date <= %s::date)
                 """, (date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to, date_from, date_from, date_to, date_to))
         kpi_row = serialize_row(cur, cur.fetchone())
+
+        cur.execute("""
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM payments p
+            JOIN bills b ON p.bill_id = b.bill_id
+            WHERE LOWER(p.payment_status) = 'success'
+              AND LOWER(COALESCE(b.bill_status, '')) != 'settled'
+              AND (%s IS NULL OR p.payment_date::date >= %s::date)
+              AND (%s IS NULL OR p.payment_date::date <= %s::date)
+        """, (date_from, date_from, date_to, date_to))
+        open_bills_paid = float(cur.fetchone()[0] or 0)
+        gateway_coll = float(kpi_row.get("total_collected") or 0)
+        settled_rev = float(kpi_row.get("total_settled") or 0)
+        kpi_row["gateway_collected"] = gateway_coll
+        kpi_row["settled_collected"] = settled_rev
+        kpi_row["total_collected"] = settled_rev + open_bills_paid
 
         cur.execute("""
                         SELECT COALESCE(SUM(net_amount), 0)

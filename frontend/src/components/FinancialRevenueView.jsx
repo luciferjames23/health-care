@@ -887,7 +887,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
     return [
       { k: "Total billed", v: inr(totalBilled), sub: `${(bMeta.total_bills ?? 277113).toLocaleString()} records`, col: "", filter: "All" },
-      { k: "Total collected", v: inr(totalCollected), sub: "Net collections reconciled", col: PALETTE.success, filter: "All" },
+      { k: "Total collected", v: inr(totalCollected), sub: "₹52.24 Cr settled · ₹3.12 Cr gateway receipts", col: PALETTE.success, filter: "All" },
       { k: "Pharmacy sales (included in Total Billed)", v: inr(pharmacyRevenue), sub: "75 inventory lines", col: PALETTE.primary, filter: "All" },
       { k: "Patient share on open bills", v: inr(patRecv), sub: "Self-pay balance", col: PALETTE.warning, filter: "All" },
       { k: "Insurance share on open bills", v: inr(insRecv), sub: "45,207 all-time claims", col: PALETTE.warning, filter: "All" },
