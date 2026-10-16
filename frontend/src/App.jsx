@@ -988,6 +988,7 @@ export default function App() {
             {activePage === 'lab-workqueue' && <LabWorkQueueView onOpenDrawer={setDrawer} userRole={role} />}
             {['billing', 'insurance', 'claims', 'finance', 'tax'].includes(activePage) && (
               <FinancialRevenueView
+                key={activePage}
                 initialTab={activePage}
                 onOpenDrawer={setDrawer}
                 onOpenModal={setModal}

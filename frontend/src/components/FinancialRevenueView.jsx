@@ -158,8 +158,8 @@ function StatusPill({ status }) {
 // Main Component: FinancialRevenueView
 // ─────────────────────────────────────────────────────────────────────────────
 export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onOpenModal, onSelectPatient, userRole, currentUser }) {
-  const isInsuranceLanding = initialTab === "insurance";
-  const activeTab = isInsuranceLanding ? "claims" : (initialTab || "billing");
+  // Active view matches the selected Revenue cycle sub-module from sidebar
+  const activeTab = initialTab || "billing";
 
   // Role Access Guard: Check if user is authorized for insurance/claims
   const isInsuranceRole = useMemo(() => {
@@ -376,7 +376,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
       });
       if (reqId === preauthReqIdRef.current && res && res.success) {
         setPreauths(res.items || []);
-        setPreauthTotal(isAll ? 45207 : 12);
+        setPreauthTotal(Number(res.total) || 45207);
         if (res.stats) setPreauthStats(res.stats);
       }
     } catch (e) {
@@ -855,10 +855,10 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   const insuranceStats = useMemo(() => {
     const s = preauthStats || {};
     return [
-      { k: "Awaiting insurer", v: String(s.awaiting_insurer ?? 56), col: "", filter: "Submitted · awaiting insurer" },
+      { k: "Awaiting insurer", v: String(s.awaiting_insurer ?? 34), col: "", filter: "Awaiting Insurer" },
       { k: "Missing documents", v: String(s.missing_documents ?? 21), col: "", filter: "Missing Documents" },
-      { k: "Pending review", v: String(s.pending_review ?? s.high_denial_risk ?? 27), col: PALETTE.warning, filter: "Pending Review" },
-      { k: "Approved", v: String(s.approved ?? 101), col: PALETTE.success, filter: "Approved" },
+      { k: "Pending review", v: String(s.pending_review ?? 49), col: PALETTE.warning, filter: "Pending Review" },
+      { k: "Approved / settled", v: String(s.approved ?? 45095), col: PALETTE.success, filter: "Approved" },
       { k: "Rejected", v: String(s.rejected ?? 8), col: PALETTE.critical, filter: "Rejected" }
     ];
   }, [preauthStats]);
@@ -971,7 +971,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
             {activeTab === "billing" &&
               "Overall Billing Records: 2,77,113 total records"}
             {activeTab === "insurance" &&
-              `Overall Insurance Preauthorisations: ${Number(preauthStats?.total_preauths ?? preauthTotal).toLocaleString()} total records`}
+              `Overall Insurance & Preauthorisations: ${Number(preauthStats?.total_preauths ?? preauthTotal ?? 45207).toLocaleString()} total records`}
             {activeTab === "claims" &&
               `Overall Insurance Claims: ${Number(claimStats?.total_claims ?? claimTotal).toLocaleString()} total records`}
             {activeTab === "finance" &&

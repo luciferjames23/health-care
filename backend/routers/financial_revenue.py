@@ -2157,20 +2157,20 @@ def get_preauthorisations(
 
         cur.execute(f"""
             SELECT 
-                COUNT(CASE WHEN claim_status ILIKE '%awaiting%' OR claim_status ILIKE '%submitted%' OR claim_status ILIKE '%query%' THEN 1 END) as awaiting_insurer,
+                COUNT(CASE WHEN claim_status ILIKE '%awaiting%' THEN 1 END) as awaiting_insurer,
                 COUNT(CASE WHEN claim_status ILIKE '%missing%' OR claim_status ILIKE '%additional%' THEN 1 END) as missing_documents,
-                COUNT(CASE WHEN claim_status ILIKE '%pending%' OR claim_status ILIKE '%high denial%' THEN 1 END) as pending_review,
+                COUNT(CASE WHEN claim_status ILIKE '%pending%' OR claim_status ILIKE '%high denial%' OR claim_status ILIKE '%query%' OR claim_status ILIKE '%under review%' THEN 1 END) as pending_review,
                 COUNT(CASE WHEN claim_status ILIKE '%pending%' OR claim_status ILIKE '%high denial%' THEN 1 END) as high_denial_risk,
                 COUNT(CASE WHEN claim_status ILIKE '%approved%' OR claim_status ILIKE '%settled%' THEN 1 END) as approved,
                 COUNT(CASE WHEN claim_status ILIKE '%rejected%' THEN 1 END) as rejected,
                 COUNT(*) as total_preauths
             FROM insurance_claims
-            WHERE (claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR claim_id >= 45000) {owner_stat_clause};
+            WHERE 1=1 {owner_stat_clause};
         """)
         stat_row = serialize_row(cur, cur.fetchone())
 
         # 2. Filter clauses
-        where_clauses = ["(c.claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR c.claim_id >= 45000)"]
+        where_clauses = ["1=1"]
         params = []
 
         if matched_coord_idx is not None:
@@ -2178,15 +2178,15 @@ def get_preauthorisations(
 
         if clean_status and str(clean_status).lower() != "all":
             s_lower = str(clean_status).lower()
-            if "awaiting" in s_lower or "submitted" in s_lower or "query" in s_lower:
-                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
-                params.extend(["%awaiting%", "%submitted%", "%query%"])
+            if "awaiting" in s_lower or "submitted" in s_lower:
+                where_clauses.append("c.claim_status ILIKE %s")
+                params.append("%awaiting%")
             elif "missing" in s_lower or "additional" in s_lower or "document" in s_lower:
                 where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
                 params.extend(["%missing%", "%additional%"])
-            elif "pending" in s_lower or "high denial" in s_lower or "review" in s_lower:
-                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
-                params.extend(["%pending%", "%high denial%"])
+            elif "pending" in s_lower or "high denial" in s_lower or "review" in s_lower or "query" in s_lower:
+                where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s OR c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
+                params.extend(["%pending%", "%high denial%", "%query%", "%under review%"])
             elif "approved" in s_lower or "settled" in s_lower:
                 where_clauses.append("(c.claim_status ILIKE %s OR c.claim_status ILIKE %s)")
                 params.extend(["%approved%", "%settled%"])
