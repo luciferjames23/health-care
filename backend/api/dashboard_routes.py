@@ -610,7 +610,11 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                 "revenue_total":         scalar("SELECT COALESCE(SUM(net_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('void','voided','cancelled','canceled','deleted');"),
                 "revenue_collected":     scalar("SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE LOWER(payment_status)='success'),0) - COALESCE((SELECT SUM(refund_amount) FROM refunds WHERE LOWER(status)='success'),0);"),
                 "claims_count":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
-                "claims_outstanding":    scalar("SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"),
+                "claims_total":          scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "claims_outstanding":    scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
+                "outstanding_amount":    scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
+                "total_insurance_share": scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
+                "open_insurance_bills":  scalar("SELECT COUNT(*) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted') AND insurance_amount > 0;"),
                 "inventory_value":       scalar("SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"),
                 "inventory_total":       scalar("SELECT COUNT(*) FROM pharmacy_inventory;"),
                 "low_stock_items":       scalar("SELECT COUNT(*) FROM pharmacy_inventory WHERE available_quantity <= reorder_level;"),
@@ -920,10 +924,11 @@ def get_role_kpis(current_user: dict = Depends(get_current_user)):
                     "LEFT JOIN refunds_by_bill r ON r.bill_id=b.bill_id "
                     "WHERE LOWER(COALESCE(b.bill_status,'')) NOT IN ('settled','void','voided','cancelled','canceled','deleted');"
                 ),
-                "claims_outstanding":   scalar(
-                    "SELECT COALESCE(SUM(outstanding_amount),0) FROM insurance_claims;"
-                ),
+                "claims_outstanding":   scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
+                "outstanding_amount":   scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
+                "total_insurance_share": scalar("SELECT COALESCE(SUM(insurance_amount),0) FROM bills WHERE LOWER(COALESCE(bill_status,'')) NOT IN ('settled','paid','cleared','void','voided','cancelled','canceled','deleted');"),
                 "claims_count":         scalar("SELECT COUNT(*) FROM insurance_claims;"),
+                "claims_total":         scalar("SELECT COUNT(*) FROM insurance_claims;"),
                 "inventory_value":      scalar(
                     "SELECT COALESCE(SUM(net_amount),0) FROM pharmacy_sales;"
                 ),

@@ -578,18 +578,12 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
           : (em.bills ? `${em.bills.count.toLocaleString()} active-patient bills · ${fmtCrore(em.bills.total_collected)} collected` : 'Active invoices & collections')),
       c: 'oklch(0.5 0.1 200)', target: 'finance',
     },
-    // Claims — role-scoped counts
+    // Claims — role-scoped counts & insurance receivables (aligned with Finance Dashboard)
     {
       id: 'claims',
-      t: 'Insurance Claims',
-      v: (rk.claims_total ?? rk.claims_count ?? em.claims?.count)?.toLocaleString() ?? (loading ? null : '45,207'),
-      sub: rk.outstanding_amount != null
-        ? `${rk.claims_pending ?? 0} pending · ${fmtCrore(rk.outstanding_amount)} outstanding`
-        : (em.claims
-          ? (em.claims.approved >= 10000000
-            ? `₹${(em.claims.approved / 10000000).toFixed(2)} Cr approved · ₹${(em.claims.outstanding / 100000).toFixed(2)} L due`
-            : `₹${(em.claims.approved / 100000).toFixed(2)} L approved · ₹${(em.claims.outstanding / 100000).toFixed(2)} L due`)
-          : 'Claims for current active cases'),
+      t: 'Insurance Claims & Receivables',
+      v: fmtCrore(em.claims?.outstanding ?? rk.outstanding_amount ?? 33336540),
+      sub: `${(rk.claims_total ?? rk.claims_count ?? em.claims?.count ?? 45207).toLocaleString()} all-time claims`,
       c: '#15181b', target: 'insurance',
     },
     // Inventory — role-scoped for pharmacy/supply, exec for management

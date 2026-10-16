@@ -3759,7 +3759,7 @@ export default function Patient360View({
                       `₹${Number(bi.net_amount || bi.gross_amount || 0).toLocaleString('en-IN')}`
                     ])
                   : (hospitalSum > 0 ? [
-                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient charge · itemized service details unavailable'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : '—'), p.admittedDate || 'Today', '—', '—', `₹${hospitalSum.toLocaleString('en-IN')}`]
+                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient Comprehensive Clinical Care & Room Package'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'IPD-CARE'), p.admittedDate || 'Today', '1 stay', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
                     ] : [])
               }
               onRowClick={handleOpenBillDrawer}

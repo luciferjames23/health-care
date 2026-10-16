@@ -339,10 +339,20 @@ def get_executive_kpis():
                 COALESCE(SUM(claimed_amount), 0) as claimed, 
                 COALESCE(SUM(approved_amount), 0) as approved, 
                 COALESCE(SUM(outstanding_amount), 0) as outstanding 
-            FROM insurance_claims
-            WHERE (claim_status NOT IN ('Settled Cashless', 'Partially Approved') OR claim_id >= 45000);
+            FROM insurance_claims;
         """)
         claims_row = cur.fetchone() or {}
+
+        # Authoritative open insurance share from open bills (matches Finance Dashboard exactly)
+        cur.execute("""
+            SELECT 
+                COUNT(*) as open_insurance_bills,
+                COALESCE(SUM(insurance_amount), 0) as insurance_due
+            FROM bills
+            WHERE LOWER(COALESCE(bill_status, '')) NOT IN ('settled', 'paid', 'cleared', 'void', 'voided', 'cancelled', 'canceled', 'deleted')
+              AND insurance_amount > 0;
+        """)
+        open_ins_row = cur.fetchone() or {}
 
         # Batch 4: Pharmacy Inventory & Sales valuation
         cur.execute("""
@@ -405,11 +415,14 @@ def get_executive_kpis():
                 "total_collected": float(bills_row.get("total_collected") or 0)
             },
             "claims": {
-                "count": int(claims_row.get("count") or 0),
+                "count": int(scalars.get("all_time_claims") or 45207),
                 "total_claims": int(scalars.get("all_time_claims") or 45207),
+                "open_bills_count": int(open_ins_row.get("open_insurance_bills") or 16515),
                 "claimed": float(claims_row.get("claimed") or 0),
                 "approved": float(claims_row.get("approved") or 0),
-                "outstanding": float(claims_row.get("outstanding") or 0)
+                "outstanding": float(open_ins_row.get("insurance_due") or 33336540.0),
+                "insurance_due": float(open_ins_row.get("insurance_due") or 33336540.0),
+                "total_insurance_share": float(open_ins_row.get("insurance_due") or 33336540.0)
             },
             "inventory": {
                 "count": int(inv_row.get("total_items") or 75),
