@@ -220,3 +220,27 @@ __marimo__/
 # Database snapshots (large files)
 backend/alter_db/*.json
 backend/alter_db/snapshot_data.json
+
+# Scratch & runtime temporary files
+backend/scratch/*
+!backend/scratch/.gitkeep
+
+# Microsoft Office temporary / lock files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Chrome / browser automation profiles
+chrome_profile/
+chrome_profile_tmp/
+chrome_shot_profile/
+**/chrome_profile/
+**/chrome_profile_tmp/
+**/chrome_shot_profile/
+
+# OS and Editor temporary / swap files
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+

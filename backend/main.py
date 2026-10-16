@@ -1,5 +1,7 @@
+import os
 import sys
 from pathlib import Path
+
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -154,6 +156,13 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 
+_custom_origins = os.getenv("CORS_ORIGINS", "")
+if _custom_origins:
+    for origin in _custom_origins.split(","):
+        trimmed = origin.strip()
+        if trimmed and trimmed not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(trimmed)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -162,6 +171,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.on_event("startup")
 async def startup_prewarm():

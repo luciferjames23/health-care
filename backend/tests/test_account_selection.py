@@ -14,7 +14,8 @@ class AccountSelectionTests(unittest.TestCase):
     def test_temporary_cloudflare_origin_is_allowed_only_when_enabled(self):
         conn=MagicMock()
         cursor=conn.__enter__.return_value.cursor.return_value.__enter__.return_value
-        cursor.fetchone.return_value=(7,'radiologist','Radiologist','Dr. Test','Radiology',9,'Radiologist',None,None,4)
+        cursor.fetchone.return_value=(7,'radiologist','Radiologist','Dr. Test','Radiology',9,'Radiologist',None,None,4,None,None,None,None,None,None,None,None)
+
         request=Request({
             'type':'http',
             'client':('192.0.2.1',123),

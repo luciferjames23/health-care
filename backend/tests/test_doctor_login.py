@@ -16,7 +16,7 @@ class DoctorLoginTests(unittest.TestCase):
         self.cursor.fetchone.side_effect = [
             (42, 'test_doctor', self.password_hash, True, 'Doctor', None, None, None, None,
              None, None, 'Test', 'Doctor', 'Test Doctor', 'Physician', 'General Medicine', 12),
-            (12, 'Test Doctor', 'General Medicine', 12, 'Physician'),
+            (12, 'Test Doctor', 'General Medicine', 12, 'Physician', None, None, None, None, None, None),
         ]
         patcher = patch('api.auth_routes.db_config.get_db_connection', return_value=self.conn)
         patcher.start()
@@ -39,7 +39,9 @@ class DoctorLoginTests(unittest.TestCase):
 
     def test_doctor_can_use_local_account_selection(self):
         self.conn.__enter__.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value = (
-            42, 'test_doctor', 'Doctor', 'Test Doctor', 'General Medicine', 12, 'Physician', None, None, 12)
+            42, 'test_doctor', 'Doctor', 'Test Doctor', 'General Medicine', 12, 'Physician', None, None, 12,
+            None, None, None, None, None, None, None, None)
+
         result = select_account(AccountSelectionRequest(username='test_doctor'), Request({'type':'http','client':('127.0.0.1',123)}))
         payload = decode_token(result['token'])
         self.assertEqual(payload['auth_method'], 'account_selection')
