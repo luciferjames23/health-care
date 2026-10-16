@@ -156,7 +156,12 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   onNavigate,
   currentUser
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'list' | 'queue'>(initialTab);
+  const [activeSubTab, setActiveSubTab] = useState<'list' | 'queue'>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.includes('/queue')) {
+      return 'queue';
+    }
+    return initialTab;
+  });
   const { user: authUser } = useAuth();
   const user = currentUser || authUser || (() => {
     try {
@@ -188,7 +193,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   // deptFilter stores the department ID as a string ('' = All Departments)
   const [deptFilter, setDeptFilter] = useState('');
   const [doctorFilter, setDoctorFilter] = useState<number | undefined>(doctorUserId);
-  const [statusFilter, setStatusFilter] = useState('ACTIVE');
+  const [statusFilter, setStatusFilter] = useState(isDoctor ? '' : 'ACTIVE');
   const [activeTotal, setActiveTotal] = useState<number>(471);
   const [allTimeTotal, setAllTimeTotal] = useState<number>(151399);
   const [sourceFilter, setSourceFilter] = useState('');
@@ -547,7 +552,15 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #eef0f1', paddingBottom: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           type="button"
-          onClick={() => setActiveSubTab('list')}
+          onClick={() => {
+            setActiveSubTab('list');
+            if (typeof window !== 'undefined') {
+              const targetUrl = isDoctor ? '/doctor/appointments' : '/appointments';
+              if (window.location.pathname !== targetUrl) {
+                window.history.pushState(null, '', targetUrl);
+              }
+            }
+          }}
           style={{
             height: '32px',
             padding: '0 16px',
@@ -568,7 +581,15 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => setActiveSubTab('queue')}
+          onClick={() => {
+            setActiveSubTab('queue');
+            if (typeof window !== 'undefined') {
+              const targetUrl = isDoctor ? '/doctor/queue' : '/queue';
+              if (window.location.pathname !== targetUrl) {
+                window.history.pushState(null, '', targetUrl);
+              }
+            }
+          }}
           style={{
             height: '32px',
             padding: '0 16px',
@@ -588,54 +609,57 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
           <Clock size={14} /> Today's Queue
         </button>
 
-        {/* Quick Workload Scope Toggles */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={() => { setStatusFilter('ACTIVE'); setPage(1); }}
-            style={{
-              height: '30px',
-              padding: '0 12px',
-              borderRadius: '6px',
-              fontSize: '11.5px',
-              fontWeight: statusFilter === 'ACTIVE' ? 700 : 500,
-              cursor: 'pointer',
-              border: statusFilter === 'ACTIVE' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-              background: statusFilter === 'ACTIVE' ? 'oklch(0.96 0.04 180)' : '#fff',
-              color: statusFilter === 'ACTIVE' ? 'oklch(0.35 0.12 180)' : '#52585e',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-              transition: 'all 0.15s ease'
-            }}
-            title="Filter to Active & Scheduled appointments (matches Executive Dashboard)"
-          >
-            <span>⚡ Active Scheduled ({activeTotal})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { setStatusFilter(''); setPage(1); }}
-            style={{
-              height: '30px',
-              padding: '0 12px',
-              borderRadius: '6px',
-              fontSize: '11.5px',
-              fontWeight: statusFilter === '' ? 700 : 500,
-              cursor: 'pointer',
-              border: statusFilter === '' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
-              background: statusFilter === '' ? 'oklch(0.96 0.04 180)' : '#fff',
-              color: statusFilter === '' ? 'oklch(0.35 0.12 180)' : '#52585e',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-              transition: 'all 0.15s ease'
-            }}
-            title="View all historical appointment records across all statuses"
-          >
-            <span>📋 All Historical ({allTimeTotal.toLocaleString()})</span>
-          </button>
-        </div>
+        {/* Quick Workload Scope Toggles (Admin only; removed from Doctor Portal per spec) */}
+        {!isDoctor && (
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => { setStatusFilter('ACTIVE'); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: statusFilter === 'ACTIVE' ? 700 : 500,
+                cursor: 'pointer',
+                border: statusFilter === 'ACTIVE' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: statusFilter === 'ACTIVE' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: statusFilter === 'ACTIVE' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="Filter to Active & Scheduled appointments (matches Executive Dashboard)"
+            >
+              <span>⚡ Active Scheduled ({activeTotal})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStatusFilter(''); setPage(1); }}
+              style={{
+                height: '30px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                fontSize: '11.5px',
+                fontWeight: statusFilter === '' ? 700 : 500,
+                cursor: 'pointer',
+                border: statusFilter === '' ? '1px solid oklch(0.6 0.15 180)' : '1px solid #e3e6e8',
+                background: statusFilter === '' ? 'oklch(0.96 0.04 180)' : '#fff',
+                color: statusFilter === '' ? 'oklch(0.35 0.12 180)' : '#52585e',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease'
+              }}
+              title="View all historical appointment records across all statuses"
+            >
+              <span>📋 All Historical ({allTimeTotal.toLocaleString()})</span>
+            </button>
+          </div>
+        )}
       </div>
+
 
       {activeSubTab === 'queue' ? (
         <QueueErrorBoundary>
@@ -753,19 +777,54 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
             </div>
           )}
 
-          <select
-            value={statusFilter}
-            onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-            style={selectStyle}
-            aria-label="Status"
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#fff',
+              border: '1px solid #e3e6e8',
+              borderRadius: '6px',
+              padding: '0 8px',
+              height: '30px',
+              cursor: 'pointer'
+            }}
             title="Filter appointments by status"
           >
-            <option value="ACTIVE">⚡ Active & Scheduled ({activeTotal})</option>
-            <option value="">📋 All Records ({allTimeTotal.toLocaleString()})</option>
-            {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: '#52585e' }}>Status:</span>
+            <select
+              value={statusFilter}
+              onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                fontSize: '12px',
+                color: '#15181b',
+                outline: 'none',
+                cursor: 'pointer',
+                fontWeight: 500,
+                fontFamily: "var(--sans, 'Public Sans', sans-serif)"
+              }}
+              aria-label="Status"
+            >
+              {isDoctor ? (
+                <>
+                  <option value="">All Status</option>
+                  {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <option value="">📋 All Records ({allTimeTotal.toLocaleString()})</option>
+                  <option value="ACTIVE">⚡ Active & Scheduled ({activeTotal})</option>
+                  {['BOOKED', 'CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </>
+              )}
+            </select>
+          </label>
 
           <select
             value={sourceFilter}

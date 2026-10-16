@@ -37,3 +37,30 @@ export function getPostLoginPage(role) {
     ? 'portal'
     : 'command';
 }
+
+export function getPathForPage(page, role) {
+  const norm = normalizePageId(page);
+  const isDoctor = String(role || '').trim().toLowerCase() === 'doctor';
+
+  if (isDoctor) {
+    if (norm === 'appointments') return '/doctor/appointments';
+    if (norm === 'doctor-portal') return '/doctor/dashboard';
+    if (norm === 'todays-queue') return '/doctor/queue';
+    if (norm === 'clinical') return '/doctor/clinical';
+    if (norm === 'patients' || norm === 'doctor-patient-records' || norm === 'patients-op' || norm === 'patient-records') {
+      return '/doctor/patient-records';
+    }
+    if (norm === 'admissions') return '/doctor/admissions';
+    if (norm === 'profile') return '/doctor/profile';
+  }
+
+  if (norm === 'command') return '/';
+  if (norm === 'appointments') return '/appointments';
+  if (norm === 'patients' || norm === 'patients-op') return '/patients';
+  if (norm === 'patient360') return '/patient360';
+  if (norm === 'soap') return '/soap';
+  if (norm === 'create-full-details' || norm === 'create-full') return '/create-full/details';
+  if (norm === 'portal' || norm === 'patient-portal') return '/portal';
+
+  return `/${norm}`;
+}

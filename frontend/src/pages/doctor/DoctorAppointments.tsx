@@ -150,27 +150,40 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
               onChange={val => setDateRange(val)}
             />
 
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              style={{
-                padding: '6px 12px',
-                border: '1.5px solid var(--border)',
-                borderRadius: 'var(--radius-sm, 6px)',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                background: 'var(--bg-primary)',
-              }}
-            >
-              <option value="">All Status</option>
-              <option value="BOOKED">Booked</option>
-              <option value="CONFIRMED">Confirmed</option>
-              <option value="CHECKED_IN">Checked In</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="CANCELLED">Cancelled</option>
-              <option value="RESCHEDULED">Rescheduled</option>
-              <option value="NO_SHOW">No Show</option>
-            </select>
+            <label style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              border: '1.5px solid var(--border)',
+              borderRadius: 'var(--radius-sm, 6px)',
+              background: 'var(--bg-primary)',
+              cursor: 'pointer'
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Status:</span>
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  background: 'transparent',
+                  cursor: 'pointer'
+                }}
+                aria-label="Status"
+              >
+                <option value="">All Status</option>
+                <option value="BOOKED">Booked</option>
+                <option value="CONFIRMED">Confirmed</option>
+                <option value="CHECKED_IN">Checked In</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="RESCHEDULED">Rescheduled</option>
+                <option value="NO_SHOW">No Show</option>
+              </select>
+            </label>
 
             <select
               value={sourceFilter}

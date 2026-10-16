@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 import { selectAccount } from './services/accountSession';
 import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/meridianData';
-import { getPostLoginPage, normalizePageId } from './services/navigation';
+import { getPostLoginPage, normalizePageId, getPathForPage } from './services/navigation';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';
 import AppSidebar from './components/AppSidebar';
@@ -111,6 +111,7 @@ import {
 function resolvePageFromPath(path) {
   if (!path) return null;
   const p = path.toLowerCase();
+  if (p === '/' || p === '') return null;
   if (p.includes('/create-full/details') || p.includes('/create-full-details') || p.includes('/create-full')) {
     return 'create-full-details';
   }
@@ -123,8 +124,40 @@ function resolvePageFromPath(path) {
   if (p.includes('/doctor/dashboard') || p.includes('/doctor-portal') || p === '/doctor') {
     return 'doctor-portal';
   }
-  if (p.includes('/patient-records') || p.includes('/doctor-patient-records')) {
+  if (p.includes('/patient-records') || p.includes('/doctor-patient-records') || p === '/doctor/patient-records') {
     return 'doctor-patient-records';
+  }
+  if (p.includes('/doctor/clinical') || p === '/clinical' || p.startsWith('/clinical/')) {
+    return 'clinical';
+  }
+  if (p.includes('/doctor/admissions') || p === '/admissions' || p.startsWith('/admissions/')) {
+    return 'admissions';
+  }
+  if (p === '/patients' || p.startsWith('/patients/')) {
+    return 'patients';
+  }
+  if (p === '/patient360' || p.startsWith('/patient360/')) {
+    return 'patient360';
+  }
+  if (p === '/soap' || p.startsWith('/soap/')) {
+    return 'soap';
+  }
+  if (p === '/emergency' || p.startsWith('/emergency/')) {
+    return 'emergency';
+  }
+  if (p === '/bedboard' || p.startsWith('/bedboard/')) {
+    return 'bedboard';
+  }
+  if (p === '/discharge' || p.startsWith('/discharge/')) {
+    return 'discharge';
+  }
+  if (p === '/command' || p === '/dashboard' || p.includes('/admin/dashboard')) {
+    return 'command';
+  }
+
+  const clean = p.replace(/^\//, '').split('/')[0];
+  if (clean) {
+    return normalizePageId(clean);
   }
   return null;
 }
@@ -165,7 +198,7 @@ export default function App() {
     try { return JSON.parse(sessionStorage.getItem('hx_selected_patient') || 'null'); } catch { return null; }
   });
 
-  // Keep sessionStorage in sync whenever auth / role / activePage / selectedPatient change
+  // Keep sessionStorage and browser URL in sync whenever auth / role / activePage / selectedPatient change
   useEffect(() => {
     try { sessionStorage.setItem('hx_auth', JSON.stringify(auth)); } catch { }
   }, [auth]);
@@ -174,7 +207,13 @@ export default function App() {
   }, [role]);
   useEffect(() => {
     try { sessionStorage.setItem('hx_page', activePage); } catch { }
-  }, [activePage]);
+    if (typeof window !== 'undefined') {
+      const targetPath = getPathForPage(activePage, role);
+      if (targetPath && window.location.pathname !== targetPath) {
+        window.history.pushState({ page: activePage }, '', targetPath);
+      }
+    }
+  }, [activePage, role]);
 
   // Sync URL changes for direct routes and navigation history
   useEffect(() => {
