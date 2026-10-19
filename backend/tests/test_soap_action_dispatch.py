@@ -114,7 +114,7 @@ class SoapActionDispatchTests(unittest.TestCase):
 
     def test_lab_order_is_pending_and_creates_no_lab_result(self):
         cur = MagicMock()
-        cur.fetchone.side_effect = [None, (701,), (701,)]
+        cur.fetchone.side_effect = [None, (701,), (701,), (1,), ("Complete Blood Count", 450, "INR")]
         cur.fetchall.return_value = [{"lab_test_id": 1, "test_code": "LAB-01", "test_name": "CBC"}]
         target, existing = lab_service.create_lab_order(cur, self.note, {**self.action, "action_type": "LAB_ORDER", "name": "Complete Blood Count", "code": "CBC"}, doctor_id=3)
         self.assertFalse(existing)
@@ -125,6 +125,8 @@ class SoapActionDispatchTests(unittest.TestCase):
         self.assertEqual(insert.args[1][-2:], (91, str(self.action["action_id"])))
         self.assertNotIn("INSERT INTO lab_results", sql)
         self.assertEqual(insert.args[1][0], 701)
+        charge = next(call for call in cur.execute.call_args_list if "INSERT INTO patient_charges" in call.args[0])
+        self.assertEqual(charge.args[1][0:6], (20, 700, None, "LAB", "701", "LAB-CBC"))
 
     def test_unresolved_lab_creates_no_order_or_result(self):
         cur = MagicMock()

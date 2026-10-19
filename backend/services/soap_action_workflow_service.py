@@ -97,8 +97,14 @@ def _confirmation_error(cur, action):
                 and not action.get("code")):
             return "Select a specific active laboratory test from the catalog before confirmation."
         from services.soap_lab_order_service import resolve_lab_test
-        if not resolve_lab_test(cur, action):
+        resolved_test = resolve_lab_test(cur, action)
+        if not resolved_test:
             return "Select a specific active laboratory test from the catalog before confirmation."
+        from services.service_billing import resolve_lab_service_code
+        service_code = resolve_lab_service_code(cur, resolved_test.get("test_code"), resolved_test.get("test_name"))
+        cur.execute("SELECT 1 FROM service_price_master WHERE service_code=%s AND active=TRUE", (service_code,))
+        if not cur.fetchone():
+            return "An active price is not configured for this laboratory test."
     elif action["action_type"] == "IMAGING_ORDER":
         if str(action.get("name") or "").casefold() != "chest x-ray":
             return "This examination is not supported by the existing SOAP imaging order workflow."

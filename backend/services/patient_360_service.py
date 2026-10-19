@@ -530,7 +530,8 @@ def get_authoritative_patient_bill(patient_id: Any) -> Optional[Dict[str, Any]]:
                    b.visit_id, b.gross_amount, b.discount_amount, b.tax_amount, b.net_amount,
                    b.insurance_amount, b.patient_amount, b.bill_status,
                    p.first_name, p.last_name, p.patient_code,
-                   a.admission_number, a.admission_date
+                   a.admission_number, a.admission_date,
+                   b.patient_settled_baseline, b.insurance_settled_baseline
             FROM bills b
             JOIN patients p ON b.patient_id = p.id
             LEFT JOIN admissions a ON b.admission_id = a.admission_id
@@ -643,7 +644,10 @@ def get_authoritative_patient_bill(patient_id: Any) -> Optional[Dict[str, Any]]:
         rf_row = cur.fetchone()
         refund_total = float(rf_row[0] or 0.0) if rf_row else 0.0
 
-        net_paid = max(0.0, total_paid_successful - refund_total)
+        # Patient balance excludes the insurer's separately tracked settled
+        # baseline; only the patient's prior settled share offsets this due.
+        settled_baseline = float(row[18] or 0.0)
+        net_paid = max(0.0, total_paid_successful - refund_total) + settled_baseline
 
         # 5. Insurance Claims
         cur.execute("""

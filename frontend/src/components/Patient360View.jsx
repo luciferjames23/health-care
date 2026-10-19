@@ -6,13 +6,20 @@ import { groupImagingOrders, studyVersion, scanStudyLabel, orderViewResults, sca
 import RadiologyClarifications, { ClarificationButton } from './RadiologyClarifications';
 import { clarificationApi } from '../services/clarificationApi';
 import { radiologyApi, OHIF_BASE_URL } from '../services/radiologyApi';
-import { apiService, resolveClinicalDiagnosis, cleanDoctorName } from '../services/api';
+import { apiService, resolveClinicalDiagnosis, cleanDoctorName, fetchWithTimeout } from '../services/api';
 import { financialApi } from '../services/financialApi';
 import { imagingOrdersApi } from '../services/imagingOrdersApi';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
 import PreauthDossierDrawer from './PreauthDossierDrawer';
 import BillingTransparencyDrawer from './BillingTransparencyDrawer';
+
+const normalizeLabOrderId = (value) => {
+  const numeric = Number(value);
+  return value != null && String(value).trim() !== '' && Number.isFinite(numeric) && Number.isInteger(numeric)
+    ? String(numeric)
+    : String(value ?? '');
+};
 
 const formatTime12h = (timeVal) => {
   if (!timeVal) return '';
@@ -106,6 +113,8 @@ export default function Patient360View({
   const [livePrescriptions, setLivePrescriptions] = useState([]);
   const [liveDiagnoses, setLiveDiagnoses] = useState([]);
   const [liveLabOrders, setLiveLabOrders] = useState([]);
+  const [serviceCharges, setServiceCharges] = useState([]);
+  const [serviceChargesTotal, setServiceChargesTotal] = useState(0);
   const [patientAppointments, setPatientAppointments] = useState([]);
   const [patientCommunications, setPatientCommunications] = useState([]);
   const [patientFeedback, setPatientFeedback] = useState([]);
@@ -122,6 +131,18 @@ export default function Patient360View({
     apiService.getSoapNotes({ patient_id: pid, signed_only: true })
       .then(result => { if (alive) setSignedSoapNotes(result?.notes || []); })
       .catch(() => { if (alive) setSignedSoapNotes([]); });
+    return () => { alive = false; };
+  }, [patient?.patient_id, patient?.raw?.patient_id, patient?.id]);
+
+  useEffect(() => {
+    const pid = patient?.patient_id || patient?.raw?.patient_id || patient?.id;
+    if (!pid) { setServiceCharges([]); setServiceChargesTotal(0); return undefined; }
+    let alive = true;
+    const apiBase = import.meta.env?.VITE_API_BASE_URL ?? '';
+    fetchWithTimeout(`${apiBase}/api/billing/patients/${encodeURIComponent(pid)}/charges`, { cache: 'no-store' })
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Charges unavailable')))
+      .then(data => { if (alive) { setServiceCharges(data.charges || []); setServiceChargesTotal(Number(data.total || 0)); } })
+      .catch(() => { if (alive) { setServiceCharges([]); setServiceChargesTotal(0); } });
     return () => { alive = false; };
   }, [patient?.patient_id, patient?.raw?.patient_id, patient?.id]);
 
@@ -1202,11 +1223,38 @@ export default function Patient360View({
   }, [liveBill]);
 
   const labSum = useMemo(() => {
-    if (liveBill?.lab_items && liveBill.lab_items.length > 0) {
-      return liveBill.lab_items.reduce((acc, item) => acc + Number(item.unit_price || item.net_amount || 0), 0);
-    }
-    return 0;
-  }, [liveBill]);
+    const amountsByOrder = new Map();
+    (liveBill?.lab_items || []).forEach((item, index) => {
+      const orderKey = item.lab_order_id != null ? normalizeLabOrderId(item.lab_order_id) : `ledger-row-${index}`;
+      if (!amountsByOrder.has(orderKey)) {
+        amountsByOrder.set(orderKey, Number(item.unit_price ?? item.net_amount ?? 0));
+      }
+    });
+    (serviceCharges || []).filter(charge => charge.source_type === 'LAB').forEach(charge => {
+      amountsByOrder.set(normalizeLabOrderId(charge.source_order_id), Number(charge.amount || 0));
+    });
+    return [...amountsByOrder.values()].reduce((sum, amount) => sum + amount, 0);
+  }, [liveBill, serviceCharges]);
+
+  const labLedgerRows = useMemo(() => {
+    const seenOrders = new Set();
+    return (liveBill?.lab_items || []).map((item, index) => {
+      const orderKey = item.lab_order_id != null ? normalizeLabOrderId(item.lab_order_id) : `ledger-row-${index}`;
+      const isFirstOrderRow = !seenOrders.has(orderKey);
+      seenOrders.add(orderKey);
+      const charge = serviceCharges.find(entry => entry.source_type === 'LAB'
+        && normalizeLabOrderId(entry.source_order_id) === orderKey);
+      const amount = Number(charge?.amount ?? item.unit_price ?? item.net_amount ?? 0);
+      return [
+        (item.item_name && item.item_name !== 'Diagnostic Test' ? item.item_name : (item.test_parameter || 'Diagnostic Investigation')),
+        item.test_category || 'LIS / Hematology',
+        item.ordered_date ? new Date(item.ordered_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
+        item.test_parameter ? `${item.test_parameter}: ${item.result_value || 'Normal'} ${item.unit || ''}`.trim() : (item.result_value || 'Verified'),
+        isFirstOrderRow ? `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—',
+        item.order_status || 'Completed',
+      ];
+    });
+  }, [liveBill, serviceCharges, p.admittedDate]);
 
   const hospitalSum = useMemo(() => {
     if (liveBill?.items && liveBill.items.length > 0) {
@@ -3679,6 +3727,27 @@ export default function Patient360View({
       {/* Tab 9: Billing - Full Dynamic Itemized Bill Breakdown */}
       {activeTab === 'Billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <strong style={{ color: '#0f172a', fontSize: '13px' }}>Lab &amp; X-ray Charges</strong>
+              <strong style={{ color: '#0f172a', fontSize: '13px' }}>Total: ₹{serviceChargesTotal.toLocaleString('en-IN')}</strong>
+            </div>
+            <TableContainer
+              cols={['Date', 'Department', 'Service', 'View', 'Order ID', 'Amount', 'Billing Status', 'Source']}
+              grid="1.2fr .9fr 1.4fr .45fr 1fr .65fr .8fr .65fr"
+              rows={serviceCharges.map(charge => [
+                charge.created_at ? new Date(charge.created_at).toLocaleDateString('en-IN') : '—',
+                charge.source_type === 'LAB' ? 'Laboratory' : 'Radiology',
+                charge.service_name,
+                charge.view || '—',
+                charge.source_order_id,
+                `₹${Number(charge.amount).toLocaleString('en-IN')}`,
+                charge.billing_status,
+                charge.source,
+              ])}
+              emptyMessage="No Lab or X-ray service charges for this patient."
+            />
+          </div>
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -3823,21 +3892,20 @@ export default function Patient360View({
               grid="minmax(180px, 1.2fr) 130px 120px minmax(180px, 1fr) 130px 110px"
               rows={
                 (liveBill?.lab_items && liveBill.lab_items.length > 0)
-                  ? liveBill.lab_items.map(li => [
-                      (li.item_name && li.item_name !== 'Diagnostic Test' ? li.item_name : (li.test_parameter || 'Diagnostic Investigation')),
-                      li.test_category || 'LIS / Hematology',
-                      li.ordered_date ? new Date(li.ordered_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
-                      li.test_parameter ? `${li.test_parameter}: ${li.result_value || 'Normal'} ${li.unit || ''}`.trim() : (li.result_value || 'Verified'),
-                      `₹${Number(li.unit_price || li.net_amount || 0).toLocaleString('en-IN')}`,
-                      li.order_status || 'Completed'
-                    ])
+                  ? labLedgerRows
                   : (p.lab_results_list && p.lab_results_list.length > 0)
                     ? p.lab_results_list.map(lr => [
                         lr.test_parameter || 'Clinical Diagnostic Test',
                         'Biochemistry / LIS',
                         lr.result_date ? new Date(lr.result_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
                         `${lr.result_value || 'Normal'} ${lr.unit || ''}`,
-                        '₹450.00',
+                        (() => {
+                          const charge = serviceCharges.find(item => item.source_type === 'LAB'
+                            && normalizeLabOrderId(item.source_order_id) === normalizeLabOrderId(lr.lab_order_id));
+                          const amount = Number(charge?.amount);
+                          return Number.isFinite(amount) && charge
+                            ? `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
+                        })(),
                         lr.verification_status || 'Verified'
                       ])
                     : []

@@ -472,6 +472,10 @@ export const apiService = {
     return await this.soapRequest('/api/v1/soap/notes', { method: 'POST', body: JSON.stringify(payload), ...options });
   },
 
+  async ensureSoapAdmissionVisit(payload, options = {}) {
+    return await this.soapRequest('/api/v1/soap/notes/ensure-admission-visit', { method: 'POST', body: JSON.stringify(payload), ...options });
+  },
+
   async updateSoapNote(noteId, payload, options = {}) {
     return await this.soapRequest(`/api/v1/soap/notes/${noteId}`, { method: 'PATCH', body: JSON.stringify(payload), ...options });
   },

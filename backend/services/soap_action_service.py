@@ -155,10 +155,15 @@ def _unit(value: str | None):
 
 def _key(action_type, intent, name, code, dose, unit, source_text, projection=None, clinical_indication=None,
          finding_type=None, value=None, systolic=None, diastolic=None):
+    normalized_source = re.sub(r"\s+", " ", source_text.casefold()).strip()
+    if action_type == "IMAGING_ORDER":
+        # Dictation frequently varies between “xray” and “X-ray”. Keep those
+        # spelling/case changes from creating a second review action.
+        normalized_source = re.sub(r"\bx\s*[- ]?\s*ray\b", "xray", normalized_source)
     canonical = {
         "action_type": action_type, "intent": intent, "name": name.casefold().strip(),
         "code": code.casefold().strip() if code else None, "dose": dose, "unit": unit,
-        "source_text": re.sub(r"\s+", " ", source_text.casefold()).strip(),
+        "source_text": normalized_source,
         "projection": projection,
         "clinical_indication": clinical_indication.casefold().strip() if clinical_indication else None,
         "finding_type": finding_type, "value": value, "systolic": systolic, "diastolic": diastolic,
@@ -256,7 +261,10 @@ def _extract_orders(text):
             absolute_start = clause.end() + xray.start()
             absolute_end = clause.end() + xray.end()
             supported = bool(re.search(r"\bchest\b", body, re.I))
-            projection = _imaging_projection(body) if supported else None
+            # PA/AP is useful review context even when the body region is
+            # unspecified. The reviewer must still explicitly select a
+            # supported examination; do not infer “chest” from the view.
+            projection = _imaging_projection(body)
             priority = "URGENT" if re.search(r"\burgent\b", body, re.I) else "ROUTINE" if re.search(r"\broutine\b", body, re.I) else None
             results.append((absolute_start, _action(
                 "IMAGING_ORDER", "CREATE_ORDER", "Chest X-ray" if supported else "X-ray",

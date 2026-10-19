@@ -1775,16 +1775,30 @@ def register_patient(
             next_adm_id = cur.fetchone()[0]
             adm_number = f"MER-ADM-{str(next_adm_id).zfill(7)}"
 
+            # Keep the clinical visit ledger linked to admissions created through
+            # this registration route so SOAP has a verified encounter context.
+            cur.execute("LOCK TABLE patient_visits IN SHARE ROW EXCLUSIVE MODE;")
+            cur.execute("SELECT COALESCE(MAX(visit_id), 0) + 1 FROM patient_visits;")
+            next_visit_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO patient_visits (
+                    visit_id, patient_id, doctor_id, department_id,
+                    visit_date, visit_type, chief_complaint, visit_status
+                ) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, 'Inpatient', %s, 'In Progress');
+            """, (next_visit_id, patient_id, resolved_doctor_id, resolved_dept_id, clinical_reason))
+
             cur.execute(
                 """
                 INSERT INTO admissions (
-                    admission_id, admission_number, patient_id, doctor_id, department_id,
+                    admission_id, admission_number, patient_id, visit_id, doctor_id, department_id,
                     ward_id, bed_id, admission_date, admission_type, admission_source,
                     reason_for_admission, discharge_status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, 'Registration', %s, 'Admitted');
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, 'Registration', %s, 'Admitted');
                 """,
-                (next_adm_id, adm_number, patient_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, admission_type, clinical_reason)
+                (next_adm_id, adm_number, patient_id, next_visit_id, resolved_doctor_id, resolved_dept_id, ward_id, bed_id, admission_type, clinical_reason)
             )
+            encounter_details = {"encounter_type": "IP", "admission_id": next_adm_id,
+                                 "admission_number": adm_number, "visit_id": next_visit_id}
 
             # Resolve Doctor and Ward names for lakehouse and SBAR
             cur.execute("SELECT COALESCE(display_name, first_name || ' ' || last_name), specialization, qualification FROM doctors WHERE id = %s;", (resolved_doctor_id,))
@@ -1965,6 +1979,7 @@ Bill Number: BILL-{30500 + next_adm_id % 1000} | Net: 120000.00 | Insurer: {insu
                 "encounter_type": "IP",
                 "admission_id": next_adm_id,
                 "admission_number": adm_number,
+                "visit_id": next_visit_id,
                 "ward_id": ward_id,
                 "bed_id": bed_id,
                 "bed_number": bed_number or "BED-Allocated",

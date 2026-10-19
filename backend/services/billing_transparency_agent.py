@@ -664,11 +664,19 @@ class BillingTransparencyAgentService:
                     lo.lab_order_id, lo.ordered_date, lo.priority, lo.status as order_status,
                     COALESCE(lt.test_name, lr.test_parameter, 'Diagnostic Test') as item_name,
                     COALESCE(lt.test_category, 'LIS / Hematology') as test_category,
-                    COALESCE(lt.standard_charge, 450.0) as unit_price, 1 as quantity,
-                    COALESCE(lt.standard_charge, 450.0) as net_amount,
+                    COALESCE(pc.amount, spm.amount, 0.0) as unit_price, 1 as quantity,
+                    COALESCE(pc.amount, spm.amount, 0.0) as net_amount,
                     lr.test_parameter, lr.result_value, lr.unit, lr.reference_range, lr.abnormal_flag
                 FROM lab_orders lo
                 LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+                LEFT JOIN patient_charges pc ON pc.patient_id=lo.patient_id AND pc.source_type='LAB'
+                    AND pc.source_order_id=lo.lab_order_id::text
+                LEFT JOIN service_price_master spm ON spm.active=TRUE AND spm.service_type='LAB'
+                    AND spm.service_code=COALESCE(pc.service_code, CASE
+                        WHEN upper(lt.test_code) IN ('CBC','CBC-01','LAB-01')
+                          OR lower(trim(lt.test_name)) IN ('cbc','complete blood count','complete blood count (cbc)') THEN 'LAB-CBC'
+                        WHEN upper(lt.test_code) LIKE 'LAB-%%' THEN upper(lt.test_code)
+                        ELSE 'LAB-' || upper(lt.test_code) END)
                 LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
                 WHERE lo.admission_id = %s
                 ORDER BY lo.lab_order_id ASC;

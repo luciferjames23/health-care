@@ -1,6 +1,7 @@
 """Patient-linked X-ray requests and radiologist PACS ingestion."""
 import hashlib
 import io
+import logging
 import uuid
 from typing import Annotated, Literal
 
@@ -13,6 +14,7 @@ import db_config
 from radiology_ai.services.orthanc_service import _request, OrthancError
 
 router = APIRouter(prefix='/api/imaging-orders', tags=['X-ray orders'])
+logger = logging.getLogger(__name__)
 
 
 def order_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -152,6 +154,15 @@ def create_order_record(cur, body: NewOrder, user: dict, provenance: dict | None
                        or row.get('source_soap_note_id') != provenance.get('soap_note_id')
                        or row.get('visit_id') != provenance.get('visit_id')):
         raise HTTPException(409, 'This request identifier has different SOAP provenance. Start a new order.')
+    from services.service_billing import ServicePriceNotConfigured, bill_xray_order
+    try:
+        bill_xray_order(cur, patient_id=body.patient_id, visit_id=provenance.get('visit_id') if provenance else row.get('visit_id'),
+                        admission_id=provenance.get('admission_id') if provenance else row.get('admission_id'),
+                        order_id=order_id, examination=body.examination,
+                        source='AG17' if provenance else 'DOCTOR')
+    except ServicePriceNotConfigured as exc:
+        logger.error("X-ray order billing configuration missing for order %s: %s", order_id, exc)
+        raise HTTPException(503, 'X-ray order could not be saved because its active service price is not configured.') from exc
     projections = ['PA', 'AP'] if body.examination == 'Chest X-ray PA + AP' else [body.examination.rsplit(' ', 1)[-1]]
     for projection in projections:
         key = order_id if len(projections) == 1 else str(uuid.uuid5(body.request_id, projection))

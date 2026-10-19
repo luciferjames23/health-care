@@ -405,7 +405,8 @@ def get_bills(
                 (SELECT COUNT(*) FROM payments py WHERE py.bill_id = b.bill_id AND py.payment_status = 'SUCCESS') as payment_count,
                 GREATEST(
                     (SELECT COALESCE(SUM(py.amount), 0) FROM payments py WHERE py.bill_id = b.bill_id AND LOWER(py.payment_status) = 'success')
-                    - (SELECT COALESCE(SUM(r.refund_amount), 0) FROM refunds r WHERE r.bill_id = b.bill_id AND LOWER(r.status) = 'success'),
+                    - (SELECT COALESCE(SUM(r.refund_amount), 0) FROM refunds r WHERE r.bill_id = b.bill_id AND LOWER(r.status) = 'success')
+                    + COALESCE(b.patient_settled_baseline,0) + COALESCE(b.insurance_settled_baseline,0),
                     0
                 ) as paid_amount
             FROM bills b
@@ -698,9 +699,9 @@ def get_bill_by_admission(admission_id: Any):
                 lo.status as order_status,
                 COALESCE(lt.test_name, 'Diagnostic Test') as item_name,
                 lt.test_category,
-                COALESCE(lt.standard_charge, 0.0) as unit_price,
+                COALESCE(pc.amount, spm.amount, 0.0) as unit_price,
                 1 as quantity,
-                COALESCE(lt.standard_charge, 0.0) as net_amount,
+                COALESCE(pc.amount, spm.amount, 0.0) as net_amount,
                 lr.test_parameter,
                 lr.result_value,
                 lr.unit,
@@ -708,6 +709,14 @@ def get_bill_by_admission(admission_id: Any):
                 lr.abnormal_flag
             FROM lab_orders lo
             LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN patient_charges pc ON pc.patient_id=lo.patient_id AND pc.source_type='LAB'
+                AND pc.source_order_id=lo.lab_order_id::text
+            LEFT JOIN service_price_master spm ON spm.active=TRUE AND spm.service_type='LAB'
+                AND spm.service_code=COALESCE(pc.service_code, CASE
+                    WHEN upper(lt.test_code) IN ('CBC','CBC-01','LAB-01')
+                      OR lower(trim(lt.test_name)) IN ('cbc','complete blood count','complete blood count (cbc)') THEN 'LAB-CBC'
+                    WHEN upper(lt.test_code) LIKE 'LAB-%%' THEN upper(lt.test_code)
+                    ELSE 'LAB-' || upper(lt.test_code) END)
             LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
             WHERE lo.admission_id = %s
             ORDER BY lo.lab_order_id ASC
@@ -927,6 +936,7 @@ def get_bill_detail(bill_id: Any):
                 pi.policy_number as pi_policy_number,
                 pi.policy_type as pi_policy_type,
                 pi.coverage_limit as pi_coverage_limit
+                ,b.patient_settled_baseline, b.insurance_settled_baseline
             FROM bills b
             LEFT JOIN patients p ON b.patient_id = p.id
             LEFT JOIN admissions a ON b.admission_id = a.admission_id
@@ -1016,9 +1026,9 @@ def get_bill_detail(bill_id: Any):
                     lo.status as order_status,
                     COALESCE(lt.test_name, lr.test_parameter, 'Diagnostic Test') as item_name,
                     COALESCE(lt.test_category, 'LIS / Hematology') as test_category,
-                    COALESCE(lt.standard_charge, 450.0) as unit_price,
+                    COALESCE(pc.amount, spm.amount, 0.0) as unit_price,
                     1 as quantity,
-                    COALESCE(lt.standard_charge, 450.0) as net_amount,
+                    COALESCE(pc.amount, spm.amount, 0.0) as net_amount,
                     lr.test_parameter,
                     lr.result_value,
                     lr.unit,
@@ -1026,6 +1036,14 @@ def get_bill_detail(bill_id: Any):
                     lr.abnormal_flag
                 FROM lab_orders lo
                 LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+                LEFT JOIN patient_charges pc ON pc.patient_id=lo.patient_id AND pc.source_type='LAB'
+                    AND pc.source_order_id=lo.lab_order_id::text
+                LEFT JOIN service_price_master spm ON spm.active=TRUE AND spm.service_type='LAB'
+                    AND spm.service_code=COALESCE(pc.service_code, CASE
+                        WHEN upper(lt.test_code) IN ('CBC','CBC-01','LAB-01')
+                          OR lower(trim(lt.test_name)) IN ('cbc','complete blood count','complete blood count (cbc)') THEN 'LAB-CBC'
+                        WHEN upper(lt.test_code) LIKE 'LAB-%%' THEN upper(lt.test_code)
+                        ELSE 'LAB-' || upper(lt.test_code) END)
                 LEFT JOIN lab_results lr ON lo.lab_order_id = lr.lab_order_id
                 WHERE lo.admission_id = %s
                 ORDER BY lo.lab_order_id ASC
@@ -1132,6 +1150,7 @@ def get_bill_detail(bill_id: Any):
         
         b_status = bill_meta.get("bill_status") or "Settled"
         paid_sum = sum(float(p.get("amount") or 0.0) for p in payments if str(p.get("payment_status", "")).upper() == "SUCCESS")
+        paid_sum += float(bill_meta.get("patient_settled_baseline") or 0.0) + float(bill_meta.get("insurance_settled_baseline") or 0.0)
         cur.execute("SELECT COALESCE(SUM(refund_amount), 0) FROM refunds WHERE bill_id = %s AND LOWER(status) = 'success';", (resolved_bid or -1,))
         refunded_sum = float(cur.fetchone()[0] or 0.0)
         paid_sum = max(0.0, paid_sum - refunded_sum)

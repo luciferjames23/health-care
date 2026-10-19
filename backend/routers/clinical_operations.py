@@ -2272,7 +2272,7 @@ def get_lab_orders(
                 lt.test_name,
                 lt.test_category,
                 lt.sample_type,
-                lt.standard_charge,
+                COALESCE(service_price.amount, 0.0) AS standard_charge,
                 (SELECT COUNT(*) = 1
                    FROM lab_critical_rules qa_rule
                   WHERE qa_rule.test_identifier=lt.test_code
@@ -2296,6 +2296,13 @@ def get_lab_orders(
                 CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) as patient_name
             FROM lab_orders lo
             LEFT JOIN lab_tests lt ON lo.lab_test_id = lt.lab_test_id
+            LEFT JOIN service_price_master service_price ON service_price.active=TRUE
+                AND service_price.service_type='LAB'
+                AND service_price.service_code=CASE
+                    WHEN upper(lt.test_code) IN ('CBC','CBC-01','LAB-01')
+                      OR lower(trim(lt.test_name)) IN ('cbc','complete blood count','complete blood count (cbc)') THEN 'LAB-CBC'
+                    WHEN upper(lt.test_code) LIKE 'LAB-%%' THEN upper(lt.test_code)
+                    ELSE 'LAB-' || upper(lt.test_code) END
             LEFT JOIN doctors doc ON lo.doctor_id = doc.id
             LEFT JOIN patients p ON lo.patient_id = p.id
             WHERE {where_sql}

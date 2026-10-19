@@ -45,6 +45,11 @@ class NoteCreate(BaseModel):
     source: str = "VOICE"
 
 
+class EnsureAdmissionVisit(BaseModel):
+    patient_id: int
+    admission_id: int
+
+
 class NoteUpdate(BaseModel):
     dictation_language: str | None = None
     raw_transcript: str | None = None
@@ -94,6 +99,11 @@ class SoapActionBatchConfirm(BaseModel):
 @router.post("")
 def create_note(body: NoteCreate, user=Depends(get_current_user)):
     return service.create_note(body.model_dump(), user)
+
+
+@router.post("/ensure-admission-visit")
+def ensure_admission_visit(body: EnsureAdmissionVisit, user=Depends(get_current_user)):
+    return service.ensure_admission_visit(body.patient_id, body.admission_id, user)
 
 
 @router.get("")

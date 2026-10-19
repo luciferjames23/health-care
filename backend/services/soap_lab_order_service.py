@@ -69,6 +69,10 @@ def create_lab_order(cur, note, action, doctor_id):
                 (lab_order_id, note["patient_id"], doctor_id, note["visit_id"], note.get("admission_id"),
                  test["lab_test_id"], priority, note["soap_note_id"], str(action["action_id"])))
     lab_order_id = int(cur.fetchone()[0])
+    from services.service_billing import bill_lab_order
+    bill_lab_order(cur, patient_id=note["patient_id"], visit_id=note.get("visit_id"),
+                   admission_id=note.get("admission_id"), order_id=lab_order_id,
+                   test_code=test.get("test_code"), test_name=test.get("test_name"), source="AG17")
     return ({"lab_order_id": lab_order_id, "patient_id": note["patient_id"], "visit_id": note["visit_id"],
              "doctor_id": doctor_id, "lab_test_id": test["lab_test_id"], "status": "Pending",
              "source": "AG17", "source_action_id": action["action_id"]}, False)

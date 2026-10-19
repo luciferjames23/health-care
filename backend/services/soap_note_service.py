@@ -56,6 +56,48 @@ def validate_context(cur, patient_id, visit_id, admission_id=None):
             raise HTTPException(400, "The admission does not belong to the requested patient and visit.")
 
 
+def ensure_admission_visit(patient_id, admission_id, user):
+    """Repair an admitted encounter created without its required clinical visit."""
+    conn = db_config.get_db_connection()
+    try:
+        cur = conn.cursor()
+        author = verified_user(cur, user)
+        if str(author.get('role') or '').strip().lower() not in CLINICAL_ROLES:
+            raise HTTPException(403, "Clinical staff access is required to link an admission visit.")
+        cur.execute("""SELECT patient_id, visit_id, doctor_id, department_id, admission_date,
+                             reason_for_admission, discharge_status
+                      FROM admissions WHERE admission_id=%s FOR UPDATE""", (admission_id,))
+        admission = _dict_row(cur, cur.fetchone())
+        if not admission or int(admission['patient_id']) != int(patient_id):
+            raise HTTPException(404, "The admission does not belong to this patient.")
+        if str(admission.get('discharge_status') or '').strip().lower() == 'discharged':
+            raise HTTPException(409, "A visit cannot be created for a discharged admission.")
+        if admission.get('visit_id'):
+            validate_context(cur, patient_id, admission['visit_id'], admission_id)
+            return {"visit_id": admission['visit_id'], "admission_id": admission_id, "created": False}
+
+        cur.execute("LOCK TABLE patient_visits IN SHARE ROW EXCLUSIVE MODE")
+        cur.execute("SELECT COALESCE(MAX(visit_id),0)+1 FROM patient_visits")
+        visit_id = cur.fetchone()[0]
+        cur.execute("""INSERT INTO patient_visits
+            (visit_id,patient_id,doctor_id,department_id,visit_date,visit_type,chief_complaint,visit_status)
+            VALUES (%s,%s,%s,%s,COALESCE(%s,CURRENT_TIMESTAMP),'Inpatient',%s,'In Progress')""",
+            (visit_id, patient_id, admission.get('doctor_id') or author.get('doctor_id'),
+             admission.get('department_id') or author.get('department_id'), admission.get('admission_date'),
+             admission.get('reason_for_admission') or 'Inpatient clinical encounter'))
+        cur.execute("UPDATE admissions SET visit_id=%s WHERE admission_id=%s AND patient_id=%s AND visit_id IS NULL",
+                    (visit_id, admission_id, patient_id))
+        if cur.rowcount != 1:
+            raise HTTPException(409, "The admission was updated while linking its visit. Reload and retry.")
+        conn.commit()
+        return {"visit_id": visit_id, "admission_id": admission_id, "created": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def audit(cur, action, note, user, old_status=None, new_status=None, metadata=None):
     payload = {
         "patient_id": note["patient_id"], "visit_id": note["visit_id"],

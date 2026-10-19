@@ -40,6 +40,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [visitChoices, setVisitChoices] = useState([]);
   const [selectedVisitId, setSelectedVisitId] = useState(null);
+  const [visitRepairBusy, setVisitRepairBusy] = useState(false);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -50,6 +51,23 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const visitId = selectedVisitId || patient?.visit_id || patient?.raw?.visit_id || patient?.visitId || activeNote?.visit_id;
   const admissionId = patient?.admission_id || patient?.raw?.admission_id || patient?.admission?.admission_id || null;
   const patientId = patient?.patient_id || patient?.raw?.patient_id || patient?.id;
+
+  const handleLinkAdmissionVisit = async () => {
+    if (!patientId || !admissionId || visitRepairBusy) return;
+    setVisitRepairBusy(true);
+    setError('');
+    try {
+      const linked = await apiService.ensureSoapAdmissionVisit({
+        patient_id: Number(patientId),
+        admission_id: Number(admissionId),
+      });
+      setSelectedVisitId(Number(linked.visit_id));
+    } catch (err) {
+      setError(err.message || 'Unable to link this admission to a clinical visit.');
+    } finally {
+      setVisitRepairBusy(false);
+    }
+  };
 
   useEffect(() => {
     const noteId = activeNote?.soap_note_id;
@@ -487,7 +505,12 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           <button type="button" onClick={() => loadHistoryNote(entry)}>View</button>
         </div>) : <p>No previous notes for this visit.</p>}
       </div>}
-      {!visitId && <div role="alert" style={{ padding: '10px 12px', border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', borderRadius: '6px', fontSize: '12px' }}>An explicit visit_id is required. Saving and signing are disabled until the patient is opened from a specific visit.</div>}
+      {!visitId && <div role="alert" style={{ padding: '10px 12px', border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', borderRadius: '6px', fontSize: '12px' }}>
+        An explicit visit_id is required. Saving and signing are disabled until the patient is opened from a specific visit.
+        {admissionId && <button type="button" onClick={handleLinkAdmissionVisit} disabled={visitRepairBusy} style={{ marginLeft: '10px', border: '1px solid #d97706', borderRadius: '5px', background: '#fff', color: '#92400e', padding: '4px 8px', cursor: visitRepairBusy ? 'wait' : 'pointer' }}>
+          {visitRepairBusy ? 'Linking visit…' : 'Link visit to this admission'}
+        </button>}
+      </div>}
       {/* 3-Column Layout: Voice Capture | AI Draft | Clinical Record */}
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
@@ -676,7 +699,10 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                   const unresolved = ['DETECTED', 'PENDING_CONFIRMATION'].includes(action.status);
                   const canReview = !isSigned && !readOnlyHistory && !action.stale && unresolved;
                   const unsupportedImaging = action.action_type === 'IMAGING_ORDER' && !/^chest x-ray$/i.test(action.name || '');
-                  const canEdit = canReview && !unsupportedImaging;
+                  // Let a clinician resolve unsupported imaging explicitly in
+                  // review. Backend confirmation still enforces the supported
+                  // examination, projection, and indication requirements.
+                  const canEdit = canReview;
                   const canSelect = canReview && action.can_confirm !== false;
                   const draft = actionDrafts[action.action_id] || {};
                   const hasDetailsChanged = Object.entries(draft).some(([field, value]) => String(value ?? '') !== String(action[field] ?? ''));
@@ -702,7 +728,9 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '5px' }}>
                         {fields.map(field => <label key={field} style={{ display: 'flex', flexDirection: 'column', minWidth: '90px', flex: '1 1 90px' }}>
                           <span style={{ color: '#737b82', textTransform: 'capitalize' }}>{field}</span>
-                          {field === 'projection' ? <select aria-label="Projection/View" value={(actionDrafts[action.action_id] || {})[field] ?? action[field] ?? ''} onChange={e => setActionDrafts(drafts => ({ ...drafts, [action.action_id]: { ...(drafts[action.action_id] || {}), [field]: e.target.value || null } }))}>
+                          {field === 'name' && action.action_type === 'IMAGING_ORDER' ? <select aria-label="Imaging examination" value={(actionDrafts[action.action_id] || {})[field] ?? action[field] ?? ''} onChange={e => setActionDrafts(drafts => ({ ...drafts, [action.action_id]: { ...(drafts[action.action_id] || {}), [field]: e.target.value } }))}>
+                            <option value="X-ray">X-ray (specify examination)</option><option value="Chest X-ray">Chest X-ray</option>
+                          </select> : field === 'projection' ? <select aria-label="Projection/View" value={(actionDrafts[action.action_id] || {})[field] ?? action[field] ?? ''} onChange={e => setActionDrafts(drafts => ({ ...drafts, [action.action_id]: { ...(drafts[action.action_id] || {}), [field]: e.target.value || null } }))}>
                             <option value="">Select projection</option><option value="PA">PA</option><option value="AP">AP</option>
                           </select> : <input type={['dose', 'value', 'systolic', 'diastolic'].includes(field) ? 'number' : 'text'} value={(actionDrafts[action.action_id] || {})[field] ?? action[field] ?? ''} onChange={e => setActionDrafts(drafts => ({ ...drafts, [action.action_id]: { ...(drafts[action.action_id] || {}), [field]: ['dose', 'value', 'systolic', 'diastolic'].includes(field) && e.target.value !== '' ? Number(e.target.value) : e.target.value } }))} />}
                         </label>)}
@@ -712,7 +740,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                     {action.confirmation_block_reason && (
                       <div role="status" style={{ color: '#92400e', marginTop: '3px' }}>
                         {unsupportedImaging
-                          ? 'Detected for review only. The existing SOAP imaging workflow supports Chest X-ray PA/AP; this examination cannot be confirmed here.'
+                          ? 'Review the examination. If this is a Chest X-ray, select it and provide a supported PA/AP view and clinical indication before confirmation.'
                           : action.action_type === 'LAB_ORDER' && action.name === 'Blood test (specific test required)'
                             ? 'Select a specific active Lab catalog test before confirmation. No test is inferred from “blood test.”'
                             : action.confirmation_block_reason}
