@@ -19,6 +19,8 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const [recState, setRecState] = useState('idle'); // idle | recording | transcribing | done
   const [recSeconds, setRecSeconds] = useState(0);
   const [transcript, setTranscript] = useState('');
+  const [transcriptSaving, setTranscriptSaving] = useState(false);
+  const [transcriptSaveMessage, setTranscriptSaveMessage] = useState('');
   const [aiDraft, setAiDraft] = useState(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [activeNote, setActiveNote] = useState(null);
@@ -44,6 +46,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
   const timerRef = useRef(null);
   const noteIdRef = useRef(null);
   const clinicalValidationRequestRef = useRef(0);
+  const transcriptDirty = transcript !== String(activeNote?.raw_transcript || '');
   const visitId = selectedVisitId || patient?.visit_id || patient?.raw?.visit_id || patient?.visitId || activeNote?.visit_id;
   const admissionId = patient?.admission_id || patient?.raw?.admission_id || patient?.admission?.admission_id || null;
   const patientId = patient?.patient_id || patient?.raw?.patient_id || patient?.id;
@@ -58,13 +61,14 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
       if (!cancelled) setError(err.message || 'Unable to load clinical actions.');
     });
     return () => { cancelled = true; };
-  }, [activeNote?.soap_note_id, activeNote?.status, activeNote?.updated_at, transcript]);
+  }, [activeNote?.soap_note_id, activeNote?.status, activeNote?.updated_at]);
 
   const handleDetectActions = async () => {
     const noteId = activeNote?.soap_note_id;
     if (!noteId || actionBusy || isSigned || readOnlyHistory) return;
     setActionBusy(true); setError(''); setActionDetectionMessage('');
     try {
+      if (transcriptDirty && !(await saveTranscript())) return;
       const result = await apiService.detectSoapActions(noteId);
       const actions = result.actions || [];
       setClinicalActions(actions); setSelectedActionIds([]);
@@ -184,15 +188,14 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
             a: match.assessment || '',
             p: match.plan || ''
           });
-          if (match.raw_transcript) {
-            setTranscript(match.raw_transcript);
-            setRecState('done');
-          }
+          setTranscript(match.raw_transcript || '');
+          setRecState(match.raw_transcript ? 'done' : 'idle');
+          setTranscriptSaveMessage('');
           if (match.ai_draft) setAiDraft({ s: match.ai_draft.subjective || '', o: match.ai_draft.objective || '', a: match.ai_draft.assessment || '', p: match.ai_draft.plan || '' });
         } else {
           const created = await apiService.createSoapNote({ patient_id: Number(patientId), visit_id: Number(resolvedVisitId), admission_id: resolvedAdmissionId ? Number(resolvedAdmissionId) : null, source: 'VOICE' });
           noteIdRef.current = created.soap_note_id; setActiveNote(created); setIsSigned(false); setReadOnlyHistory(false);
-          setSoapFields({ s: '', o: '', a: '', p: '' }); setTranscript(''); setRecState('idle');
+          setSoapFields({ s: '', o: '', a: '', p: '' }); setTranscript(''); setTranscriptSaveMessage(''); setRecState('idle');
         }
       } catch (err) {
         setError(err.message || 'Unable to load SOAP history.');
@@ -207,7 +210,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
 
   useEffect(() => {
     const noteId = noteIdRef.current;
-    if (!noteId || activeNote?.status !== 'DRAFT' || !transcript.trim()) {
+    if (!noteId || activeNote?.status !== 'DRAFT' || !transcript.trim() || transcriptDirty) {
       clinicalValidationRequestRef.current += 1;
       setClinicalValidation(null);
       setClinicalValidationPending(false);
@@ -234,7 +237,32 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [activeNote?.soap_note_id, activeNote?.status, transcript, aiDraft, soapFields]);
+  }, [activeNote?.soap_note_id, activeNote?.status, activeNote?.updated_at, transcript, transcriptDirty, aiDraft, soapFields]);
+
+  const saveTranscript = async () => {
+    if (!noteIdRef.current || isSigned || readOnlyHistory || transcriptSaving) return false;
+    if (!transcript.trim()) {
+      setError('Enter transcript text before saving.');
+      return false;
+    }
+    setTranscriptSaving(true);
+    setTranscriptSaveMessage('');
+    setError('');
+    try {
+      const saved = await apiService.updateSoapNote(noteIdRef.current, {
+        raw_transcript: transcript,
+        dictation_language: lang,
+      });
+      setActiveNote(saved);
+      setTranscriptSaveMessage('Transcript saved.');
+      return true;
+    } catch (err) {
+      setError(err.message || 'Transcript save failed.');
+      return false;
+    } finally {
+      setTranscriptSaving(false);
+    }
+  };
 
   const handleStartRec = async () => {
     try {
@@ -251,7 +279,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
         setRecState('transcribing');
         try {
           const result = await apiService.transcribeSoapAudio(noteIdRef.current, blob, lang === 'TA' ? 'tamil' : lang === 'MIXED' ? 'auto' : 'english');
-          setTranscript(result.transcript || ''); setRecState('done'); setActiveNote(result.note);
+          setTranscript(result.transcript || ''); setTranscriptSaveMessage(''); setRecState('done'); setActiveNote(result.note);
         } catch (err) { setError(err.message || 'Transcription failed.'); setRecState('idle'); }
       };
       recorder.onerror = () => { setError('Microphone recording failed.'); setRecState('idle'); };
@@ -270,6 +298,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
     if (isDrafting || !transcript.trim() || !noteIdRef.current) return;
     setIsDrafting(true); setError('');
     try {
+      if (transcriptDirty && !(await saveTranscript())) return;
       const result = await apiService.generateSoapDraft(noteIdRef.current);
       setAiDraft({ s: result.soap.subjective, o: result.soap.objective, a: result.soap.assessment, p: result.soap.plan }); setActiveNote(result.note);
     } catch (err) { setError(err.message || 'SOAP generation failed.'); }
@@ -290,7 +319,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
       const linkedAdmissionId = admissionId || activeNote?.admission_id;
       const created = await apiService.createSoapNote({ patient_id: Number(patientId), visit_id: Number(visitId), admission_id: linkedAdmissionId ? Number(linkedAdmissionId) : null, source: 'VOICE' });
       noteIdRef.current = created.soap_note_id; setActiveNote(created); setIsSigned(false); setReadOnlyHistory(false); setAmendmentMode(false);
-      setSoapFields({ s: '', o: '', a: '', p: '' }); setTranscript(''); setAiDraft(null); setRecState('idle');
+      setSoapFields({ s: '', o: '', a: '', p: '' }); setTranscript(''); setTranscriptSaveMessage(''); setAiDraft(null); setRecState('idle');
       setHistory(prev => [created, ...prev]);
     } catch (err) { setError(err.message || 'Unable to create a new SOAP note.'); }
     finally { setBusy(false); }
@@ -302,7 +331,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
     if (busy || !noteIdRef.current) return;
     setBusy(true); setError('');
     try {
-      const saved = await apiService.updateSoapNote(noteIdRef.current, { subjective: soapFields.s, objective: soapFields.o, assessment: soapFields.a, plan: soapFields.p, dictation_language: lang });
+      const saved = await apiService.updateSoapNote(noteIdRef.current, { raw_transcript: transcript, subjective: soapFields.s, objective: soapFields.o, assessment: soapFields.a, plan: soapFields.p, dictation_language: lang });
       await apiService.soapEvent(saved.soap_note_id, 'saved');
       setActiveNote(saved); setHistory(prev => [saved, ...prev.filter(n => n.soap_note_id !== saved.soap_note_id)]);
     } catch (err) { setError(err.message || 'Draft save failed.'); }
@@ -312,7 +341,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
     if (busy || !noteIdRef.current) return;
     setBusy(true); setError('');
     try {
-      const saved = await apiService.updateSoapNote(noteIdRef.current, { subjective: soapFields.s, objective: soapFields.o, assessment: soapFields.a, plan: soapFields.p, dictation_language: lang });
+      const saved = await apiService.updateSoapNote(noteIdRef.current, { raw_transcript: transcript, subjective: soapFields.s, objective: soapFields.o, assessment: soapFields.a, plan: soapFields.p, dictation_language: lang });
       const signed = await apiService.signSoapNote(saved.soap_note_id);
       noteIdRef.current = null; setActiveNote(signed); setIsSigned(true); setReadOnlyHistory(false);
       const dispatchFailures = (signed.action_dispatch?.results || []).filter(item => item.outcome === 'FAILED');
@@ -354,7 +383,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
       setActiveNote(full); setIsSigned(full.status !== 'DRAFT'); setReadOnlyHistory(full.status !== 'DRAFT');
       setSignedAt(full.signed_at ? new Date(full.signed_at).toLocaleString() : '');
       setSoapFields({ s: full.subjective || '', o: full.objective || '', a: full.assessment || '', p: full.plan || '' });
-      setTranscript(full.raw_transcript || ''); setHistoryOpen(false);
+      setTranscript(full.raw_transcript || ''); setTranscriptSaveMessage(''); setHistoryOpen(false);
     } catch (err) { setError(err.message || 'Unable to load SOAP history item.'); }
   };
 
@@ -505,30 +534,47 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
           )}
 
           {recState === 'transcribing' && <div role="status" style={{ padding: '12px', color: '#52585e' }}>Transcribing audio?</div>}
-          {recState === 'done' && (
+          {recState !== 'recording' && recState !== 'transcribing' && activeNote?.status === 'DRAFT' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ border: '1px solid #e3e6e8', borderRadius: '6px', overflow: 'hidden' }}>
                 <div style={{ padding: '6px 10px', background: '#f6f7f8', font: '600 10px ui-monospace, Menlo, monospace', color: '#52585e' }}>
-                  VOICE TRANSCRIPT · RAW
+                  VOICE TRANSCRIPT · EDITABLE
                 </div>
-                <div style={{ padding: '10px', fontSize: '12px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                  {transcript}
-                </div>
+                <textarea
+                  aria-label="Editable voice transcript"
+                  value={transcript}
+                  onChange={event => { setTranscript(event.target.value); setTranscriptSaveMessage(''); }}
+                  placeholder="Correct the transcript or enter it manually here."
+                  rows={6}
+                  disabled={isSigned || readOnlyHistory}
+                  style={{ display: 'block', width: '100%', boxSizing: 'border-box', resize: 'vertical', border: 0, outline: 0, padding: '10px', fontSize: '12px', lineHeight: 1.5, color: '#15181b', background: '#fff' }}
+                />
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ fontSize: '11px', color: transcriptDirty ? '#92400e' : '#15803d' }} role="status" aria-live="polite">
+                {transcriptDirty ? 'Transcript edits are not saved yet.' : transcriptSaveMessage || (transcript.trim() ? 'Transcript saved.' : 'Enter transcript manually or start dictation.')}
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={saveTranscript}
+                  disabled={!transcriptDirty || transcriptSaving || !transcript.trim() || !noteIdRef.current}
+                  style={{ height: '32px', padding: '0 10px', borderRadius: '6px', border: '1px solid #e3e6e8', background: '#fff', cursor: transcriptDirty && !transcriptSaving ? 'pointer' : 'default', fontSize: '11.5px' }}
+                >
+                  {transcriptSaving ? 'Saving transcript...' : 'Save transcript'}
+                </button>
                 <button
                   type="button"
                   onClick={handleGenDraft}
                   disabled={isDrafting || !transcript.trim() || !noteIdRef.current}
                   style={{
-                    flex: 1, height: '32px', borderRadius: '6px', border: 0,
+                    flex: 1, minWidth: '150px', height: '32px', borderRadius: '6px', border: 0,
                     background: 'oklch(0.5 0.1 300)', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '11.5px'
                   }}
                 >
                   Generate AI SOAP draft →
                 </button>
-                <button
+                {recState === 'done' && <button
                   type="button"
                   onClick={handleStartRec}
                   style={{
@@ -537,7 +583,7 @@ export default function SoapNoteView({ patient, doctorName = 'Dr. Arjun Menon', 
                   }}
                 >
                   Re-record
-                </button>
+                </button>}
               </div>
             </div>
           )}

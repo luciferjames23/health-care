@@ -2157,6 +2157,16 @@ def get_lab_orders(
         where_clauses = ["1=1"]
         params = []
 
+        # A closed/acknowledged critical-result alert closes the operational
+        # lab order in the dashboards, while preserving the source lab_orders
+        # status for its existing processing workflow.
+        critical_result_acknowledged_sql = """EXISTS (
+            SELECT 1 FROM lab_critical_alerts acknowledged_alert
+             WHERE acknowledged_alert.lab_order_id=lo.lab_order_id
+               AND acknowledged_alert.status IN ('ACKNOWLEDGED','CLOSED')
+        )"""
+        effective_status_sql = f"CASE WHEN {critical_result_acknowledged_sql} THEN 'completed' ELSE LOWER(COALESCE(lo.status, 'completed')) END"
+
         active_patient_order_filter = """(
             lo.admission_id IN (
                 SELECT admission_id FROM dim_admission_inputs
@@ -2180,7 +2190,7 @@ def get_lab_orders(
             where_clauses.append("lo.visit_id = %s")
             params.append(visit_id)
         if status and status.strip() and status.strip().lower() != "all":
-            where_clauses.append("LOWER(COALESCE(lo.status, 'completed')) = %s")
+            where_clauses.append(f"{effective_status_sql} = %s")
             params.append(status.strip().lower())
         if priority and priority.strip() and priority.strip().lower() != "all":
             where_clauses.append("LOWER(COALESCE(lo.priority, 'routine')) = %s")
@@ -2197,7 +2207,7 @@ def get_lab_orders(
                 CAST(lo.lab_order_id AS TEXT) LIKE %s OR
                 CAST(lo.visit_id AS TEXT) LIKE %s OR
                 CAST(lo.admission_id AS TEXT) LIKE %s OR
-                LOWER(COALESCE(lo.status, 'completed')) LIKE %s OR
+                {effective_status_sql} LIKE %s OR
                 LOWER(COALESCE(lo.priority, 'routine')) LIKE %s OR
                 LOWER(COALESCE(lo.source, '')) LIKE %s
             )""")
@@ -2222,8 +2232,8 @@ def get_lab_orders(
 
         cur.execute(f"""
             SELECT
-                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE LOWER(COALESCE(lo.status, 'completed')) = 'pending') AS pending_count,
-                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE LOWER(COALESCE(lo.status, 'completed')) = 'completed') AS completed_count,
+                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE {effective_status_sql} = 'pending') AS pending_count,
+                COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE {effective_status_sql} = 'completed') AS completed_count,
                 COUNT(DISTINCT lo.lab_order_id) FILTER (WHERE COALESCE(lr.has_abnormal, FALSE)) AS critical_count,
                 AVG(EXTRACT(EPOCH FROM (lr.first_result_date - lo.ordered_date)) / 60.0)
                     FILTER (WHERE lr.first_result_date IS NOT NULL AND lo.ordered_date IS NOT NULL) AS average_tat_minutes
@@ -2254,6 +2264,7 @@ def get_lab_orders(
                 lo.source_soap_note_id,
                 lo.source_action_id,
                 lo.status as order_status,
+                {critical_result_acknowledged_sql} AS critical_result_acknowledged,
                 (SELECT EXTRACT(EPOCH FROM (MIN(lr.result_date) - lo.ordered_date)) / 60.0
                    FROM lab_results lr
                   WHERE lr.lab_order_id=lo.lab_order_id AND lr.result_date IS NOT NULL) AS turnaround_minutes,
@@ -2270,8 +2281,16 @@ def get_lab_orders(
                     AND qa_rule.effective_from <= CURRENT_TIMESTAMP
                     AND (qa_rule.effective_to IS NULL OR CURRENT_TIMESTAMP < qa_rule.effective_to)
                     AND qa_rule.source_provenance ILIKE '%%synthetic QA%%'
-                    AND LEFT(qa_rule.parameter_name,5)='AG10_'
-                    AND LEFT(qa_rule.test_identifier,5)='AG10-') AS critical_qa_eligible,
+                    AND (
+                        (LEFT(qa_rule.parameter_name,5)='AG10_'
+                         AND LEFT(qa_rule.test_identifier,5)='AG10-')
+                        OR
+                        (UPPER(COALESCE(lo.source,''))='AG17'
+                         AND lt.test_code='LAB-01'
+                         AND LEFT(qa_rule.parameter_name,15)='AG17_SYNTHETIC_'
+                         AND qa_rule.unit='ag17-qa-unit'
+                         AND qa_rule.test_identifier=lt.test_code)
+                    )) AS critical_qa_eligible,
                 doc.display_name as doctor_name,
                 p.patient_code,
                 CONCAT(p.first_name, ' ', COALESCE(p.last_name, '')) as patient_name
@@ -2347,7 +2366,8 @@ def get_lab_orders(
                 "source": o.get('source'),
                 "source_soap_note_id": o.get('source_soap_note_id'),
                 "source_action_id": str(o['source_action_id']) if o.get('source_action_id') else None,
-                "status": o['order_status'] or 'Completed',
+                "status": 'Completed' if o.get('critical_result_acknowledged') else (o['order_status'] or 'Completed'),
+                "critical_result_acknowledged": bool(o.get('critical_result_acknowledged')),
                 "turnaround_minutes": float(o['turnaround_minutes']) if o.get('turnaround_minutes') is not None else None,
                 "ordered_date": ord_date_str,
                 "doctor": o['doctor_name'] or 'Attending Physician',

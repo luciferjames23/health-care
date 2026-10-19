@@ -1,4 +1,5 @@
 import { financialApi } from './financialApi';
+import { clearSessionAuthToken, getSessionAuthToken } from './authToken';
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
@@ -13,31 +14,10 @@ const updateListeners = new Set();
 const CACHE_PREFIX = 'hc_gold_cache_v3_';
 let lastRejectedAuthToken = null;
 
-// Older persisted sessions may still have a valid token on the user object,
-// while the canonical token key is empty. Restore it before API requests so
-// clinical endpoints receive the authenticated session after a page reload.
-function getStoredAuthToken() {
-  if (typeof sessionStorage === 'undefined') return '';
-  const token = sessionStorage.getItem('hc_auth_token');
-  if (token) return token;
-  for (const key of ['hx_auth', 'meridian_user']) {
-    try {
-      const persistedUser = JSON.parse(sessionStorage.getItem(key) || 'null');
-      if (persistedUser?.token) {
-        sessionStorage.setItem('hc_auth_token', persistedUser.token);
-        return persistedUser.token;
-      }
-    } catch { }
-  }
-  return '';
-}
-
 function handleUnauthorized(token) {
   if (token === lastRejectedAuthToken) return;
   lastRejectedAuthToken = token;
-  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('hc_auth_token') === token) {
-    sessionStorage.removeItem('hc_auth_token');
-  }
+  clearSessionAuthToken(token);
   clearAllStorageCache();
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('hc_session_expired'));
@@ -101,7 +81,7 @@ export async function fetchWithTimeout(url, options = {}) {
   const { timeoutMs = FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const authToken = getStoredAuthToken() || 'demo-session-token';
+  const authToken = getSessionAuthToken() || 'demo-session-token';
   const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
   const headers = {
     'Accept': 'application/json',

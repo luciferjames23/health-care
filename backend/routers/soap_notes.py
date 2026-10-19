@@ -151,9 +151,15 @@ async def transcribe(soap_note_id: int, file: UploadFile = File(...), language: 
             raise HTTPException(400, "Audio contains no detectable speech. Please record again.")
         from voice.speech_to_text import GroqWhisperSpeechToTextProvider, GeminiSpeechToTextProvider
         result = GroqWhisperSpeechToTextProvider().transcribe(temp_path, language)
+        groq_error = result.get("error") if not result.get("success") else None
         if not result.get("success"):
             result = GeminiSpeechToTextProvider().transcribe(temp_path, language)
         if not result.get("success") or not str(result.get("text", "")).strip():
+            print(
+                "[SOAP_TRANSCRIPTION_FAILED] "
+                f"audio_format={suffix.lower()} groq={groq_error or 'empty_transcript'} "
+                f"fallback={result.get('error') or 'empty_transcript'}"
+            )
             raise HTTPException(502, "Speech transcription failed. Please retry or enter the transcript manually.")
         updated = service.update_draft(soap_note_id, {"raw_transcript": result["text"], "dictation_language": result.get("language")}, user, audit_action="SOAP_TRANSCRIPTION_CREATED")
         return {"transcript": result["text"], "language": result.get("language"), "note": updated}

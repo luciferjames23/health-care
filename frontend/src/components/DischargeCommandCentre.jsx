@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiService, parseDischargeSummaryRecord, cleanDiagnosis, matchesDoctor, synthesizeClinicalDetails, cleanDoctorName } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
 import ModuleLoadingScreen from './ModuleLoadingScreen';
-import RagAssistantPanel from './RagAssistantPanel';
 import TablePagination from './TablePagination';
 import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
@@ -2835,16 +2834,7 @@ export default function DischargeCommandCentre({
               )}
             </div>
 
-            {/* Ask Discharge Record (RAG Assistant Panel) */}
-            <div style={{ marginTop: '4px' }}>
-              <RagAssistantPanel
-                area="discharge"
-                title="Ask Discharge Record"
-                patientId={dc.patient_id}
-                admissionId={dc.admission_id || (dc.rawRecord && dc.rawRecord.admission_id)}
-                placeholder="Ask about pending discharge items, clinical clearance, unbilled items, draft summary..."
-              />
-            </div>
+
           </div>
 
           {/* RIGHT COLUMN (380px) */}
@@ -3816,41 +3806,8 @@ export default function DischargeCommandCentre({
           >
             Kanban
           </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('rag')}
-            style={{
-              height: '26px',
-              padding: '0 12px',
-              border: 0,
-              borderLeft: '1px solid #e3e6e8',
-              background: viewMode === 'rag' ? '#0f766e' : '#fff',
-              color: viewMode === 'rag' ? '#fff' : '#0f766e',
-              fontWeight: 700,
-              fontSize: '11.5px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px'
-            }}
-          >
-            <span>✦</span> Ask Discharge Record
-          </button>
         </div>
       </div>
-
-      {/* RAG DISCHARGE ASSISTANT VIEW */}
-      {viewMode === 'rag' && (
-        <div style={{ marginTop: '8px' }}>
-          <RagAssistantPanel
-            area="discharge"
-            title="Ask Discharge Record"
-            patientId={selectedPatient?.patient_id}
-            admissionId={selectedPatient?.admission_id}
-            placeholder="Ask about pending discharge items, clinical clearance, unbilled items, draft summary..."
-          />
-        </div>
-      )}
 
       {/* KANBAN BOARD VIEW (5 Columns matching Exact User Screenshot Order: Blocked, Approval required, In progress, Ready, Completed) */}
       {viewMode === 'kanban' && (

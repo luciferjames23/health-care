@@ -218,6 +218,8 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   const [liveInsuranceReviews, setLiveInsuranceReviews] = useState([]);
   const [activeReviewTab, setActiveReviewTab] = useState('ready');
   const [liveApprovals, setLiveApprovals] = useState([]);
+  const [labOrderMetrics, setLabOrderMetrics] = useState(null);
+  const [labEmergencyLoad, setLabEmergencyLoad] = useState(null);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [doctorEmergencyLoad, setDoctorEmergencyLoad] = useState(null);
@@ -226,6 +228,57 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
   const profile = PROFILE_CONFIG[getRoleProfile(role)] || PROFILE_CONFIG.management;
   const displayName = user?.name || user?.username || '';
   const isManagement = ['management', 'governance'].includes(getRoleProfile(role));
+
+  useEffect(() => {
+    if (!['laboratory', 'pathologist'].includes(normaliseRole(role))) {
+      setLabOrderMetrics(null);
+      setLabEmergencyLoad(null);
+      return undefined;
+    }
+
+    let isMounted = true;
+    const loadLabMetrics = () => apiService.getPatientLabOrders(
+      { limit: 1 },
+      { forceRefresh: true }
+    ).then(response => {
+      if (!isMounted) return;
+      const toCount = value => value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+      setLabOrderMetrics({
+        active: toCount(response?.active_orders_total),
+        allTime: toCount(response?.all_orders_total),
+        pending: toCount(response?.summary?.pending),
+      });
+    }).catch(error => {
+      console.warn('Failed to load Laboratory Dashboard lab metrics:', error);
+      if (isMounted) setLabOrderMetrics(null);
+    });
+
+    loadLabMetrics();
+    const timer = setInterval(loadLabMetrics, 15000);
+    window.addEventListener('hc_api_updated', loadLabMetrics);
+
+    const loadLabEmergencyLoad = () => apiService.getEmergencyCases({}, { forceRefresh: true })
+      .then(response => {
+        if (!isMounted) return;
+        const count = response?.count ?? response?.data?.length;
+        setLabEmergencyLoad(count != null && Number.isFinite(Number(count)) ? Number(count) : null);
+      })
+      .catch(error => {
+        console.warn('Failed to load Laboratory Dashboard emergency count:', error);
+        if (isMounted) setLabEmergencyLoad(null);
+      });
+
+    loadLabEmergencyLoad();
+    const emergencyTimer = setInterval(loadLabEmergencyLoad, 15000);
+    window.addEventListener('hc_api_updated', loadLabEmergencyLoad);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+      clearInterval(emergencyTimer);
+      window.removeEventListener('hc_api_updated', loadLabMetrics);
+      window.removeEventListener('hc_api_updated', loadLabEmergencyLoad);
+    };
+  }, [role]);
 
   useEffect(() => {
     if (normaliseRole(role) !== 'doctor' || !displayName) {
@@ -546,8 +599,8 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'er',
       t: 'Emergency Load',
-      v: (rk.emergency_load ?? doctorEmergencyLoad ?? em.emergency_load)?.toLocaleString() ?? (loading ? null : '—'),
-      sub: !loading && rk.emergency_load == null && doctorEmergencyLoad == null && em.emergency_load == null
+      v: (rk.emergency_load ?? doctorEmergencyLoad ?? labEmergencyLoad ?? em.emergency_load)?.toLocaleString() ?? (loading ? null : '—'),
+      sub: !loading && rk.emergency_load == null && doctorEmergencyLoad == null && labEmergencyLoad == null && em.emergency_load == null
         ? 'Emergency count unavailable'
         : 'Active emergency triage & critical admissions',
       c: 'oklch(0.5 0.18 25)', target: 'emergency',
@@ -555,9 +608,11 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'lab',
       t: 'Lab Tests',
-      v: (rk.lab_orders_active ?? em.lab_orders ?? rk.orders_pending ?? rk.lab_orders_pending)?.toLocaleString('en-IN') ?? (loading ? null : '—'),
-      sub: em.lab_orders != null
-        ? `${Number(em.lab_orders).toLocaleString('en-IN')} orders for active patients · ${Number(em.lab_orders_all_time || 0).toLocaleString('en-IN')} all-time records`
+      v: (labOrderMetrics?.active ?? em.lab_orders ?? rk.lab_orders_active ?? rk.orders_pending ?? rk.lab_orders_pending)?.toLocaleString('en-IN') ?? (loading ? null : '—'),
+      sub: labOrderMetrics?.active != null
+        ? `${Number(labOrderMetrics.active).toLocaleString('en-IN')} orders for active patients · ${Number(labOrderMetrics.allTime || 0).toLocaleString('en-IN')} all-time records`
+        : em.lab_orders != null
+          ? `${Number(em.lab_orders).toLocaleString('en-IN')} orders for active patients · ${Number(em.lab_orders_all_time || 0).toLocaleString('en-IN')} all-time records`
         : (!loading && rk.orders_pending == null && rk.lab_orders_active == null && rk.lab_orders_pending == null && em.lab_orders == null
           ? 'Lab test count unavailable'
           : (rk.orders_pending != null
@@ -654,8 +709,10 @@ export default function CommandCentreView({ onNavigate, onAskAi, role, user }) {
     {
       id: 'lab_pending',
       t: 'Pending Lab Orders',
-      v: rk.orders_pending?.toLocaleString() ?? (apiError ? '—' : null),
-      sub: rk.critical_unacked != null ? `${rk.critical_unacked} critical unacknowledged` : 'Awaiting processing or reporting',
+      v: (labOrderMetrics?.pending ?? rk.orders_pending)?.toLocaleString() ?? (loading ? null : '—'),
+      sub: labOrderMetrics?.pending != null || rk.orders_pending != null
+        ? `${labOrderMetrics?.pending ?? rk.orders_pending} awaiting processing or reporting`
+        : (loading ? 'Loading pending lab order count...' : 'Pending lab order count unavailable'),
       c: 'oklch(0.5 0.18 25)', target: 'lab',
     },
     {

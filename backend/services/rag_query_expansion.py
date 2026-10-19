@@ -145,10 +145,20 @@ class RagQueryExpansionService:
             entities = {}
             status_filter = self._infer_status_filter(sanitized_query)
 
-        # If query asks about financial/billing balances, dues, amounts, payments, or bills,
-        # do not treat 'pending' as a document review status filter so all patient billing records are retrieved.
-        if status_filter and any(w in sanitized_query.lower() for w in ("amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges", "रकम", "राशि", "தொகை", "మొత్తం", "saldo")):
-            status_filter = None
+        # Do not treat 'pending' as a strict document review status filter for clinical investigations,
+        # radiology, lab, vitals, medications, or billing balances, because source records have statuses like
+        # 'Requested', 'Uploaded', 'Active', 'Normal', 'Cleared', etc., and filtering by review_status ILIKE '%Pending%'
+        # erroneously filters out clinical evidence needed to evaluate pending status.
+        if status_filter and status_filter.strip().lower() == "pending":
+            if any(w in sanitized_query.lower() for w in (
+                "xray", "x-ray", "radiology", "scan", "imaging", "cxr",
+                "lab", "labs", "laboratory", "test", "tests", "result", "results",
+                "order", "orders", "investigation", "investigations", "workup",
+                "vital", "vitals", "medication", "medications", "medicine", "medicines",
+                "amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges",
+                "रकम", "राशि", "தொகை", "మొత్తం", "saldo"
+            )):
+                status_filter = None
 
         q_low = sanitized_query.lower()
         icd_match = re.search(r'\b(D-\d+)\b', sanitized_query, re.I)
@@ -240,9 +250,16 @@ class RagQueryExpansionService:
         q = query.lower()
         if any(w in q for w in ("abnormal", "critical", "elevated", "असामान्य", "गंभीर", "அசாதாரண", "తీవ్రమైన", "anormal", "crítico")):
             return "Abnormal"
-        # If query asks about financial/billing balances, dues, amounts, payments, or bills,
-        # do not treat 'pending' as a document review status filter so all patient billing records are retrieved.
-        if any(w in q for w in ("amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges", "रकम", "राशि", "தொகை", "మొత్తం", "saldo")):
+        # If query asks about clinical investigations, labs, radiology, vitals, medications, or billing balances/dues,
+        # do not treat 'pending' as a document review status filter so all patient clinical records are retrieved.
+        if any(w in q for w in (
+            "xray", "x-ray", "radiology", "scan", "imaging", "cxr",
+            "lab", "labs", "laboratory", "test", "tests", "result", "results",
+            "order", "orders", "investigation", "investigations", "workup",
+            "vital", "vitals", "medication", "medications", "medicine", "medicines",
+            "amount", "balance", "due", "dues", "payment", "bill", "billing", "fee", "fees", "cost", "charge", "charges",
+            "रकम", "राशि", "தொகை", "మొత్తం", "saldo"
+        )):
             return None
         if any(w in q for w in ("pending", "blocked", "लंबित", "अटका", "நிலுவை", "పెండింగ్", "pendiente", "bloqueado")):
             return "Pending"

@@ -9,9 +9,10 @@ from api.auth_helper import decode_token, security
 from db.postgres_connector import PostgresConnector
 from services.lab_critical_evaluator import evaluate_result_id
 
-router = APIRouter(prefix="/api/v1/clinical-ops/labs", tags=["AG-10 Lab Critical QA"])
+router = APIRouter(prefix="/api/v1/clinical-ops/labs", tags=["Lab Critical QA"])
 db_connector = PostgresConnector()
-QA_RESULT_SOURCE = "AG10_CRITICAL_QA"
+AG10_QA_RESULT_SOURCE = "AG10_CRITICAL_QA"
+AG17_QA_RESULT_SOURCE = "AG17_CRITICAL_QA"
 logger = logging.getLogger(__name__)
 
 
@@ -65,13 +66,13 @@ def _critical_synthetic_value(rule):
     return format(value, "f")
 
 
-@router.post("/{order_id}/generate-critical-qa-result", summary="Generate a synthetic AG-10 critical QA result")
+@router.post("/{order_id}/generate-critical-qa-result", summary="Generate a synthetic critical QA result")
 def generate_critical_qa_result(order_id: int, user=Depends(require_laboratory_user)):
     conn = db_connector.get_connection()
     try:
         cur = db_connector.get_dict_cursor(conn)
         cur.execute("""
-            SELECT lo.lab_order_id, lo.patient_id, lo.status, lt.test_code
+            SELECT lo.lab_order_id, lo.patient_id, lo.status, lo.source, lt.test_code
               FROM lab_orders lo
               JOIN lab_tests lt ON lt.lab_test_id=lo.lab_test_id
              WHERE lo.lab_order_id=%s FOR UPDATE OF lo
@@ -95,21 +96,33 @@ def generate_critical_qa_result(order_id: int, user=Depends(require_laboratory_u
         if len(rules) != 1:
             raise HTTPException(status_code=409, detail="Exactly one active approved synthetic QA rule must match this test.")
         rule = rules[0]
-        if (not str(rule["parameter_name"]).startswith("AG10_") or
-                not str(rule["test_identifier"]).startswith("AG10-") or
-                not rule.get("source_provenance") or
-                "synthetic qa" not in str(rule["source_provenance"]).casefold()):
-            raise HTTPException(status_code=409, detail="The matching rule is not isolated synthetic AG-10 QA configuration.")
+        provenance = str(rule.get("source_provenance") or "").casefold()
+        is_ag10_qa = (str(rule["parameter_name"]).startswith("AG10_") and
+                      str(rule["test_identifier"]).startswith("AG10-"))
+        is_ag17_qa = (str(order.get("source") or "").upper() == "AG17" and
+                      str(order["test_code"]) == "LAB-01" and
+                      str(rule["test_identifier"]) == str(order["test_code"]) and
+                      str(rule["parameter_name"]).startswith("AG17_SYNTHETIC_") and
+                      str(rule["unit"]) == "ag17-qa-unit")
+        if "synthetic qa" not in provenance or not (is_ag10_qa or is_ag17_qa):
+            raise HTTPException(status_code=409, detail="The matching rule is not an isolated synthetic QA rule for this order.")
+        result_source = AG17_QA_RESULT_SOURCE if is_ag17_qa else AG10_QA_RESULT_SOURCE
 
         cur.execute("""
-            SELECT lr.lab_result_id, lr.result_value, lr.unit, lr.verification_status, lr.result_source
+            SELECT lr.lab_result_id, lr.result_value, lr.unit, lr.verification_status, lr.result_source,
+                   ev.evaluation_event_id, ev.outcome AS evaluation_outcome,
+                   ev.reason_code, ev.rule_id, ev.rule_version,
+                   a.alert_id, a.status AS alert_status, a.recipient_resolution_status,
+                   (SELECT recipient_user_id FROM lab_critical_alert_recipients ar
+                     WHERE ar.alert_id=a.alert_id AND ar.recipient_type='ORDERING_DOCTOR'
+                     ORDER BY recipient_user_id LIMIT 1) AS recipient_user_id
               FROM lab_results lr
-              JOIN lab_critical_evaluation_events ev ON ev.lab_result_id=lr.lab_result_id
-              JOIN lab_critical_alerts a ON a.evaluation_event_id=ev.evaluation_event_id
+              LEFT JOIN lab_critical_evaluation_events ev ON ev.lab_result_id=lr.lab_result_id
+              LEFT JOIN lab_critical_alerts a ON a.evaluation_event_id=ev.evaluation_event_id
              WHERE lr.lab_order_id=%s AND lr.test_parameter=%s AND lr.unit=%s
-               AND lr.result_source=%s AND a.status='OPEN'
-             ORDER BY lr.lab_result_id DESC LIMIT 1
-        """, (order_id, rule["parameter_name"], rule["unit"], QA_RESULT_SOURCE))
+               AND lr.result_source=%s
+             ORDER BY lr.lab_result_id DESC, ev.evaluation_event_id DESC LIMIT 1
+        """, (order_id, rule["parameter_name"], rule["unit"], result_source))
         result = cur.fetchone()
         idempotent_existing = result is not None
         if result is None:
@@ -128,12 +141,23 @@ def generate_critical_qa_result(order_id: int, user=Depends(require_laboratory_u
                           CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Calcutta',%s,%s)
                 RETURNING lab_result_id, result_value, unit, verification_status, result_source
             """, (result_id, order_id, order["patient_id"], rule["parameter_name"], value,
-                  rule["unit"], QA_RESULT_SOURCE, user["user_id"]))
+                  rule["unit"], result_source, user["user_id"]))
             result = cur.fetchone()
-        if result["result_source"] == "DEMO_GENERATED":
-            raise HTTPException(status_code=409, detail="Demo results cannot be used for critical QA evaluation.")
-
-        event = evaluate_result_id(cur, int(result["lab_result_id"]), provenance_source="AG10_CRITICAL_QA_ACTION")
+        if result.get("evaluation_event_id") is not None:
+            event = {
+                "evaluation_event_id": result["evaluation_event_id"],
+                "outcome": result["evaluation_outcome"],
+                "reason_code": result["reason_code"],
+                "rule_id": result["rule_id"], "rule_version": result["rule_version"],
+                "alert_id": result["alert_id"], "alert_status": result["alert_status"],
+                "recipient_resolution_status": result["recipient_resolution_status"],
+                "recipient_user_id": result["recipient_user_id"],
+            }
+        else:
+            event = evaluate_result_id(
+                cur, int(result["lab_result_id"]),
+                provenance_source="AG17_CRITICAL_QA_ACTION" if is_ag17_qa else "AG10_CRITICAL_QA_ACTION",
+            )
         conn.commit()
         return {
             "lab_order_id": int(order_id), "lab_result_id": int(result["lab_result_id"]),
@@ -157,7 +181,7 @@ def generate_critical_qa_result(order_id: int, user=Depends(require_laboratory_u
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         conn.rollback()
-        logger.exception("Synthetic AG-10 critical QA result failed for Lab order %s", order_id)
+        logger.exception("Synthetic critical QA result failed for Lab order %s", order_id)
         raise HTTPException(status_code=503, detail="Unable to generate and evaluate the synthetic critical QA result.") from exc
     finally:
         conn.close()

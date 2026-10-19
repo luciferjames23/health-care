@@ -273,6 +273,8 @@ class GeminiSpeechToTextProvider(SpeechToTextProvider):
                 mime_type = "audio/ogg"
             elif ext == ".mp3":
                 mime_type = "audio/mp3"
+            elif ext == ".webm":
+                mime_type = "audio/webm"
             elif ext == ".wav":
                 mime_type = "audio/wav"
             elif ext in [".m4a", ".aac"]:

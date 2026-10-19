@@ -691,7 +691,7 @@ function getCriticalAlertJourneyStatus(row, alerts) {
   const matchingAlert = (alerts || []).find((alert) => resultIds.has(String(alert.lab_result_id)));
   if (matchingAlert) return criticalAlertUiStatus(matchingAlert.status);
 
-  const hasSyntheticQaResult = results.some((result) => result.result_source === 'AG10_CRITICAL_QA');
+  const hasSyntheticQaResult = results.some((result) => ['AG10_CRITICAL_QA', 'AG17_CRITICAL_QA'].includes(result.result_source));
   if (row.critical_qa_eligible || hasSyntheticQaResult) return 'Pending';
   return null;
 }

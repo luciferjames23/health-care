@@ -4157,21 +4157,32 @@ export function LabWorkQueueView({ onOpenDrawer, userRole }) {
             {!error && controls.pageRows.map(order => {
               const results = order.results || [];
               const demo = results.some(result => result.result_source === 'DEMO_GENERATED');
-              const completed = String(order.status).toLowerCase() === 'completed';
+              const criticalQaResult = results.some(result => ['AG10_CRITICAL_QA', 'AG17_CRITICAL_QA'].includes(result.result_source));
+              const displayedStatus = order.critical_result_acknowledged ? 'Completed' : order.status;
+              const completed = String(displayedStatus).toLowerCase() === 'completed';
               const hasAnyResult = results.length > 0 || generatedOrderIds.has(order.lab_order_id);
               const canGenerate = !hasAnyResult && !completed;
-              const canGenerateCriticalQa = isLaboratory && order.critical_qa_eligible === true;
+              const onlySyntheticDemoResults = results.every(result => result.result_source === 'DEMO_GENERATED');
+              const isAg17Cbc = String(order.source || '').toUpperCase() === 'AG17' &&
+                String(order.test_code || '').toUpperCase() === 'LAB-01';
+              const showCriticalQaAction = isLaboratory && (order.critical_qa_eligible === true || isAg17Cbc) &&
+                !criticalQaResult && onlySyntheticDemoResults;
+              const canGenerateCriticalQa = order.critical_qa_eligible === true;
               return <tr key={order.lab_order_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700 }}>{order.lab_order_id}</td>
                 <td style={{ padding: '10px 14px' }}>{order.patient_name || 'Patient'}<div style={{ color: '#64748b', fontSize: '11px' }}>{order.patient_code || ''}</div></td>
                 <td style={{ padding: '10px 14px' }}>Visit {order.visit_id || 'N/A'}{order.admission_id && <div style={{ color: '#64748b', fontSize: '11px' }}>Admission {order.admission_id}</div>}</td>
                 <td style={{ padding: '10px 14px', fontWeight: 600 }}>{order.test_name || order.test_code}</td>
                 <td style={{ padding: '10px 14px' }}>{order.priority || 'Routine'}</td>
-                <td style={{ padding: '10px 14px' }}><span style={pillStyle(completed ? '#dcfce7' : '#fef3c7', completed ? '#166534' : '#92400e')}>{order.status}</span></td>
+                <td style={{ padding: '10px 14px' }}><span style={pillStyle(completed ? '#dcfce7' : '#fef3c7', completed ? '#166534' : '#92400e')}>{displayedStatus}</span></td>
                 <td style={{ padding: '10px 14px' }}>{order.doctor || 'N/A'}</td>
                 <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>{order.ordered_date || 'N/A'}</td>
                 <td style={{ padding: '10px 14px' }}>{order.source || 'N/A'}</td>
-                <td style={{ padding: '10px 14px', minWidth: '220px' }}>{demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}{labResultText(order)}</td>
+                <td style={{ padding: '10px 14px', minWidth: '220px' }}>
+                  {demo && <strong style={{ display: 'block', color: '#92400e', fontSize: '10px' }}>DEMO / SYNTHETIC RESULT</strong>}
+                  {criticalQaResult && <strong style={{ display: 'block', color: '#b91c1c', fontSize: '10px' }}>CRITICAL QA / SYNTHETIC RESULT</strong>}
+                  {labResultText(order)}
+                </td>
                 <td style={{ padding: '10px 14px', minWidth: '235px' }}>
                   {collectionErrors._load ? 'Data unavailable' : collectionLoading ? 'Loading…' : collectionStateByOrder[order.lab_order_id] ? (
                     <div style={{ display: 'grid', gap: 4, fontSize: '11px' }}>
@@ -4203,16 +4214,20 @@ export function LabWorkQueueView({ onOpenDrawer, userRole }) {
                       style={{ padding: '6px 9px', border: 0, borderRadius: '5px', background: '#087e8b', color: '#fff', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
                       {processingId === order.lab_order_id ? 'Generating...' : 'Generate Demo Result'}
                     </button>
-                    {canGenerateCriticalQa && <button type="button"
-                      disabled={processingId === order.lab_order_id}
-                      onClick={() => generateCriticalQa(order)}
-                      style={{ display: 'block', marginTop: 6, padding: '6px 9px', border: '1px solid #b45309', borderRadius: '5px', background: '#fffbeb', color: '#92400e', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : 'pointer' }}>
-                      {processingId === order.lab_order_id ? 'Generating QA result...' : 'Generate Critical QA Result'}
-                    </button>}
                   </> : <button type="button" onClick={() => openLabOrder(order, onOpenDrawer)}
                     style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: '5px', background: '#fff', cursor: 'pointer' }}>
                     {hasAnyResult ? 'View Result' : 'View Order'}
                   </button>}
+                  {showCriticalQaAction && <>
+                    <button type="button"
+                      disabled={!canGenerateCriticalQa || processingId === order.lab_order_id}
+                      onClick={() => generateCriticalQa(order)}
+                      title={!canGenerateCriticalQa ? 'An active, approved AG17 synthetic QA rule is required.' : undefined}
+                      style={{ display: 'block', marginTop: 6, padding: '6px 9px', border: '1px solid #b45309', borderRadius: '5px', background: canGenerateCriticalQa ? '#fffbeb' : '#f8fafc', color: canGenerateCriticalQa ? '#92400e' : '#64748b', fontWeight: 700, cursor: processingId === order.lab_order_id ? 'wait' : canGenerateCriticalQa ? 'pointer' : 'not-allowed' }}>
+                      {processingId === order.lab_order_id ? 'Generating critical result...' : 'Generate Critical Demo Result'}
+                    </button>
+                    {!canGenerateCriticalQa && <span style={{ display: 'block', marginTop: 4, color: '#64748b', fontSize: 10 }}>Awaiting approved AG17 synthetic QA rule</span>}
+                  </>}
                   {actionErrors[order.lab_order_id] && <div role="alert" style={{ color: '#991b1b', fontSize: '11px', marginTop: '5px' }}>{actionErrors[order.lab_order_id]}</div>}
                 </td>
               </tr>;

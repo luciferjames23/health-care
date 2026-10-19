@@ -1,3 +1,5 @@
+import { getSessionAuthToken } from './authToken';
+
 /**
  * dashboardApi.ts
  * ===============
@@ -313,29 +315,8 @@ export interface IntentBreakdownItem {
 const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 
 function getAuthHeaders(): Record<string, string> {
-  try {
-    const token = sessionStorage.getItem('hc_auth_token');
-    if (token) {
-      return { 'Authorization': `Bearer ${token}` };
-    }
-    const userStr = sessionStorage.getItem('meridian_user');
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      if (user && user.token) {
-        return { 'Authorization': `Bearer ${user.token}` };
-      }
-    }
-    const hxAuthStr = sessionStorage.getItem('hx_auth');
-    if (hxAuthStr) {
-      const hxAuth = JSON.parse(hxAuthStr);
-      if (hxAuth && hxAuth.token) {
-        return { 'Authorization': `Bearer ${hxAuth.token}` };
-      }
-    }
-  } catch (e) {
-    console.error('Error parsing auth token for dashboard headers:', e);
-  }
-  return { 'Authorization': 'Bearer demo-session-token' };
+  const token = getSessionAuthToken() || 'demo-session-token';
+  return { 'Authorization': `Bearer ${token}` };
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit & { externalSignal?: AbortSignal }): Promise<T | null> {
@@ -1252,3 +1233,4 @@ export interface RoleKpis {
 export async function fetchRoleKpis(signal?: AbortSignal): Promise<RoleKpis | null> {
   return apiFetch<RoleKpis>('/api/dashboard/role-kpis', { externalSignal: signal });
 }
+

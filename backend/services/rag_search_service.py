@@ -144,7 +144,7 @@ class RagSearchService:
                 if kind in ("doctor_clarifications", "radiology_clarifications"):
                     return self._doctor_clarifications(cur, context, dimensions, effective_patient_id)
                 if effective_patient_id is None:
-                    if kind == "doctor_flow": return self._doctor_flow(cur, context, dimensions)
+                    if kind == "doctor_flow": return self._doctor_flow(cur, context, dimensions, query=query)
                     if kind == "doctor_patient_list": return self._doctor_patient_list(cur, context, dimensions)
                     if kind == "doctor_discharged_list": return self._doctor_discharged_list(cur, context, dimensions)
                     if kind == "doctor_op_list": return self._doctor_op_list(cur, context, dimensions)
@@ -398,11 +398,15 @@ class RagSearchService:
                 "review_status":"Current", "is_verified":True, "relevance_score":1.0,
                 "keyword_score":1.0, "similarity_score":1.0}
 
-    def _doctor_flow(self, cur, context, dimensions: Set[str]):
+    def _doctor_flow(self, cur, context, dimensions: Set[str], query: str = ""):
         cur.execute("SELECT display_name FROM doctors WHERE id=%s LIMIT 1", (context.doctor_id,))
         name = (cur.fetchone() or {}).get("display_name")
         if not name: raise PermissionError(ACCESS_DENIED)
         counts = {}
+        q = (query or "").lower().strip()
+        is_historical = any(w in q for w in ["historical", "total", "all-time", "all time", "ever", "past", "overall", "all discharged", "history"])
+        is_right_now = any(w in q for w in ["right now", "currently", "today", "active", "now", "present"])
+
         if "ip" in dimensions:
             cur.execute("""SELECT COUNT(DISTINCT patient_id) total FROM dim_admission_inputs
                 WHERE (attending_doctor ILIKE %s OR admission_id IN
@@ -427,16 +431,33 @@ class RagSearchService:
             """, (context.doctor_id, context.user_id, f"%{name}%"))
             counts["op"] = int((cur.fetchone() or {}).get("total") or 0)
         if "discharged" in dimensions:
-            cur.execute("""SELECT COUNT(DISTINCT patient_id) total FROM dim_admission_inputs
-                WHERE (attending_doctor ILIKE %s OR admission_id IN
-                (SELECT admission_id FROM admissions WHERE doctor_id=%s))
-                AND LOWER(COALESCE(discharge_status,''))='discharged'""", (f"%{name}%", context.doctor_id))
-            counts["discharged"] = int((cur.fetchone() or {}).get("total") or 0)
+            if is_historical and not is_right_now:
+                cur.execute("""SELECT COUNT(DISTINCT patient_id) total FROM dim_admission_inputs
+                    WHERE (attending_doctor ILIKE %s OR admission_id IN
+                    (SELECT admission_id FROM admissions WHERE doctor_id=%s))
+                    AND LOWER(COALESCE(discharge_status,''))='discharged'""", (f"%{name}%", context.doctor_id))
+                counts["discharged"] = int((cur.fetchone() or {}).get("total") or 0)
+            else:
+                # Active workload / current patient flow discharges (discharged today / active cycle)
+                cur.execute("""
+                    SELECT COUNT(DISTINCT a.patient_id) total
+                    FROM admissions a
+                    WHERE (a.doctor_id = %s OR a.admission_id IN (
+                        SELECT admission_id FROM dim_admission_inputs WHERE attending_doctor ILIKE %s
+                    ))
+                    AND LOWER(COALESCE(a.discharge_status, '')) = 'discharged'
+                    AND (a.discharge_date = CURRENT_DATE OR a.admission_id IN (
+                        SELECT admission_id FROM dim_generated_discharge_summaries 
+                        WHERE (doctor_id = %s OR primary_consultant ILIKE %s) AND DATE(discharge_date) = CURRENT_DATE
+                    ))
+                """, (context.doctor_id, f"%{name}%", context.doctor_id, f"%{name}%"))
+                counts["discharged"] = int((cur.fetchone() or {}).get("total") or 0)
         if "er" in dimensions:
             cur.execute("SELECT COUNT(*) total FROM emergency_triage WHERE doctor_name ILIKE %s", (f"%{name}%",))
             counts["er"] = int((cur.fetchone() or {}).get("total") or 0)
         labels = {"ip":"IP", "op":"OP", "discharged":"Discharged", "er":"ER"}
-        content = "Current authorized patient counts: " + "; ".join(f"{labels[k]}: {counts[k]} patients" for k in ("ip","op","discharged","er") if k in counts) + "."
+        prefix = "Total authorized historical patient counts: " if (is_historical and not is_right_now) else "Current authorized patient counts: "
+        content = prefix + "; ".join(f"{labels[k]}: {counts[k]} patients" for k in ("ip","op","discharged","er") if k in counts) + "."
         return [self._source(context, "Authorized Patient Flow Counts", content, "patient_flow_summary", "ip",
                 "dim_admission_inputs,appointments,emergency_triage", "authorized_patient_flow_count",
                 {"module":"ip", "record_id":"authorized_patient_flow_count", **counts})], "authorized_sql_aggregate"
@@ -1321,6 +1342,9 @@ class RagSearchService:
             if status_filter.strip().lower() == "verified":
                 clauses.append("(is_verified=TRUE OR review_status ILIKE %s)")
                 params.append(f"%{status_filter}%")
+            elif status_filter.strip().lower() == "pending":
+                clauses.append("(review_status ILIKE %s OR review_status IN ('Requested', 'Uploaded', 'Pending Review', 'Pending Approval', 'Pending Payment', 'Pending'))")
+                params.append("%Pending%")
             else:
                 clauses.append("review_status ILIKE %s")
                 params.append(f"%{status_filter}%")

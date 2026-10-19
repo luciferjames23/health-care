@@ -779,10 +779,43 @@ class RagGenerationService:
 
                 return "\n".join(lines).strip()
 
-            lines = ["### Clinical Reason & Active Admission Status", ""]
+            # Direct status declaration and summary upfront
+            status_intro = "**This patient is currently still admitted (not discharged).**"
+
+            why_points = []
+            primary_condition = ""
+            if categories["diagnosis"]:
+                first_dx = categories["diagnosis"][0]["title"].replace("Clinical Diagnosis: ", "").split(" - ")[0]
+                primary_condition = re.sub(r"\s*\((?:Primary|Secondary)\s+Diagnosis\)", "", first_dx, flags=re.I).strip()
+            elif categories["admission"]:
+                for l in categories["admission"][0].get("content", "").split("\n"):
+                    if "reason for admission:" in l.lower():
+                        primary_condition = l.split(":", 1)[-1].strip()
+                        break
+            if primary_condition:
+                why_points.append(f"Active clinical care and inpatient management for **{primary_condition}**")
+
+            if categories["radiology"]:
+                why_points.append("Inpatient diagnostic workup in progress, including pending radiologist review of imaging studies")
+            elif categories["lab"]:
+                why_points.append("Inpatient clinical monitoring and lab workup in progress")
+
+            why_points.append("Clinical discharge authorization and attending physician sign-off are pending (clinical discharge summary has not been finalized)")
+
+            why_summary = "\n".join(f"• {pt}" for pt in why_points)
+
+            lines = [
+                status_intro,
+                "",
+                f"**Clinical reasons for ongoing admission:**\n{why_summary}",
+                "",
+                "### Clinical Evidence & Active Inpatient Records",
+                ""
+            ]
 
             # 1. Primary Admission Reason & Current Status
             if categories["admission"]:
+                lines.append("#### 📋 Admission Reason & Current Status")
                 adm = categories["admission"][0]
                 rec_id = adm.get("id")
                 content = adm.get("content", "")
@@ -1433,16 +1466,87 @@ class RagGenerationService:
             elif not any(w in q_lower for w in ["summarize", "summary", "overview", "condition", "status", "all records", "everything"]):
                 return "Billing records are not available for this patient."
 
-        # E. Radiology Query
-        is_rad_q = area == "radiology" or bool(categories["radiology"]) or any(w in q_lower for w in [
-            "xray", "x-ray", "radiology", "scan", "chest x-ray", "chest xray", "opacity", "accession",
-            "clinical indication", "final report", "radiologist conclude", "radiologist conclusion",
-            "radiologist", "triage", "clarification", "clarifications", "calrification", "calrifications"
-        ]) or (
+        # E. Combined Lab & Radiology Query
+        has_lab_q = any(w in q_lower for w in ["lab", "labs", "laboratory", "blood test", "hemoglobin", "cbc", "lft", "rft"])
+        has_rad_q = any(w in q_lower for w in ["xray", "x-ray", "radiology", "scan", "chest x-ray", "chest xray"]) or (
             "chest" in q_lower and any(w in q_lower for w in ["xray", "x-ray", "scan", "image", "finding", "show", "report", "view"])
         )
+        is_pending_investigation_q = any(w in q_lower for w in ["pending", "outstanding", "awaiting"])
+        is_count_investigation_q = any(w in q_lower for w in ["how many", "count", "number of", "available"])
+
+        if has_lab_q and has_rad_q:
+            if is_count_investigation_q:
+                lines = []
+                if categories["lab"]:
+                    lab_ids = ", ".join([str(item["id"]) for item in categories["lab"]])
+                    cites = "".join([f"[Record #{item['id']}]" for item in categories["lab"]])
+                    lines.append(f"• **Lab results available:** {len(categories['lab'])} records (IDs {lab_ids}) {cites}")
+                else:
+                    lines.append("• **Lab results:** None available for this patient.")
+                if categories["radiology"]:
+                    rad_ids = ", ".join([str(item["id"]) for item in categories["radiology"]])
+                    cites = "".join([f"[Record #{item['id']}]" for item in categories["radiology"]])
+                    lines.append(f"• **X-ray orders available:** {len(categories['radiology'])} record{'s' if len(categories['radiology']) != 1 else ''} (IDs {rad_ids}) {cites}")
+                else:
+                    lines.append("• **X-ray orders:** None available for this patient.")
+                return "\n".join(lines).strip()
+
+            if is_pending_investigation_q:
+                lines = ["**Pending Diagnostic Workup & Investigations:**", ""]
+                if categories["radiology"]:
+                    has_final = any(s.get("document_type") == "radiologist_final_report" for s in categories["radiology"])
+                    order_doc = next((s for s in categories["radiology"] if s.get("document_type") == "xray_order"), categories["radiology"][0])
+                    o_id = order_doc.get("id")
+                    status_val = "Requested"
+                    for l in order_doc.get("content", "").split("\n"):
+                        if "order / request status:" in l.lower() or "order status:" in l.lower():
+                            status_val = l.split(":", 1)[-1].split("|")[0].strip()
+                            break
+                    exam_name = order_doc.get("metadata", {}).get("examination") or "Chest X-ray"
+                    if not has_final:
+                        lines.append(f"• **X-ray:** Yes, a {exam_name} is currently pending (Status: {status_val}; awaiting radiologist final report). [Record #{o_id}]")
+                    else:
+                        lines.append(f"• **X-ray:** No pending X-ray studies; final radiologist report is verified. [Record #{o_id}]")
+                else:
+                    lines.append("• **X-ray:** No X-ray records available for this patient.")
+
+                if categories["lab"]:
+                    pending_labs = [item for item in categories["lab"] if "pending" in item.get("review_status", "").lower() or not item.get("is_verified", True)]
+                    if pending_labs:
+                        lab_ids = ", ".join([f"[Record #{item['id']}]" for item in pending_labs])
+                        lines.append(f"• **Laboratory:** Yes, pending lab investigations recorded. {lab_ids}")
+                    else:
+                        lab_ids = " ".join([f"[Record #{item['id']}]" for item in categories["lab"][:3]])
+                        lines.append(f"• **Laboratory:** No pending lab results; all tests are verified. {lab_ids}")
+                else:
+                    lines.append("• **Laboratory:** No laboratory records available for this patient.")
+
+                return "\n".join(lines).strip()
+
+        # E. Radiology Query
+        is_rad_q = (area == "radiology" and not has_lab_q) or has_rad_q or any(w in q_lower for w in [
+            "opacity", "accession",
+            "clinical indication", "final report", "radiologist conclude", "radiologist conclusion",
+            "radiologist", "triage", "clarification", "clarifications", "calrification", "calrifications"
+        ])
         if is_rad_q:
             if categories["radiology"]:
+                if is_pending_investigation_q:
+                    has_final = any(s.get("document_type") == "radiologist_final_report" for s in categories["radiology"])
+                    order_doc = next((s for s in categories["radiology"] if s.get("document_type") == "xray_order"), categories["radiology"][0])
+                    o_id = order_doc.get("id")
+                    status_val = "Requested"
+                    for l in order_doc.get("content", "").split("\n"):
+                        if "order / request status:" in l.lower() or "order status:" in l.lower():
+                            status_val = l.split(":", 1)[-1].split("|")[0].strip()
+                            break
+                    exam_name = order_doc.get("metadata", {}).get("examination") or "Chest X-ray"
+                    if not has_final:
+                        return f"**Yes, a {exam_name} result is still pending** (Order Status: {status_val}; awaiting radiologist interpretation and report). [Record #{o_id}]"
+                    else:
+                        rep = next(s for s in categories["radiology"] if s.get("document_type") == "radiologist_final_report")
+                        return f"**No pending X-ray results found.** The final radiologist report is verified and confirmed. [Record #{rep['id']}]"
+
                 is_clarification_q = any(w in q_lower for w in [
                     "clarification", "clarifications", "calrification", "calrifications",
                     "thread", "threads", "message", "messages"
@@ -1629,9 +1733,21 @@ class RagGenerationService:
                 return f"{modality} records are not available for this patient."
 
         # E2. Lab Query
-        is_lab_q = any(w in q_lower for w in ["lab", "labs", "laboratory", "blood test", "hemoglobin", "cbc", "lft", "rft"])
+        is_lab_q = has_lab_q
         if is_lab_q:
             if categories["lab"]:
+                if is_pending_investigation_q:
+                    pending_labs = [item for item in categories["lab"] if "pending" in item.get("review_status", "").lower() or not item.get("is_verified", True)]
+                    if pending_labs:
+                        lines = ["**Yes, laboratory investigations are currently pending:**", ""]
+                        for item in pending_labs:
+                            rec_id = item.get("id")
+                            lines.append(f"• **{item['title'].split(' - ')[0]}** [Record #{rec_id}]")
+                        return "\n".join(lines).strip()
+                    else:
+                        cites = " ".join([f"[Record #{item['id']}]" for item in categories["lab"][:3]])
+                        return f"**No pending laboratory test results found for this patient.** All recorded laboratory tests are verified and normal. {cites}".strip()
+
                 lines = ["### Laboratory Results", ""]
                 for item in categories["lab"][:3]:
                     rec_id = item.get("id")
