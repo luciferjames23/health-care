@@ -33,12 +33,22 @@ def apply_indexes():
             "CREATE INDEX IF NOT EXISTS idx_admissions_bed_id ON admissions (bed_id);",
             "CREATE INDEX IF NOT EXISTS idx_beds_status ON beds (status);",
             "CREATE INDEX IF NOT EXISTS idx_payments_status ON payments (payment_status);",
+            "CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments (payment_reference);",
+            "CREATE INDEX IF NOT EXISTS idx_payments_txn_ref ON payments (transaction_reference);",
+            "CREATE INDEX IF NOT EXISTS idx_patient_charges_patient_status ON patient_charges (patient_id, billing_status);",
             "CREATE INDEX IF NOT EXISTS idx_bills_patient_id ON bills (patient_id);"
         ]
         for q in queries:
             cur.execute(q)
+
+        # Canonical billing status check constraint for patient_charges
+        cur.execute("""
+            ALTER TABLE patient_charges DROP CONSTRAINT IF EXISTS patient_charges_billing_status_check;
+            ALTER TABLE patient_charges ADD CONSTRAINT patient_charges_billing_status_check
+                CHECK (billing_status IN ('PENDING', 'BILLED', 'PAID', 'SETTLED', 'CANCELLED', 'WAIVED'));
+        """)
         conn.commit()
-        print("[DB_INDEXES] Successfully verified/created high-performance DB indexes.")
+        print("[DB_INDEXES] Successfully verified/created high-performance DB indexes and billing constraints.")
     except Exception as e:
         print(f"[DB_INDEXES_ERROR] Index creation warning: {e}")
         if conn:

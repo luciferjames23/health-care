@@ -1321,7 +1321,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
 
               return (
                 <div
-                  key={b.bill_id}
+                  key={`${b.bill_id}-${idx}`}
                   onClick={() => openBillDrawer(b.bill_id)}
                   style={{
                     display: "grid",
