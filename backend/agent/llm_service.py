@@ -22,24 +22,28 @@ import agent.intent_detector as intent_detector
 import agent.entity_extractor as entity_extractor
 import agent.date_normalizer as date_normalizer
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock").lower()
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_API_BASE = os.getenv("LLM_API_BASE", "")
 
 
 def is_llm_active() -> bool:
     """Returns True if LLM provider and API key are configured for online requests."""
-    return bool(LLM_API_KEY and LLM_PROVIDER in ["gemini", "openai", "ollama", "google"])
+    provider = os.getenv("LLM_PROVIDER", LLM_PROVIDER).lower()
+    api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+    return bool(api_key and provider in ["gemini", "openai", "ollama", "google"])
 
 
 def _call_gemini_api(prompt: str) -> Optional[str]:
     """Call Gemini REST API generateContent."""
-    if not LLM_API_KEY:
+    api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+    if not api_key:
         return None
     import voice.whatsapp_client as whatsapp_client
-    model_name = os.getenv("LLM_MODEL", "gemini-2.0-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
+    model_name = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
+    api_base = (os.getenv("LLM_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
+    url = f"{api_base}/v1beta/models/{model_name}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
@@ -329,10 +333,12 @@ IMPORTANT: For DOB, normalize ALL formats to YYYY-MM-DD. If the date is ambiguou
 
 def _call_gemini_freetext(prompt: str, system_instruction: str = None):
     """Call Gemini for free-text (non-JSON) conversational responses."""
-    if not LLM_API_KEY:
+    api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
+    if not api_key:
         return None
-    model_name = "gemini-2.0-flash" if "2.0" in LLM_MODEL or "2.5" in LLM_MODEL else "gemini-1.5-flash-latest"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={LLM_API_KEY}"
+    model_name = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
+    api_base = (os.getenv("LLM_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
+    url = f"{api_base}/v1beta/models/{model_name}:generateContent?key={api_key}"
     contents = []
     if system_instruction:
         contents.append({"role": "user", "parts": [{"text": system_instruction}]})
