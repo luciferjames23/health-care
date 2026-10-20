@@ -262,6 +262,7 @@ def review_study(study_id: str, request: ReviewStatusRequest, reviewer: dict = D
     existing = get_study(study_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
+    authorize_study(existing, reviewer)
 
     report = request.report
     if not report:
@@ -280,7 +281,7 @@ def review_study(study_id: str, request: ReviewStatusRequest, reviewer: dict = D
     if record is None:
         raise HTTPException(status_code=404, detail="No analysis found for this study ID.")
 
-    authorize_study(record, _user)
+    authorize_study(record, reviewer)
     record = enrich_study_detail(record)
     return record
 

@@ -125,17 +125,25 @@ export default function RadiologyView({ requestedStudyId, onRequestedStudyHandle
     setError('');
     try {
       const updated = await radiologyApi.updateReviewStatus(detail.study_id, status, report, finding, reviewerName);
-      setDetail(prev => ({
-        ...prev,
-        ...updated,
+      const reviewedAt = updated.reviewed_at || new Date().toISOString();
+      const nextDetail = {
+        ...detail,
         review_status: status,
-        reviewed_by: reviewerName,
-        reviewed_at: new Date().toISOString(),
-        radiologist_report: report || prev?.radiologist_report,
-        scan_report: report || prev?.scan_report,
-        radiologist_finding: finding || prev?.radiologist_finding,
-      }));
-      await refresh();
+        reviewed_by: updated.reviewed_by || reviewerName,
+        reviewed_at: reviewedAt,
+        radiologist_report: updated.radiologist_report || report || detail.radiologist_report,
+        scan_report: updated.scan_report || report || detail.scan_report,
+        radiologist_finding: updated.radiologist_finding || finding || detail.radiologist_finding,
+      };
+      setDetail(nextDetail);
+      setData(prevData => prevData ? {
+        ...prevData,
+        studies: (prevData.studies || []).map(study => study.study_id === detail.study_id
+          ? { ...study, ...nextDetail }
+          : study),
+      } : prevData);
+      // Reconcile with the server without delaying the visible local update.
+      refresh();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -314,6 +322,11 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
   const [reportText, setReportText] = useState(
     cleanReport(detail.radiologist_report || detail.scan_report || actualSummary)
   );
+
+  useEffect(() => {
+    setFindingText(detail.radiologist_finding || detail.interpretation?.finding || 'Suspected lung opacity identified');
+    setReportText(cleanReport(detail.radiologist_report || detail.scan_report || detail.interpretation?.summary || detail.interpretation?.assessment));
+  }, [detail.study_id, detail.review_status, detail.radiologist_finding, detail.radiologist_report, detail.scan_report, detail.interpretation?.finding, detail.interpretation?.summary, detail.interpretation?.assessment]);
 
   const ingested = formatTableDateTime(detail.analyzed_at || detail.created_at);
   const ingestedTimestamp = ingested ? ingested.full : '17 Sep 2026, 10:45:22 AM';
