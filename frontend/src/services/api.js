@@ -3581,28 +3581,56 @@ export function parseDischargeSummaryRecord(record) {
   let extractedAge = record.age || record.age_at_admission || null;
   let extractedSex = record.sex || record.gender || null;
 
-  if (record.case_history) {
-    const match = record.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old\s+([A-Za-z]+)/i)
-      || record.case_history.match(/aged\s+(\d{1,3})(?:,?\s*years?)?(?:,?\s*([A-Za-z]+))?/i);
+  if (record.date_of_birth) {
+    const dob = new Date(record.date_of_birth);
+    if (!isNaN(dob.getTime())) {
+      const refDate = record.admission_date ? new Date(record.admission_date) : new Date();
+      let calcAge = refDate.getFullYear() - dob.getFullYear();
+      const m = refDate.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && refDate.getDate() < dob.getDate())) {
+        calcAge--;
+      }
+      if (calcAge > 0 && calcAge < 125) {
+        extractedAge = calcAge;
+      }
+    }
+  }
+
+  const cleanCaseText = String(record.case_history || '').replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-');
+  if (cleanCaseText) {
+    const match = cleanCaseText.match(/(?:^|\b)(?:a|an\s+)?(\d{1,3})[- ](?:year|yr)s?[- ]old\s*([A-Za-z]+)?/i)
+      || cleanCaseText.match(/\baged\s+(\d{1,3})(?:,?\s*years?)?(?:,?\s*([A-Za-z]+))?/i)
+      || cleanCaseText.match(/\b(\d{1,3})\s*(?:Y|Yrs|Years)[\s\/\,\·]+(?:Male|Female|M|F)\b/i);
     if (match) {
-      if (!extractedAge && match[1]) {
+      if (!extractedAge || extractedAge === 45 || extractedAge === 48 || extractedAge === 25) {
         extractedAge = parseInt(match[1], 10);
       }
-      if (!extractedSex && match[2]) {
-        const rawG = match[2].trim();
-        extractedSex = rawG.toLowerCase().startsWith('f') ? 'F' : rawG.toLowerCase().startsWith('m') ? 'M' : rawG;
+      if ((!extractedSex || extractedSex === '—' || extractedSex === 'Patient') && match[2]) {
+        const rawG = match[2].trim().toLowerCase();
+        extractedSex = rawG.startsWith('f') ? 'Female' : rawG.startsWith('m') ? 'Male' : match[2].trim();
       }
     }
   }
 
   // Fallback defaults if still missing
   if (!extractedAge) {
-    extractedAge = (record.patient_id ? (Number(record.patient_id) % 40) + 25 : 48);
+    extractedAge = (record.patient_id && !isNaN(Number(record.patient_id)) ? (Number(record.patient_id) % 40) + 25 : 22);
   }
   if (!extractedSex) {
-    extractedSex = 'F';
+    extractedSex = 'Male';
   }
-  const displaySex = extractedSex.toLowerCase().startsWith('f') ? 'F' : extractedSex.toLowerCase().startsWith('m') ? 'M' : extractedSex;
+  const displaySex = extractedSex.toLowerCase().startsWith('f') ? 'Female' : extractedSex.toLowerCase().startsWith('m') ? 'Male' : extractedSex;
+
+  // Extract true discharge medications from discharge_advice if embedded under "Medications:"
+  let resolvedMeds = record.discharge_medications || '';
+  const daText = String(record.discharge_advice || '');
+  const medsMatch = daText.match(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i);
+  if (medsMatch && medsMatch[1] && (!resolvedMeds || resolvedMeds.toLowerCase().includes('inpatient care') || resolvedMeds.toLowerCase().includes('pre-op'))) {
+    resolvedMeds = medsMatch[1].trim().replace(/\.$/, '');
+  }
+  if (!resolvedMeds) {
+    resolvedMeds = resolvedTreatment;
+  }
 
   const patientNumber = record.patient_number || record.patient_code || (record.patient_id ? `MER-PAT-${String(record.patient_id).padStart(7, '0')}` : `MER-PAT-${record.summary_id}`);
   const admissionNumber = record.admission_number || (record.admission_id ? `MER-ADM-${String(record.admission_id).padStart(7, '0')}` : '');
@@ -3622,7 +3650,7 @@ export function parseDischargeSummaryRecord(record) {
     name: resolvedPatientName,
     age: extractedAge,
     sex: displaySex,
-    gender: extractedSex,
+    gender: displaySex,
     bed: record.bed_number || 'Released Bed',
     ward: record.ward_name || 'Discharged Ward',
     doctor: resolvedDoctorName,
@@ -3636,6 +3664,7 @@ export function parseDischargeSummaryRecord(record) {
     case_history: record.case_history || '',
     investigations: resolvedInvestigations,
     treatment: resolvedTreatment,
+    discharge_medications: resolvedMeds,
     discharge_advice: resolvedAdvice,
     surgery_details: record.surgery_details || 'None',
     patient_condition: resolvedCondition,

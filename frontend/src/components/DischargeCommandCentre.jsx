@@ -539,7 +539,12 @@ export default function DischargeCommandCentre({
         admission_id: adm.admission_id || c.admission_id || `ADM-2026-${400 + index}`,
         diagnoses: cleanDiagnosis(parsed.diagnoses && !parsed.diagnoses.match(/^Diagnosis\s+\d+/i) ? parsed.diagnoses : (adm.primary_diagnosis || parsed.diagnoses || 'Cholelithiasis (Gallstone Disease)')),
         patient_number: adm.patient_number || `PAT-${pid}`,
-        patientAge: adm.age_at_admission || (c.case_history && (c.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || c.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || 45,
+        patientAge: (() => {
+          const ch = String(c.case_history || '').replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-');
+          const m = ch.match(/(?:^|\b)(?:a|an\s+)?(\d{1,3})[- ](?:year|yr)s?[- ]old/i) || ch.match(/\baged\s+(\d{1,3})/i);
+          if (m) return parseInt(m[1], 10);
+          return parsed.age || c.age || adm.age_at_admission || 22;
+        })(),
         discharge_date: c.discharge_date || adm.discharge_date || null,
         dateFilterValue: c.discharge_date || adm.discharge_date || adm.admission_date || c.admission_date || null,
         dischargeTime: actualDischargeTime || (isApproved ? '09:30 AM' : (category === 'Ready' ? 'Now' : dynamicEta)),
@@ -564,6 +569,7 @@ export default function DischargeCommandCentre({
         reason_for_admission: adm.reason_for_admission || '',
         investigations: c.investigations || '',
         treatment: c.treatment || '',
+        discharge_medications: parsed.discharge_medications || c.discharge_medications || c.treatment || '',
         discharge_advice: parsed.discharge_advice || c.discharge_advice || '',
         patient_condition: c.patient_condition || '',
         rawRecord: c,
@@ -3546,7 +3552,13 @@ export default function DischargeCommandCentre({
             patient_name: dc.patient,
             patient: dc.patient,
             isCompleted: dc.isCompleted || false,
-            age: (dc.case_history && (dc.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)?.[1] || dc.case_history.match(/aged\s+(\d{1,3})/i)?.[1])) || (dc.patientAge && Number(dc.patientAge) !== 25 ? dc.patientAge : null) || (dc.rawRecord && dc.rawRecord.age) || 45
+            discharge_medications: dc.discharge_medications || (dc.rawRecord && dc.rawRecord.discharge_medications) || dc.treatment || '',
+            age: (() => {
+              const ch = String(dc.case_history || (dc.rawRecord && dc.rawRecord.case_history) || '').replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-');
+              const m = ch.match(/(?:^|\b)(?:a|an\s+)?(\d{1,3})[- ](?:year|yr)s?[- ]old/i) || ch.match(/\baged\s+(\d{1,3})/i);
+              if (m) return parseInt(m[1], 10);
+              return dc.patientAge || (dc.rawRecord && dc.rawRecord.age) || dc.age || 22;
+            })()
           }}
           onSummaryUpdated={() => {
             loadDischargeCandidates(true);

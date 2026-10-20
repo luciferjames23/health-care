@@ -1958,6 +1958,9 @@ def get_dim_generated_discharge_summaries(
 
         # Automatically extract patient_name and primary_consultant if missing
         import re
+        import datetime
+        today_date = datetime.date.today()
+
         for row in res.get("data", []):
             if not row.get("patient_name") and row.get("case_history"):
                 m = re.search(r'The patient(?:,\s*|\s+)([A-Z][a-zA-Z\s]+?)(?:,|\s+a|\s+an|\s+was|\s+is|\s+aged|\s+\d)', row["case_history"])
@@ -1966,7 +1969,7 @@ def get_dim_generated_discharge_summaries(
             if not row.get("primary_consultant") and row.get("doctor_name"):
                 row["primary_consultant"] = row.get("doctor_name")
 
-        # Enrich with actual hospital bed number, ward, and patient name from admissions, beds, & patients
+        # Enrich with actual hospital bed number, ward, patient name, DOB, age, and gender from admissions, beds, & patients
         adm_ids = [r["admission_id"] for r in res.get("data", []) if r.get("admission_id")]
         if adm_ids:
             try:
@@ -1975,30 +1978,47 @@ def get_dim_generated_discharge_summaries(
                 cur = conn.cursor()
                 cur.execute("""
                     SELECT a.admission_id, b.bed_id, b.bed_number, b.bed_type, w.ward_name,
-                           p.first_name, p.last_name
+                           p.first_name, p.last_name, p.gender, p.date_of_birth, p.patient_code, p.id
                     FROM admissions a
                     LEFT JOIN beds b ON a.bed_id = b.bed_id
                     LEFT JOIN wards w ON b.ward_id = w.ward_id
                     LEFT JOIN patients p ON a.patient_id = p.id
                     WHERE a.admission_id = ANY(%s)
                 """, (adm_ids,))
-                bed_info = {
-                    row[0]: {
-                        "bed_id": row[1], "bed_number": row[2], "bed_type": row[3], "ward_name": row[4],
-                        "first_name": row[5], "last_name": row[6]
-                    } for row in cur.fetchall()
-                }
+                bed_info = {}
+                for r in cur.fetchall():
+                    dob = r[8]
+                    calc_age = None
+                    if dob:
+                        try:
+                            calc_age = today_date.year - dob.year - ((today_date.month, today_date.day) < (dob.month, dob.day))
+                        except Exception:
+                            calc_age = None
+                    bed_info[r[0]] = {
+                        "bed_id": r[1], "bed_number": r[2], "bed_type": r[3], "ward_name": r[4],
+                        "first_name": r[5], "last_name": r[6], "gender": r[7], "date_of_birth": str(dob) if dob else None,
+                        "age": calc_age, "patient_code": r[9], "patient_id": r[10]
+                    }
                 cur.close()
                 conn.close()
                 for row in res.get("data", []):
                     aid = row.get("admission_id")
                     if aid in bed_info:
-                        row["bed_id"] = bed_info[aid]["bed_id"]
-                        row["bed_number"] = bed_info[aid]["bed_number"]
-                        row["bed_type"] = bed_info[aid]["bed_type"]
-                        row["ward_name"] = bed_info[aid]["ward_name"]
-                        fn = bed_info[aid].get("first_name") or ""
-                        ln = bed_info[aid].get("last_name") or ""
+                        b_entry = bed_info[aid]
+                        row["bed_id"] = b_entry["bed_id"]
+                        row["bed_number"] = b_entry["bed_number"]
+                        row["bed_type"] = b_entry["bed_type"]
+                        row["ward_name"] = b_entry["ward_name"]
+                        if b_entry.get("gender") and not row.get("gender"):
+                            row["gender"] = b_entry["gender"]
+                        if b_entry.get("date_of_birth") and not row.get("date_of_birth"):
+                            row["date_of_birth"] = b_entry["date_of_birth"]
+                        if b_entry.get("age") and not row.get("age"):
+                            row["age"] = b_entry["age"]
+                        if b_entry.get("patient_code") and not row.get("patient_number"):
+                            row["patient_number"] = b_entry["patient_code"]
+                        fn = b_entry.get("first_name") or ""
+                        ln = b_entry.get("last_name") or ""
                         full_name = f"{fn} {ln}".strip()
                         if full_name:
                             row["first_name"] = fn
@@ -2007,23 +2027,70 @@ def get_dim_generated_discharge_summaries(
             except Exception as be:
                 print(f"[WARN] Failed to enrich discharge summaries with bed/patient info: {be}")
 
-        # Also enrich patient_name for any row still missing it via patient_id
-        missing_pids = [r["patient_id"] for r in res.get("data", []) if r.get("patient_id") and not r.get("patient_name")]
+        # Also enrich patient info for any row still missing it via patient_id
+        missing_pids = [r["patient_id"] for r in res.get("data", []) if r.get("patient_id")]
         if missing_pids:
             try:
                 import db_config
                 conn = db_config.get_db_connection()
                 cur = conn.cursor()
-                cur.execute("SELECT id, first_name, last_name FROM patients WHERE id = ANY(%s);", (missing_pids,))
-                pat_info = {r[0]: f"{r[1] or ''} {r[2] or ''}".strip() for r in cur.fetchall()}
+                cur.execute("SELECT id, first_name, last_name, gender, date_of_birth, patient_code FROM patients WHERE id = ANY(%s);", (missing_pids,))
+                pat_info = {}
+                for r in cur.fetchall():
+                    dob = r[4]
+                    calc_age = None
+                    if dob:
+                        try:
+                            calc_age = today_date.year - dob.year - ((today_date.month, today_date.day) < (dob.month, dob.day))
+                        except Exception:
+                            calc_age = None
+                    pat_info[r[0]] = {
+                        "name": f"{r[1] or ''} {r[2] or ''}".strip(),
+                        "gender": r[3],
+                        "date_of_birth": str(dob) if dob else None,
+                        "age": calc_age,
+                        "patient_code": r[5]
+                    }
                 cur.close()
                 conn.close()
                 for row in res.get("data", []):
                     pid = row.get("patient_id")
-                    if pid in pat_info and pat_info[pid]:
-                        row["patient_name"] = pat_info[pid]
+                    if pid in pat_info:
+                        p_entry = pat_info[pid]
+                        if not row.get("patient_name") and p_entry["name"]:
+                            row["patient_name"] = p_entry["name"]
+                        if not row.get("gender") and p_entry["gender"]:
+                            row["gender"] = p_entry["gender"]
+                        if not row.get("date_of_birth") and p_entry["date_of_birth"]:
+                            row["date_of_birth"] = p_entry["date_of_birth"]
+                        if not row.get("age") and p_entry["age"]:
+                            row["age"] = p_entry["age"]
+                        if not row.get("patient_number") and p_entry["patient_code"]:
+                            row["patient_number"] = p_entry["patient_code"]
             except Exception as pe:
-                print(f"[WARN] Failed to enrich discharge summaries with patient names: {pe}")
+                print(f"[WARN] Failed to enrich discharge summaries with patient info: {pe}")
+
+        # Extract age, gender and discharge_medications from narrative text if needed
+        for row in res.get("data", []):
+            ch = str(row.get("case_history") or "").replace("\u2010", "-").replace("\u2011", "-").replace("\u2012", "-").replace("\u2013", "-").replace("\u2014", "-")
+            if ch:
+                am = re.search(r'(?:^|\b)(?:a|an\s+)?(\d{1,3})[- ](?:year|yr)s?[- ]old\s*([A-Za-z]+)?', ch, re.I) or re.search(r'\baged\s+(\d{1,3})', ch, re.I)
+                if am:
+                    extracted_a = int(am.group(1))
+                    if not row.get("age") or row.get("age") in (45, 48, 25):
+                        row["age"] = extracted_a
+                    if not row.get("gender") and len(am.groups()) > 1 and am.group(2):
+                        g_str = am.group(2).lower()
+                        row["gender"] = "Female" if g_str.startswith("f") else ("Male" if g_str.startswith("m") else am.group(2))
+
+            # Extract medications from discharge_advice if embedded under "Medications:"
+            da = str(row.get("discharge_advice") or "")
+            meds_match = re.search(r'(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)', da, re.I | re.S)
+            if meds_match:
+                meds_content = meds_match.group(1).strip().rstrip('.')
+                row["discharge_medications"] = meds_content
+            elif not row.get("discharge_medications") and row.get("treatment"):
+                row["discharge_medications"] = row.get("treatment")
 
         return res
     except Exception as e:

@@ -113,6 +113,9 @@ function getMedicationIntro(medText) {
   const lines = medText.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length > 0) {
     const first = lines[0];
+    if (first.toLowerCase().startsWith('inpatient care') || first.toLowerCase().startsWith('treatment given')) {
+      return ''; // Don't show confusing inpatient intro for discharge medications
+    }
     if (!/^\d+[\.\)]/.test(first) && !first.includes(' - ') && !first.startsWith('Tab.') && !first.startsWith('Inj.') && !first.startsWith('Cap.') && !first.includes('{') && !first.includes('}')) {
       return first;
     }
@@ -125,15 +128,30 @@ function getMedicationIntro(medText) {
  */
 function parseFollowupInstructions(text) {
   if (!text || typeof text !== 'string') return [];
-  const parts = text.split(/(?:^|\s+)(?=\d+[\.\)]\s+)/).map(s => s.trim()).filter(Boolean);
-  if (parts.length > 1) {
-    return parts.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
+  // Strip any embedded Medications: section from follow-up instructions and trim leftover leading punctuation
+  const withoutMeds = text
+    .replace(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i, '')
+    .replace(/^[\s\.\d\)\-]+/, '')
+    .trim();
+
+  // 1. Try splitting on numbered points: e.g. 1. ... 2. ...
+  const numParts = withoutMeds.split(/(?:^|\s+)(?=\d+[\.\)]\s+)/).map(s => s.trim()).filter(Boolean);
+  if (numParts.length > 1) {
+    return numParts.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
   }
-  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+
+  // 2. Try splitting on clinical domain headings: Diet:, Activity:, Wound care:, Red-flag signs:, Follow-up:, etc.
+  const domainParts = withoutMeds.split(/(?=(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flags?|Emergency\s*Warning|Follow[\-\u2011\s]*up|OPD\s*Review):\s*)/i).map(s => s.trim()).filter(Boolean);
+  if (domainParts.length > 1) {
+    return domainParts.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
+  }
+
+  // 3. Try splitting on newlines
+  const lines = withoutMeds.split(/\n+/).map(s => s.trim()).filter(Boolean);
   if (lines.length > 1) {
     return lines.map(p => p.replace(/^\d+[\.\)]\s*/, '').trim());
   }
-  return [text.trim()];
+  return withoutMeds ? [withoutMeds.trim()] : [];
 }
 
 function safeParseJsonOrPythonDict(str) {
@@ -248,10 +266,119 @@ function flattenMedicationsObject(obj) {
 }
 
 /**
+ * Helper to parse a single medication text item into { medicine, instructions, notes }
+ */
+function parseSingleMedString(rawStr, defaultCategory = 'Treatment') {
+  if (!rawStr) return null;
+  const s = String(rawStr).trim()
+    .replace(/^\d+[\.\)]\s*/, '')
+    .replace(/^Administered:\s*/i, '')
+    .replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-')
+    .trim();
+  if (!s) return null;
+
+  // 1. If format has ' - '
+  if (s.includes(' - ')) {
+    const parts = s.split(/\s*-\s*/);
+    const name = parts[0].trim();
+    let dose = '';
+    let route = '';
+    let freq = '';
+    let duration = '';
+    let indication = '';
+    const remaining = [];
+
+    for (let i = 1; i < parts.length; i++) {
+      const p = parts[i].trim();
+      if (/^dosage:\s*/i.test(p)) dose = p.replace(/^dosage:\s*/i, '').trim();
+      else if (/^route:\s*/i.test(p)) route = p.replace(/^route:\s*/i, '').trim();
+      else if (/^freq(?:uency)?:\s*/i.test(p)) freq = p.replace(/^freq(?:uency)?:\s*/i, '').trim();
+      else if (/^duration:\s*/i.test(p)) duration = p.replace(/^duration:\s*/i, '').trim();
+      else if (/^indication:\s*/i.test(p)) indication = p.replace(/^indication:\s*/i, '').trim();
+      else remaining.push(p);
+    }
+
+    let note = indication || defaultCategory;
+    let instructions = [dose, route ? `Route: ${route}` : '', freq, duration ? `Duration: ${duration}` : '', ...remaining].filter(Boolean).join(', ');
+
+    if (!indication || indication === 'Treatment') {
+      const noteMatch = instructions.match(/\((.*?)\)/);
+      if (noteMatch) {
+        note = noteMatch[1];
+        instructions = instructions.replace(noteMatch[0], '').trim();
+      } else if (/as needed|sos/i.test(instructions)) {
+        note = 'SOS / As needed';
+      } else if (/before food|before breakfast/i.test(instructions)) {
+        note = 'Before food';
+      } else if (/after food|after meals/i.test(instructions)) {
+        note = 'After food';
+      }
+    }
+    return { medicine: name, instructions: instructions || 'As directed', notes: note };
+  }
+
+  // 2. Format with dosage regex (e.g. "Amoxicillin-Clavulanate 625 mg PO q12h x5 days")
+  let cleanStr = s;
+  let note = defaultCategory;
+  const parenMatch = cleanStr.match(/\((.*?)\)/);
+  if (parenMatch) {
+    const pContent = parenMatch[1].trim();
+    if (/max|hour|min|take with|before incision/i.test(pContent)) {
+      // Keep dosing timing details in cleanStr
+    } else {
+      note = pContent;
+      cleanStr = cleanStr.replace(parenMatch[0], '').trim();
+    }
+  }
+
+  // Check for "for <indication>": e.g. "for pain", "for breakthrough pain"
+  const forMatch = cleanStr.match(/\bfor\s+([a-zA-Z\s]+?)(?=\s+x\d|\s+for|\s*$)/i);
+  if (forMatch && forMatch[1].trim().split(/\s+/).length <= 4) {
+    if (note === defaultCategory || note === 'Treatment') {
+      note = forMatch[1].trim();
+    }
+    cleanStr = cleanStr.replace(forMatch[0], '').trim();
+  }
+
+  // Match dosage (e.g. 625 mg, 1 g, 500 mg, 0.9%, 15 ml, 2 puffs)
+  const doseMatch = cleanStr.match(/\b(\d+(?:\.\d+)?\s*(?:mg|g|mcg|µg|ml|mL|IU|units|%)\b)/i);
+  if (doseMatch) {
+    let medName = cleanStr.substring(0, doseMatch.index).trim();
+    let inst = cleanStr.substring(doseMatch.index).trim();
+
+    if (/^oral\s+/i.test(medName)) {
+      medName = medName.replace(/^oral\s+/i, '').trim();
+      if (!/PO|oral/i.test(inst)) inst = `PO ${inst}`;
+    }
+
+    if (note === 'Treatment' || !note) {
+      if (/antibiotic|infection|amoxicillin|ceftriaxone|metronidazole/i.test(medName)) note = 'Oral Antibiotic';
+      else if (/paracetamol|pain|analgesia|tramadol|ibuprofen|morphine/i.test(medName)) note = 'Pain relief';
+      else if (/pantoprazole|omeprazole|antacid/i.test(medName)) note = 'Antacid';
+      else if (/saline|ringer|fluid/i.test(medName)) note = 'IV Hydration';
+      else if (/ondansetron|emetic|nausea/i.test(medName)) note = 'Anti-emetic';
+      else note = defaultCategory || 'Treatment';
+    }
+
+    return {
+      medicine: medName || cleanStr,
+      instructions: inst || 'As directed',
+      notes: note
+    };
+  }
+
+  return {
+    medicine: cleanStr,
+    instructions: 'As directed',
+    notes: note || defaultCategory
+  };
+}
+
+/**
  * Parses medications array or text block into structured table rows
  * [{ medicine, instructions, notes }]
  */
-function parseMedications(medsArray, medText) {
+function parseMedications(medsArray, medText, followupText = '') {
   if (Array.isArray(medsArray) && medsArray.length > 0) {
     if (Array.isArray(medsArray[0])) {
       return medsArray.map(m => ({
@@ -263,27 +390,80 @@ function parseMedications(medsArray, medText) {
     return flattenMedicationsObject(medsArray);
   }
 
-  if (!medText) return [];
+  let textToParse = medText;
 
-  // 1. If medText is an object or dictionary
-  if (typeof medText === 'object') {
-    return flattenMedicationsObject(medText);
+  // If medText is empty or generic inpatient placeholder, check if followupText has embedded Medications:
+  if (!textToParse || textToParse.toLowerCase().includes('inpatient care and stabilization administered as per protocol.')) {
+    if (followupText) {
+      const mMatch = String(followupText).match(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i);
+      if (mMatch && mMatch[1]) {
+        textToParse = mMatch[1].trim();
+      }
+    }
   }
 
-  // 2. If medText contains JSON or Python dictionary anywhere in the string
-  if (typeof medText === 'string' && (medText.includes('{') || medText.includes('['))) {
-    const parsedObj = safeParseJsonOrPythonDict(medText);
+  if (!textToParse) return [];
+
+  // 1. If textToParse is an object or dictionary
+  if (typeof textToParse === 'object') {
+    return flattenMedicationsObject(textToParse);
+  }
+
+  // 2. If textToParse contains JSON or Python dictionary anywhere in the string
+  if (typeof textToParse === 'string' && (textToParse.includes('{') || textToParse.includes('['))) {
+    const parsedObj = safeParseJsonOrPythonDict(textToParse);
     if (parsedObj) {
       const rows = flattenMedicationsObject(parsedObj);
       if (rows.length > 0) return rows;
     }
   }
 
-  if (typeof medText !== 'string') return [];
+  if (typeof textToParse !== 'string') return [];
 
-  // 3. Fallback: Parse line by line
-  const lines = medText
-    .split('\n')
+  const cleanText = textToParse
+    .replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-')
+    .replace(/^Inpatient care and stabilization administered:?\s*/i, '')
+    .trim();
+
+  // If text has embedded Medications: e.g. "1. Medications: Amox...; Paracetamol..."
+  const medHeaderMatch = cleanText.match(/^(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*)/i);
+  const targetText = medHeaderMatch ? medHeaderMatch[1].trim() : cleanText;
+
+  // Case A: Semicolon separated list (e.g. "Amoxicillin-Clavulanate 625 mg PO q12h x5 days; Paracetamol 1 g...")
+  if (targetText.includes(';')) {
+    const parts = targetText.split(';').map(p => p.trim()).filter(Boolean);
+    const results = [];
+    for (const p of parts) {
+      const parsed = parseSingleMedString(p, 'Prescription');
+      if (parsed) results.push(parsed);
+    }
+    if (results.length > 0) return results;
+  }
+
+  // Case B: Category headers (e.g. "Pre-op: ... Intra-op: ... Post-op analgesia: ... Post-op antibiotics: ... IV fluids: ... Anti-emetic: ...")
+  const catRegex = /(?:^|\.\s+|\n+)(Pre-op|Intra-op|Post-op analgesia|Post-op antibiotics|Post-op|IV fluids|Anti-emetic):\s*/i;
+  if (catRegex.test(targetText)) {
+    const splits = targetText.split(catRegex);
+    const results = [];
+    for (let i = 1; i < splits.length; i += 2) {
+      const catName = splits[i].trim();
+      const catContent = (splits[i + 1] || '').trim().replace(/\.$/, '');
+      // Discard surgical procedures (e.g. "Laparoscopic appendectomy with removal of inflamed appendix")
+      if (/intra-op/i.test(catName) && !/\d+\s*(?:mg|g|mcg|ml|%)/i.test(catContent)) {
+        continue;
+      }
+      const items = catContent.split(/(?:\s+\+\s+|\n+|\s*,\s*(?=[A-Z]))/).map(x => x.trim()).filter(Boolean);
+      for (const it of items) {
+        const parsed = parseSingleMedString(it, catName);
+        if (parsed) results.push(parsed);
+      }
+    }
+    if (results.length > 0) return results;
+  }
+
+  // Case C: Standard line-by-line parsing
+  const lines = targetText
+    .split(/\n+/)
     .map(l => l.trim())
     .filter(l => l && !l.toLowerCase().startsWith('inpatient care') && !l.toLowerCase().startsWith('treatment given:'));
 
@@ -292,67 +472,17 @@ function parseMedications(medsArray, medText) {
     const cleaned = line.replace(/^\d+[\.\)]\s*/, '').replace(/^Administered:\s*/i, '').trim();
     if (!cleaned) continue;
 
-    // Check if individual line is a JSON or Python dict snippet
-    if (cleaned.includes('{') && cleaned.includes('}')) {
-      const parsedItem = safeParseJsonOrPythonDict(cleaned);
-      if (parsedItem) {
-        const itemRows = flattenMedicationsObject(parsedItem);
-        if (itemRows.length > 0) {
-          parsed.push(...itemRows);
-          continue;
-        }
+    if (cleaned.includes(';')) {
+      const subItems = cleaned.split(';').map(p => p.trim()).filter(Boolean);
+      for (const si of subItems) {
+        const itemObj = parseSingleMedString(si, 'Prescription');
+        if (itemObj) parsed.push(itemObj);
       }
+      continue;
     }
 
-    if (cleaned.includes(' - ')) {
-      const parts = cleaned.split(/\s*-\s*/);
-      const name = parts[0].trim();
-      let dose = '';
-      let route = '';
-      let freq = '';
-      let duration = '';
-      let indication = '';
-      const remaining = [];
-
-      for (let i = 1; i < parts.length; i++) {
-        const p = parts[i].trim();
-        if (/^dosage:\s*/i.test(p)) dose = p.replace(/^dosage:\s*/i, '').trim();
-        else if (/^route:\s*/i.test(p)) route = p.replace(/^route:\s*/i, '').trim();
-        else if (/^freq(?:uency)?:\s*/i.test(p)) freq = p.replace(/^freq(?:uency)?:\s*/i, '').trim();
-        else if (/^duration:\s*/i.test(p)) duration = p.replace(/^duration:\s*/i, '').trim();
-        else if (/^indication:\s*/i.test(p)) indication = p.replace(/^indication:\s*/i, '').trim();
-        else remaining.push(p);
-      }
-
-      let note = indication || 'Treatment';
-      let instructions = [dose, route ? `Route: ${route}` : '', freq, duration ? `Duration: ${duration}` : '', ...remaining].filter(Boolean).join(', ');
-
-      if (!indication || indication === 'Treatment') {
-        const noteMatch = instructions.match(/\((.*?)\)/);
-        if (noteMatch) {
-          note = noteMatch[1];
-          instructions = instructions.replace(noteMatch[0], '').trim();
-        } else if (instructions.toLowerCase().includes('as needed') || instructions.toLowerCase().includes('sos')) {
-          note = 'SOS / As needed';
-        } else if (instructions.toLowerCase().includes('before food') || instructions.toLowerCase().includes('before breakfast')) {
-          note = 'Before food';
-        } else if (instructions.toLowerCase().includes('after food') || instructions.toLowerCase().includes('after meals')) {
-          note = 'After food';
-        }
-      }
-
-      parsed.push({
-        medicine: name.trim(),
-        instructions: instructions || 'As directed',
-        notes: note
-      });
-    } else {
-      parsed.push({
-        medicine: cleaned,
-        instructions: 'As directed',
-        notes: 'Treatment'
-      });
-    }
+    const itemObj = parseSingleMedString(cleaned, 'Treatment');
+    if (itemObj) parsed.push(itemObj);
   }
 
   return parsed;
@@ -424,8 +554,19 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
         const hospitalCourse = caseHistoryFallback || clinical.narrative || summaryData.hospital_course_summary || summaryData.case_history || admissionReason;
         const investigations = formatClinicalInvestigations(clinical.investigations || summaryData.investigations);
         const patientCondition = formatClinicalCondition(clinical.condition || summaryData.patient_condition);
-        const dischargeMeds = formatClinicalTreatment(summaryData.discharge_medications || summaryData.treatment || '');
-        const followup = formatClinicalAdvice(stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || ''));
+        let dischargeMeds = formatClinicalTreatment(summaryData.discharge_medications || summaryData.treatment || '');
+        let followup = formatClinicalAdvice(stripTamil(summaryData.followup_instructions || summaryData.discharge_advice || ''));
+
+        // Extract clean discharge medications if embedded under "Medications:" in discharge_advice
+        const advMedsMatch = String(followup).match(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i);
+        if (advMedsMatch && advMedsMatch[1]) {
+          const extractedM = advMedsMatch[1].trim().replace(/\.$/, '');
+          if (!dischargeMeds || dischargeMeds.toLowerCase().includes('inpatient care') || dischargeMeds.toLowerCase().includes('pre-op')) {
+            dischargeMeds = extractedM;
+          }
+          followup = followup.replace(advMedsMatch[0], '').trim();
+        }
+
         const surgeryDetails = summaryData.surgery_details || summaryData.surgery || '';
         // Only treat as Approved if the DB explicitly says so, OR if the case is fully completed.
         // Defaulting to 'Approved' was hiding the sign-off button for Ready patients.
@@ -493,6 +634,17 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
             if (matched) {
               const matchedCaseHistory = matched.case_history || matched.hospital_course_summary || matched.admission_reason || admissionReason || hospitalCourse;
+              let apiMeds = formatClinicalTreatment(matched.discharge_medications || matched.treatment) || dischargeMeds;
+              let apiFollowup = formatClinicalAdvice(matched.discharge_advice || matched.followup_instructions) || followup;
+              const apiMedMatch = String(apiFollowup).match(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i);
+              if (apiMedMatch && apiMedMatch[1]) {
+                const extractedM = apiMedMatch[1].trim().replace(/\.$/, '');
+                if (!apiMeds || apiMeds.toLowerCase().includes('inpatient care') || apiMeds.toLowerCase().includes('pre-op')) {
+                  apiMeds = extractedM;
+                }
+                apiFollowup = apiFollowup.replace(apiMedMatch[0], '').trim();
+              }
+
               const updatedFromApi = {
                 summary_id: matched.summary_id ? `DS-${matched.summary_id}` : summaryId,
                 patient_id: matched.patient_id || patientId,
@@ -508,8 +660,8 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                 hospital_course_summary: matchedCaseHistory,
                 investigations: formatClinicalInvestigations(matched.investigations) || investigations,
                 patient_condition: formatClinicalCondition(matched.patient_condition) || patientCondition,
-                discharge_medications: formatClinicalTreatment(matched.treatment) || dischargeMeds,
-                followup_instructions: formatClinicalAdvice(matched.discharge_advice) || followup,
+                discharge_medications: apiMeds,
+                followup_instructions: apiFollowup,
                 surgery_details: matched.surgery_details || surgeryDetails,
                 approval_status: matched.approval_status || approvalStatus,
                 approved_by: matched.approved_by || approvedBy
@@ -605,33 +757,51 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
     }
   };
 
-  let age = summaryData.age;
-  if (!age || age === 'Clinical Review') {
-    if (summaryData.raw?.age) age = summaryData.raw.age;
-    else if (summaryData.case_history) {
-      const match = summaryData.case_history.match(/(?:a|an)\s+(\d{1,3})[- ]year[- ]old/i)
-        || summaryData.case_history.match(/aged\s+(\d{1,3})/i);
-      if (match) age = match[1];
+  const caseNarrative = form.case_history || form.hospital_course_summary || summaryData.case_history || summaryData.hospital_course_summary || '';
+  const cleanCase = String(caseNarrative).replace(/[\u2010\u2011\u2012\u2013\u2014]/g, '-');
+  const caseAgeMatch = cleanCase.match(/(?:^|\b)(?:a|an\s+)?(\d{1,3})[- ](?:year|yr)s?[- ]old\s*([A-Za-z]+)?/i)
+    || cleanCase.match(/\baged\s+(\d{1,3})/i)
+    || cleanCase.match(/\b(\d{1,3})\s*(?:Y|Yrs|Years)[\s\/\,\·]+(?:Male|Female|M|F)\b/i);
+
+  let age = null;
+  if (caseAgeMatch && caseAgeMatch[1]) {
+    age = caseAgeMatch[1];
+  } else if (summaryData.age && summaryData.age !== 'Clinical Review' && summaryData.age !== '—' && summaryData.age !== 45 && summaryData.age !== 48 && summaryData.age !== 25) {
+    age = summaryData.age;
+  } else if (summaryData.date_of_birth) {
+    const dob = new Date(summaryData.date_of_birth);
+    if (!isNaN(dob.getTime())) {
+      const diff = Math.floor((new Date() - dob) / (365.25 * 24 * 3600 * 1000));
+      if (diff > 0 && diff < 125) age = diff;
     }
+  } else {
+    age = summaryData.age || summaryData.raw?.age || '—';
   }
   age = age || '—';
 
-  let sex = summaryData.sex || summaryData.gender;
-  if (!sex || sex === '—') {
-    if (summaryData.case_history) {
-      const match = summaryData.case_history.match(/(?:a|an)\s+\d{1,3}[- ]year[- ]old\s+([A-Za-z]+)/i);
-      if (match) sex = match[1].toLowerCase().startsWith('f') ? 'F' : match[1].toLowerCase().startsWith('m') ? 'M' : match[1];
-    }
+  let sex = null;
+  if (caseAgeMatch && caseAgeMatch[2]) {
+    const gStr = caseAgeMatch[2].toLowerCase();
+    sex = gStr.startsWith('f') ? 'Female' : gStr.startsWith('m') ? 'Male' : caseAgeMatch[2];
+  } else {
+    sex = summaryData.sex || summaryData.gender || summaryData.raw?.gender || '—';
   }
+  if (sex === 'M') sex = 'Male';
+  if (sex === 'F') sex = 'Female';
   sex = sex || '—';
+
   const admissionDisplayDate = formatClinicalDate(form.admission_date);
   const printDocDate = form.approval_status === 'Approved'
     ? (form.discharge_date || formatClinicalDateTime(new Date()))
     : (form.discharge_date ? `Draft (${form.discharge_date}) - Pending Doctor Approval` : 'Pending Clinical Approval');
   const cleanFollowup = formatClinicalAdvice(stripTamil(form.followup_instructions));
+  const displayFollowup = cleanFollowup
+    .replace(/(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)/i, '')
+    .replace(/^[\s\.\d\)\-]+/, '')
+    .trim();
   const cleanDiagText = formatClinicalDiagnoses(form.discharge_diagnosis);
   const medIntro = getMedicationIntro(form.discharge_medications);
-  const parsedMeds = parseMedications(summaryData.meds, form.discharge_medications);
+  const parsedMeds = parseMedications(summaryData.meds, form.discharge_medications, form.followup_instructions);
 
   return (
     <>
@@ -982,11 +1152,19 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
 
                 {/* SECTION 7: DISCHARGE ADVICE & FOLLOW-UP (Tamil stripped) */}
                 <div>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#0369a1', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: '6px' }}>
                     Review / Follow-up
                   </div>
-                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                    {cleanFollowup || 'Follow-up in OPD as advised by attending physician.'}
+                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5 }}>
+                    {parseFollowupInstructions(displayFollowup).length > 1 ? (
+                      <ol style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {parseFollowupInstructions(displayFollowup).map((item, idx) => (
+                          <li key={idx} style={{ paddingLeft: '2px' }}>{item}</li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div style={{ whiteSpace: 'pre-line' }}>{displayFollowup || 'Follow-up in OPD as advised by attending physician.'}</div>
+                    )}
                   </div>
                 </div>
 
@@ -1369,10 +1547,10 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
             <div className="print-sec">
               <div className="print-sec-title">7. Review, Follow-Up &amp; Patient Discharge Advice</div>
               <div className="print-sec-body">
-                {parseFollowupInstructions(cleanFollowup).length > 1 ? (
+                {parseFollowupInstructions(displayFollowup).length > 1 ? (
                   <div className="print-followup-container">
                     <ol className="print-followup-list">
-                      {parseFollowupInstructions(cleanFollowup).map((item, idx) => {
+                      {parseFollowupInstructions(displayFollowup).map((item, idx) => {
                         const isWarning = /emergency|warning|immediately|danger|fever\s*>/i.test(item);
                         if (isWarning) {
                           return (
@@ -1391,7 +1569,7 @@ export default function DischargeSummaryModal({ isOpen, onClose, summaryData, on
                     </ol>
                   </div>
                 ) : (
-                  <div>{cleanFollowup || 'Follow up with attending consultant as advised.'}</div>
+                  <div>{displayFollowup || 'Follow up with attending consultant as advised.'}</div>
                 )}
               </div>
             </div>

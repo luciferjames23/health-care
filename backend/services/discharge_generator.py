@@ -1293,6 +1293,9 @@ def format_clinical_condition(val):
 
     summary_id_int = adm_int
 
+    meds_m = re.search(r'(?:^|\n|\b)\s*(?:\d+[\.\)]\s*)?(?:Discharge\s+)?Medications?:\s*(.*?)(?=(?:[\.\s]+)(?:Diet|Activity|Wound\s*care|Red[\-\u2011\s]*flag|Emergency|Follow[\-\u2011\s]*up|OPD):|\n|$)', discharge_advice or "", re.I | re.S)
+    clean_discharge_meds = meds_m.group(1).strip().rstrip('.') if meds_m else treatment
+
     return {
         # Exact 19-column PostgreSQL & Lakehouse Schema
         "summary_id": summary_id_int,
@@ -1316,13 +1319,14 @@ def format_clinical_condition(val):
         "model_source": prov,
 
         # UI & Compatibility Convenience Fields
+
         "patient_number": p_num,
         "patient_name": full_name,
         "attending_physician": consultant_str,
         "admission_reason": chief_comp,
         "discharge_diagnosis": diagnoses_field,
         "hospital_course_summary": case_history,
-        "discharge_medications": treatment,
+        "discharge_medications": clean_discharge_meds,
         "followup_instructions": discharge_advice,
         "llm_generated_summary_text": full_text,
         "approved_by": None,
