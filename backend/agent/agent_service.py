@@ -2035,6 +2035,111 @@ def prompt_patient_selection(conversation_code: str, state: dict, current_lang: 
     }
 
 
+def build_billing_response(conversation_code: str, state: dict, current_lang: str) -> dict:
+    """
+    Authoritative billing response for WhatsApp Patient Desk.
+    Uses canonical patient_360_service.get_patient_unified_billing_statement
+    to surface accurate totals, categories (inpatient, outpatient, pharmacy, lab/x-ray),
+    and payment options without duplicate records.
+    """
+    is_sel, p_res = ensure_patient_selected(conversation_code, state, current_lang, action_intent="BILLING_AND_PAYMENTS")
+    if not is_sel:
+        return p_res
+
+    pat_id = state.get("selected_patient_id") or state.get("patient_id")
+    stmt = patient_360_service.get_patient_unified_billing_statement(pat_id) if pat_id else None
+
+    if not stmt or not stmt.get("records"):
+        p_name = stmt["patient"]["name"] if stmt and stmt.get("patient") else "Patient"
+        p_code = stmt["patient"]["patient_code"] if stmt and stmt.get("patient") else ""
+        resp = (
+            f"💳 *Hospital Bill & Payments*\n\n"
+            f"Patient: *{p_name}* (`{p_code}`)\n"
+            "No hospital billing records found for this patient profile.\n"
+            "Outstanding Balance: ₹0\n\n"
+            "All hospital dues are fully settled."
+        )
+        buttons = [
+            language_service.get_translated_button("btn_payment_history", current_lang),
+            {"id": "btn_switch_patient", "title": "Switch Patient"},
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+        state["interactive_buttons"] = buttons
+        state["intent"] = "BILLING_AND_PAYMENTS"
+        state_manager.save_conversation_state(conversation_code, state)
+        log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+        return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
+
+    p_info = stmt["patient"]
+    p_name = p_info["name"]
+    p_code = p_info["patient_code"]
+    summ = stmt["summary"]
+
+    tot_str = f"₹{int(summ['total_billed']):,}" if float(summ['total_billed']).is_integer() else f"₹{summ['total_billed']:,.2f}"
+    paid_str = f"₹{int(summ['total_paid']):,}" if float(summ['total_paid']).is_integer() else f"₹{summ['total_paid']:,.2f}"
+    out_val = summ["outstanding_balance"]
+    out_str = f"₹{int(out_val):,}" if float(out_val).is_integer() else f"₹{out_val:,.2f}"
+
+    lines = [
+        f"💳 *Hospital Bill & Payments*",
+        f"Patient: *{p_name}* (`{p_code}`)",
+        f"Account Status: *{'Settled / Cleared' if out_val <= 0 else 'Pending Balance'}*",
+        "",
+        f"• Total Billed: *{tot_str}*",
+        f"• Total Paid: *{paid_str}*",
+        f"• *Outstanding Balance Due:* *{out_str}*",
+        ""
+    ]
+
+    cat_lines = []
+    if summ.get("hospital_accommodation", 0) > 0:
+        h_str = f"₹{int(summ['hospital_accommodation']):,}" if float(summ['hospital_accommodation']).is_integer() else f"₹{summ['hospital_accommodation']:,.2f}"
+        cat_lines.append(f"  - Inpatient Care: {h_str}")
+    if summ.get("consultations", 0) > 0:
+        c_str = f"₹{int(summ['consultations']):,}" if float(summ['consultations']).is_integer() else f"₹{summ['consultations']:,.2f}"
+        cat_lines.append(f"  - Consultations / OPD: {c_str}")
+    if summ.get("pharmacy", 0) > 0:
+        ph_str = f"₹{int(summ['pharmacy']):,}" if float(summ['pharmacy']).is_integer() else f"₹{summ['pharmacy']:,.2f}"
+        cat_lines.append(f"  - Pharmacy & Meds: {ph_str}")
+    if summ.get("diagnostic", 0) > 0:
+        d_str = f"₹{int(summ['diagnostic']):,}" if float(summ['diagnostic']).is_integer() else f"₹{summ['diagnostic']:,.2f}"
+        cat_lines.append(f"  - Lab & Radiology: {d_str}")
+
+    if cat_lines:
+        lines.append("*Billing Breakdown:*")
+        lines.extend(cat_lines)
+        lines.append("")
+
+    if out_val > 0:
+        lines.append("Select *Make Payment* to pay the verified outstanding amount:")
+        buttons = [
+            language_service.get_translated_button("btn_pay_bill", current_lang),
+            language_service.get_translated_button("btn_view_bill", current_lang),
+            language_service.get_translated_button("btn_payment_history", current_lang),
+            {"id": "btn_switch_patient", "title": "Switch Patient"},
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+    else:
+        lines.append("✅ *All hospital bills and charges for this account are fully settled.*")
+        buttons = [
+            language_service.get_translated_button("btn_view_bill", current_lang),
+            language_service.get_translated_button("btn_payment_history", current_lang),
+            {"id": "btn_switch_patient", "title": "Switch Patient"},
+            language_service.get_translated_button("btn_main_menu", current_lang)
+        ]
+
+    resp = "\n".join(lines)
+    state["interactive_buttons"] = buttons
+    state["intent"] = "BILLING_AND_PAYMENTS"
+    state["bill_outstanding_amount"] = out_val
+    state["bill_patient_id"] = pat_id
+    state["bill_patient_name"] = p_name
+    state["bill_patient_code"] = p_code
+    state_manager.save_conversation_state(conversation_code, state)
+    log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
+    return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
+
+
 def build_patient_profile_response(conversation_code: str, state: dict, current_lang: str) -> dict:
     """
     Fetches ground truth patient record from PostgreSQL database,
@@ -3605,105 +3710,68 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 "interactive_buttons": state["interactive_buttons"]
             }
 
+        elif btn_id in ["btn_cat_billing", "btn_billing"]:
+            return build_billing_response(conversation_code, state, current_lang)
+
         elif btn_id == "btn_view_bill":
-            state["payment_context"] = "BILL_PAYMENT"
-            state["is_balance_payment"] = False
-            state["modifying_booking_id"] = None
             is_sel, p_res = ensure_patient_selected(conversation_code, state, current_lang, action_intent="BILLING_AND_PAYMENTS")
             if not is_sel:
                 return p_res
             pat_id = state.get("selected_patient_id") or state.get("patient_id")
-            bill = patient_360_service.get_authoritative_patient_bill(pat_id) if pat_id else None
+            stmt = patient_360_service.get_patient_unified_billing_statement(pat_id) if pat_id else None
 
-            if not bill:
+            if not stmt or not stmt.get("records"):
+                p_name = stmt["patient"]["name"] if stmt and stmt.get("patient") else "Patient"
+                p_code = stmt["patient"]["patient_code"] if stmt and stmt.get("patient") else ""
                 resp = (
-                    "💳 *Hospital Bill & Payments*\n\n"
-                    "No hospital bill records were found for this patient profile.\n"
-                    "Outstanding Balance: ₹0\n\n"
-                    "All hospital dues are fully settled."
+                    f"💳 *Itemized Hospital Bills*\n\n"
+                    f"Patient: *{p_name}* (`{p_code}`)\n"
+                    "No itemized bills found on file for this patient profile.\n"
+                    "All accounts are currently cleared."
                 )
                 buttons = [
-                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
-                    language_service.get_translated_button("btn_main_menu", current_lang)
-                ]
-                state["interactive_buttons"] = buttons
-                state["intent"] = "BILLING_AND_PAYMENTS"
-                state_manager.save_conversation_state(conversation_code, state)
-                log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
-                return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
-
-            b_id = bill["bill_id"]
-            b_num = bill["bill_number"]
-            total_amt = bill["total_payable_amount"]
-            paid_amt = bill["net_payments"]
-            outstanding = bill["outstanding_balance"]
-            p_name = bill["patient_name"]
-            p_code = bill["patient_code"]
-            b_date_str = str(bill["bill_date"])
-
-            state["bill_id"] = b_id
-            state["bill_reference"] = b_num
-            state["bill_total_amount"] = total_amt
-            state["bill_paid_amount"] = paid_amt
-            state["bill_outstanding_amount"] = outstanding
-            state["bill_patient_id"] = pat_id
-            state["bill_patient_name"] = p_name
-            state["bill_patient_code"] = p_code
-
-            tot_str = f"₹{int(total_amt):,}" if isinstance(total_amt, (int, float)) and float(total_amt).is_integer() else f"₹{total_amt:,.2f}"
-            paid_str = f"₹{int(paid_amt):,}" if isinstance(paid_amt, (int, float)) and float(paid_amt).is_integer() else f"₹{paid_amt:,.2f}"
-            out_str = f"₹{int(outstanding):,}" if isinstance(outstanding, (int, float)) and float(outstanding).is_integer() else f"₹{outstanding:,.2f}"
-
-            # Format itemized charges
-            item_lines = []
-            for itm in bill.get("line_items", []):
-                amt = itm.get("amount", 0.0)
-                qty = itm.get("quantity", 1)
-                desc = itm.get("item_name") or itm.get("item_description") or "Hospital Service"
-                amt_str = f"₹{int(amt):,}" if isinstance(amt, (int, float)) and float(amt).is_integer() else f"₹{amt:,.2f}"
-                item_lines.append(f"• {desc} (x{qty}): {amt_str}")
-
-            items_str = "\n".join(item_lines) if item_lines else "• Inpatient / Daycare Hospital Care"
-
-            if outstanding <= 0:
-                resp = (
-                    f"💳 *Itemized Hospital Bill*\n\n"
-                    f"Patient: {p_name} ({p_code})\n"
-                    f"Bill Number: {b_num}\n"
-                    f"Billing Date: {b_date_str}\n"
-                    f"Status: {bill['bill_status']}\n\n"
-                    f"*Itemized Charges:*\n{items_str}\n"
-                    f"----------------------------------------\n"
-                    f"Total Payable: {tot_str}\n"
-                    f"Paid Amount: {paid_str}\n"
-                    f"Outstanding Balance: ₹0\n\n"
-                    f"✅ *This hospital bill has been paid in full / settled.*"
-                )
-                buttons = [
-                    language_service.get_translated_button("btn_payment_history", current_lang),
-                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                    {"id": "btn_cat_billing", "title": "Billing Menu"},
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
             else:
+                p_name = stmt["patient"]["name"]
+                p_code = stmt["patient"]["patient_code"]
+                summ = stmt["summary"]
+                out_val = summ["outstanding_balance"]
+
+                rec_lines = []
+                for idx, r in enumerate(stmt["records"], 1):
+                    b_num = r["bill_number"]
+                    b_type = r["bill_type"]
+                    tot = f"₹{int(r['total_amount']):,}" if float(r['total_amount']).is_integer() else f"₹{r['total_amount']:,.2f}"
+                    paid = f"₹{int(r['paid_amount']):,}" if float(r['paid_amount']).is_integer() else f"₹{r['paid_amount']:,.2f}"
+                    bal = f"₹{int(r['outstanding_balance']):,}" if float(r['outstanding_balance']).is_integer() else f"₹{r['outstanding_balance']:,.2f}"
+                    stat = r["status"]
+                    rec_lines.append(f"{idx}. *{b_num}* ({b_type})\n   {r['reason']}\n   Total: {tot} | Paid: {paid} | *Due: {bal}* [{stat}]")
+
+                rec_list_str = "\n\n".join(rec_lines)
                 resp = (
-                    f"💳 *Itemized Hospital Bill*\n\n"
-                    f"Patient: {p_name} ({p_code})\n"
-                    f"Bill Number: {b_num}\n"
-                    f"Billing Date: {b_date_str}\n"
-                    f"Status: {bill['bill_status']}\n\n"
-                    f"*Itemized Charges:*\n{items_str}\n"
+                    f"💳 *Itemized Hospital Bills & Dues*\n\n"
+                    f"Patient: *{p_name}* (`{p_code}`)\n\n"
+                    f"{rec_list_str}\n\n"
                     f"----------------------------------------\n"
-                    f"Total Payable: {tot_str}\n"
-                    f"Paid Amount: {paid_str}\n"
-                    f"*Outstanding Balance:* {out_str}\n\n"
-                    f"Select Make Payment below to clear your balance:"
+                    f"Total Billed: ₹{summ['total_billed']:,.2f}\n"
+                    f"Total Paid: ₹{summ['total_paid']:,.2f}\n"
+                    f"*Total Outstanding Balance:* ₹{out_val:,.2f}"
                 )
-                buttons = [
-                    language_service.get_translated_button("btn_pay_bill", current_lang),
-                    language_service.get_translated_button("btn_payment_history", current_lang),
-                    {"id": "btn_cat_billing", "title": "Billing & Payments"},
-                    language_service.get_translated_button("btn_main_menu", current_lang)
-                ]
+                if out_val > 0:
+                    buttons = [
+                        language_service.get_translated_button("btn_pay_bill", current_lang),
+                        language_service.get_translated_button("btn_payment_history", current_lang),
+                        {"id": "btn_cat_billing", "title": "Billing Menu"},
+                        language_service.get_translated_button("btn_main_menu", current_lang)
+                    ]
+                else:
+                    buttons = [
+                        language_service.get_translated_button("btn_payment_history", current_lang),
+                        {"id": "btn_cat_billing", "title": "Billing Menu"},
+                        language_service.get_translated_button("btn_main_menu", current_lang)
+                    ]
 
             state["interactive_buttons"] = buttons
             state["intent"] = "BILLING_AND_PAYMENTS"
@@ -3719,9 +3787,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if not is_sel:
                 return p_res
             pat_id = state.get("selected_patient_id") or state.get("patient_id")
-            bill = patient_360_service.get_authoritative_patient_bill(pat_id) if pat_id else None
+            stmt = patient_360_service.get_patient_unified_billing_statement(pat_id) if pat_id else None
 
-            if not bill or bill["outstanding_balance"] <= 0:
+            out_val = stmt["summary"]["outstanding_balance"] if stmt else 0.0
+            if not stmt or out_val <= 0:
                 resp = (
                     "✅ *No Outstanding Dues*\n\n"
                     "There is no outstanding hospital balance to pay for this patient profile.\n"
@@ -3737,36 +3806,34 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 log_message_to_db(conversation_code, "AI_AGENT", resp, current_lang, "BILLING_AND_PAYMENTS", state)
                 return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
 
-            b_id = bill["bill_id"]
-            b_num = bill["bill_number"]
-            total_amt = bill["total_payable_amount"]
-            paid_amt = bill["net_payments"]
-            outstanding = bill["outstanding_balance"]
-            p_name = bill["patient_name"]
-            p_code = bill["patient_code"]
+            p_name = stmt["patient"]["name"]
+            p_code = stmt["patient"]["patient_code"]
+            total_amt = stmt["summary"]["total_billed"]
+            paid_amt = stmt["summary"]["total_paid"]
 
-            state["bill_id"] = b_id
-            state["bill_reference"] = b_num
             state["bill_total_amount"] = total_amt
             state["bill_paid_amount"] = paid_amt
-            state["bill_outstanding_amount"] = outstanding
+            state["bill_outstanding_amount"] = out_val
+            state["pending_bill_amount"] = out_val
+            state["payment_amount"] = out_val
             state["bill_patient_id"] = pat_id
             state["bill_patient_name"] = p_name
             state["bill_patient_code"] = p_code
 
-            out_str = f"₹{int(outstanding):,}" if isinstance(outstanding, (int, float)) and float(outstanding).is_integer() else f"₹{outstanding:,.2f}"
+            out_str = f"₹{int(out_val):,}" if float(out_val).is_integer() else f"₹{out_val:,.2f}"
 
             resp = (
                 f"💳 *Hospital Bill Payment*\n\n"
                 f"Patient: {p_name} ({p_code})\n"
-                f"Bill Reference: {b_num}\n"
-                f"Total Bill Amount: ₹{total_amt:,.0f}\n"
-                f"Outstanding Balance Due: {out_str}\n\n"
-                f"Select a payment method below to clear outstanding balance:"
+                f"Total Billed: ₹{total_amt:,.2f}\n"
+                f"Total Paid: ₹{paid_amt:,.2f}\n"
+                f"*Verified Outstanding Balance Due:* {out_str}\n\n"
+                f"Select a payment method below to clear your verified balance:"
             )
             buttons = [
                 {"id": "btn_pay_gpay", "title": "Google Pay"},
                 {"id": "btn_pay_upi", "title": "UPI / PhonePe"},
+                {"id": "btn_pay_netbanking", "title": "Net Banking"},
                 {"id": "btn_cat_billing", "title": "Billing Menu"},
                 language_service.get_translated_button("btn_main_menu", current_lang)
             ]
@@ -4235,11 +4302,15 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if not is_sel:
                 return p_res
             pat_id = state.get("selected_patient_id") or state.get("patient_id")
-            bill = patient_360_service.get_authoritative_patient_bill(pat_id) if pat_id else None
+            stmt = patient_360_service.get_patient_unified_billing_statement(pat_id) if pat_id else None
 
-            if not bill or bill["outstanding_balance"] <= 0:
+            out_val = stmt["summary"]["outstanding_balance"] if stmt else 0.0
+            if not stmt or out_val <= 0:
+                p_name = stmt["patient"]["name"] if stmt and stmt.get("patient") else "Patient"
+                p_code = stmt["patient"]["patient_code"] if stmt and stmt.get("patient") else ""
                 resp = (
                     "💰 *Outstanding Balance*\n\n"
+                    f"Patient: {p_name} ({p_code})\n"
                     "Outstanding Balance: ₹0\n"
                     "Account Status: Active (Settled)\n\n"
                     "✅ All hospital bills for this account are fully cleared."
@@ -4247,27 +4318,30 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 buttons = [
                     language_service.get_translated_button("btn_view_bill", current_lang),
                     language_service.get_translated_button("btn_payment_history", current_lang),
+                    {"id": "btn_cat_billing", "title": "Billing Menu"},
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
             else:
-                outstanding = bill["outstanding_balance"]
-                out_str = f"₹{int(outstanding):,}" if isinstance(outstanding, (int, float)) and float(outstanding).is_integer() else f"₹{outstanding:,.2f}"
-                total_str = f"₹{int(bill['total_payable_amount']):,}" if isinstance(bill['total_payable_amount'], (int, float)) and float(bill['total_payable_amount']).is_integer() else f"₹{bill['total_payable_amount']:,.2f}"
-                paid_str = f"₹{int(bill['net_payments']):,}" if isinstance(bill['net_payments'], (int, float)) and float(bill['net_payments']).is_integer() else f"₹{bill['net_payments']:,.2f}"
+                p_name = stmt["patient"]["name"]
+                p_code = stmt["patient"]["patient_code"]
+                summ = stmt["summary"]
+                out_str = f"₹{int(out_val):,}" if float(out_val).is_integer() else f"₹{out_val:,.2f}"
+                tot_str = f"₹{int(summ['total_billed']):,}" if float(summ['total_billed']).is_integer() else f"₹{summ['total_billed']:,.2f}"
+                paid_str = f"₹{int(summ['total_paid']):,}" if float(summ['total_paid']).is_integer() else f"₹{summ['total_paid']:,.2f}"
 
                 resp = (
                     f"💰 *Authoritative Hospital Balance*\n\n"
-                    f"Patient: {bill['patient_name']} ({bill['patient_code']})\n"
-                    f"Bill Number: {bill['bill_number']}\n"
-                    f"Total Bill Amount: {total_str}\n"
+                    f"Patient: {p_name} ({p_code})\n"
+                    f"Total Billed: {tot_str}\n"
                     f"Amount Paid So Far: {paid_str}\n"
-                    f"*Outstanding Balance Due:* {out_str}\n\n"
+                    f"*Verified Outstanding Balance Due:* {out_str}\n\n"
                     f"Select Make Payment below to settle this balance:"
                 )
                 buttons = [
                     language_service.get_translated_button("btn_pay_bill", current_lang),
                     language_service.get_translated_button("btn_view_bill", current_lang),
                     language_service.get_translated_button("btn_payment_history", current_lang),
+                    {"id": "btn_cat_billing", "title": "Billing Menu"},
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
 
@@ -5462,9 +5536,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 try:
                     cur.execute("""
                         INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                        VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), NULL, %s, 'INR', %s, 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         RETURNING id;
-                    """, (pay_ref, pat_id, modifying_b_id, pat_id, fee_val, method_code))
+                    """, (pay_ref, pat_id, modifying_b_id, fee_val, method_code))
                     pay_db_id = cur.fetchone()[0]
                     conn.commit()
                 except Exception as e:
@@ -5508,52 +5582,34 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             if p_context == "BILL_PAYMENT":
                 pat_id = state.get("bill_patient_id") or state.get("selected_patient_id") or state.get("patient_id")
                 # Authoritative check from backend before applying payment
-                authoritative_bill = patient_360_service.get_authoritative_patient_bill(pat_id) if pat_id else None
+                stmt = patient_360_service.get_patient_unified_billing_statement(pat_id) if pat_id else None
+                out_val = stmt["summary"]["outstanding_balance"] if stmt else 0.0
 
-                if not authoritative_bill or authoritative_bill["outstanding_balance"] <= 0:
+                if not stmt or out_val <= 0:
                     resp = (
-                        f"✅ *Bill Already Paid*\n\n"
-                        f"This hospital bill has already been settled in full.\n"
-                        f"Outstanding Balance: ₹0"
+                        "✅ *Bill Already Paid*\n\n"
+                        "This hospital bill has already been settled in full.\n"
+                        "Outstanding Balance: ₹0"
                     )
                     state["payment_context"] = None
                     state["conversation_state"] = None
                     buttons = [{"id": "btn_cat_billing", "title": "Billing & Payments"}, language_service.get_translated_button("btn_main_menu", current_lang)]
                     return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
 
-                b_id = authoritative_bill["bill_id"]
-                b_num = authoritative_bill["bill_number"]
-                p_name = authoritative_bill["patient_name"]
-                p_code = authoritative_bill["patient_code"]
-                pay_id = state.get("payment_id")
-                pay_ref = state.get("payment_reference") or f"PAYBILL{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(1000, 9999)}"
-                fee_val = float(state.get("payment_amount", authoritative_bill["outstanding_balance"]))
-                total_amt = float(authoritative_bill["total_payable_amount"])
-                txn_ref = f"TXN{datetime.datetime.now().strftime('%Y%m%d')}{random.randint(100000, 999999)}"
+                p_name = stmt["patient"]["name"]
+                p_code = stmt["patient"]["patient_code"]
+                fee_val = float(state.get("payment_amount", out_val))
+                method_code = state.get("payment_method", "UPI")
 
-                conn = db_config.get_db_connection()
-                cur = conn.cursor()
-                try:
-                    if pay_id:
-                        cur.execute("UPDATE payments SET payment_status = 'SUCCESS', transaction_reference = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (txn_ref, pay_id))
-                        conn.commit()
-                    else:
-                        cur.execute("""
-                            INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, transaction_reference, created_at, updated_at)
-                            VALUES (%s, %s, NULL, %s, %s, 'INR', %s, 'SUCCESS', CURRENT_TIMESTAMP, 'PATIENT', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            RETURNING id;
-                        """, (pay_ref, pat_id, b_id, fee_val, state.get("payment_method", "ONLINE"), txn_ref))
-                        conn.commit()
-                except Exception as e:
-                    print(f"[BILL_PAYMENT_SUCCESS_ERR] {e}")
-                    conn.rollback()
-                finally:
-                    cur.close()
-                    conn.close()
+                pay_res = patient_360_service.pay_patient_outstanding_balance(
+                    patient_id=pat_id,
+                    amount=fee_val,
+                    payment_method=method_code
+                )
 
                 # Authoritative re-fetch of bill status after payment
-                updated_bill = patient_360_service.get_authoritative_patient_bill(pat_id)
-                remaining_balance = updated_bill["outstanding_balance"] if updated_bill else 0.0
+                updated_stmt = patient_360_service.get_patient_unified_billing_statement(pat_id)
+                remaining_balance = updated_stmt["summary"]["outstanding_balance"] if updated_stmt else 0.0
 
                 state["payment_context"] = None
                 state["conversation_state"] = None
@@ -5562,19 +5618,21 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
                 fee_str = f"₹{int(fee_val):,}" if fee_val.is_integer() else f"₹{fee_val:,.2f}"
                 rem_str = f"₹{int(remaining_balance):,}" if remaining_balance.is_integer() else f"₹{remaining_balance:,.2f}"
+                txn_id = pay_res.get("transaction_reference", f"TXN{random.randint(100000, 999999)}")
+                pay_ref_code = pay_res.get("payment_reference", f"PAY-{random.randint(1000, 9999)}")
 
                 resp = (
                     f"✅ *Hospital Bill Payment Successful!*\n\n"
-                    f"Bill Number: {b_num}\n"
                     f"Patient: {p_name} ({p_code})\n"
                     f"Amount Paid: {fee_str}\n"
                     f"Remaining Balance: {rem_str}\n"
-                    f"Payment Reference: {pay_ref}\n"
-                    f"Transaction ID: {txn_ref}\n\n"
+                    f"Payment Reference: {pay_ref_code}\n"
+                    f"Transaction ID: {txn_id}\n\n"
                     f"Your hospital bill ledger has been updated successfully."
                 )
                 buttons = [
                     {"id": "btn_cat_billing", "title": "Billing & Payments"},
+                    language_service.get_translated_button("btn_view_bill", current_lang),
                     language_service.get_translated_button("btn_main_menu", current_lang)
                 ]
                 state["interactive_buttons"] = buttons
@@ -5826,19 +5884,31 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["confirmation_pending"] = False
                 state["conversation_state"] = "BOOKING_COMPLETED"
 
-                # Link appointment_id in payments table
-                conn = db_config.get_db_connection()
-                cur = conn.cursor()
-                try:
-                    if pay_id and booking_id:
-                        cur.execute("UPDATE payments SET appointment_id = (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1) WHERE id = %s;", (booking_id, pay_id))
-                        conn.commit()
-                except Exception as e:
-                    print(f"[PAYMENT_LINK_ERR] Error linking appointment_id to payment: {e}")
-                    conn.rollback()
-                finally:
-                    cur.close()
-                    conn.close()
+                # Synchronize appointment payment, bill, and transaction reference canonically
+                if booking_id:
+                    conn = db_config.get_db_connection()
+                    cur = conn.cursor()
+                    appt_db_id = None
+                    try:
+                        cur.execute("SELECT id FROM appointments WHERE booking_id = %s LIMIT 1;", (booking_id,))
+                        b_row = cur.fetchone()
+                        if b_row:
+                            appt_db_id = b_row[0]
+                    finally:
+                        cur.close()
+                        conn.close()
+
+                    if appt_db_id:
+                        sync_res = patient_360_service.ensure_appointment_bill_and_payment(
+                            appointment_id=appt_db_id,
+                            payment_id=pay_id,
+                            amount=fee_val,
+                            payment_method=state.get("payment_method", "UPI")
+                        )
+                        if sync_res.get("success"):
+                            state["bill_id"] = sync_res.get("bill_id")
+                            state["bill_reference"] = sync_res.get("bill_number")
+                            state["payment_id"] = sync_res.get("payment_id")
 
                 # Get patient display details
                 pat_name = state["entities"].get("patient_name_override") or state.get("dependent_name")
@@ -6064,9 +6134,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         try:
                             cur.execute("""
                                 INSERT INTO payments (payment_reference, patient_id, appointment_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                                VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES (%s, %s, (SELECT id FROM appointments WHERE booking_id = %s LIMIT 1), NULL, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 RETURNING id;
-                            """, (pay_ref, pat_id, modifying_b_id, pat_id, balance))
+                            """, (pay_ref, pat_id, modifying_b_id, balance))
                             pay_db_id = cur.fetchone()[0]
                             conn.commit()
                         except Exception as e:
@@ -6206,9 +6276,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     try:
                         cur.execute("""
                             INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                            VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            VALUES (%s, %s, NULL, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             RETURNING id;
-                        """, (pay_ref, pat_id, pat_id, fee_val))
+                        """, (pay_ref, pat_id, fee_val))
                         pay_db_id = cur.fetchone()[0]
                         conn.commit()
                     except Exception as e:
@@ -9940,9 +10010,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         try:
                             cur.execute("""
                                 INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                                VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES (%s, %s, NULL, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 RETURNING id;
-                            """, (pay_ref, pat_id, pat_id, fee_val))
+                            """, (pay_ref, pat_id, fee_val))
                             pay_db_id = cur.fetchone()[0]
                             conn.commit()
                         except Exception as e:
@@ -11378,9 +11448,9 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     try:
                         cur.execute("""
                             INSERT INTO payments (payment_reference, patient_id, bill_id, amount, currency, payment_method, payment_status, payment_date, payer_type, created_at, updated_at)
-                            VALUES (%s, %s, COALESCE((SELECT bill_id FROM bills WHERE patient_id = %s ORDER BY bill_id DESC LIMIT 1), 1), %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            VALUES (%s, %s, NULL, %s, 'INR', 'GPAY', 'PENDING', CURRENT_TIMESTAMP, 'PATIENT', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             RETURNING id;
-                        """, (pay_ref, pat_id, pat_id, fee_val))
+                        """, (pay_ref, pat_id, fee_val))
                         pay_db_id = cur.fetchone()[0]
                         conn.commit()
                     except Exception as e:

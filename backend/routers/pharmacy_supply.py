@@ -49,7 +49,7 @@ def get_prescriptions(
             params.append(admission_id)
 
         if status and isinstance(status, str) and status != 'All':
-            where_clauses.append("LOWER(COALESCE(pi.status, p.status, 'Prescribed')) = LOWER(%s)")
+            where_clauses.append("LOWER(COALESCE(p.status, 'Prescribed')) = LOWER(%s)")
             params.append(status)
 
         if search and isinstance(search, str) and search.strip():
@@ -130,8 +130,8 @@ def get_prescriptions(
             SELECT 
                 COUNT(pi.prescription_item_id) as total_items,
                 COUNT(DISTINCT p.prescription_id) as total_prescriptions,
-                COUNT(CASE WHEN LOWER(COALESCE(pi.status, p.status, 'Prescribed')) = 'dispensed' THEN 1 END) as dispensed,
-                COUNT(CASE WHEN LOWER(COALESCE(pi.status, p.status, 'Prescribed')) != 'dispensed' THEN 1 END) as active
+                COUNT(CASE WHEN LOWER(COALESCE(p.status, 'Prescribed')) = 'dispensed' THEN 1 END) as dispensed,
+                COUNT(CASE WHEN LOWER(COALESCE(p.status, 'Prescribed')) != 'dispensed' THEN 1 END) as active
             FROM prescriptions p
             LEFT JOIN patients pat ON p.patient_id = pat.id
             LEFT JOIN doctors d ON p.doctor_id = d.id
@@ -150,14 +150,14 @@ def get_prescriptions(
                 p.patient_id,
                 p.visit_id,
                 p.admission_id,
-                p.source,
-                p.source_soap_note_id,
-                p.source_action_id,
+                NULL::text as source,
+                NULL::int as source_soap_note_id,
+                NULL::uuid as source_action_id,
                 COALESCE(pat.first_name || ' ' || COALESCE(pat.last_name, ''), 'Patient #' || p.patient_id) as patient,
                 COALESCE(pat.patient_code, 'PAT-' || p.patient_id) as patient_code,
                 d.display_name as doctor,
                 p.prescription_date as date,
-                COALESCE(pi.status, p.status, 'Prescribed') as status,
+                COALESCE(p.status, 'Prescribed') as status,
                 m.medication_name as drug,
                 m.generic_name as generic,
                 m.brand_name as brand,

@@ -308,6 +308,13 @@ def save_conversation_state(conversation_code: str, state_dict: dict):
         if cur.rowcount == 0:
             cur.execute("SELECT id FROM conversations WHERE conversation_code = %s;", (conversation_code,))
             c_row = cur.fetchone()
+            if not c_row:
+                cur.execute("""
+                    INSERT INTO conversations (conversation_code, channel, patient_id, language, current_intent)
+                    VALUES (%s, 'WHATSAPP', %s, %s, %s)
+                    RETURNING id;
+                """, (conversation_code, valid_patient_id, db_language, db_intent))
+                c_row = cur.fetchone()
             if c_row:
                 cur.execute("""
                     INSERT INTO messages (conversation_id, sender_type, message_type, message_text, metadata)

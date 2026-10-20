@@ -346,6 +346,16 @@ def book_appointment(patient_id, doctor_id, department_id, date_str, time_str, p
         conn.commit()
         print(f"[BOOKING_TRANSACTION] Successfully committed appointment ID {appt_id} (Booking ID: {booking_id}) to PostgreSQL database.")
 
+        # Ensure canonical outpatient bill and payment synchronization
+        try:
+            import services.patient_360_service as p360
+            p360.ensure_appointment_bill_and_payment(
+                appointment_id=appt_id,
+                amount=float(doc_info.get("fee") or 500.0)
+            )
+        except Exception as sync_err:
+            print(f"[BILLING_SYNC_WARNING] Error synchronizing appointment bill: {sync_err}")
+
         # Dispatch email alert to doctor and confirmation email to patient after DB commit
         def _send_async_emails():
             try:

@@ -15,6 +15,8 @@ import sys
 import base64
 import uuid
 import datetime
+from datetime import datetime
+import random
 from typing import Optional, Dict, Any, List, Tuple
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,21 +36,34 @@ def resolve_patient_id(patient_id_or_code: Any) -> Optional[int]:
     if isinstance(patient_id_or_code, int):
         return patient_id_or_code
     val_str = str(patient_id_or_code).strip()
-    if val_str.isdigit():
-        return int(val_str)
-    
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
+        # 1. Exact match on ID or patient_code
+        if val_str.isdigit():
+            cur.execute("SELECT id FROM patients WHERE id = %s LIMIT 1;", (int(val_str),))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            # If plain numeric ID wasn't found, check if it's the number part of patient_code like P1000064
+            cur.execute("SELECT id FROM patients WHERE patient_code = %s OR patient_code = %s LIMIT 1;", (f"P{val_str}", f"MER-PAT-{val_str.zfill(7)}"))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+
+        # 2. Exact match on patient_code or text ID
         cur.execute("SELECT id FROM patients WHERE patient_code = %s OR id::text = %s LIMIT 1;", (val_str, val_str))
         row = cur.fetchone()
         if row:
             return row[0]
+
+        # 3. Digits extraction fallback
         import re
         m = re.search(r'\d+', val_str)
         if m:
             clean_digits = int(m.group(0))
-            cur.execute("SELECT id FROM patients WHERE id = %s OR patient_code = %s LIMIT 1;", (clean_digits, f"P{clean_digits}"))
+            cur.execute("SELECT id FROM patients WHERE id = %s OR patient_code = %s OR patient_code = %s LIMIT 1;", 
+                        (clean_digits, f"P{clean_digits}", f"P{m.group(0)}"))
             row2 = cur.fetchone()
             if row2:
                 return row2[0]
@@ -505,15 +520,315 @@ def generate_discharge_summary_pdf(summary_or_id: Any, patient_id: Optional[Any]
         return None
 
 
+def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
+    """
+    Authoritative consolidated billing ledger for a patient across all hospital sources:
+    - Master Inpatient (IP) Bills & Base Accommodation
+    - Outpatient (OP) Consultation Bills & Appointment Fees
+    - Diagnostic Laboratory & Radiology / X-Ray charges (from patient_charges & bill_items)
+    - Pharmacy sales & dispensed medications (from pharmacy_sales & bill_items)
+    - Successful Payments & Refunds from payments / refunds tables
+    """
+    patient_id = resolve_patient_id(patient_id)
+    if not patient_id:
+        return {
+            "summary": {
+                "total_billed": 0.0, "hospital_accommodation": 0.0,
+                "consultations": 0.0, "pharmacy": 0.0, "diagnostic": 0.0,
+                "total_paid": 0.0, "outstanding_balance": 0.0, "is_cleared": True,
+                "total_invoices": 0
+            },
+            "records": [],
+            "payments": []
+        }
+
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Patient demographic info
+        cur.execute("SELECT id, patient_code, first_name, last_name, phone FROM patients WHERE id = %s", (patient_id,))
+        p_row = cur.fetchone()
+        p_name = f"{p_row[2] or ''} {p_row[3] or ''}".strip() if p_row else f"Patient {patient_id}"
+        p_code = p_row[1] if p_row else f"MER-PAT-{str(patient_id).zfill(7)}"
+        p_phone = p_row[4] if p_row else "—"
+
+        # 1. Fetch all bills for patient
+        cur.execute("""
+            SELECT b.bill_id, b.bill_number, b.bill_date, b.patient_id, b.admission_id,
+                   b.visit_id, b.appointment_id, b.gross_amount, b.discount_amount,
+                   b.tax_amount, b.net_amount, b.insurance_amount, b.patient_amount,
+                   b.bill_status, b.bill_type, b.notes,
+                   a.booking_id, a.appointment_date, a.appointment_time,
+                   COALESCE(d.display_name, d.first_name || ' ' || d.last_name) as doctor_name,
+                   dp.department_name
+            FROM bills b
+            LEFT JOIN appointments a ON b.appointment_id = a.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dp ON a.department_id = dp.id
+            WHERE b.patient_id = %s
+            ORDER BY b.bill_date DESC, b.bill_id DESC;
+        """, (patient_id,))
+        bill_rows = cur.fetchall()
+
+        records = []
+        total_billed = 0.0
+        total_paid_all = 0.0
+        hospital_sum = 0.0
+        consultations_sum = 0.0
+        pharmacy_sum = 0.0
+        diagnostic_sum = 0.0
+
+        for row in bill_rows:
+            (b_id, b_num, b_date, pat_id, adm_id, vis_id, appt_id, gross, disc, tax,
+             net, ins_amt, pat_amt, b_stat, b_type, notes,
+             booking_id, appt_date, appt_time, doc_name, dept_name) = row
+
+            net_val = float(net or 0.0)
+            pat_val = float(pat_amt if pat_amt is not None else net_val)
+
+            # Payments for this bill
+            cur.execute("""
+                SELECT id, payment_reference, amount, payment_method, payment_status,
+                       transaction_reference, payment_date
+                FROM payments
+                WHERE bill_id = %s OR (appointment_id IS NOT NULL AND appointment_id = %s)
+                ORDER BY id DESC;
+            """, (b_id, appt_id or -1))
+            p_rows = cur.fetchall()
+
+            paid_val = 0.0
+            pay_list = []
+            for p in p_rows:
+                p_amt = float(p[2] or 0.0)
+                p_stat = (p[4] or "").upper()
+                if p_stat in ('SUCCESS', 'PAID', 'COMPLETED'):
+                    paid_val += p_amt
+                pay_list.append({
+                    "id": p[0],
+                    "payment_id": p[0],
+                    "reference": p[1] or f"PAY-{p[0]}",
+                    "amount": p_amt,
+                    "method": p[3] or "UPI",
+                    "status": p_stat,
+                    "transaction_reference": p[5] or "—",
+                    "date": p[6].strftime("%d %b %Y, %I:%M %p") if p[6] and hasattr(p[6], 'strftime') else str(p[6])[:19]
+                })
+
+            cur.execute("SELECT COALESCE(SUM(refund_amount), 0) FROM refunds WHERE bill_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED')", (b_id,))
+            rf_val = float(cur.fetchone()[0] or 0.0)
+            paid_val = max(0.0, paid_val - rf_val)
+
+            outstanding_val = max(0.0, pat_val - paid_val)
+            if b_stat in ('Settled', 'Paid') and paid_val == 0:
+                paid_val = pat_val
+                outstanding_val = 0.0
+            elif outstanding_val <= 0:
+                b_stat = 'Settled'
+                outstanding_val = 0.0
+            elif paid_val > 0:
+                b_stat = 'Partially Paid'
+            else:
+                b_stat = 'Pending'
+
+            # Line items
+            cur.execute("""
+                SELECT description, quantity, unit_price, net_amount, source_type, source_order_id, source_service_code
+                FROM bill_items WHERE bill_id = %s ORDER BY bill_item_id ASC;
+            """, (b_id,))
+            items = [{
+                "description": bi[0], "quantity": bi[1], "unit_price": float(bi[2] or 0),
+                "net_amount": float(bi[3] or 0), "source_type": bi[4], "source_order_id": bi[5],
+                "service_code": bi[6]
+            } for bi in cur.fetchall()]
+
+            b_type_clean = (b_type or "").upper()
+            if not b_type_clean:
+                b_type_clean = 'OUTPATIENT' if appt_id else ('INPATIENT' if adm_id else 'HOSPITAL')
+
+            desc = notes or (f"Specialist Outpatient Consultation - {doc_name} ({dept_name})" if appt_id else (f"Hospital Inpatient Care ({b_num})" if adm_id else f"Hospital Service Bill ({b_num})"))
+            if items and items[0].get("description"):
+                desc = items[0]["description"]
+
+            if b_type_clean == 'OUTPATIENT':
+                consultations_sum += net_val
+            elif b_type_clean == 'INPATIENT':
+                hospital_sum += net_val
+            elif b_type_clean == 'PHARMACY':
+                pharmacy_sum += net_val
+            else:
+                hospital_sum += net_val
+
+            total_billed += net_val
+            total_paid_all += paid_val
+
+            records.append({
+                "id": f"bill-{b_id}",
+                "bill_id": b_id,
+                "bill_number": b_num,
+                "patient_id": patient_id,
+                "patient_name": p_name,
+                "patient_code": p_code,
+                "appointment_id": appt_id,
+                "admission_id": adm_id,
+                "date": b_date.strftime("%d %b %Y") if b_date and hasattr(b_date, 'strftime') else str(b_date)[:10],
+                "bill_type": b_type_clean,
+                "reason": desc,
+                "doctor": doc_name or "—",
+                "department": dept_name or "—",
+                "total_amount": net_val,
+                "paid_amount": paid_val,
+                "outstanding_balance": outstanding_val,
+                "status": b_stat,
+                "payment_reference": pay_list[0]["reference"] if pay_list else "—",
+                "transaction_reference": pay_list[0]["transaction_reference"] if pay_list else "—",
+                "payment_method": pay_list[0]["method"] if pay_list else "—",
+                "items": items,
+                "payments": pay_list
+            })
+
+        # 2. Standalone / Unbilled patient charges (e.g. Chest X-ray, Lab tests)
+        cur.execute("""
+            SELECT id, source_type, source_order_id, service_code, service_name,
+                   view, amount, currency, billing_status, source, created_at
+            FROM patient_charges
+            WHERE patient_id = %s AND billing_status NOT IN ('CANCELLED')
+            ORDER BY created_at DESC;
+        """, (patient_id,))
+        for chg in cur.fetchall():
+            c_id, s_type, s_order, s_code, s_name, view, c_amt, curr, c_stat, src, c_dt = chg
+            c_amt_val = float(c_amt or 0.0)
+
+            # Check if this order is already itemized in one of the bills above
+            already_in_bill = any(
+                itm.get("source_order_id") == str(s_order) and itm.get("source_type") == s_type
+                for rec in records for itm in rec.get("items", [])
+            )
+            if already_in_bill:
+                continue
+
+            st_clean = 'Settled' if (c_stat or "").upper() == 'PAID' else 'Pending'
+            paid_c = c_amt_val if st_clean == 'Settled' else 0.0
+            out_c = max(0.0, c_amt_val - paid_c)
+
+            diagnostic_sum += c_amt_val
+            total_billed += c_amt_val
+            total_paid_all += paid_c
+
+            b_type_chg = 'RADIOLOGY' if s_type == 'XRAY' else ('LABORATORY' if s_type == 'LAB' else 'DIAGNOSTIC')
+            reason_chg = f"{s_name} ({view})" if view else s_name
+            dept_chg = 'Radiology' if s_type == 'XRAY' else ('Laboratory' if s_type == 'LAB' else 'Diagnostics')
+
+            records.append({
+                "id": f"charge-{c_id}",
+                "bill_id": None,
+                "charge_id": c_id,
+                "bill_number": f"CHG-{c_id}",
+                "patient_id": patient_id,
+                "patient_name": p_name,
+                "patient_code": p_code,
+                "appointment_id": None,
+                "admission_id": None,
+                "date": c_dt.strftime("%d %b %Y") if c_dt and hasattr(c_dt, 'strftime') else str(c_dt)[:10],
+                "bill_type": b_type_chg,
+                "reason": reason_chg,
+                "doctor": "—",
+                "department": dept_chg,
+                "total_amount": c_amt_val,
+                "paid_amount": paid_c,
+                "outstanding_balance": out_c,
+                "status": st_clean,
+                "payment_reference": "—",
+                "transaction_reference": "—",
+                "payment_method": "—",
+                "items": [{
+                    "description": reason_chg, "quantity": 1, "unit_price": c_amt_val,
+                    "net_amount": c_amt_val, "source_type": s_type, "source_order_id": s_order
+                }],
+                "payments": []
+            })
+
+        # 3. All payments for patient
+        cur.execute("""
+            SELECT p.id, p.payment_reference, p.amount, p.currency, p.payment_method,
+                   p.payment_status, p.transaction_reference, p.payment_date, p.created_at,
+                   p.bill_id, p.appointment_id, b.bill_number, a.booking_id AS booking_reference,
+                   COALESCE(d.display_name, d.first_name || ' ' || d.last_name) AS doctor_name,
+                   dp.department_name
+            FROM payments p
+            LEFT JOIN bills b ON p.bill_id = b.bill_id
+            LEFT JOIN appointments a ON p.appointment_id = a.id
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dp ON a.department_id = dp.id
+            WHERE p.patient_id = %s
+            ORDER BY p.id DESC;
+        """, (patient_id,))
+        all_payments = []
+        for r in cur.fetchall():
+            amt = float(r[2] or 0.0)
+            p_dt = r[7] or r[8]
+            dt_str = p_dt.strftime("%d %b %Y, %I:%M %p") if p_dt and hasattr(p_dt, "strftime") else str(p_dt)[:19] if p_dt else "—"
+
+            if r[9] and not r[10]:
+                purpose = f"Hospital Bill ({r[11] or f'Bill #{r[9]}'})"
+                p_code_purp = "BILL_PAYMENT"
+            elif r[10]:
+                doc_str = f" - Dr. {r[13]}" if r[13] else ""
+                purpose = f"Consultation ({r[12] or f'Appt #{r[10]}'}{doc_str})"
+                p_code_purp = "APPOINTMENT_PAYMENT"
+            else:
+                purpose = "Hospital Service Payment"
+                p_code_purp = "GENERAL_PAYMENT"
+
+            all_payments.append({
+                "payment_id": r[0],
+                "reference": r[1] or f"PAY-{r[0]}",
+                "amount": amt,
+                "currency": r[3] or "INR",
+                "method": r[4] or "UPI",
+                "status": (r[5] or "SUCCESS").upper(),
+                "transaction_reference": r[6] or "—",
+                "date": dt_str,
+                "purpose": purpose,
+                "purpose_code": p_code_purp,
+                "bill_id": r[9],
+                "bill_number": r[11],
+                "appointment_id": r[10]
+            })
+
+        total_outstanding = max(0.0, sum(r["outstanding_balance"] for r in records))
+
+        summary = {
+            "total_billed": round(total_billed, 2),
+            "hospital_accommodation": round(hospital_sum, 2),
+            "consultations": round(consultations_sum, 2),
+            "pharmacy": round(pharmacy_sum, 2),
+            "diagnostic": round(diagnostic_sum, 2),
+            "total_paid": round(total_paid_all, 2),
+            "outstanding_balance": round(total_outstanding, 2),
+            "is_cleared": total_outstanding <= 0.0,
+            "total_invoices": len(records)
+        }
+
+        return {
+            "patient": {
+                "patient_id": patient_id,
+                "patient_code": p_code,
+                "name": p_name,
+                "phone": p_phone
+            },
+            "summary": summary,
+            "records": records,
+            "payments": all_payments
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
 def get_authoritative_patient_bill(patient_id: Any) -> Optional[Dict[str, Any]]:
     """
-    Authoritative bill retrieval directly from database tables:
-    - bills: master bill record & amounts
-    - bill_items: itemized charges
-    - payments: successful payment transactions
-    - refunds: approved refund adjustments
-    - insurance_claims / patient_insurance: insurance coverage & settlements
-
+    Authoritative bill retrieval directly from consolidated database records.
+    Returns primary active/pending bill details along with full ledger breakdown.
     Formula:
       Outstanding Balance = Total Payable Amount - Successful Payments + Refunds - Insurance Settlements
     """
@@ -521,219 +836,102 @@ def get_authoritative_patient_bill(patient_id: Any) -> Optional[Dict[str, Any]]:
     if not patient_id:
         return None
 
+    statement = get_patient_unified_billing_statement(patient_id)
+    records = statement.get("records", [])
+    summary = statement.get("summary", {})
+    pat_info = statement.get("patient", {})
+
+    if not records:
+        return None
+
+    # Priority 1: First pending record with outstanding balance
+    pending_records = [r for r in records if r.get("outstanding_balance", 0) > 0]
+    active_rec = pending_records[0] if pending_records else records[0]
+
+    b_id = active_rec.get("bill_id")
+    b_num = active_rec.get("bill_number")
+    b_date = active_rec.get("date")
+    b_stat = "Pending" if pending_records else "Settled"
+    adm_id = active_rec.get("admission_id")
+    adm_num = f"MER-ADM-{str(adm_id).zfill(7)}" if adm_id else "OPD Encounter"
+
+    total_payable = summary.get("outstanding_balance", 0.0) if pending_records else summary.get("total_billed", 0.0)
+    net_amt = summary.get("total_billed", 0.0)
+    net_paid = summary.get("total_paid", 0.0)
+    outstanding_balance = summary.get("outstanding_balance", 0.0)
+
+    # Format line items from pending records (or all recent records)
+    line_items = []
+    for r in (pending_records if pending_records else records[:5]):
+        line_items.append({
+            "item_name": r.get("reason") or r.get("bill_number"),
+            "item_description": r.get("reason"),
+            "amount": r.get("outstanding_balance") if pending_records else r.get("total_amount"),
+            "quantity": 1,
+            "date": r.get("date"),
+            "bill_number": r.get("bill_number"),
+            "status": r.get("status")
+        })
+
+    # Insurance check
+    insurance_info = None
     conn = db_config.get_db_connection()
     cur = conn.cursor()
     try:
-        # 1. Fetch latest bill for patient
         cur.execute("""
-            SELECT b.bill_id, b.bill_number, b.bill_date, b.patient_id, b.admission_id,
-                   b.visit_id, b.gross_amount, b.discount_amount, b.tax_amount, b.net_amount,
-                   b.insurance_amount, b.patient_amount, b.bill_status,
-                   p.first_name, p.last_name, p.patient_code,
-                   a.admission_number, a.admission_date,
-                   b.patient_settled_baseline, b.insurance_settled_baseline
-            FROM bills b
-            JOIN patients p ON b.patient_id = p.id
-            LEFT JOIN admissions a ON b.admission_id = a.admission_id
-            WHERE b.patient_id = %s
-            ORDER BY (b.admission_id IS NOT NULL) DESC, b.bill_id DESC LIMIT 1;
+            SELECT insurance_provider, policy_number, policy_type, coverage_limit, status
+            FROM patient_insurance
+            WHERE patient_id = %s AND status = 'Active'
+            ORDER BY insurance_id DESC LIMIT 1;
         """, (patient_id,))
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        bill_id = row[0]
-        bill_num = row[1]
-        bill_date = row[2].strftime("%d %b %Y") if row[2] and hasattr(row[2], "strftime") else str(row[2])[:10] if row[2] else "—"
-        p_id = row[3]
-        adm_id = row[4]
-        gross_amt = float(row[6] or 0.0)
-        discount_amt = float(row[7] or 0.0)
-        tax_amt = float(row[8] or 0.0)
-        net_amt = float(row[9] or 0.0)
-        ins_amt = float(row[10] or 0.0)
-        pat_amt = float(row[11] if row[11] is not None else net_amt)
-        b_status = row[12] or "Pending"
-        p_name = f"{row[13] or ''} {row[14] or ''}".strip() or f"Patient {p_id}"
-        p_code = row[15] or f"MER-PAT-{str(p_id).zfill(7)}"
-        adm_num = row[16] or (f"MER-ADM-{str(adm_id).zfill(7)}" if adm_id else "OPD Encounter")
-
-        # 2. Itemized bill items
-        cur.execute("""
-            SELECT description, quantity, unit_price, net_amount, service_date
-            FROM bill_items
-            WHERE bill_id = %s
-            ORDER BY bill_item_id ASC;
-        """, (bill_id,))
-        items = []
-        for it in cur.fetchall():
-            it_date = it[4].strftime("%d %b") if it[4] and hasattr(it[4], "strftime") else str(it[4])[:10] if it[4] else ""
-            items.append({
-                "description": it[0] or "Hospital Service",
-                "quantity": it[1] or 1,
-                "unit_price": float(it[2] or 0.0),
-                "net_amount": float(it[3] or 0.0),
-                "date": it_date
-            })
-
-        if not items:
-            date_str = bill_date.strftime("%d %b") if hasattr(bill_date, "strftime") else str(bill_date)[:10] if bill_date else "Today"
-            if not adm_id or net_amt <= 2000:
-                items = [{
-                    "description": "Comprehensive Outpatient Clinical Specialist Consultation & Assessment",
-                    "quantity": 1,
-                    "unit_price": gross_amt,
-                    "net_amount": net_amt,
-                    "date": date_str
-                }]
-            else:
-                cat_data = [
-                    ("Inpatient Room Accommodation & Inpatient Bed Charges", 0.35),
-                    ("Attending Consultant & Specialist Clinical Daily Rounds", 0.25),
-                    ("24/7 Dedicated Inpatient Nursing Care & Clinical Supervision", 0.15),
-                    ("Diagnostic Laboratory & Imaging Workup Panel", 0.15),
-                    ("Inpatient Clinical Formulations, IV Infusions & Consumables", 0.10)
-                ]
-                running_net = 0.0
-                for idx, (cat_name, ratio) in enumerate(cat_data):
-                    if idx == len(cat_data) - 1:
-                        it_net = round(net_amt - running_net, 2)
-                    else:
-                        it_net = round(net_amt * ratio, 2)
-                        running_net += it_net
-                    items.append({
-                        "description": cat_name,
-                        "quantity": 1,
-                        "unit_price": it_net,
-                        "net_amount": it_net,
-                        "date": date_str
-                    })
-
-        # 3. Successful payments on this bill
-        cur.execute("""
-            SELECT id, payment_reference, amount, payment_method, payment_status,
-                   transaction_reference, payment_date
-            FROM payments
-            WHERE bill_id = %s
-            ORDER BY id DESC;
-        """, (bill_id,))
-        payments = []
-        total_paid_successful = 0.0
-        for p in cur.fetchall():
-            p_amt = float(p[2] or 0.0)
-            p_stat = (p[4] or "").upper()
-            if p_stat in ("SUCCESS", "PAID", "COMPLETED"):
-                total_paid_successful += p_amt
-            p_dt = p[6].strftime("%d %b %Y, %I:%M %p") if p[6] and hasattr(p[6], "strftime") else str(p[6])[:19] if p[6] else ""
-            payments.append({
-                "payment_id": p[0],
-                "reference": p[1] or f"PAY-{p[0]}",
-                "amount": p_amt,
-                "method": p[3] or "UPI",
-                "status": p_stat,
-                "transaction_reference": p[5] or "—",
-                "date": p_dt
-            })
-
-        # 4. Refunds
-        cur.execute("""
-            SELECT COALESCE(SUM(refund_amount), 0.0)
-            FROM refunds
-            WHERE bill_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED');
-        """, (bill_id,))
-        rf_row = cur.fetchone()
-        refund_total = float(rf_row[0] or 0.0) if rf_row else 0.0
-
-        # Patient balance excludes the insurer's separately tracked settled
-        # baseline; only the patient's prior settled share offsets this due.
-        settled_baseline = float(row[18] or 0.0)
-        net_paid = max(0.0, total_paid_successful - refund_total) + settled_baseline
-
-        # 5. Insurance Claims
-        cur.execute("""
-            SELECT claim_number, insurance_provider, policy_number, claimed_amount,
-                   approved_amount, settled_amount, claim_status
-            FROM insurance_claims
-            WHERE bill_id = %s
-            ORDER BY claim_id DESC LIMIT 1;
-        """, (bill_id,))
-        claim_row = cur.fetchone()
-        insurance_info = None
-        settled_by_insurance = 0.0
-        if claim_row:
-            settled_by_insurance = float(claim_row[5] or 0.0)
+        pi_row = cur.fetchone()
+        if pi_row:
             insurance_info = {
-                "claim_number": claim_row[0],
-                "provider": claim_row[1],
-                "policy_number": claim_row[2] or "—",
-                "claimed_amount": float(claim_row[3] or 0.0),
-                "approved_amount": float(claim_row[4] or 0.0),
-                "settled_amount": settled_by_insurance,
-                "status": claim_row[6] or "Under Review"
+                "claim_number": "DIRECT-TPA",
+                "provider": pi_row[0],
+                "policy_number": pi_row[1] or "—",
+                "claimed_amount": 0.0,
+                "approved_amount": float(pi_row[3] or 0.0),
+                "settled_amount": 0.0,
+                "status": "Active Policy (Direct / TPA)"
             }
-        else:
-            # Check patient_insurance active policy
-            cur.execute("""
-                SELECT insurance_provider, policy_number, policy_type, coverage_limit, status
-                FROM patient_insurance
-                WHERE patient_id = %s AND status = 'Active'
-                ORDER BY insurance_id DESC LIMIT 1;
-            """, (p_id,))
-            pi_row = cur.fetchone()
-            if pi_row:
-                insurance_info = {
-                    "claim_number": "DIRECT-TPA",
-                    "provider": pi_row[0],
-                    "policy_number": pi_row[1] or "—",
-                    "claimed_amount": 0.0,
-                    "approved_amount": float(pi_row[3] or 0.0),
-                    "settled_amount": 0.0,
-                    "status": "Active Policy (Direct / TPA)"
-                }
-
-        # Authoritative Balance Calculation:
-        # Total payable = patient_amount (if patient co-pay determined) or net_amount
-        total_payable = pat_amt if pat_amt > 0 else net_amt
-        if b_status in ("Settled", "Paid"):
-            outstanding_balance = 0.0
-            if net_paid == 0:
-                net_paid = total_payable
-        else:
-            outstanding_balance = max(0.0, total_payable - net_paid - settled_by_insurance)
-
-        return {
-            "bill_id": bill_id,
-            "bill_number": bill_num,
-            "bill_date": bill_date,
-            "patient_id": p_id,
-            "patient_name": p_name,
-            "patient_code": p_code,
-            "admission_id": adm_id,
-            "admission_number": adm_num,
-            "gross_amount": gross_amt,
-            "discount_amount": discount_amt,
-            "tax_amount": tax_amt,
-            "net_amount": net_amt,
-            "patient_amount": pat_amt,
-            "insurance_amount": ins_amt,
-            "bill_status": b_status,
-            "total_payable": total_payable,
-            "total_payable_amount": total_payable,
-            "total_bill_amount": net_amt,
-            "total_paid": net_paid,
-            "amount_paid": net_paid,
-            "outstanding_balance": outstanding_balance,
-            "outstanding": outstanding_balance,
-            "net_payments": net_paid,
-            "insurance_settlements": settled_by_insurance,
-            "items": items,
-            "payments": payments,
-            "refunds": refund_total,
-            "insurance": insurance_info
-        }
     finally:
         cur.close()
         conn.close()
+
+    return {
+        "bill_id": b_id,
+        "bill_number": b_num,
+        "bill_date": b_date,
+        "patient_id": patient_id,
+        "patient_name": pat_info.get("name"),
+        "patient_code": pat_info.get("patient_code"),
+        "admission_id": adm_id,
+        "admission_number": adm_num,
+        "gross_amount": net_amt,
+        "discount_amount": 0.0,
+        "tax_amount": 0.0,
+        "net_amount": net_amt,
+        "patient_amount": net_amt,
+        "insurance_amount": 0.0,
+        "bill_status": b_stat,
+        "total_payable": total_payable,
+        "total_payable_amount": total_payable,
+        "total_bill_amount": net_amt,
+        "total_paid": net_paid,
+        "amount_paid": net_paid,
+        "outstanding_balance": outstanding_balance,
+        "outstanding": outstanding_balance,
+        "net_payments": net_paid,
+        "insurance_settlements": 0.0,
+        "items": line_items,
+        "line_items": line_items,
+        "payments": statement.get("payments", []),
+        "refunds": 0.0,
+        "insurance": insurance_info,
+        "bills": records,
+        "summary": summary
+    }
 
 
 def get_patient_all_payment_history(patient_id: Any) -> List[Dict[str, Any]]:
@@ -751,14 +949,14 @@ def get_patient_all_payment_history(patient_id: Any) -> List[Dict[str, Any]]:
         cur.execute("""
             SELECT p.id, p.payment_reference, p.amount, p.currency, p.payment_method,
                    p.payment_status, p.transaction_reference, p.payment_date, p.created_at,
-                   p.bill_id, p.appointment_id, b.bill_number, a.booking_reference,
-                   d.display_name AS doctor_name
+                   p.bill_id, p.appointment_id, b.bill_number, a.booking_id AS booking_reference,
+                   COALESCE(d.display_name, d.first_name || ' ' || d.last_name) AS doctor_name
             FROM payments p
             LEFT JOIN bills b ON p.bill_id = b.bill_id
             LEFT JOIN appointments a ON p.appointment_id = a.id
             LEFT JOIN doctors d ON a.doctor_id = d.id
             WHERE p.patient_id = %s
-            ORDER BY p.id DESC LIMIT 20;
+            ORDER BY p.id DESC LIMIT 30;
         """, (patient_id,))
         rows = cur.fetchall()
         history = []
@@ -766,13 +964,13 @@ def get_patient_all_payment_history(patient_id: Any) -> List[Dict[str, Any]]:
             amt = float(r[2] or 0.0)
             p_dt = r[7] or r[8]
             dt_str = p_dt.strftime("%d %b %Y, %I:%M %p") if p_dt and hasattr(p_dt, "strftime") else str(p_dt)[:19] if p_dt else "—"
-            
+
             # Purpose determination
             if r[9] and not r[10]:
                 purpose = f"Hospital Bill ({r[11] or f'Bill #{r[9]}'})"
                 purpose_code = "BILL_PAYMENT"
             elif r[10]:
-                doc = f" - Dr. {r[13]}" if r[13] else ""
+                doc = f" - {r[13]}" if r[13] else ""
                 purpose = f"Consultation ({r[12] or f'Appt #{r[10]}'}{doc})"
                 purpose_code = "APPOINTMENT_PAYMENT"
             else:
@@ -994,6 +1192,340 @@ def get_patient_insurance_and_claims(patient_id: Any) -> Dict[str, Any]:
                 "claim_status": r[5] or "SUBMITTED"
             })
         return {"policies": policies, "claims": claims}
+    finally:
+        cur.close()
+        conn.close()
+
+
+def ensure_appointment_bill_and_payment(
+    appointment_id: int,
+    payment_id: Optional[int] = None,
+    amount: Optional[float] = None,
+    transaction_reference: Optional[str] = None,
+    payment_method: str = "UPI"
+) -> Dict[str, Any]:
+    """
+    Synchronizes an outpatient appointment with a canonical bill and payment record:
+    - Resolves appointment details (booking_id, patient_id, doctor, department, fee).
+    - Checks or creates a canonical 'bills' record for this appointment.
+    - Ensures bill_items has the consultation line item.
+    - Links or creates a successful 'payments' record linked to BOTH appointment_id and bill_id.
+    - Prevents duplicates and maintains financial ledger consistency.
+    """
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT a.id, a.booking_id, a.patient_id, a.doctor_id, a.department_id,
+                   a.appointment_date, a.appointment_time,
+                   COALESCE(d.consultation_fee, 500.0) as doc_fee,
+                   COALESCE(d.display_name, d.first_name || ' ' || d.last_name) as doc_name,
+                   COALESCE(dp.department_name, 'Outpatient Department') as dept_name
+            FROM appointments a
+            LEFT JOIN doctors d ON a.doctor_id = d.id
+            LEFT JOIN departments dp ON a.department_id = dp.id
+            WHERE a.id = %s;
+        """, (appointment_id,))
+        appt = cur.fetchone()
+        if not appt:
+            return {"success": False, "error": f"Appointment {appointment_id} not found"}
+
+        a_id, booking_id, pat_id, doc_id, dept_id, a_date, a_time, doc_fee, doc_name, dept_name = appt
+        final_amt = float(amount) if amount is not None else float(doc_fee or 500.0)
+        txn_ref = transaction_reference or f"TXN{datetime.now().strftime('%Y%m%d%H%M%S')}{random.randint(100, 999)}"
+
+        # 1. Check or create bill
+        cur.execute("SELECT bill_id, bill_number FROM bills WHERE appointment_id = %s LIMIT 1;", (a_id,))
+        b_row = cur.fetchone()
+        if b_row:
+            bill_id, bill_num = b_row[0], b_row[1]
+            cur.execute("""
+                UPDATE bills
+                SET net_amount = %s, patient_amount = %s, bill_status = 'Settled'
+                WHERE bill_id = %s;
+            """, (final_amt, final_amt, bill_id))
+        else:
+            bill_num = f"INV-2026-{booking_id}"
+            cur.execute("""
+                INSERT INTO bills (
+                    bill_number, bill_date, patient_id, appointment_id,
+                    gross_amount, discount_amount, tax_amount, net_amount,
+                    insurance_amount, patient_amount, bill_status, bill_type,
+                    notes
+                ) VALUES (
+                    %s, %s, %s, %s,
+                    %s, 0.0, 0.0, %s,
+                    0.0, %s, 'Settled', 'OUTPATIENT',
+                    %s
+                ) RETURNING bill_id;
+            """, (
+                bill_num, a_date or datetime.now().date(), pat_id, a_id,
+                final_amt, final_amt, final_amt,
+                f"Specialist Outpatient Consultation - Dr. {doc_name} ({dept_name})"
+            ))
+            bill_id = cur.fetchone()[0]
+
+        # Ensure bill item
+        cur.execute("SELECT bill_item_id FROM bill_items WHERE bill_id = %s LIMIT 1;", (bill_id,))
+        if not cur.fetchone():
+            cur.execute("""
+                INSERT INTO bill_items (
+                    bill_id, description, quantity, unit_price,
+                    gross_amount, net_amount, source_type, source_order_id, source_service_code
+                ) VALUES (
+                    %s, %s, 1, %s,
+                    %s, %s, 'APPOINTMENT', %s, 'SRV-OPD-CON'
+                );
+            """, (
+                bill_id, f"Specialist Consultation - Dr. {doc_name} ({dept_name})",
+                final_amt, final_amt, final_amt, booking_id
+            ))
+
+        # 2. Check or create/update payment
+        final_pay_id = None
+        if payment_id:
+            cur.execute("""
+                UPDATE payments
+                SET bill_id = %s,
+                    appointment_id = %s,
+                    patient_id = %s,
+                    amount = %s,
+                    payment_status = 'SUCCESS',
+                    payment_method = COALESCE(NULLIF(%s, ''), payment_method, 'UPI'),
+                    transaction_reference = COALESCE(NULLIF(%s, ''), transaction_reference, %s),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s;
+            """, (bill_id, a_id, pat_id, final_amt, payment_method, txn_ref, txn_ref, payment_id))
+            final_pay_id = payment_id
+        else:
+            cur.execute("""
+                SELECT id FROM payments
+                WHERE appointment_id = %s OR (bill_id = %s AND payment_status = 'SUCCESS')
+                LIMIT 1;
+            """, (a_id, bill_id))
+            p_exist = cur.fetchone()
+            if p_exist:
+                final_pay_id = p_exist[0]
+                cur.execute("""
+                    UPDATE payments
+                    SET bill_id = %s,
+                        appointment_id = %s,
+                        patient_id = %s,
+                        payment_status = 'SUCCESS',
+                        transaction_reference = COALESCE(NULLIF(%s, ''), transaction_reference, %s),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s;
+                """, (bill_id, a_id, pat_id, txn_ref, txn_ref, final_pay_id))
+            else:
+                pay_ref = f"PAY-OPD-{booking_id}"
+                cur.execute("""
+                    INSERT INTO payments (
+                        payment_reference, patient_id, appointment_id, bill_id,
+                        amount, currency, payment_method, payment_status, payment_date,
+                        payer_type, transaction_reference, created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s,
+                        %s, 'INR', %s, 'SUCCESS', CURRENT_TIMESTAMP,
+                        'PATIENT', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    ) RETURNING id;
+                """, (pay_ref, pat_id, a_id, bill_id, final_amt, payment_method, txn_ref))
+                final_pay_id = cur.fetchone()[0]
+
+        conn.commit()
+        return {
+            "success": True,
+            "bill_id": bill_id,
+            "bill_number": bill_num,
+            "payment_id": final_pay_id,
+            "amount": final_amt,
+            "transaction_reference": txn_ref
+        }
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
+    finally:
+        cur.close()
+        conn.close()
+
+
+def pay_patient_outstanding_balance(
+    patient_id: Any,
+    bill_id: Optional[int] = None,
+    charge_id: Optional[int] = None,
+    amount: Optional[float] = None,
+    payment_method: str = "UPI",
+    transaction_reference: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Authoritative payment handler for hospital bills and pending diagnostic charges.
+    Ensures mock payments apply ONLY against verified outstanding dues without
+    modifying or generating appointments.
+    """
+    patient_id = resolve_patient_id(patient_id)
+    if not patient_id:
+        return {"success": False, "error": "Invalid patient ID"}
+
+    conn = db_config.get_db_connection()
+    cur = conn.cursor()
+    try:
+        now_dt = datetime.now()
+        txn_ref = transaction_reference or f"TXN{now_dt.strftime('%Y%m%d%H%M%S')}{random.randint(100, 999)}"
+
+        # Case 1: Paying a specific unbilled patient_charge
+        if charge_id:
+            cur.execute("""
+                SELECT id, service_name, amount, billing_status
+                FROM patient_charges
+                WHERE id = %s AND patient_id = %s;
+            """, (charge_id, patient_id))
+            chg = cur.fetchone()
+            if not chg:
+                return {"success": False, "error": f"Charge {charge_id} not found for patient"}
+
+            c_amt = float(chg[2] or 0.0)
+            cur.execute("UPDATE patient_charges SET billing_status = 'SETTLED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (charge_id,))
+
+            pay_ref = f"PAY-CHG-{charge_id}"
+            cur.execute("""
+                INSERT INTO payments (
+                    payment_reference, patient_id, appointment_id, bill_id,
+                    amount, currency, payment_method, payment_status, payment_date,
+                    payer_type, transaction_reference, created_at, updated_at
+                ) VALUES (
+                    %s, %s, NULL, NULL,
+                    %s, 'INR', %s, 'SUCCESS', CURRENT_TIMESTAMP,
+                    'PATIENT', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id;
+            """, (pay_ref, patient_id, c_amt, payment_method, txn_ref))
+            p_id = cur.fetchone()[0]
+            conn.commit()
+
+            return {
+                "success": True,
+                "payment_id": p_id,
+                "payment_reference": pay_ref,
+                "transaction_reference": txn_ref,
+                "amount": c_amt,
+                "paid_amount": c_amt,
+                "target_type": "CHARGE",
+                "charge_id": charge_id,
+                "service_name": chg[1]
+            }
+
+        # Case 2: Paying a specific bill
+        if bill_id:
+            cur.execute("""
+                SELECT b.bill_id, b.bill_number, b.net_amount, b.patient_amount, b.bill_status
+                FROM bills b
+                WHERE b.bill_id = %s AND b.patient_id = %s;
+            """, (bill_id, patient_id))
+            b_row = cur.fetchone()
+            if not b_row:
+                return {"success": False, "error": f"Bill {bill_id} not found for patient"}
+
+            b_id, b_num, net_amt, pat_amt, b_stat = b_row
+            due_baseline = float(pat_amt if pat_amt is not None else (net_amt or 0.0))
+
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0) FROM payments
+                WHERE bill_id = %s AND payment_status = 'SUCCESS';
+            """, (b_id,))
+            already_paid = float(cur.fetchone()[0] or 0.0)
+
+            cur.execute("SELECT COALESCE(SUM(refund_amount), 0) FROM refunds WHERE bill_id = %s AND UPPER(status) IN ('SUCCESS', 'COMPLETED')", (b_id,))
+            already_refunded = float(cur.fetchone()[0] or 0.0)
+            net_already_paid = max(0.0, already_paid - already_refunded)
+
+            verified_outstanding = max(0.0, due_baseline - net_already_paid)
+            if verified_outstanding <= 0.0:
+                return {"success": False, "error": "This bill is already settled in full."}
+
+            pay_amount = min(verified_outstanding, float(amount)) if amount is not None else verified_outstanding
+            if pay_amount <= 0.0:
+                return {"success": False, "error": "Payment amount must be greater than zero."}
+
+            pay_ref = f"PAY-BILL-{b_num}"
+            cur.execute("""
+                INSERT INTO payments (
+                    payment_reference, patient_id, appointment_id, bill_id,
+                    amount, currency, payment_method, payment_status, payment_date,
+                    payer_type, transaction_reference, created_at, updated_at
+                ) VALUES (
+                    %s, %s, NULL, %s,
+                    %s, 'INR', %s, 'SUCCESS', CURRENT_TIMESTAMP,
+                    'PATIENT', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id;
+            """, (pay_ref, patient_id, b_id, pay_amount, payment_method, txn_ref))
+            p_id = cur.fetchone()[0]
+
+            new_paid_total = net_already_paid + pay_amount
+            new_status = 'Settled' if new_paid_total >= due_baseline else 'Partially Paid'
+            cur.execute("UPDATE bills SET bill_status = %s WHERE bill_id = %s;", (new_status, b_id))
+            conn.commit()
+
+            return {
+                "success": True,
+                "payment_id": p_id,
+                "payment_reference": pay_ref,
+                "transaction_reference": txn_ref,
+                "amount": pay_amount,
+                "target_type": "BILL",
+                "bill_id": b_id,
+                "bill_number": b_num,
+                "new_bill_status": new_status,
+                "remaining_balance": max(0.0, due_baseline - new_paid_total)
+            }
+
+        # Case 3: Overall balance payment
+        stmt = get_patient_unified_billing_statement(patient_id)
+        out_bal = stmt["summary"]["outstanding_balance"]
+        if out_bal <= 0.0:
+            return {"success": False, "error": "All accounts and bills are fully settled."}
+
+        pay_amount = min(out_bal, float(amount)) if amount is not None else out_bal
+        remaining = pay_amount
+        payments_made = []
+
+        for rec in stmt["records"]:
+            if remaining <= 0:
+                break
+            rec_bal = rec["outstanding_balance"]
+            if rec_bal <= 0:
+                continue
+
+            alloc = min(rec_bal, remaining)
+            if rec.get("bill_id"):
+                sub_res = pay_patient_outstanding_balance(
+                    patient_id=patient_id,
+                    bill_id=rec["bill_id"],
+                    amount=alloc,
+                    payment_method=payment_method,
+                    transaction_reference=txn_ref
+                )
+                if sub_res.get("success"):
+                    payments_made.append(sub_res)
+                    remaining -= alloc
+            elif rec.get("charge_id"):
+                sub_res = pay_patient_outstanding_balance(
+                    patient_id=patient_id,
+                    charge_id=rec["charge_id"],
+                    amount=alloc,
+                    payment_method=payment_method,
+                    transaction_reference=txn_ref
+                )
+                if sub_res.get("success"):
+                    payments_made.append(sub_res)
+                    remaining -= alloc
+
+        return {
+            "success": True,
+            "total_paid": pay_amount,
+            "details": payments_made,
+            "transaction_reference": txn_ref
+        }
+    except Exception as e:
+        conn.rollback()
+        return {"success": False, "error": str(e)}
     finally:
         cur.close()
         conn.close()

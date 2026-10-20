@@ -149,5 +149,12 @@ export const financialApi = {
     return request(`/api/finance/bills/${billId}/clear?${q.toString()}`, {
       method: 'POST'
     });
-  }
+  },
+
+  getPatientBillingStatement: (patientId) => request(`/api/finance/patients/${patientId}/statement`),
+
+  payOutstandingBalance: (payload) => request('/api/finance/pay-balance', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 };

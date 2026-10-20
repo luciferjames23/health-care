@@ -882,6 +882,44 @@ def get_bill_by_patient(patient_id: Any):
         conn.close()
 
 
+@router.get("/patients/{patient_id}/statement")
+@router.get("/patients/{patient_id}/billing-statement")
+def get_patient_unified_statement_endpoint(patient_id: Any):
+    """
+    Returns authoritative consolidated billing statement for patient across all sources.
+    """
+    import services.patient_360_service as patient_360_service
+    res = patient_360_service.get_patient_unified_billing_statement(patient_id)
+    return {"success": True, **res}
+
+
+@router.post("/pay-balance")
+def pay_balance_endpoint(
+    patient_id: Any = Body(...),
+    bill_id: Optional[int] = Body(None),
+    charge_id: Optional[int] = Body(None),
+    amount: Optional[float] = Body(None),
+    payment_method: str = Body("UPI"),
+    transaction_reference: Optional[str] = Body(None)
+):
+    """
+    Records payment against verified outstanding dues only.
+    Prevents duplicate payments and synchronizes financial ledgers without touching appointments.
+    """
+    import services.patient_360_service as patient_360_service
+    res = patient_360_service.pay_patient_outstanding_balance(
+        patient_id=patient_id,
+        bill_id=bill_id,
+        charge_id=charge_id,
+        amount=amount,
+        payment_method=payment_method,
+        transaction_reference=transaction_reference
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Payment failed"))
+    return res
+
+
 @router.get("/bills/{bill_id}")
 def get_bill_detail(bill_id: Any):
     """

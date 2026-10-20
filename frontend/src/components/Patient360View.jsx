@@ -124,6 +124,134 @@ export default function Patient360View({
   const [signedSoapNotes, setSignedSoapNotes] = useState([]);
   const [loadingPatient360, setLoadingPatient360] = useState(true);
 
+  // Authoritative Unified Billing Statement State
+  const [billingStatement, setBillingStatement] = useState(null);
+  const [loadingBillingStatement, setLoadingBillingStatement] = useState(false);
+  const [billingFilter, setBillingFilter] = useState({
+    type: 'ALL',
+    status: 'ALL',
+    doctor: 'ALL',
+    dept: 'ALL',
+    search: '',
+    dateFrom: '',
+    dateTo: '',
+    paymentMethod: 'ALL'
+  });
+  const [selectedBillingItem, setSelectedBillingItem] = useState(null);
+  const [payingBillItem, setPayingBillItem] = useState(null);
+  const [payAmountInput, setPayAmountInput] = useState('');
+  const [payMethodInput, setPayMethodInput] = useState('UPI');
+  const [payingLoading, setPayingLoading] = useState(false);
+  const [payError, setPayError] = useState(null);
+  const [paySuccess, setPaySuccess] = useState(null);
+
+  const refreshBillingStatement = async () => {
+    const targetPid = patient?.patient_id ||
+                      patient?.raw?.patient_id ||
+                      patient?.id ||
+                      patient?.patient_code ||
+                      patient?.mrn ||
+                      patient?.uhid ||
+                      livePatientDetails?.id ||
+                      livePatientDetails?.patient_code ||
+                      p?.patient_id ||
+                      p?.uhid;
+    if (!targetPid) {
+      setBillingStatement(null);
+      return;
+    }
+    setLoadingBillingStatement(true);
+    try {
+      const res = await financialApi.getPatientBillingStatement(targetPid);
+      if (res && res.success !== false) {
+        setBillingStatement(res);
+      }
+    } catch (err) {
+      console.debug("Failed to fetch billing statement:", err);
+    } finally {
+      setLoadingBillingStatement(false);
+    }
+  };
+
+  useEffect(() => {
+    // Canonical patient isolation: Switching patients clears stale billing/payment context immediately
+    setBillingStatement(null);
+    setSelectedBillingItem(null);
+    setPayingBillItem(null);
+    setPayError(null);
+    setPaySuccess(null);
+    refreshBillingStatement();
+  }, [
+    patient?.patient_id, 
+    patient?.raw?.patient_id, 
+    patient?.id, 
+    patient?.patient_code, 
+    patient?.mrn, 
+    patient?.uhid,
+    livePatientDetails?.id
+  ]);
+
+  useEffect(() => {
+    if (activeTab === 'Billing') {
+      refreshBillingStatement();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleSync = (e) => {
+      if (['bill_cleared', 'bill_paid', 'payment_recorded', 'appointment_booked'].includes(e.detail?.action)) {
+        refreshBillingStatement();
+      }
+    };
+    window.addEventListener('hc_api_updated', handleSync);
+    return () => window.removeEventListener('hc_api_updated', handleSync);
+  }, [patient?.patient_id, patient?.raw?.patient_id, patient?.id, patient?.patient_code]);
+
+  const handleExecutePayment = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!payingBillItem) return;
+    const amountToPay = Number(payAmountInput);
+    if (!amountToPay || amountToPay <= 0) {
+      setPayError('Please enter a valid payment amount greater than zero.');
+      return;
+    }
+    const maxDue = Number(payingBillItem.outstanding_balance || 0);
+    if (amountToPay > maxDue) {
+      setPayError(`Payment cannot exceed verified outstanding balance of ₹${maxDue.toLocaleString('en-IN')}`);
+      return;
+    }
+    setPayingLoading(true);
+    setPayError(null);
+    try {
+      const payload = {
+        patient_id: payingBillItem.patient_id || p.patient_id,
+        bill_id: payingBillItem.bill_id || null,
+        charge_id: payingBillItem.charge_id || null,
+        amount: amountToPay,
+        payment_method: payMethodInput || 'UPI'
+      };
+      const res = await financialApi.payOutstandingBalance(payload);
+      if (res && res.success) {
+        setPaySuccess(`Payment of ₹${amountToPay.toLocaleString('en-IN')} successful! Ref: ${res.payment_reference || 'CONFIRMED'}`);
+        await refreshBillingStatement();
+        if (selectedBillingItem && (selectedBillingItem.id === payingBillItem.id || selectedBillingItem.bill_id === payingBillItem.bill_id)) {
+          setSelectedBillingItem(null);
+        }
+        setPayingBillItem(null);
+        window.dispatchEvent(new CustomEvent('hc_api_updated', {
+          detail: { action: 'bill_paid', patient_id: payload.patient_id }
+        }));
+      } else {
+        throw new Error(res?.detail || 'Payment was not processed.');
+      }
+    } catch (err) {
+      console.error("Payment failed:", err);
+      setPayError(err.message || 'Payment processing failed. Please try again.');
+    } finally {
+      setPayingLoading(false);
+    }
+  };
+
   useEffect(() => {
     const pid = patient?.patient_id || patient?.raw?.patient_id || patient?.id;
     if (!pid) { setSignedSoapNotes([]); return; }
@@ -1278,6 +1406,77 @@ export default function Patient360View({
     }
     return 'Inpatient Services & Itemized Charges';
   }, [p.isOP, p.isER, liveBill]);
+
+  const uniqueBillingDoctors = useMemo(() => {
+    const list = new Set();
+    (billingStatement?.records || []).forEach(r => {
+      if (r.doctor && r.doctor !== '—' && r.doctor !== '-') list.add(r.doctor);
+    });
+    return Array.from(list);
+  }, [billingStatement?.records]);
+
+  const uniqueBillingDepts = useMemo(() => {
+    const list = new Set();
+    (billingStatement?.records || []).forEach(r => {
+      if (r.department && r.department !== '—' && r.department !== '-') list.add(r.department);
+    });
+    return Array.from(list);
+  }, [billingStatement?.records]);
+
+  const filteredBillingRecords = useMemo(() => {
+    const records = billingStatement?.records || [];
+    return records.filter(r => {
+      if (billingFilter.type !== 'ALL') {
+        const bt = String(r.bill_type || '').toUpperCase();
+        if (billingFilter.type === 'DIAGNOSTIC') {
+          if (!['DIAGNOSTIC', 'RADIOLOGY', 'LAB', 'XRAY'].includes(bt)) return false;
+        } else if (bt !== billingFilter.type) {
+          return false;
+        }
+      }
+      if (billingFilter.status !== 'ALL') {
+        const st = String(r.status || '').toUpperCase();
+        if (billingFilter.status === 'Settled' && !['SETTLED', 'PAID', 'CLEARED'].includes(st)) return false;
+        if (billingFilter.status === 'Partially Paid' && !['PARTIALLY PAID', 'PARTIAL'].includes(st)) return false;
+        if (billingFilter.status === 'Pending' && !['PENDING', 'UNPAID', 'DUE'].includes(st)) return false;
+        if (billingFilter.status === 'PENDING_OR_PARTIAL' && ['SETTLED', 'PAID', 'CLEARED'].includes(st)) return false;
+      }
+      if (billingFilter.doctor !== 'ALL' && r.doctor !== billingFilter.doctor) return false;
+      if (billingFilter.dept !== 'ALL' && r.department !== billingFilter.dept) return false;
+      if (billingFilter.paymentMethod !== 'ALL') {
+        const pm = String(r.payment_method || '').toUpperCase();
+        const hasMethodInPayments = (r.payments || []).some(py => String(py.method || '').toUpperCase() === billingFilter.paymentMethod.toUpperCase());
+        if (pm !== billingFilter.paymentMethod.toUpperCase() && !hasMethodInPayments) return false;
+      }
+      if (billingFilter.search.trim()) {
+        const q = billingFilter.search.toLowerCase();
+        const match = [
+          r.bill_number,
+          r.patient_name,
+          r.patient_code,
+          r.reason,
+          r.doctor,
+          r.department,
+          r.payment_reference,
+          r.transaction_reference,
+          r.bill_type
+        ].some(val => val && String(val).toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      if (billingFilter.dateFrom || billingFilter.dateTo) {
+        const recDate = new Date(r.date);
+        if (!isNaN(recDate.getTime())) {
+          if (billingFilter.dateFrom && recDate < new Date(billingFilter.dateFrom)) return false;
+          if (billingFilter.dateTo) {
+            const toDate = new Date(billingFilter.dateTo);
+            toDate.setHours(23, 59, 59, 999);
+            if (recDate > toDate) return false;
+          }
+        }
+      }
+      return true;
+    });
+  }, [billingStatement?.records, billingFilter]);
 
   // Dynamic Overview Journey Timeline items derived from live clinical and billing facts
   const timeline = useMemo(() => {
@@ -3724,269 +3923,1150 @@ export default function Patient360View({
         </div>
       )}
 
-      {/* Tab 9: Billing - Full Dynamic Itemized Bill Breakdown */}
+      {/* Tab 9: Authoritative Unified Billing & Financial Clearance Table */}
       {activeTab === 'Billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <strong style={{ color: '#0f172a', fontSize: '13px' }}>Lab &amp; X-ray Charges</strong>
-              <strong style={{ color: '#0f172a', fontSize: '13px' }}>Total: ₹{serviceChargesTotal.toLocaleString('en-IN')}</strong>
-            </div>
-            <TableContainer
-              cols={['Date', 'Department', 'Service', 'View', 'Order ID', 'Amount', 'Billing Status', 'Source']}
-              grid="1.2fr .9fr 1.4fr .45fr 1fr .65fr .8fr .65fr"
-              rows={serviceCharges.map(charge => [
-                charge.created_at ? new Date(charge.created_at).toLocaleDateString('en-IN') : '—',
-                charge.source_type === 'LAB' ? 'Laboratory' : 'Radiology',
-                charge.service_name,
-                charge.view || '—',
-                charge.source_order_id,
-                `₹${Number(charge.amount).toLocaleString('en-IN')}`,
-                charge.billing_status,
-                charge.source,
-              ])}
-              emptyMessage="No Lab or X-ray service charges for this patient."
-            />
-          </div>
+          {/* Header & Live Synchronization Status */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '10px 14px',
+            padding: '12px 16px',
             background: '#ffffff',
             border: '1px solid #e2e8f0',
             borderRadius: '8px',
-            fontSize: '12px'
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
           }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '18px' }}>💳</span>
+              <div>
+                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>
+                  Authoritative Unified Patient Billing & Financial Clearance Ledger
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                  Patient: {billingStatement?.patient?.name || p.name} ({billingStatement?.patient?.patient_code || p.patient_code}) · Authoritative Multi-Encounter Consolidated Ledger
+                </div>
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600, color: '#0f172a' }}>Live Financial Ledger</span>
-              <span style={{ color: '#64748b' }}>· Bill #{p.billNumber} · Status: {p.billingStatusDisplay}</span>
-            </div>
-            <span style={{
-              fontSize: '11px',
-              fontWeight: 600,
-              padding: '2px 8px',
-              borderRadius: '12px',
-              background: '#e0f2fe',
-              color: '#0369a1'
-            }}>
-              Live Syncing
-            </span>
-          </div>
-
-          {/* Master Bill Overview Row */}
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{p.isOP ? 'Outpatient Consultation Bill · Summary' : (p.isER ? 'Emergency Triage & Evaluation Bill · Summary' : 'Inpatient Master Bill · Summary')}</span>
-              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>Click row to view full drawer facts</span>
-            </div>
-            <TableContainer
-              cols={['Bill', 'Estimate', 'Actual Gross', 'Payments Received', 'Patient Due', 'Status']}
-              grid="150px 120px 120px 140px 130px 180px"
-              rows={[
-                [
-                  p.billNumber,
-                  `₹${Number(p.estimateAmount ?? p.billGrossAmount ?? p.billNetAmount).toLocaleString('en-IN')}`,
-                  `₹${p.billNetAmount.toLocaleString('en-IN')}`,
-                  `₹${p.paidAmount.toLocaleString('en-IN')}`,
-                  `₹${(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}`,
-                  p.billingStatusDisplay
-                ],
-              ]}
-              onRowClick={handleOpenBillDrawer}
-            />
-          </div>
-
-          {/* Section 1: Hospital Accommodation & Base Services */}
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>{p.isOP ? '🩺' : (p.isER ? '🚑' : '🏥')}</span>
-                <span>{hospitalSectionTitle}</span>
-              </div>
-              <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 600, color: '#15181b' }}>
-                Subtotal: ₹{hospitalSum.toLocaleString('en-IN')}
-              </span>
-            </div>
-            <TableContainer
-              cols={['Service / Billing Details', 'Code', 'Date', 'Qty / Stay', 'Unit Rate', 'Net Amount']}
-              grid="minmax(220px, 1.4fr) 110px 120px 120px 120px 140px"
-              rows={
-                (liveBill?.items && liveBill.items.length > 0)
-                  ? liveBill.items.map((bi, i) => [
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, whiteSpace: 'normal' }}>
-                        <span style={{ fontWeight: 600 }}>{bi.service_name || bi.description || (p.isOP ? 'Outpatient Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : `Inpatient Service #${i + 1}`))}</span>
-                        {bi.description && bi.service_name && bi.description !== bi.service_name && (
-                          <span style={{ fontSize: '10px', color: '#64748b' }}>Stored bill description: {bi.description}</span>
-                        )}
-                        {bi.service_category && <span style={{ fontSize: '10px', color: '#64748b' }}>Category: {bi.service_category}</span>}
-                      </div>,
-                      bi.service_code || '—',
-                      bi.service_date ? new Date(bi.service_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || 'Today'),
-                      `${bi.quantity || 1} ${Number(bi.quantity) > 1 ? 'days' : 'unit'}`,
-                      `₹${Number(bi.unit_price || 0).toLocaleString('en-IN')}`,
-                      `₹${Number(bi.net_amount || bi.gross_amount || 0).toLocaleString('en-IN')}`
-                    ])
-                  : (hospitalSum > 0 ? [
-                      [p.isOP ? 'Outpatient Doctor Consultation & Clinical Assessment' : (p.isER ? 'Emergency Trauma & Triage Assessment' : 'Inpatient Comprehensive Clinical Care & Room Package'), p.isOP ? 'OPD-CONS' : (p.isER ? 'ER-EVAL' : 'IPD-CARE'), p.admittedDate || 'Today', '1 stay', `₹${hospitalSum.toLocaleString('en-IN')}`, `₹${hospitalSum.toLocaleString('en-IN')}`]
-                    ] : [])
-              }
-              onRowClick={handleOpenBillDrawer}
-            />
-          </div>
-
-          {/* Section 2: Pharmacy & Prescribed Medications */}
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>💊</span>
-                <span>Pharmacy Sales & Dispensed Medications Details</span>
-              </div>
-              <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 600, color: '#15181b' }}>
-                Subtotal: ₹{pharmacySum.toLocaleString('en-IN')}
-              </span>
-            </div>
-            <TableContainer
-              cols={['Medication / Item', 'Generic Classification', 'Category', 'Dispensed Date', 'Qty', 'Unit Price', 'Net Amount']}
-              grid="minmax(180px, 1.2fr) minmax(140px, 1fr) 130px 120px 90px 110px 130px"
-              rows={
-                (liveBill?.pharmacy_items && liveBill.pharmacy_items.length > 0)
-                  ? liveBill.pharmacy_items.map(pi => [
-                      pi.item_name || 'Prescribed Medication',
-                      pi.generic_name || 'Generic Formulation',
-                      pi.category || 'Therapeutic',
-                      pi.sale_date ? new Date(pi.sale_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
-                      `${pi.quantity || 1} units`,
-                      `₹${Number(pi.unit_price || 0).toFixed(2)}`,
-                      `₹${Number(pi.net_amount || (pi.quantity * pi.unit_price) || 0).toLocaleString('en-IN')}`
-                    ])
-                  : (p.medications && p.medications.length > 0)
-                    ? p.medications.map((m, i) => [
-                        m.medication_name,
-                        m.generic_name || 'Generic Formulation',
-                        m.category || 'Oral Formulation',
-                        p.admittedDate || '17 May 2025',
-                        m.duration || '1 Course',
-                        'Standard Rate',
-                        'Billed'
-                      ])
-                    : []
-              }
-              onRowClick={handleOpenBillDrawer}
-            />
-          </div>
-
-          {/* Section 3: Laboratory & Diagnostic Investigations */}
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>🧪</span>
-                <span>Laboratory Investigations & Diagnostic Test Charges</span>
-              </div>
-              <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px', fontWeight: 600, color: '#15181b' }}>
-                Subtotal: ₹{labSum.toLocaleString('en-IN')}
-              </span>
-            </div>
-            <TableContainer
-              cols={['Test / Investigation', 'Department', 'Ordered Date', 'Parameter & Result', 'Standard Charge', 'Status']}
-              grid="minmax(180px, 1.2fr) 130px 120px minmax(180px, 1fr) 130px 110px"
-              rows={
-                (liveBill?.lab_items && liveBill.lab_items.length > 0)
-                  ? labLedgerRows
-                  : (p.lab_results_list && p.lab_results_list.length > 0)
-                    ? p.lab_results_list.map(lr => [
-                        lr.test_parameter || 'Clinical Diagnostic Test',
-                        'Biochemistry / LIS',
-                        lr.result_date ? new Date(lr.result_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (p.admittedDate || '17 May 2025'),
-                        `${lr.result_value || 'Normal'} ${lr.unit || ''}`,
-                        (() => {
-                          const charge = serviceCharges.find(item => item.source_type === 'LAB'
-                            && normalizeLabOrderId(item.source_order_id) === normalizeLabOrderId(lr.lab_order_id));
-                          const amount = Number(charge?.amount);
-                          return Number.isFinite(amount) && charge
-                            ? `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
-                        })(),
-                        lr.verification_status || 'Verified'
-                      ])
-                    : []
-              }
-              onRowClick={handleOpenBillDrawer}
-            />
-          </div>
-
-          {/* Section 4: Comprehensive Financial Reconciliation Card */}
-          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
-            <div style={{ fontWeight: 600, fontSize: '13px', color: '#15181b', marginBottom: '12px' }}>
-              Itemized Financial Reconciliation & Clearance Balance
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>{hospitalSectionTitle}</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{hospitalSum.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Pharmacy & Dispensed</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{pharmacySum.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Lab Investigations</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{labSum.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Payments Received</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: '#15803d', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{p.paidAmount.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div style={{ background: p.isCleared ? '#f0fdf4' : '#fef2f2', padding: '12px', borderRadius: '6px', border: `1px solid ${p.isCleared ? '#bbf7d0' : '#fecaca'}` }}>
-                <div style={{ fontSize: '11px', color: p.isCleared ? '#15803d' : '#991b1b', textTransform: 'uppercase', letterSpacing: '.04em' }}>Patient Balance Due</div>
-                <div style={{ fontSize: '18px', fontWeight: 700, color: p.isCleared ? '#15803d' : '#991b1b', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                  ₹{(p.isCleared ? 0 : p.outstandingBalance).toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '14px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {!p.isCleared && (
-                <button
-                  type="button"
-                  onClick={handleClearBill}
-                  disabled={clearingBill}
-                  style={{
-                    height: '32px', padding: '0 14px', borderRadius: '6px',
-                    border: '1px solid #059669', background: '#059669',
-                    color: '#fff', fontWeight: 600, cursor: clearingBill ? 'not-allowed' : 'pointer', fontSize: '12px',
-                    display: 'inline-flex', alignItems: 'center', gap: '6px',
-                    opacity: clearingBill ? 0.7 : 1
-                  }}
-                >
-                  <span>💳</span> {clearingBill ? 'Settling Bill...' : 'Settle Cashless Co-Pay'}
-                </button>
-              )}
               <button
                 type="button"
-                onClick={handleOpenBillDrawer}
+                onClick={refreshBillingStatement}
+                disabled={loadingBillingStatement}
                 style={{
-                  height: '32px', padding: '0 14px', borderRadius: '6px',
-                  border: '1px solid oklch(0.5 0.1 200)', background: 'oklch(0.5 0.1 200)',
-                  color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '12px',
-                  display: 'inline-flex', alignItems: 'center', gap: '6px'
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#475569',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: loadingBillingStatement ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
               >
-                <span>🧾</span> Open Detailed Bill Drawer →
+                <span>🔄</span> {loadingBillingStatement ? 'Syncing...' : 'Refresh Ledger'}
               </button>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '3px 10px',
+                borderRadius: '12px',
+                background: '#e0f2fe',
+                color: '#0369a1',
+                border: '1px solid #bae6fd'
+              }}>
+                ● Canonical Live Sync
+              </span>
             </div>
           </div>
+
+          {/* Success / Error Banners */}
+          {paySuccess && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '6px',
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              color: '#15803d',
+              fontSize: '12px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>✅</span>
+                <span style={{ fontWeight: 600 }}>{paySuccess}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaySuccess(null)}
+                style={{ background: 'transparent', border: 'none', color: '#15803d', cursor: 'pointer', fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {payError && (
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '6px',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              color: '#991b1b',
+              fontSize: '12px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>⚠️</span>
+                <span style={{ fontWeight: 600 }}>{payError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPayError(null)}
+                style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Top Summary Cards with Real Backend Calculations & Clickable Synchronized Filtering */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+            gap: '12px'
+          }}>
+            {/* Card 1: Total Billed */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, type: 'ALL', status: 'ALL' }))}
+              style={{
+                background: (billingFilter.type === 'ALL' && billingFilter.status === 'ALL') ? '#eff6ff' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: (billingFilter.type === 'ALL' && billingFilter.status === 'ALL') ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                position: 'relative'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Total Billed</span>
+                {(billingFilter.type === 'ALL' && billingFilter.status === 'ALL') && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#2563eb', background: '#dbeafe', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.total_billed ?? (p.billNetAmount || (hospitalSum + pharmacySum + labSum))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Click to view all {billingStatement?.summary?.total_invoices || filteredBillingRecords.length} items
+              </div>
+            </div>
+
+            {/* Card 2: Inpatient Accommodation */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, type: f.type === 'INPATIENT' ? 'ALL' : 'INPATIENT', status: 'ALL' }))}
+              style={{
+                background: billingFilter.type === 'INPATIENT' ? '#f5f3ff' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: billingFilter.type === 'INPATIENT' ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Inpatient Bed & Stay</span>
+                {billingFilter.type === 'INPATIENT' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#7c3aed', background: '#ede9fe', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.hospital_accommodation ?? hospitalSum).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Bed stay, nursing & base care
+              </div>
+            </div>
+
+            {/* Card 3: Consultations / OPD */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, type: f.type === 'OUTPATIENT' ? 'ALL' : 'OUTPATIENT', status: 'ALL' }))}
+              style={{
+                background: billingFilter.type === 'OUTPATIENT' ? '#f0fdfa' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: billingFilter.type === 'OUTPATIENT' ? '2px solid #0d9488' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Consultations / OPD</span>
+                {billingFilter.type === 'OUTPATIENT' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#0d9488', background: '#ccfbf1', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.consultations ?? (p.isOP ? hospitalSum : 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Appointment booking fees & visits
+              </div>
+            </div>
+
+            {/* Card 4: Pharmacy & Dispensed */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, type: f.type === 'PHARMACY' ? 'ALL' : 'PHARMACY', status: 'ALL' }))}
+              style={{
+                background: billingFilter.type === 'PHARMACY' ? '#fffbeb' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: billingFilter.type === 'PHARMACY' ? '2px solid #d97706' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Pharmacy & Meds</span>
+                {billingFilter.type === 'PHARMACY' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.pharmacy ?? pharmacySum).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Dispensed medications & drugs
+              </div>
+            </div>
+
+            {/* Card 5: Lab & Diagnostics */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, type: f.type === 'DIAGNOSTIC' ? 'ALL' : 'DIAGNOSTIC', status: 'ALL' }))}
+              style={{
+                background: billingFilter.type === 'DIAGNOSTIC' ? '#f0fdf4' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: billingFilter.type === 'DIAGNOSTIC' ? '2px solid #059669' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Lab & Radiology</span>
+                {billingFilter.type === 'DIAGNOSTIC' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#059669', background: '#dcfce7', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.diagnostic ?? (labSum + serviceChargesTotal)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Pathology tests & X-ray imaging
+              </div>
+            </div>
+
+            {/* Card 6: Payments Received */}
+            <div
+              onClick={() => setBillingFilter(f => ({ ...f, status: f.status === 'Settled' ? 'ALL' : 'Settled', type: 'ALL' }))}
+              style={{
+                background: billingFilter.status === 'Settled' ? '#ecfdf5' : '#f8fafc',
+                padding: '12px',
+                borderRadius: '8px',
+                border: billingFilter.status === 'Settled' ? '2px solid #10b981' : '1px solid #e2e8f0',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#15803d', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>Payments Received</span>
+                {billingFilter.status === 'Settled' && (
+                  <span style={{ fontSize: '9px', fontWeight: 700, color: '#10b981', background: '#d1fae5', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                )}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#15803d', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                ₹{Number(billingStatement?.summary?.total_paid ?? p.paidAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px' }}>
+                Confirmed receipts & settlements
+              </div>
+            </div>
+
+            {/* Card 7: Patient Balance Due */}
+            {(() => {
+              const currentDue = Number(billingStatement?.summary?.outstanding_balance ?? p.outstandingBalance);
+              const isDueActive = billingFilter.status === 'PENDING_OR_PARTIAL' || billingFilter.status === 'Pending' || billingFilter.status === 'Partially Paid';
+              return (
+                <div
+                  onClick={() => setBillingFilter(f => ({ ...f, status: isDueActive ? 'ALL' : 'PENDING_OR_PARTIAL', type: 'ALL' }))}
+                  style={{
+                    background: currentDue <= 0 ? '#f0fdf4' : (isDueActive ? '#fff1f2' : '#fef2f2'),
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: currentDue <= 0 ? '1px solid #bbf7d0' : (isDueActive ? '2px solid #e11d48' : '1px solid #fecaca'),
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', color: currentDue <= 0 ? '#15803d' : '#991b1b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600 }}>
+                      Outstanding Due
+                    </span>
+                    {isDueActive && (
+                      <span style={{ fontSize: '9px', fontWeight: 700, color: '#e11d48', background: '#ffe4e6', padding: '1px 5px', borderRadius: '4px' }}>FILTER ACTIVE</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 700, color: currentDue <= 0 ? '#15803d' : '#991b1b', marginTop: '4px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                    ₹{currentDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ fontSize: '10px', color: currentDue <= 0 ? '#15803d' : '#991b1b', marginTop: '2px' }}>
+                    {currentDue <= 0 ? 'Account fully cleared' : 'Click to filter pending items'}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Synchronized Filter Controls Bar */}
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                Synchronized Billing Filters
+              </span>
+              {(billingFilter.type !== 'ALL' || billingFilter.status !== 'ALL' || billingFilter.doctor !== 'ALL' || billingFilter.dept !== 'ALL' || billingFilter.paymentMethod !== 'ALL' || billingFilter.search || billingFilter.dateFrom || billingFilter.dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => setBillingFilter({
+                    type: 'ALL',
+                    status: 'ALL',
+                    doctor: 'ALL',
+                    dept: 'ALL',
+                    search: '',
+                    dateFrom: '',
+                    dateTo: '',
+                    paymentMethod: 'ALL'
+                  })}
+                  style={{
+                    border: 'none',
+                    background: '#f1f5f9',
+                    color: '#2563eb',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear All Filters ✕
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+              {/* Text Search */}
+              <input
+                type="text"
+                placeholder="Search Bill #, Reason, Doctor, Ref..."
+                value={billingFilter.search}
+                onChange={(e) => setBillingFilter(f => ({ ...f, search: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  outline: 'none'
+                }}
+              />
+
+              {/* Bill Type */}
+              <select
+                value={billingFilter.type}
+                onChange={(e) => setBillingFilter(f => ({ ...f, type: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              >
+                <option value="ALL">All Bill Types</option>
+                <option value="INPATIENT">Inpatient (IP)</option>
+                <option value="OUTPATIENT">Outpatient (OP)</option>
+                <option value="DIAGNOSTIC">Lab & Radiology</option>
+                <option value="PHARMACY">Pharmacy & Meds</option>
+              </select>
+
+              {/* Status */}
+              <select
+                value={billingFilter.status}
+                onChange={(e) => setBillingFilter(f => ({ ...f, status: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              >
+                <option value="ALL">All Payment Statuses</option>
+                <option value="Settled">Settled / Paid</option>
+                <option value="Partially Paid">Partially Paid</option>
+                <option value="Pending">Pending / Unpaid</option>
+                <option value="PENDING_OR_PARTIAL">Any Outstanding Due</option>
+              </select>
+
+              {/* Doctor */}
+              <select
+                value={billingFilter.doctor}
+                onChange={(e) => setBillingFilter(f => ({ ...f, doctor: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              >
+                <option value="ALL">All Doctors</option>
+                {uniqueBillingDoctors.map(doc => (
+                  <option key={doc} value={doc}>{doc}</option>
+                ))}
+              </select>
+
+              {/* Department */}
+              <select
+                value={billingFilter.dept}
+                onChange={(e) => setBillingFilter(f => ({ ...f, dept: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              >
+                <option value="ALL">All Departments</option>
+                {uniqueBillingDepts.map(dept => (
+                  <option key={dept} value={dept}>{dept}</option>
+                ))}
+              </select>
+
+              {/* Payment Method */}
+              <select
+                value={billingFilter.paymentMethod}
+                onChange={(e) => setBillingFilter(f => ({ ...f, paymentMethod: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              >
+                <option value="ALL">All Payment Methods</option>
+                <option value="UPI">UPI</option>
+                <option value="PAYTM">Paytm</option>
+                <option value="CARD">Card</option>
+                <option value="CASH">Cash</option>
+                <option value="INSURANCE">Insurance / TPA</option>
+              </select>
+
+              {/* Date From */}
+              <input
+                type="date"
+                title="Filter Date From"
+                value={billingFilter.dateFrom}
+                onChange={(e) => setBillingFilter(f => ({ ...f, dateFrom: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 6px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              />
+
+              {/* Date To */}
+              <input
+                type="date"
+                title="Filter Date To"
+                value={billingFilter.dateTo}
+                onChange={(e) => setBillingFilter(f => ({ ...f, dateTo: e.target.value }))}
+                style={{
+                  height: '32px',
+                  padding: '0 6px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  background: '#fff'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Unified Authoritative Consolidated Billing Table */}
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{
+              padding: '12px 16px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
+                  Unified Consolidated Billing Ledger
+                </span>
+                <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '8px' }}>
+                  Showing {filteredBillingRecords.length} records · Click any row to inspect line-item details & payments
+                </span>
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Bill / Ref #</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Patient</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Date</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Type</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Reason / Description</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Doctor / Dept</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600, textAlign: 'right' }}>Total</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600, textAlign: 'right' }}>Paid</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600, textAlign: 'right' }}>Outstanding</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 600, textAlign: 'center' }}>Payment Ref / Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBillingRecords.length === 0 ? (
+                    <tr>
+                      <td colSpan="11" style={{ padding: '36px 16px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+                        {loadingBillingStatement ? 'Loading authoritative billing statements...' : 'No billing records matching the selected filters.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBillingRecords.map((r, idx) => {
+                      const isSettled = ['SETTLED', 'PAID', 'CLEARED'].includes(String(r.status || '').toUpperCase());
+                      const isPartial = ['PARTIALLY PAID', 'PARTIAL'].includes(String(r.status || '').toUpperCase());
+                      const hasDue = Number(r.outstanding_balance || 0) > 0;
+
+                      return (
+                        <tr
+                          key={r.id || idx}
+                          onClick={() => setSelectedBillingItem(r)}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            cursor: 'pointer',
+                            transition: 'background 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          {/* 1. Bill # */}
+                          <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'ui-monospace, Menlo, monospace', color: '#0f172a' }}>
+                            {r.bill_number}
+                          </td>
+
+                          {/* 2. Patient */}
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ fontWeight: 600, color: '#0f172a' }}>{r.patient_name || p.name}</div>
+                            <div style={{ fontSize: '10px', color: '#64748b' }}>{r.patient_code || p.patient_code}</div>
+                          </td>
+
+                          {/* 3. Date */}
+                          <td style={{ padding: '10px 12px', color: '#475569', whiteSpace: 'nowrap' }}>
+                            {r.date}
+                          </td>
+
+                          {/* 4. Type */}
+                          <td style={{ padding: '10px 12px' }}>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: r.bill_type === 'OUTPATIENT' ? '#e0f2fe' : (r.bill_type === 'INPATIENT' ? '#ede9fe' : (r.bill_type === 'PHARMACY' ? '#fef3c7' : '#dcfce7')),
+                              color: r.bill_type === 'OUTPATIENT' ? '#0369a1' : (r.bill_type === 'INPATIENT' ? '#6d28d9' : (r.bill_type === 'PHARMACY' ? '#b45309' : '#15803d'))
+                            }}>
+                              {r.bill_type}
+                            </span>
+                          </td>
+
+                          {/* 5. Description */}
+                          <td style={{ padding: '10px 12px', maxWidth: '240px' }}>
+                            <div style={{ fontWeight: 500, color: '#0f172a', whiteSpace: 'normal' }}>
+                              {r.reason}
+                            </div>
+                            {r.appointment_id && (
+                              <div style={{ fontSize: '10px', color: '#0284c7' }}>
+                                Linked Appointment #{r.appointment_id}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 6. Doctor / Dept */}
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ color: '#0f172a', fontWeight: 500 }}>{r.doctor || '—'}</div>
+                            <div style={{ fontSize: '10px', color: '#64748b' }}>{r.department || '—'}</div>
+                          </td>
+
+                          {/* 7. Total */}
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600, fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                            ₹{Number(r.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+
+                          {/* 8. Paid */}
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#15803d', fontWeight: 600, fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                            ₹{Number(r.paid_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+
+                          {/* 9. Outstanding */}
+                          <td style={{
+                            padding: '10px 12px',
+                            textAlign: 'right',
+                            fontWeight: 700,
+                            fontFamily: 'ui-monospace, Menlo, monospace',
+                            color: hasDue ? '#b91c1c' : '#15803d'
+                          }}>
+                            ₹{Number(r.outstanding_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+
+                          {/* 10. Status */}
+                          <td style={{ padding: '10px 12px' }}>
+                            <span style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              background: isSettled ? '#dcfce7' : (isPartial ? '#fef3c7' : '#fee2e2'),
+                              color: isSettled ? '#15803d' : (isPartial ? '#b45309' : '#b91c1c'),
+                              border: `1px solid ${isSettled ? '#bbf7d0' : (isPartial ? '#fde68a' : '#fecaca')}`
+                            }}>
+                              {r.status}
+                            </span>
+                          </td>
+
+                          {/* 11. Payment Ref / Action */}
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                              {r.payment_reference && r.payment_reference !== '—' && (
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontFamily: 'ui-monospace, Menlo, monospace',
+                                  color: '#0369a1',
+                                  background: '#e0f2fe',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  {r.payment_reference} {r.payment_method ? `(${r.payment_method})` : ''}
+                                </span>
+                              )}
+
+                              {hasDue && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPayingBillItem(r);
+                                    setPayAmountInput(String(r.outstanding_balance));
+                                    setPayMethodInput('UPI');
+                                    setPayError(null);
+                                  }}
+                                  style={{
+                                    height: '26px',
+                                    padding: '0 10px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #16a34a',
+                                    background: '#16a34a',
+                                    color: '#fff',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  <span>💳</span> Pay ₹{Number(r.outstanding_balance).toLocaleString('en-IN')}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Modal 1: Bill Line Items & Detailed Payment Transactions Modal */}
+          {selectedBillingItem && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(15, 23, 42, 0.65)',
+              backdropFilter: 'blur(3px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 99999,
+              padding: '16px'
+            }}>
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                width: '100%',
+                maxWidth: '780px',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                border: '1px solid #cbd5e1'
+              }}>
+                {/* Modal Header */}
+                <div style={{
+                  padding: '16px 20px',
+                  borderBottom: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#f8fafc'
+                }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                        {selectedBillingItem.bill_number}
+                      </span>
+                      <span style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: '#e0f2fe',
+                        color: '#0369a1'
+                      }}>
+                        {selectedBillingItem.bill_type}
+                      </span>
+                      <span style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: ['SETTLED', 'PAID', 'CLEARED'].includes(String(selectedBillingItem.status || '').toUpperCase()) ? '#dcfce7' : '#fee2e2',
+                        color: ['SETTLED', 'PAID', 'CLEARED'].includes(String(selectedBillingItem.status || '').toUpperCase()) ? '#15803d' : '#b91c1c'
+                      }}>
+                        {selectedBillingItem.status}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      Patient: {selectedBillingItem.patient_name} ({selectedBillingItem.patient_code}) · Date: {selectedBillingItem.date}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingItem(null)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      fontSize: '18px',
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      padding: '4px'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Modal Content */}
+                <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Financial Breakdown Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Total Billed</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', fontFamily: 'ui-monospace, monospace' }}>
+                        ₹{Number(selectedBillingItem.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                      <div style={{ fontSize: '11px', color: '#15803d', textTransform: 'uppercase' }}>Amount Paid</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#15803d', fontFamily: 'ui-monospace, monospace' }}>
+                        ₹{Number(selectedBillingItem.paid_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div style={{ background: Number(selectedBillingItem.outstanding_balance) > 0 ? '#fef2f2' : '#f0fdf4', padding: '12px', borderRadius: '6px', border: Number(selectedBillingItem.outstanding_balance) > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0' }}>
+                      <div style={{ fontSize: '11px', color: Number(selectedBillingItem.outstanding_balance) > 0 ? '#b91c1c' : '#15803d', textTransform: 'uppercase' }}>Outstanding Balance</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: Number(selectedBillingItem.outstanding_balance) > 0 ? '#b91c1c' : '#15803d', fontFamily: 'ui-monospace, monospace' }}>
+                        ₹{Number(selectedBillingItem.outstanding_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metadata Row */}
+                  <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '6px', fontSize: '12px', display: 'flex', flexWrap: 'wrap', gap: '16px', border: '1px solid #e2e8f0' }}>
+                    <div><span style={{ color: '#64748b' }}>Reason:</span> <strong>{selectedBillingItem.reason}</strong></div>
+                    <div><span style={{ color: '#64748b' }}>Doctor:</span> <strong>{selectedBillingItem.doctor || '—'}</strong></div>
+                    <div><span style={{ color: '#64748b' }}>Department:</span> <strong>{selectedBillingItem.department || '—'}</strong></div>
+                    {selectedBillingItem.appointment_id && <div><span style={{ color: '#64748b' }}>Appointment ID:</span> <strong>{selectedBillingItem.appointment_id}</strong></div>}
+                  </div>
+
+                  {/* Line Items Table */}
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', marginBottom: '8px' }}>
+                      Itemized Line Items
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', color: '#475569' }}>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>Item / Service Description</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>Source</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>Qty</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>Unit Rate</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>Net Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selectedBillingItem.items && selectedBillingItem.items.length > 0) ? (
+                          selectedBillingItem.items.map((it, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 500 }}>{it.description || it.service_name}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#64748b' }}>{it.source_type || 'STANDARD'}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>{it.quantity || 1}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace' }}>₹{Number(it.unit_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>₹{Number(it.net_amount || (it.quantity * it.unit_price) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="5" style={{ padding: '12px', textAlign: 'center', color: '#64748b' }}>
+                              Single consolidated billing fee: {selectedBillingItem.reason}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Payments Table */}
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a', marginBottom: '8px' }}>
+                      Associated Authoritative Payments & Transactions
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', overflow: 'hidden' }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', color: '#475569' }}>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>Payment Reference</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>Transaction Ref</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'left' }}>Date</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>Method</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'right' }}>Amount</th>
+                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selectedBillingItem.payments && selectedBillingItem.payments.length > 0) ? (
+                          selectedBillingItem.payments.map((py, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 700, fontFamily: 'monospace', color: '#0369a1' }}>{py.reference}</td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'monospace' }}>{py.transaction_reference || '—'}</td>
+                              <td style={{ padding: '8px 10px', color: '#64748b' }}>{py.date}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span style={{ padding: '2px 6px', background: '#e2e8f0', borderRadius: '4px', fontSize: '10px', fontWeight: 600 }}>{py.method}</span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#15803d', fontFamily: 'monospace' }}>₹{Number(py.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span style={{ padding: '2px 6px', background: '#dcfce7', color: '#15803d', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>{py.status}</span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="6" style={{ padding: '12px', textAlign: 'center', color: '#64748b' }}>
+                              {Number(selectedBillingItem.outstanding_balance) > 0 ? 'No payments recorded yet for this bill.' : 'Settled via hospital clearance.'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div style={{
+                  padding: '14px 20px',
+                  borderTop: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '10px',
+                  background: '#f8fafc'
+                }}>
+                  {Number(selectedBillingItem.outstanding_balance) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayingBillItem(selectedBillingItem);
+                        setPayAmountInput(String(selectedBillingItem.outstanding_balance));
+                        setPayMethodInput('UPI');
+                        setPayError(null);
+                        setSelectedBillingItem(null);
+                      }}
+                      style={{
+                        padding: '7px 16px',
+                        borderRadius: '6px',
+                        background: '#16a34a',
+                        color: '#fff',
+                        border: 'none',
+                        fontWeight: 600,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <span>💳</span> Settle Outstanding Due (₹{Number(selectedBillingItem.outstanding_balance).toLocaleString('en-IN')})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBillingItem(null)}
+                    style={{
+                      padding: '7px 14px',
+                      borderRadius: '6px',
+                      background: '#fff',
+                      color: '#475569',
+                      border: '1px solid #cbd5e1',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal 2: Authoritative Mock Payment Modal */}
+          {payingBillItem && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(15, 23, 42, 0.7)',
+              backdropFilter: 'blur(3px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 999999,
+              padding: '16px'
+            }}>
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                width: '100%',
+                maxWidth: '520px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                border: '1px solid #cbd5e1',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '16px 20px',
+                  background: '#f8fafc',
+                  borderBottom: '1px solid #e2e8f0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '18px' }}>💳</span>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>
+                      Settle Bill Outstanding Balance
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPayingBillItem(null)}
+                    style={{ background: 'transparent', border: 'none', fontSize: '16px', color: '#64748b', cursor: 'pointer' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleExecutePayment} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {payError && (
+                    <div style={{ padding: '8px 12px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '12px' }}>
+                      {payError}
+                    </div>
+                  )}
+
+                  <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Bill / Reference #:</span>
+                      <strong style={{ fontFamily: 'monospace' }}>{payingBillItem.bill_number}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Service / Bill Reason:</span>
+                      <strong>{payingBillItem.reason}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Original Total Amount:</span>
+                      <span style={{ fontFamily: 'monospace' }}>₹{Number(payingBillItem.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Amount Already Paid:</span>
+                      <span style={{ fontFamily: 'monospace', color: '#15803d' }}>₹{Number(payingBillItem.paid_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: '6px', marginTop: '2px' }}>
+                      <span style={{ color: '#b91c1c', fontWeight: 600 }}>Verified Outstanding Balance:</span>
+                      <strong style={{ fontFamily: 'monospace', color: '#b91c1c', fontSize: '14px' }}>
+                        ₹{Number(payingBillItem.outstanding_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Payment Amount (₹) · Verified Balance Slicing
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      max={payingBillItem.outstanding_balance}
+                      value={payAmountInput}
+                      onChange={(e) => setPayAmountInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '36px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        fontFamily: 'monospace'
+                      }}
+                      required
+                    />
+                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '3px' }}>
+                      Only mock payments up to verified outstanding amount (₹{Number(payingBillItem.outstanding_balance).toLocaleString('en-IN')}) are allowed.
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Payment Method
+                    </label>
+                    <select
+                      value={payMethodInput}
+                      onChange={(e) => setPayMethodInput(e.target.value)}
+                      style={{
+                        width: '100%',
+                        height: '36px',
+                        padding: '0 10px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        fontSize: '13px',
+                        background: '#fff'
+                      }}
+                    >
+                      <option value="UPI">UPI / Instant QR</option>
+                      <option value="PAYTM">Paytm</option>
+                      <option value="CARD">Credit / Debit Card</option>
+                      <option value="CASH">Cash at Desk</option>
+                      <option value="NETBANKING">Net Banking</option>
+                    </select>
+                  </div>
+
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    color: '#1e40af',
+                    fontSize: '11px',
+                    lineHeight: 1.4
+                  }}>
+                    🛡️ <strong>Authoritative Financial Ledger Guarantee:</strong> This payment updates the canonical bill and service charges, settles outstanding dues, and refreshes WhatsApp & Patient 360 immediately. It does not create or alter clinical appointments.
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPayingBillItem(null)}
+                      style={{
+                        height: '34px',
+                        padding: '0 14px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#fff',
+                        color: '#475569',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={payingLoading}
+                      style={{
+                        height: '34px',
+                        padding: '0 16px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        background: '#16a34a',
+                        color: '#fff',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: payingLoading ? 'not-allowed' : 'pointer',
+                        opacity: payingLoading ? 0.7 : 1,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <span>💳</span> {payingLoading ? 'Processing Settlement...' : `Confirm Payment (₹${Number(payAmountInput || 0).toLocaleString('en-IN')})`}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
