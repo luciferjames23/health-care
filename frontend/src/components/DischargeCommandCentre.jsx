@@ -298,9 +298,9 @@ export default function DischargeCommandCentre({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(() => (!_memAdmissions || _memAdmissions.length === 0));
   const [error, setError] = useState(null);
-  const [rawSummaries, setRawSummaries] = useState(() => _memSummaries || []);
-  const [rawHistoricalSummaries, setRawHistoricalSummaries] = useState(() => _memHistSummaries || []);
-  const [historicalTotal, setHistoricalTotal] = useState(87319);
+  const [rawSummaries, setRawSummaries] = useState(() => activeDoctorName ? [] : (_memSummaries || []));
+  const [rawHistoricalSummaries, setRawHistoricalSummaries] = useState(() => activeDoctorName ? [] : (_memHistSummaries || []));
+  const [historicalTotal, setHistoricalTotal] = useState(() => activeDoctorName ? 0 : 87319);
   const [rawAdmissions, setRawAdmissions] = useState(() => _memAdmissions || []);
   const [rawBeds, setRawBeds] = useState(() => _memBeds || []);
   const [rawWards, setRawWards] = useState(() => _memWards || []);
@@ -312,13 +312,16 @@ export default function DischargeCommandCentre({
     try {
       const res = await apiService.getDischargedPatients({
         scope: 'all',
-        limit: 250,
+        limit: activeDoctorName ? 1000 : 250,
+        attending_physician: activeDoctorName || undefined,
         discharge_date_from: dateFrom || undefined,
         discharge_date_to: dateTo || undefined,
         search: searchTerm || undefined
       }, { forceRefresh: true });
       if (res && Array.isArray(res.data)) {
-        _memHistSummaries = res.data;
+        if (!activeDoctorName) {
+          _memHistSummaries = res.data;
+        }
         setRawHistoricalSummaries(res.data);
         const total = Number(res.total_records ?? res.total ?? res.data.length);
         if (Number.isFinite(total)) setHistoricalTotal(total);
@@ -326,7 +329,7 @@ export default function DischargeCommandCentre({
     } catch (e) {
       console.warn('Error loading historical discharges:', e);
     }
-  }, []);
+  }, [activeDoctorName]);
 
   // Pause Reason Modal state
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -363,13 +366,15 @@ export default function DischargeCommandCentre({
     setError(null);
     try {
       const [resSummaries, resAdmissions, resBeds, resWards] = await Promise.all([
-        apiService.getDischargedPatients({}, { forceRefresh: true }).catch(() => null),
+        apiService.getDischargedPatients(activeDoctorName ? { attending_physician: activeDoctorName } : {}, { forceRefresh: true }).catch(() => null),
         apiService.getCurrentAdmissions({ discharge_status: 'all' }, { forceRefresh: true }).catch(() => null),
         apiService.getBeds({}, { forceRefresh: true }).catch(() => null),
         apiService.getWards({}, { forceRefresh: true }).catch(() => null)
       ]);
       if (resSummaries?.data) {
-        _memSummaries = resSummaries.data;
+        if (!activeDoctorName) {
+          _memSummaries = resSummaries.data;
+        }
         setRawSummaries(resSummaries.data);
       }
       if (resAdmissions?.data) {
@@ -389,7 +394,7 @@ export default function DischargeCommandCentre({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeDoctorName]);
 
   useEffect(() => {
     loadDischargeCandidates();
@@ -973,8 +978,7 @@ export default function DischargeCommandCentre({
   // Historical completed discharge cases mapped for all-time database scope
   const historicalCases = useMemo(() => {
     const src = (rawHistoricalSummaries && rawHistoricalSummaries.length > 0) ? rawHistoricalSummaries : rawSummaries;
-    if (!src || src.length === 0) return [];
-    return src.map((item, idx) => {
+    const mapped = src.map((item, idx) => {
       const pid = String(item.patient_id || item.patient_number || `HIST-${idx + 1}`);
       const doctorName = cleanDoctorName(item.attending_physician || item.primary_consultant || item.doctor_name || 'Dr. Suresh Menon');
       const patientName = item.patient_name || (item.first_name ? `${item.first_name} ${item.last_name || ''}`.trim() : `Discharged Patient #${pid}`);
@@ -1075,7 +1079,11 @@ export default function DischargeCommandCentre({
         log: []
       };
     });
-  }, [rawHistoricalSummaries, rawSummaries]);
+    if (activeDoctorName) {
+      return mapped.filter(c => matchesDoctor(c.doctor, activeDoctorName));
+    }
+    return mapped;
+  }, [rawHistoricalSummaries, rawSummaries, activeDoctorName]);
 
   // Active completed discharge cases (70 approved records from dim_generated_discharge_summaries)
   const activeCompletedCases = useMemo(() => {
@@ -1093,7 +1101,7 @@ export default function DischargeCommandCentre({
       return st === 'approved' || st === 'signed' || st === 'signed off' || st === 'completed';
     });
 
-    return approvedSummaries.map((item, idx) => {
+    const mapped = approvedSummaries.map((item, idx) => {
       const pid = String(item.patient_id || item.patient_number || `CASE-${idx + 1}`);
       const aid = item.admission_id ? String(item.admission_id) : '';
       const adm = aid ? (admMap[`adm_${aid}`] || {}) : (admMap[pid] || {});
@@ -1194,7 +1202,11 @@ export default function DischargeCommandCentre({
         log: []
       };
     });
-  }, [rawSummaries, rawAdmissions]);
+    if (activeDoctorName) {
+      return mapped.filter(c => matchesDoctor(c.doctor, activeDoctorName));
+    }
+    return mapped;
+  }, [rawSummaries, rawAdmissions, activeDoctorName]);
 
   // Currently active case detail (resolves from either active operational cases, active completed, or historical database)
   const activeCase = useMemo(() => {
@@ -1383,9 +1395,11 @@ export default function DischargeCommandCentre({
     const blocked = enrichedCases.filter(c => c.category === 'Blocked' && !c.isCompleted).length;
     const approval = enrichedCases.filter(c => c.category === 'Approval required' && !c.isCompleted).length;
     const inProgress = enrichedCases.filter(c => c.category === 'In progress' && !c.isCompleted).length;
-    const completed = scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70);
+    const completed = activeDoctorName
+      ? (scopeFilter === 'all' ? (historicalTotal || filteredCases.filter(c => c.isCompleted || c.category === 'Completed').length) : activeCompletedCases.length)
+      : (scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70));
     return { ready, blocked, approval, inProgress, completed };
-  }, [enrichedCases, filteredCases, activeCompletedCases, scopeFilter, historicalTotal, search]);
+  }, [enrichedCases, filteredCases, activeCompletedCases, scopeFilter, historicalTotal, search, activeDoctorName]);
 
   // ─────────────────────────────────────────────────────────────
   // WORKFLOW STATE TRANSITIONS
@@ -4092,7 +4106,7 @@ export default function DischargeCommandCentre({
             const colPage = kanbanColPages[col.key] || 1;
             const COL_PAGE_SIZE = 5;
             const totalColCount = (isCompletedCol && !search.trim())
-              ? (scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70))
+              ? (activeDoctorName ? colCases.length : (scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70)))
               : colCases.length;
             const totalColPages = Math.max(1, Math.ceil(totalColCount / COL_PAGE_SIZE));
             const validColPage = Math.min(colPage, totalColPages);
@@ -4359,7 +4373,7 @@ export default function DischargeCommandCentre({
 
           {/* Pagination Footer */}
           <TablePagination
-            total={scopeFilter === 'all' ? historicalTotal : sortedCases.length}
+            total={activeDoctorName ? sortedCases.length : (scopeFilter === 'all' ? historicalTotal : sortedCases.length)}
             page={page}
             pageSize={pageSize}
             onPageChange={setPage}

@@ -631,6 +631,8 @@ export default function PatientsView({
     });
   }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName, activeDoctorId, workloadScope, historicalPatients, historicalCategoryRows, dateRange, counts?.ER]);
 
+  const viewLoading = workloadScope === 'all' ? historyLoading : loading;
+
   const totalRows = useMemo(() => {
     if (debouncedSearch) {
       if (rows.length === 0 && !viewLoading) return 0;
@@ -646,7 +648,6 @@ export default function PatientsView({
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-  const viewLoading = workloadScope === 'all' ? historyLoading : loading;
 
   useEffect(() => {
     let cancelled = false;
