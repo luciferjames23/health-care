@@ -3139,7 +3139,7 @@ export default function DischargeCommandCentre({
                               if (isReadyState) {
                                 handleDischargePatient(dc.id);
                               } else {
-                                handleApproveDischargeSummary(dc.id);
+                                handleEscalate(dc);
                               }
                             }}
                             style={{
@@ -3153,9 +3153,9 @@ export default function DischargeCommandCentre({
                               fontWeight: 600,
                               cursor: isBlocked ? 'not-allowed' : 'pointer'
                             }}
-                            title={isBlocked ? 'Discharge action is gated until billing clearance and stable vitals are confirmed.' : (isReadyState ? 'Sign & Release Discharge' : 'Approve Discharge Summary')}
+                            title={isBlocked ? 'Discharge action is gated until billing clearance and stable vitals are confirmed.' : (isReadyState ? 'Sign & Release Discharge' : 'Move case to Ready')}
                           >
-                            {isReadyState ? '✓ Sign & Release Discharge' : '✓ Approve Discharge Summary'}
+                            {isReadyState ? '✓ Sign & Release Discharge' : '✓ Move to Ready'}
                           </button>
                           {isBlocked && (
                             <div style={{ fontSize: '10.5px', color: '#dc2626', marginTop: '4px', fontWeight: 500, lineHeight: 1.3 }}>
