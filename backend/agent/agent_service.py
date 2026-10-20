@@ -2620,7 +2620,7 @@ def calculate_appointment_balance(booking_id: str = None, doctor_id: int = None,
     if target_b_id:
         amount_already_paid = get_appointment_paid_amount(booking_id=target_b_id, state=state)
     elif state and state.get("original_paid_amount") is not None:
-        amount_already_paid = float(state.get("original_paid_amount", 0.0))
+        amount_already_paid = float(state.get("original_paid_amount") or 0.0)
 
     balance_due = max(new_total_fee - amount_already_paid, 0.0)
     return new_total_fee, amount_already_paid, balance_due
@@ -5373,7 +5373,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 p_code = pat_info["patient_code"]
                 bill_ref = state.get("bill_reference") or "INV-2026-8841"
 
-                b_id, b_num, total_amt, b_stat = get_or_create_patient_bill(pat_id, bill_ref, float(state.get("bill_total_amount", 4850.0)))
+                b_id, b_num, total_amt, b_stat = get_or_create_patient_bill(pat_id, bill_ref, float(state.get("bill_total_amount") or 4850.0))
                 paid_so_far = calculate_bill_payments(b_id, pat_id)
                 outstanding = max(0.0, total_amt - paid_so_far)
 
@@ -5598,7 +5598,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
                 p_name = stmt["patient"]["name"]
                 p_code = stmt["patient"]["patient_code"]
-                fee_val = float(state.get("payment_amount", out_val))
+                fee_val = float(state.get("payment_amount") or out_val or 0.0)
                 method_code = state.get("payment_method", "UPI")
 
                 pay_res = patient_360_service.pay_patient_outstanding_balance(
@@ -5641,7 +5641,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 return {"response": resp, "intent": "BILLING_AND_PAYMENTS", "language": current_lang, "interactive_buttons": buttons}
             if state.get("is_balance_payment"):
                 modifying_b_id = state.get("modifying_booking_id")
-                balance_amt = float(state.get("payment_amount", 0.0))
+                balance_amt = float(state.get("payment_amount") or 0.0)
                 doc_id = state.get("pending_modified_doctor_id") or state.get("selected_doctor_id") or state["entities"].get("doctor_id")
                 appt_date = state.get("pending_modified_date") or state["entities"].get("appointment_date")
                 appt_time = state.get("pending_modified_time") or state["entities"].get("appointment_time")
@@ -7002,7 +7002,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 reason = state["entities"].get("reason") or "General Consultation"
 
                 modifying_b_id = state.get("modifying_booking_id")
-                orig_paid = float(state.get("original_paid_amount", 0.0))
+                orig_paid = float(state.get("original_paid_amount") or 0.0)
                 new_fee = float(doc_info.get("consultation_fee") or 800)
 
                 fee_line = ""
