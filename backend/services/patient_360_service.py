@@ -694,9 +694,43 @@ def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
             WHERE patient_id = %s AND billing_status NOT IN ('CANCELLED')
             ORDER BY created_at DESC;
         """, (patient_id,))
-        for chg in cur.fetchall():
+        chg_rows = cur.fetchall()
+
+        # Pre-fetch all payments for charges of this patient
+        cur.execute("""
+            SELECT id, payment_reference, amount, payment_method, payment_status,
+                   transaction_reference, payment_date
+            FROM payments
+            WHERE patient_id = %s AND payment_reference LIKE 'PAY-CHG-%%'
+            ORDER BY id ASC;
+        """, (patient_id,))
+        charge_payments_map = {}
+        for pr in cur.fetchall():
+            pref = pr[1] or ""
+            if pref.startswith("PAY-CHG-"):
+                try:
+                    cid = int(pref.split("PAY-CHG-")[1])
+                    p_amt = float(pr[2] or 0.0)
+                    p_st = (pr[4] or "").upper()
+                    p_date_val = pr[6]
+                    dt_str = p_date_val.strftime("%d %b %Y, %I:%M %p") if p_date_val and hasattr(p_date_val, 'strftime') else str(p_date_val)[:19] if p_date_val else "—"
+                    charge_payments_map.setdefault(cid, []).append({
+                        "id": pr[0],
+                        "payment_id": pr[0],
+                        "reference": pref,
+                        "amount": p_amt,
+                        "method": pr[3] or "UPI",
+                        "status": p_st,
+                        "transaction_reference": pr[5] or "—",
+                        "date": dt_str
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+        for chg in chg_rows:
             c_id, s_type, s_order, s_code, s_name, view, c_amt, curr, c_stat, src, c_dt = chg
             c_amt_val = float(c_amt or 0.0)
+            c_stat_clean = (c_stat or "").upper()
 
             # Check if this order is already itemized in one of the bills above
             already_in_bill = any(
@@ -706,9 +740,20 @@ def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
             if already_in_bill:
                 continue
 
-            st_clean = 'Settled' if (c_stat or "").upper() == 'PAID' else 'Pending'
-            paid_c = c_amt_val if st_clean == 'Settled' else 0.0
+            c_pays = charge_payments_map.get(c_id, [])
+            paid_c = sum(p["amount"] for p in c_pays if p["status"] in ('SUCCESS', 'PAID', 'COMPLETED'))
+            if c_stat_clean in ('SETTLED', 'PAID') and paid_c == 0.0:
+                paid_c = c_amt_val
+
             out_c = max(0.0, c_amt_val - paid_c)
+
+            if out_c <= 0.0 or c_stat_clean in ('SETTLED', 'PAID'):
+                st_clean = 'Settled'
+                out_c = 0.0
+            elif paid_c > 0.0:
+                st_clean = 'Partially Paid'
+            else:
+                st_clean = 'Pending'
 
             diagnostic_sum += c_amt_val
             total_billed += c_amt_val
@@ -737,14 +782,14 @@ def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
                 "paid_amount": paid_c,
                 "outstanding_balance": out_c,
                 "status": st_clean,
-                "payment_reference": "—",
-                "transaction_reference": "—",
-                "payment_method": "—",
+                "payment_reference": c_pays[-1]["reference"] if c_pays else "—",
+                "transaction_reference": c_pays[-1]["transaction_reference"] if c_pays else "—",
+                "payment_method": c_pays[-1]["method"] if c_pays else "—",
                 "items": [{
                     "description": reason_chg, "quantity": 1, "unit_price": c_amt_val,
                     "net_amount": c_amt_val, "source_type": s_type, "source_order_id": s_order
                 }],
-                "payments": []
+                "payments": c_pays
             })
 
         # 3. All payments for patient
@@ -768,6 +813,7 @@ def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
             p_dt = r[7] or r[8]
             dt_str = p_dt.strftime("%d %b %Y, %I:%M %p") if p_dt and hasattr(p_dt, "strftime") else str(p_dt)[:19] if p_dt else "—"
 
+            pref = str(r[1] or "")
             if r[9] and not r[10]:
                 purpose = f"Hospital Bill ({r[11] or f'Bill #{r[9]}'})"
                 p_code_purp = "BILL_PAYMENT"
@@ -775,6 +821,9 @@ def get_patient_unified_billing_statement(patient_id: Any) -> Dict[str, Any]:
                 doc_str = f" - Dr. {r[13]}" if r[13] else ""
                 purpose = f"Consultation ({r[12] or f'Appt #{r[10]}'}{doc_str})"
                 p_code_purp = "APPOINTMENT_PAYMENT"
+            elif pref.startswith("PAY-CHG-"):
+                purpose = f"Diagnostic Service Payment ({pref})"
+                p_code_purp = "CHARGE_PAYMENT"
             else:
                 purpose = "Hospital Service Payment"
                 p_code_purp = "GENERAL_PAYMENT"
@@ -1358,8 +1407,8 @@ def pay_patient_outstanding_balance(
 ) -> Dict[str, Any]:
     """
     Authoritative payment handler for hospital bills and pending diagnostic charges.
-    Ensures mock payments apply ONLY against verified outstanding dues without
-    modifying or generating appointments.
+    Ensures mock payments apply ONLY against verified outstanding dues with
+    full ACID transactional consistency, idempotency, and row-level locking.
     """
     patient_id = resolve_patient_id(patient_id)
     if not patient_id:
@@ -1376,16 +1425,57 @@ def pay_patient_outstanding_balance(
             cur.execute("""
                 SELECT id, service_name, amount, billing_status
                 FROM patient_charges
-                WHERE id = %s AND patient_id = %s;
+                WHERE id = %s AND patient_id = %s
+                FOR UPDATE;
             """, (charge_id, patient_id))
             chg = cur.fetchone()
             if not chg:
                 return {"success": False, "error": f"Charge {charge_id} not found for patient"}
 
             c_amt = float(chg[2] or 0.0)
-            cur.execute("UPDATE patient_charges SET billing_status = 'SETTLED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (charge_id,))
-
+            c_stat = (chg[3] or "").upper()
             pay_ref = f"PAY-CHG-{charge_id}"
+
+            # Idempotency check: if transaction_reference is provided, verify whether it was already processed
+            if transaction_reference:
+                cur.execute("""
+                    SELECT id, payment_reference, amount, payment_status
+                    FROM payments
+                    WHERE transaction_reference = %s AND patient_id = %s;
+                """, (transaction_reference, patient_id))
+                existing_txn = cur.fetchone()
+                if existing_txn:
+                    conn.rollback()
+                    return {
+                        "success": True,
+                        "payment_id": existing_txn[0],
+                        "payment_reference": existing_txn[1],
+                        "transaction_reference": transaction_reference,
+                        "amount": float(existing_txn[2] or 0.0),
+                        "paid_amount": float(existing_txn[2] or 0.0),
+                        "target_type": "CHARGE",
+                        "charge_id": charge_id,
+                        "service_name": chg[1],
+                        "is_duplicate": True,
+                        "message": "Payment already processed (idempotent)."
+                    }
+
+            # Revalidate outstanding balance against recorded payments ledger
+            cur.execute("""
+                SELECT COALESCE(SUM(amount), 0)
+                FROM payments
+                WHERE payment_reference = %s AND UPPER(payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
+            """, (pay_ref,))
+            already_paid = float(cur.fetchone()[0] or 0.0)
+            verified_outstanding = max(0.0, c_amt - already_paid)
+
+            if verified_outstanding <= 0.0 or c_stat in ('SETTLED', 'PAID'):
+                return {"success": False, "error": f"Charge {charge_id} ({chg[1]}) is already fully settled."}
+
+            pay_amt = min(verified_outstanding, float(amount)) if amount is not None else verified_outstanding
+            if pay_amt <= 0.0:
+                return {"success": False, "error": "Payment amount must be greater than zero."}
+
             cur.execute("""
                 INSERT INTO payments (
                     payment_reference, patient_id, appointment_id, bill_id,
@@ -1396,8 +1486,12 @@ def pay_patient_outstanding_balance(
                     %s, 'INR', %s, 'SUCCESS', CURRENT_TIMESTAMP,
                     'PATIENT', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 ) RETURNING id;
-            """, (pay_ref, patient_id, c_amt, payment_method, txn_ref))
+            """, (pay_ref, patient_id, pay_amt, payment_method, txn_ref))
             p_id = cur.fetchone()[0]
+
+            new_paid_total = already_paid + pay_amt
+            new_c_stat = 'SETTLED' if new_paid_total >= c_amt else 'PENDING'
+            cur.execute("UPDATE patient_charges SET billing_status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (new_c_stat, charge_id))
             conn.commit()
 
             return {
@@ -1405,11 +1499,13 @@ def pay_patient_outstanding_balance(
                 "payment_id": p_id,
                 "payment_reference": pay_ref,
                 "transaction_reference": txn_ref,
-                "amount": c_amt,
-                "paid_amount": c_amt,
+                "amount": pay_amt,
+                "paid_amount": pay_amt,
                 "target_type": "CHARGE",
                 "charge_id": charge_id,
-                "service_name": chg[1]
+                "service_name": chg[1],
+                "billing_status": new_c_stat,
+                "remaining_balance": max(0.0, c_amt - new_paid_total)
             }
 
         # Case 2: Paying a specific bill
@@ -1417,7 +1513,8 @@ def pay_patient_outstanding_balance(
             cur.execute("""
                 SELECT b.bill_id, b.bill_number, b.net_amount, b.patient_amount, b.bill_status
                 FROM bills b
-                WHERE b.bill_id = %s AND b.patient_id = %s;
+                WHERE b.bill_id = %s AND b.patient_id = %s
+                FOR UPDATE;
             """, (bill_id, patient_id))
             b_row = cur.fetchone()
             if not b_row:
@@ -1426,9 +1523,32 @@ def pay_patient_outstanding_balance(
             b_id, b_num, net_amt, pat_amt, b_stat = b_row
             due_baseline = float(pat_amt if pat_amt is not None else (net_amt or 0.0))
 
+            # Idempotency check: if transaction_reference is provided, verify whether it was already processed
+            if transaction_reference:
+                cur.execute("""
+                    SELECT id, payment_reference, amount, payment_status
+                    FROM payments
+                    WHERE transaction_reference = %s AND patient_id = %s;
+                """, (transaction_reference, patient_id))
+                existing_txn = cur.fetchone()
+                if existing_txn:
+                    conn.rollback()
+                    return {
+                        "success": True,
+                        "payment_id": existing_txn[0],
+                        "payment_reference": existing_txn[1],
+                        "transaction_reference": transaction_reference,
+                        "amount": float(existing_txn[2] or 0.0),
+                        "target_type": "BILL",
+                        "bill_id": b_id,
+                        "bill_number": b_num,
+                        "is_duplicate": True,
+                        "message": "Payment already processed (idempotent)."
+                    }
+
             cur.execute("""
                 SELECT COALESCE(SUM(amount), 0) FROM payments
-                WHERE bill_id = %s AND payment_status = 'SUCCESS';
+                WHERE bill_id = %s AND UPPER(payment_status) IN ('SUCCESS', 'PAID', 'COMPLETED');
             """, (b_id,))
             already_paid = float(cur.fetchone()[0] or 0.0)
 
@@ -1495,23 +1615,25 @@ def pay_patient_outstanding_balance(
 
             alloc = min(rec_bal, remaining)
             if rec.get("bill_id"):
+                sub_txn_ref = f"{txn_ref}-B{rec['bill_id']}"
                 sub_res = pay_patient_outstanding_balance(
                     patient_id=patient_id,
                     bill_id=rec["bill_id"],
                     amount=alloc,
                     payment_method=payment_method,
-                    transaction_reference=txn_ref
+                    transaction_reference=sub_txn_ref
                 )
                 if sub_res.get("success"):
                     payments_made.append(sub_res)
                     remaining -= alloc
             elif rec.get("charge_id"):
+                sub_txn_ref = f"{txn_ref}-C{rec['charge_id']}"
                 sub_res = pay_patient_outstanding_balance(
                     patient_id=patient_id,
                     charge_id=rec["charge_id"],
                     amount=alloc,
                     payment_method=payment_method,
-                    transaction_reference=txn_ref
+                    transaction_reference=sub_txn_ref
                 )
                 if sub_res.get("success"):
                     payments_made.append(sub_res)
