@@ -674,6 +674,13 @@ export default function Patient360View({
 
     loadAllPatientData();
 
+    const handlePatientVitalsUpdated = (event) => {
+      const updatedPatientId = String(event.detail?.patient_id || '');
+      if (updatedPatientId && pid && updatedPatientId !== String(pid)) return;
+      loadAllPatientData();
+    };
+    window.addEventListener('hc_patient_vitals_updated', handlePatientVitalsUpdated);
+
     // Silent background poller for X-ray orders every 10s
     let pollerTimer = null;
     if (pid) {
@@ -690,6 +697,7 @@ export default function Patient360View({
 
     return () => {
       alive = false;
+      window.removeEventListener('hc_patient_vitals_updated', handlePatientVitalsUpdated);
       if (pollerTimer) clearInterval(pollerTimer);
     };
   }, [

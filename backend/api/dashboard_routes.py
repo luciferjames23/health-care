@@ -1170,11 +1170,23 @@ def get_patients(
             params.append(patient_id)
 
         if search:
-            conditions.append(
-                "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR LOWER(COALESCE(phone, '')) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s OR LOWER(COALESCE(whatsapp_number, '')) LIKE %s)"
-            )
-            like = f"%{search.lower()}%"
-            params += [like, like, like, like, like]
+            clean_search = search.strip().lower()
+            import re
+            digits = re.sub(r'\D', '', clean_search)
+            clean_digits = digits.lstrip('0') or digits
+            if len(clean_digits) >= 3:
+                conditions.append(
+                    "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR LOWER(COALESCE(phone, '')) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s OR LOWER(COALESCE(whatsapp_number, '')) LIKE %s OR CAST(patients.id AS TEXT) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s)"
+                )
+                like = f"%{clean_search}%"
+                digit_like = f"%{clean_digits}%"
+                params += [like, like, like, like, like, digit_like, digit_like]
+            else:
+                conditions.append(
+                    "(CAST(patients.id AS TEXT) LIKE %s OR LOWER(first_name || ' ' || last_name) LIKE %s OR LOWER(COALESCE(phone, '')) LIKE %s OR LOWER(COALESCE(patient_code, '')) LIKE %s OR LOWER(COALESCE(whatsapp_number, '')) LIKE %s)"
+                )
+                like = f"%{clean_search}%"
+                params += [like, like, like, like, like]
 
         if status:
             conditions.append("patients.status = %s")

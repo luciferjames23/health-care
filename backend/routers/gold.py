@@ -1731,7 +1731,8 @@ def get_dim_generated_discharge_summaries(
     discharge_date_to: Optional[str] = Query(None, description="Discharge date starting on or before (YYYY-MM-DD)"),
     limit: Optional[int] = Query(None, ge=1, description="Max records to return. Omit to fetch full data."),
     offset: int = Query(default=0, ge=0),
-    scope: Optional[str] = Query(None, description="Scope filter: 'active' or 'all'")
+    scope: Optional[str] = Query(None, description="Scope filter: 'active' or 'all'"),
+    search: Optional[str] = Query(None, description="Search query across patient code, name, doctor, diagnosis")
 ):
     """Query `health_care.gold.dim_generated_discharge_summaries` table with optional filters and pagination."""
     resolved_pid = patient_id
@@ -1755,8 +1756,12 @@ def get_dim_generated_discharge_summaries(
                 ds_where.append("(ds.patient_id = %s OR ds.admission_id = %s)")
                 ds_params.extend([resolved_pid, resolved_pid])
             if patient_number and isinstance(patient_number, str) and patient_number.strip():
-                ds_where.append("(p.patient_code ILIKE %s OR p.patient_number ILIKE %s)")
-                ds_params.extend([f"%{patient_number.strip()}%", f"%{patient_number.strip()}%"])
+                ds_where.append("(p.patient_code ILIKE %s)")
+                ds_params.append(f"%{patient_number.strip()}%")
+            if search and isinstance(search, str) and search.strip():
+                s_val = f"%{search.strip()}%"
+                ds_where.append("(p.patient_code ILIKE %s OR p.first_name ILIKE %s OR p.last_name ILIKE %s OR ds.diagnoses ILIKE %s OR ds.primary_consultant ILIKE %s OR a.admission_number ILIKE %s)")
+                ds_params.extend([s_val, s_val, s_val, s_val, s_val, s_val])
             if admission_id and isinstance(admission_id, (str, int)) and str(admission_id).strip():
                 ds_where.append("a.admission_number ILIKE %s")
                 ds_params.append(f"%{str(admission_id).strip()}%")
@@ -1929,13 +1934,13 @@ def get_dim_generated_discharge_summaries(
                     LEFT JOIN beds b ON a.bed_id = b.bed_id
                     LEFT JOIN wards w ON b.ward_id = w.ward_id
                     WHERE (%s IS NULL OR ds.patient_id = %s OR ds.admission_id = %s)
-                      AND (%s = '' OR p.patient_code ILIKE %s OR p.patient_number ILIKE %s)
+                      AND (%s = '' OR p.patient_code ILIKE %s)
                       AND (%s = '' OR a.admission_number ILIKE %s)
                     ORDER BY ds.discharge_date DESC, ds.summary_id DESC
                     LIMIT %s OFFSET %s;
                 """, (
                     resolved_pid, resolved_pid, resolved_pid,
-                    str(patient_number or ''), f"%{patient_number}%", f"%{patient_number}%",
+                    str(patient_number or ''), f"%{patient_number}%",
                     str(admission_id or ''), f"%{admission_id}%",
                     clean_limit or 25, clean_offset
                 ))

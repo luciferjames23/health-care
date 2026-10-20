@@ -685,6 +685,7 @@ export const apiService = {
     if (params.limit) queryParams.append("limit", params.limit);
     if (params.offset) queryParams.append("offset", params.offset);
     if (params.scope) queryParams.append("scope", params.scope);
+    if (params.search) queryParams.append("search", params.search);
 
     return await fetchCachedJson(`${API_BASE_URL}/api/v1/gold/generated-discharge-summaries?${queryParams.toString()}`, options);
   },

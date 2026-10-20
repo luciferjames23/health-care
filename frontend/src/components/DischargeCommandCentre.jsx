@@ -124,9 +124,10 @@ function createCaseInitialState(base) {
   if (!base) return {};
   const statusLower = String(base.rawRecord?.approval_status || '').trim().toLowerCase();
   const isCompleted = !!base.isCompleted;
-  const isReady = !isCompleted && (base.category === 'Ready' || statusLower === 'pending approval');
-  const isApproval = !isReady && !isCompleted && base.category === 'Approval required';
-  const isBlocked = !isReady && !isCompleted && base.category === 'Blocked';
+  const isVitalsBlocked = !isCompleted && (base.isVitalsStable === false || (base.blocker && base.blocker.includes('vital')));
+  const isReady = !isCompleted && !isVitalsBlocked && (base.category === 'Ready' || statusLower === 'pending approval');
+  const isApproval = !isReady && !isCompleted && !isVitalsBlocked && base.category === 'Approval required';
+  const isBlocked = !isReady && !isCompleted && (isVitalsBlocked || base.category === 'Blocked');
   const blocker = isReady || isCompleted ? '' : (base.blocker || '');
 
   const actualAmt = base.billDetails?.actual || 120000;
@@ -307,13 +308,14 @@ export default function DischargeCommandCentre({
   const [toasts, setToasts] = useState([]);
 
   // Load historical discharges for All-time scope
-  const loadHistoricalDischarges = useCallback(async (dateFrom = '', dateTo = '') => {
+  const loadHistoricalDischarges = useCallback(async (dateFrom = '', dateTo = '', searchTerm = '') => {
     try {
       const res = await apiService.getDischargedPatients({
         scope: 'all',
         limit: 250,
         discharge_date_from: dateFrom || undefined,
         discharge_date_to: dateTo || undefined,
+        search: searchTerm || undefined
       }, { forceRefresh: true });
       if (res && Array.isArray(res.data)) {
         _memHistSummaries = res.data;
@@ -335,6 +337,7 @@ export default function DischargeCommandCentre({
 
   // Per-case interactive state (workflow state machine)
   const [caseStates, setCaseStates] = useState({});
+  const [savingVitalsCaseId, setSavingVitalsCaseId] = useState(null);
 
   // Table pagination & sorting
   const [page, setPage] = useState(1);
@@ -407,7 +410,16 @@ export default function DischargeCommandCentre({
       if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('hc_api_updated', handleUpdate);
     };
-  }, [loadDischargeCandidates]);
+  }, [loadDischargeCandidates, loadHistoricalDischarges]);
+
+  // Synchronize remote historical search query when in All-time scope
+  useEffect(() => {
+    if (scopeFilter !== 'all') return;
+    const timer = setTimeout(() => {
+      loadHistoricalDischarges(dateRange.dateFrom, dateRange.dateTo, search);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search, scopeFilter, dateRange, loadHistoricalDischarges]);
 
   // Build cases strictly from original backend data
   const allCases = useMemo(() => {
@@ -486,10 +498,29 @@ export default function DischargeCommandCentre({
       const isDischarged = String(c.discharge_status || adm.discharge_status || '').toLowerCase() === 'discharged';
       const hasActiveAdmission = Boolean(adm && String(adm.discharge_status || '').toLowerCase() !== 'discharged' && (adm.admission_id || adm.patient_id));
       const isDone = isDischarged || (isApproved && !hasActiveAdmission);
+      const vitalsCheck = checkPatientVitalsNormal(adm);
+      const isVitalsBlocked = !isDone && !vitalsCheck.isNormal;
 
-      let category = isDone ? 'Completed' : isPendingApproval ? 'Ready' : hasActiveAdmission ? 'In progress' : 'Approval required';
-      let blocker = isDone ? 'All steps completed' : category === 'Ready' ? 'Clear' : category === 'In progress' ? 'awaiting patient discharge' : 'discharge summary approval';
-      let initialStatus = category;
+      let category = isDone
+        ? 'Completed'
+        : isVitalsBlocked
+          ? 'Blocked'
+          : isApproved || isPendingApproval
+            ? 'Ready'
+            : hasActiveAdmission
+              ? 'In progress'
+              : 'Approval required';
+
+      let blocker = isDone
+        ? 'All steps completed'
+        : isVitalsBlocked
+          ? (vitalsCheck.issues.length > 0 ? `Vital signs abnormal: ${vitalsCheck.issues.join(', ')}` : 'Vital signs abnormal')
+          : (isApproved || isPendingApproval || category === 'Ready')
+            ? 'Clear'
+            : category === 'In progress'
+              ? 'awaiting patient discharge'
+              : 'discharge summary approval';
+      let initialStatus = isVitalsBlocked ? 'Blocked · abnormal vitals' : category;
 
       const doctorName = cleanDoctorName((isApproved
         ? (parsed.doctor_name || adm.attending_doctor)
@@ -501,7 +532,6 @@ export default function DischargeCommandCentre({
       const resolvedBedNum = c.bed_number || matchedBed?.bed_number || adm.bed_number || (adm.bed_id != null && bedById[String(adm.bed_id)]?.bed_number);
       const bed = resolvedBedNum || (rawBeds.length > 0 ? rawBeds[index % rawBeds.length]?.bed_number : `BED-${String((index % 60) + 101).padStart(4, '0')}`);
       const insurer = adm.insurance_provider || (index % 2 === 0 ? 'Star Health' : 'HDFC Ergo');
-      const vitalsCheck = checkPatientVitalsNormal(adm);
 
       const actualDischargeTime = (() => {
         const dtVal = c.discharge_date || adm.discharge_date;
@@ -553,11 +583,11 @@ export default function DischargeCommandCentre({
         owner: isDone ? (doctorName || 'Dr. Pallavi Patel') : category === 'Ready' ? 'Ready for release' : (doctorName || 'Attending Physician'),
         category,
         blocker,
-        activeApprovedSummary: isApproved && hasActiveAdmission,
+        activeApprovedSummary: isApproved && hasActiveAdmission && !isVitalsBlocked,
         initialStatus,
         isCompleted: isDone,
         isCleared: isBillCleared,
-        isApproved: isDone,
+        isApproved: isApproved,
         isVitalsStable: vitalsCheck.isNormal,
         vitalsIssues: vitalsCheck.issues.join(', '),
         hasSummary: true,
@@ -728,7 +758,7 @@ export default function DischargeCommandCentre({
         billId: adm.bill_number || `BILL-${30500 + index}`,
         admission_id: adm.admission_id || `ADM-2026-${adm.id || index + 1}`,
         diagnoses: clinical.primaryDiag,
-        patient_number: adm.patient_number || `PAT-${pid}`,
+        patient_number: adm.patient_number || adm.patient_code || adm.mrn || `PAT-${pid}`,
         patientAge: adm.age_at_admission || 45,
         discharge_date: adm.discharge_date || null,
         dateFilterValue: adm.discharge_date || adm.admission_date || null,
@@ -865,27 +895,32 @@ export default function DischargeCommandCentre({
         statusLabel = 'Paused · clinical';
         statusKind = 'blocked';
         blockerText = st.pauseReason || 'Clinical deterioration';
-      } else if (base.activeApprovedSummary) {
+      } else if (openBlocked.length > 0) {
+        computedCategory = 'Blocked';
+        statusKind = 'blocked';
+        if (openBlocked.includes('vitals')) {
+          statusLabel = 'Blocked · abnormal vitals';
+          blockerText = base.vitalsIssues ? `Vital signs abnormal: ${base.vitalsIssues}` : (deps.vitals?.note || 'Vital signs abnormal');
+        } else {
+          statusLabel = `Blocked · ${DEPL[openBlocked[0]] || openBlocked[0]}`;
+          blockerText = openBlocked.map(k => DEPL[k] || k).join(' → ');
+        }
+      } else if (openApproval.length > 0) {
+        computedCategory = 'Approval required';
+        statusLabel = `Approval required · ${DEPL[openApproval[0]] || openApproval[0]}`;
+        statusKind = 'approval';
+        blockerText = openApproval.map(k => DEPL[k] || k).join(' → ');
+      } else if (base.activeApprovedSummary && st.category !== 'Ready' && base.category !== 'Ready') {
         computedCategory = 'In progress';
         statusLabel = 'In progress · patient discharge';
         statusKind = 'pending';
         blockerText = base.blocker || 'awaiting patient discharge';
-      } else if (openBlocked.length > 0) {
-        computedCategory = 'Blocked';
-        statusLabel = `Blocked · ${openBlocked[0]}`;
-        statusKind = 'blocked';
-        blockerText = openBlocked.join(' → ');
-      } else if (openApproval.length > 0) {
-        computedCategory = 'Approval required';
-        statusLabel = `Approval required · ${openApproval[0]}`;
-        statusKind = 'approval';
-        blockerText = openApproval.join(' → ');
       } else if (openPending.length > 0) {
         computedCategory = 'In progress';
-        statusLabel = `In progress · ${openPending[0]}`;
+        statusLabel = `In progress · ${DEPL[openPending[0]] || openPending[0]}`;
         statusKind = 'pending';
-        blockerText = openPending.join(' → ');
-      } else if (base.category === 'In progress') {
+        blockerText = openPending.map(k => DEPL[k] || k).join(' → ');
+      } else if (base.category === 'In progress' && st.category !== 'Ready') {
         computedCategory = 'In progress';
         statusLabel = 'In progress · patient discharge';
         statusKind = 'pending';
@@ -950,10 +985,13 @@ export default function DischargeCommandCentre({
       const admissionId = item.admission_id || item.hadm_id || `ADM-${pid}`;
       const diag = cleanDiagnosis(item.diagnoses || item.discharge_diagnosis || 'Clinical Recovery & Discharge');
       const caseId = `DIS-HIST-${item.source_table || 'legacy'}-${item.summary_id || item.id || idx + 1}`;
+      const displayCaseId = `DIS-HIST-${item.summary_id || item.id || idx + 1}`;
 
       return {
         id: caseId,
+        displayId: displayCaseId,
         patient_id: pid,
+        patient_number: item.patient_number || item.patient_code || (typeof pid === 'string' && pid.startsWith('PAT-') ? pid : `PAT-${pid}`),
         admission_id: admissionId,
         patient: patientName,
         patient_name: patientName,
@@ -1073,6 +1111,7 @@ export default function DischargeCommandCentre({
       return {
         id: caseId,
         patient_id: pid,
+        patient_number: item.patient_number || item.patient_code || adm.patient_number || adm.patient_code || (typeof pid === 'string' && pid.startsWith('PAT-') ? pid : `PAT-${pid}`),
         admission_id: admissionId,
         patient: patientName,
         patient_name: patientName,
@@ -1175,8 +1214,34 @@ export default function DischargeCommandCentre({
       // In active operational workload, display only cases actively in the discharge workflow
       list = list.filter(c => !c.isCompleted && c.category !== 'Completed');
     } else if (scopeFilter === 'all') {
-      // In all historical database scope, merge active cases with historical discharge records
-      list = [...historicalCases, ...enrichedCases];
+      // In all historical database scope, merge active cases with historical discharge records without duplicates
+      const seenKeys = new Set();
+      const uniqueEnriched = [];
+
+      enrichedCases.forEach(c => {
+        if (c.summary_id) seenKeys.add(`sum_${c.summary_id}`);
+        if (c.admission_id) seenKeys.add(`adm_${String(c.admission_id).replace(/\D/g, '')}`);
+        if (c.patient_id) seenKeys.add(`pat_${String(c.patient_id).replace(/\D/g, '')}`);
+        if (c.patient_number) seenKeys.add(`num_${String(c.patient_number).trim().toLowerCase()}`);
+        if (c.rawRecord?.summary_id) seenKeys.add(`sum_${c.rawRecord.summary_id}`);
+        if (c.rawRecord?.admission_id) seenKeys.add(`adm_${String(c.rawRecord.admission_id).replace(/\D/g, '')}`);
+        uniqueEnriched.push(c);
+      });
+
+      const uniqueHistorical = historicalCases.filter(h => {
+        const sumKey = h.summary_id ? `sum_${h.summary_id}` : (h.rawRecord?.summary_id ? `sum_${h.rawRecord.summary_id}` : null);
+        const admKey = h.admission_id ? `adm_${String(h.admission_id).replace(/\D/g, '')}` : (h.rawRecord?.admission_id ? `adm_${String(h.rawRecord.admission_id).replace(/\D/g, '')}` : null);
+        const patKey = h.patient_id ? `pat_${String(h.patient_id).replace(/\D/g, '')}` : null;
+        const numKey = h.patient_number ? `num_${String(h.patient_number).trim().toLowerCase()}` : null;
+
+        if (sumKey && seenKeys.has(sumKey)) return false;
+        if (admKey && seenKeys.has(admKey)) return false;
+        if (patKey && seenKeys.has(patKey)) return false;
+        if (numKey && seenKeys.has(numKey)) return false;
+        return true;
+      });
+
+      list = [...uniqueEnriched, ...uniqueHistorical];
     }
     if (dateRange.dateFrom || dateRange.dateTo) {
       list = list.filter(c => isDateInRange(
@@ -1186,17 +1251,86 @@ export default function DischargeCommandCentre({
       ));
     }
     if (!search.trim()) return list;
-    const s = search.toLowerCase();
+    const s = search.toLowerCase().trim();
+    const isPatientCodeQuery = s.includes('pat') || s.startsWith('p-');
+    const isAdmissionQuery = s.includes('adm') || s.includes('dis-') || s.startsWith('a-');
+    const cleanDigits = s.replace(/\D/g, '').replace(/^0+/, '');
+
     return list.filter(c => {
-      return (
-        c.patient.toLowerCase().includes(s) ||
-        c.bed.toLowerCase().includes(s) ||
-        c.doctor.toLowerCase().includes(s) ||
-        c.insurer.toLowerCase().includes(s) ||
-        c.diagnoses.toLowerCase().includes(s) ||
-        c.status.toLowerCase().includes(s) ||
-        c.id.toLowerCase().includes(s)
-      );
+      const pName = String(c.patient || c.patient_name || '').toLowerCase();
+      const pNum = String(c.patient_number || c.patient_code || '').toLowerCase();
+      const pId = String(c.patient_id || '').toLowerCase();
+      const aId = String(c.admission_id || '').toLowerCase();
+      const bed = String(c.bed || '').toLowerCase();
+      const doc = String(c.doctor || '').toLowerCase();
+      const ins = String(c.insurer || '').toLowerCase();
+      const diag = String(c.diagnoses || '').toLowerCase();
+      const stat = String(c.status || '').toLowerCase();
+      const caseId = String(c.id || c.displayId || '').toLowerCase();
+      const blocker = String(c.blocker || '').toLowerCase();
+
+      // If user explicitly typed a patient code (e.g. MER-PAT-0087215, PAT-87215):
+      // Only match against patient code / patient id - NEVER match unrelated admission_id or case_id!
+      if (isPatientCodeQuery) {
+        if (pNum.includes(s) || pId === s) return true;
+        if (cleanDigits && cleanDigits.length >= 3) {
+          const pDigits = pNum.replace(/\D/g, '').replace(/^0+/, '');
+          const idDigits = pId.replace(/\D/g, '').replace(/^0+/, '');
+          if (pDigits.includes(cleanDigits) || idDigits.includes(cleanDigits)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // If user explicitly typed an admission / discharge case query (e.g. MER-ADM-0087215, DIS-ADM-87215):
+      // Only match against admission_id or case_id - NEVER match unrelated patient_number!
+      if (isAdmissionQuery) {
+        if (aId.includes(s) || caseId.includes(s)) return true;
+        if (cleanDigits && cleanDigits.length >= 3) {
+          const aDigits = aId.replace(/\D/g, '').replace(/^0+/, '');
+          const cDigits = caseId.replace(/\D/g, '').replace(/^0+/, '');
+          if (aDigits.includes(cleanDigits) || cDigits.includes(cleanDigits)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // General search across name, bed, doctor, insurer, diagnosis, status, blocker:
+      if (
+        pName.includes(s) ||
+        pNum.includes(s) ||
+        pId.includes(s) ||
+        aId.includes(s) ||
+        bed.includes(s) ||
+        doc.includes(s) ||
+        ins.includes(s) ||
+        diag.includes(s) ||
+        stat.includes(s) ||
+        caseId.includes(s) ||
+        blocker.includes(s)
+      ) {
+        return true;
+      }
+
+      // Generic numeric search fallback
+      if (cleanDigits && cleanDigits.length >= 3) {
+        const pDigits = pNum.replace(/\D/g, '').replace(/^0+/, '');
+        const idDigits = pId.replace(/\D/g, '').replace(/^0+/, '');
+        const aDigits = aId.replace(/\D/g, '').replace(/^0+/, '');
+        const cDigits = caseId.replace(/\D/g, '').replace(/^0+/, '');
+        if (
+          pDigits.includes(cleanDigits) ||
+          idDigits.includes(cleanDigits) ||
+          aDigits.includes(cleanDigits) ||
+          cDigits.includes(cleanDigits)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
     });
   }, [enrichedCases, historicalCases, scopeFilter, search, dateRange]);
 
@@ -1237,13 +1371,21 @@ export default function DischargeCommandCentre({
   // Active Cases: Ready: 38, Blocked: 82, Approval required: 51, In progress: 0, Completed: 70
   // All Historical: Ready: 38, Blocked: 82, Approval required: 51, In progress: 0, Completed: 46,925
   const stats = useMemo(() => {
+    if (search.trim()) {
+      const ready = filteredCases.filter(c => c.category === 'Ready' && !c.isCompleted).length;
+      const blocked = filteredCases.filter(c => c.category === 'Blocked' && !c.isCompleted).length;
+      const approval = filteredCases.filter(c => c.category === 'Approval required' && !c.isCompleted).length;
+      const inProgress = filteredCases.filter(c => c.category === 'In progress' && !c.isCompleted).length;
+      const completed = filteredCases.filter(c => c.isCompleted || c.category === 'Completed').length;
+      return { ready, blocked, approval, inProgress, completed };
+    }
     const ready = enrichedCases.filter(c => c.category === 'Ready' && !c.isCompleted).length;
     const blocked = enrichedCases.filter(c => c.category === 'Blocked' && !c.isCompleted).length;
     const approval = enrichedCases.filter(c => c.category === 'Approval required' && !c.isCompleted).length;
     const inProgress = enrichedCases.filter(c => c.category === 'In progress' && !c.isCompleted).length;
     const completed = scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70);
     return { ready, blocked, approval, inProgress, completed };
-  }, [enrichedCases, activeCompletedCases, scopeFilter, historicalTotal]);
+  }, [enrichedCases, filteredCases, activeCompletedCases, scopeFilter, historicalTotal, search]);
 
   // ─────────────────────────────────────────────────────────────
   // WORKFLOW STATE TRANSITIONS
@@ -1874,6 +2016,7 @@ export default function DischargeCommandCentre({
 
       const updated = {
         ...cur,
+        category: 'Ready',
         deps: nextDeps,
         steps: nextSteps,
         log: nextLog,
@@ -1951,8 +2094,51 @@ export default function DischargeCommandCentre({
     });
   };
 
+  const handleRecordNormalVitals = async (caseId) => {
+    if (savingVitalsCaseId === caseId) return;
+    const targetCase = allCases.find(x => x.id === caseId);
+    const patientId = targetCase?.patient_id || targetCase?.rawRecord?.patient_id;
+    if (!patientId) {
+      notify('Unable to update vitals', 'Patient ID is unavailable for this case.', 'High', 'Discharge Board');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This records predefined normal vitals (BP 120/80, pulse 72, SpO2 98.5%, temperature 98.6°F, respiratory rate 16) in the patient record. Continue only if these match the rechecked measurements.'
+    );
+    if (!confirmed) return;
+
+    setSavingVitalsCaseId(caseId);
+    try {
+      const result = await apiService.managePatientVitals({
+        patient_code: String(patientId),
+        status: 'normal'
+      });
+      if (!result?.success) {
+        throw new Error(result?.detail || result?.message || 'Vitals were not saved.');
+      }
+
+      handleToggleDependency(caseId, 'vitals');
+      window.dispatchEvent(new CustomEvent('hc_patient_vitals_updated', {
+        detail: { patient_id: String(result.patient_id || patientId) }
+      }));
+      notify('Normal vital signs recorded', `${targetCase.patient || 'Patient'} · Patient 360 has been refreshed.`, 'Medium', 'Discharge Board');
+    } catch (err) {
+      notify('Unable to update vitals', err.message || 'The vital record could not be saved.', 'High', 'Discharge Board');
+    } finally {
+      setSavingVitalsCaseId(null);
+    }
+  };
+
   const renderStatusPill = (statusName) => {
-    const s = STATUS_STYLES[statusName] || STATUS_STYLES['In progress'];
+    let s = STATUS_STYLES[statusName];
+    if (!s) {
+      if (/^blocked/i.test(statusName) || /^paused/i.test(statusName)) s = STATUS_STYLES.Blocked;
+      else if (/^approval/i.test(statusName)) s = STATUS_STYLES['Approval required'];
+      else if (/^ready/i.test(statusName)) s = STATUS_STYLES.Ready;
+      else if (/^completed/i.test(statusName)) s = STATUS_STYLES.Completed;
+      else s = STATUS_STYLES['In progress'];
+    }
     return (
       <span
         style={{
@@ -2447,7 +2633,9 @@ export default function DischargeCommandCentre({
           <span>›</span>
           <span>Discharge case</span>
           <span>›</span>
-          <span style={{ color: '#15181b', fontWeight: 600 }}>{dc.id}</span>
+          <span style={{ color: '#15181b', fontWeight: 600 }}>
+            {(dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))) ? `${dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))} · ` : ''}{dc.displayId || dc.id}
+          </span>
         </div>
 
         {/* Two-Column Grid: Left Main + Right Approvals (minmax(0, 1fr) 380px) */}
@@ -2458,12 +2646,33 @@ export default function DischargeCommandCentre({
             <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '20px', fontWeight: 600, color: '#15181b' }}>{dc.patient}</span>
+                    {(dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))) && (
+                      <span
+                        style={{
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          color: '#0d9488',
+                          background: '#f0fdfa',
+                          border: '1px solid #99f6e4',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                        }}
+                      >
+                        {dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))}
+                      </span>
+                    )}
                     {renderStatusPill(dc.status)}
                   </div>
-                  <div style={{ color: '#8a9096', fontSize: '12px', marginTop: '2px' }}>
-                    {dc.id} · {dc.bed} · {dc.doctor} · {dc.insurer}
+                  <div style={{ color: '#8a9096', fontSize: '12px', marginTop: '4px' }}>
+                    {(dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))) ? (
+                      <span style={{ fontWeight: 600, color: '#0d9488' }}>
+                        {dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))} ·{' '}
+                      </span>
+                    ) : null}
+                    {dc.displayId || dc.id} · {dc.bed} · {dc.doctor} · {dc.insurer}
                   </div>
                 </div>
 
@@ -2471,36 +2680,42 @@ export default function DischargeCommandCentre({
                   <div style={{ color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#8a9096', fontSize: '11.5px', fontWeight: 600 }}>
                     {dc.isCompleted
                       ? 'Discharged at'
-                      : dc.statusKind === 'ready'
-                        ? 'Awaiting Doctor Sign-off'
-                        : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
-                          ? 'Approval Required'
-                          : dc.statusKind === 'blocked'
-                            ? 'Discharge blocked'
+                      : dc.statusKind === 'blocked'
+                        ? 'Discharge blocked'
+                        : dc.statusKind === 'ready'
+                          ? 'Awaiting Doctor Sign-off'
+                          : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
+                            ? 'Approval Required'
                             : 'Predicted ready'}
                   </div>
                   <div style={{ fontFamily: 'Newsreader, Georgia, serif', fontSize: '32px', lineHeight: 1, color: dc.statusKind === 'blocked' ? '#b91c1c' : dc.statusKind === 'ready' ? '#047857' : '#15181b', fontWeight: 500, margin: '2px 0' }}>
-                    {dc.isCompleted ? formatTime12(dc.dischargeTime || dc.dischargedAt || '09:30 AM') : dc.statusKind === 'ready' ? 'Now' : (dc.eta && dc.eta !== 'Now' ? formatTime12(dc.eta) : '01:30 PM')}
+                    {dc.isCompleted
+                      ? formatTime12(dc.dischargeTime || dc.dischargedAt || '09:30 AM')
+                      : dc.statusKind === 'blocked'
+                        ? 'Hold'
+                        : dc.statusKind === 'ready'
+                          ? 'Now'
+                          : (dc.eta && dc.eta !== 'Now' ? formatTime12(dc.eta) : '01:30 PM')}
                   </div>
                   <div style={{ fontSize: '10.5px', color: dc.statusKind === 'blocked' ? '#b91c1c' : '#8a9096' }}>
                     {dc.isCompleted
                       ? 'Discharge completed · Finalized'
-                      : dc.statusKind === 'ready'
-                        ? 'Clearances verified · Ready for doctor sign-off & release'
-                        : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
-                          ? 'Clearances verified · Awaiting treating physician approval'
-                          : dc.statusKind === 'blocked'
-                            ? `Blocked: ${dc.blocker} (${dc.pendingCount} pending)`
+                      : dc.statusKind === 'blocked'
+                        ? `Blocked: ${dc.blocker || 'Clinical observation required'}`
+                        : dc.statusKind === 'ready'
+                          ? 'Clearances verified · Ready for doctor sign-off & release'
+                          : dc.statusKind === 'approval' || dc.deps?.summary?.status === 'approval'
+                            ? 'Clearances verified · Awaiting treating physician approval'
                             : '±35 min · Forecasting v1.0.6 · decision support only'}
                   </div>
                 </div>
               </div>
 
-              {/* 4-Metric Grid */}
+              {/* 5-Metric Grid with Patient Code */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                  gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
                   gap: '8px',
                   margin: '14px 0',
                   padding: '10px 14px',
@@ -2509,6 +2724,12 @@ export default function DischargeCommandCentre({
                   fontSize: '12px'
                 }}
               >
+                <div>
+                  <div style={{ color: '#8a9096', fontSize: '11px' }}>Patient code</div>
+                  <div style={{ fontWeight: 700, color: '#0d9488', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code)) || `PAT-${dc.patient_id || ''}`}
+                  </div>
+                </div>
                 <div>
                   <div style={{ color: '#8a9096', fontSize: '11px' }}>Doctor intent</div>
                   <div style={{ fontWeight: 600, color: '#15181b', marginTop: '2px' }}>{formatTime12(dc.intentAt || '09:00 AM')}</div>
@@ -2538,12 +2759,21 @@ export default function DischargeCommandCentre({
                   const item = dc.deps[key] || { status: 'waiting', note: 'Pending', time: '—' };
                   const cfg = ICON_CONFIG[item.status] || ICON_CONFIG.waiting;
                   const rowBg = item.status === 'blocked' ? '#fef2f2' : item.status === 'approval' ? '#fffbeb' : 'transparent';
+                  const canResolveDependency = !dc.isCompleted && (key !== 'vitals' || item.status === 'blocked');
 
                   return (
                     <div
                       key={key}
-                      onClick={() => !dc.isCompleted && handleToggleDependency(dc.id, key)}
-                      title={!dc.isCompleted ? (item.status === 'done' ? `Click to mark ${DEPL[key]} as pending` : `Click to mark ${DEPL[key]} as cleared`) : ''}
+                      onClick={() => {
+                        if (!canResolveDependency) return;
+                        if (key === 'vitals') handleRecordNormalVitals(dc.id);
+                        else handleToggleDependency(dc.id, key);
+                      }}
+                      title={key === 'vitals' && item.status === 'blocked'
+                        ? 'Record a confirmed normal recheck to clear the vital-sign blocker'
+                        : canResolveDependency
+                          ? (item.status === 'done' ? `Click to mark ${DEPL[key]} as pending` : `Click to mark ${DEPL[key]} as cleared`)
+                          : ''}
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '22px minmax(0, 1fr) auto',
@@ -2554,11 +2784,11 @@ export default function DischargeCommandCentre({
                         borderRadius: '6px',
                         background: rowBg,
                         fontSize: '12px',
-                        cursor: !dc.isCompleted ? 'pointer' : 'default',
+                        cursor: canResolveDependency ? (savingVitalsCaseId === dc.id ? 'wait' : 'pointer') : 'default',
                         transition: 'background 0.15s'
                       }}
                       onMouseEnter={(e) => {
-                        if (!dc.isCompleted) e.currentTarget.style.background = '#f1f5f9';
+                        if (canResolveDependency) e.currentTarget.style.background = '#f1f5f9';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = rowBg;
@@ -2851,6 +3081,12 @@ export default function DischargeCommandCentre({
                 Human approvals on this case
               </div>
 
+              {dc.deps?.vitals?.status === 'blocked' && (
+                <div style={{ padding: '8px 10px', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '12px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontWeight: 700 }}>⚠️ Clinical Hold:</span> {dc.deps.vitals.note || 'Abnormal vitals observed'}
+                </div>
+              )}
+
               {dc.approvals.length === 0 ? (
                 <div style={{ padding: '12px 10px', borderRadius: '6px', background: '#f8fafc', color: '#64748b', fontSize: '12px', marginBottom: '8px' }}>
                   ✓ All required human approvals granted for this case.
@@ -3139,7 +3375,7 @@ export default function DischargeCommandCentre({
                         {dc.patient} · ₹{dc.billDetails.actual.toLocaleString('en-IN')}
                       </div>
                       <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                        {dc.billId} · {dc.admission_id}
+                        {(dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))) ? `${dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))} · ` : ''}{dc.billId} · {dc.admission_id}
                       </div>
                     </div>
                     <button
@@ -3300,7 +3536,7 @@ export default function DischargeCommandCentre({
                         {dc.patient} · {dc.diagnoses}
                       </div>
                       <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '2px', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-                        {dc.paId} · {dc.insurer} · {dc.paRef}
+                        {(dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))) ? `${dc.patient_number || dc.patient_code || (dc.rawRecord && (dc.rawRecord.patient_number || dc.rawRecord.patient_code))} · ` : ''}{dc.paId} · {dc.insurer} · {dc.paRef}
                       </div>
                     </div>
                     <button
@@ -3642,7 +3878,9 @@ export default function DischargeCommandCentre({
           <div style={{ color: '#8a9096', fontSize: '11.5px', marginTop: '3px' }}>
             {isDoctor && activeDoctorName
               ? `Doctor Scope: ${activeDoctorName} · Showing ${activeCasesCount} assigned active discharge case${activeCasesCount === 1 ? '' : 's'}`
-              : `Overall Discharge Records: ${historicalTotal.toLocaleString()} total records`}
+              : search.trim()
+                ? `Search Results: ${filteredCases.length} record${filteredCases.length === 1 ? '' : 's'} matching "${search.trim()}"`
+                : `Overall Discharge Records: ${historicalTotal.toLocaleString()} total records`}
           </div>
         </div>
 
@@ -3680,9 +3918,10 @@ export default function DischargeCommandCentre({
             type="button"
             onClick={() => {
               if (!sortedCases.length) return alert('No records to export');
-              const headers = ['Case ID', 'Patient', 'Bed', 'Doctor', 'Insurer', 'Intent', 'Critical Path', 'Pending', 'Owner', 'Age', 'Status'];
+              const headers = ['Case ID', 'Patient Code', 'Patient', 'Bed', 'Doctor', 'Insurer', 'Intent', 'Critical Path', 'Pending', 'Owner', 'Age', 'Status'];
               const rows = sortedCases.map(c => [
                 `"${c.id}"`,
+                `"${c.patient_number || c.patient_code || ''}"`,
                 `"${c.patient}"`,
                 `"${c.bed}"`,
                 `"${c.doctor}"`,
@@ -3841,21 +4080,18 @@ export default function DischargeCommandCentre({
             { key: 'Completed', label: 'Completed', count: stats.completed, pillBg: '#dcfce7', pillFg: '#15803d' }
           ].map(col => {
             const isCompletedCol = col.key === 'Completed';
-            const colCases = isCompletedCol
-              ? (scopeFilter === 'all'
-                  ? (historicalCases.length > 0 ? historicalCases : rawHistoricalSummaries)
-                  : (activeCompletedCases.length > 0 ? activeCompletedCases : filteredCases.filter(c => c.isCompleted || c.category === 'Completed')))
-              : filteredCases.filter(c => {
-                  if (col.key === 'Blocked') return c.category === 'Blocked' && !c.isCompleted;
-                  if (col.key === 'Approval required') return c.category === 'Approval required' && !c.isCompleted;
-                  if (col.key === 'In progress') return c.category === 'In progress' && !c.isCompleted;
-                  if (col.key === 'Ready') return c.category === 'Ready' && !c.isCompleted;
-                  return false;
-                });
+            const colCases = filteredCases.filter(c => {
+              if (col.key === 'Completed') return c.isCompleted || c.category === 'Completed';
+              if (col.key === 'Blocked') return c.category === 'Blocked' && !c.isCompleted;
+              if (col.key === 'Approval required') return c.category === 'Approval required' && !c.isCompleted;
+              if (col.key === 'In progress') return c.category === 'In progress' && !c.isCompleted;
+              if (col.key === 'Ready') return c.category === 'Ready' && !c.isCompleted;
+              return false;
+            });
 
             const colPage = kanbanColPages[col.key] || 1;
             const COL_PAGE_SIZE = 5;
-            const totalColCount = isCompletedCol
+            const totalColCount = (isCompletedCol && !search.trim())
               ? (scopeFilter === 'all' ? historicalTotal : (activeCompletedCases.length || 70))
               : colCases.length;
             const totalColPages = Math.max(1, Math.ceil(totalColCount / COL_PAGE_SIZE));
@@ -3931,9 +4167,14 @@ export default function DischargeCommandCentre({
                             if (!isSelected) e.currentTarget.style.borderColor = '#e3e6e8';
                           }}
                         >
-                          {/* Line 1: Patient Name · Bed */}
-                          <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#15181b', lineHeight: 1.3 }}>
-                            {c.patient} · {c.bed}
+                          {/* Line 1: Patient Name · Bed + Patient Code */}
+                          <div style={{ fontSize: '12.5px', fontWeight: 600, color: '#15181b', lineHeight: 1.3, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '4px' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.patient} · {c.bed}</span>
+                            {(c.patient_number || c.patient_code) && (
+                              <span style={{ fontSize: '10px', color: '#0d9488', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                {c.patient_number || c.patient_code}
+                              </span>
+                            )}
                           </div>
 
                           {/* Line 2: Doctor Name */}
@@ -4083,7 +4324,14 @@ export default function DischargeCommandCentre({
                   >
                     <td style={{ padding: '10px 12px', fontWeight: 600, color: '#15181b' }}>
                       <div>{c.patient}</div>
-                      <div style={{ color: '#8a9096', fontSize: '11px', fontWeight: 400 }}>{c.bed}</div>
+                      <div style={{ color: '#8a9096', fontSize: '11px', fontWeight: 400 }}>
+                        {(c.patient_number || c.patient_code) ? (
+                          <span style={{ color: '#0d9488', fontWeight: 600, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                            {c.patient_number || c.patient_code} ·{' '}
+                          </span>
+                        ) : null}
+                        {c.bed}
+                      </div>
                     </td>
                     <td style={{ padding: '10px 12px', color: '#15181b' }}>{c.doctor}</td>
                     <td style={{ padding: '10px 12px', color: '#52585e' }}>{c.insurer}</td>

@@ -478,11 +478,28 @@ export default function PatientsView({
 
   const rows = useMemo(() => {
     if (workloadScope === 'all') {
+      const hasSearch = Boolean(debouncedSearch && debouncedSearch.trim());
+      const query = hasSearch ? debouncedSearch.toLowerCase().trim() : '';
+      const cleanDigits = hasSearch ? query.replace(/\D/g, '').replace(/^0+/, '') : '';
+
+      const matchingEr = hasSearch
+        ? (erPatients || []).filter(p => {
+            const pCode = String(p.patient_code || p.patient_number || p.uhid || '').toLowerCase();
+            const pId = String(p.patient_id || p.id || '').toLowerCase();
+            const pName = String(p.name || p.patient_name || '').toLowerCase();
+            const pDoc = String(p.doctor || '').toLowerCase();
+            const pDiag = String(p.diagnosis || '').toLowerCase();
+            if (pCode.includes(query) || pId.includes(query) || pName.includes(query) || pDoc.includes(query) || pDiag.includes(query)) return true;
+            if (cleanDigits && cleanDigits.length >= 3 && (pCode.includes(cleanDigits) || pId.includes(cleanDigits))) return true;
+            return false;
+          })
+        : (erPatients || []);
+
       let list = filter === 'All'
-        ? ((Number(counts?.ER) > 0 && erPatients?.length) ? [...erPatients, ...historicalPatients] : historicalPatients)
+        ? ((Number(counts?.ER) > 0 && matchingEr?.length) ? [...matchingEr, ...historicalPatients] : historicalPatients)
         : historicalCategoryRows;
 
-      if (filter === 'All') {
+      if (filter === 'All' && !hasSearch) {
         list = [...list].sort((a, b) => {
           const getTs = (item) => {
             const raw = item.admission_date || item.appointment_date || item.visit_date || item.date || item.created_at;
@@ -504,11 +521,48 @@ export default function PatientsView({
         });
       }
 
-      if (!debouncedSearch.trim() || filter === 'All') return list;
-      const query = debouncedSearch.toLowerCase().trim();
-      return list.filter(p => [
-        p.patient_id, p.patient_number, p.patient_code, p.uhid, p.name, p.doctor, p.diagnosis
-      ].some(value => String(value || '').toLowerCase().includes(query)));
+      if (!hasSearch) return list;
+
+      return list.filter(p => {
+        const pId = String(p.patient_id !== undefined && p.patient_id !== null ? p.patient_id : (p.id || '')).toLowerCase();
+        const pCode = String(p.patient_code || '').toLowerCase();
+        const pNum = String(p.patient_number || '').toLowerCase();
+        const uhid = String(p.uhid || '').toLowerCase();
+        const name = String(p.name || p.patient_name || '').toLowerCase();
+        const doc = String(p.doctor || p.doctor_name || '').toLowerCase();
+        const diag = String(p.diagnosis || p.diagnoses || '').toLowerCase();
+        const insurer = String(p.insurer || p.insurance_provider || '').toLowerCase();
+        const dept = String(p.department || '').toLowerCase();
+        const phone = String(p.phone || p.whatsapp_number || '').toLowerCase();
+
+        if (
+          pCode.includes(query) ||
+          pNum.includes(query) ||
+          uhid.includes(query) ||
+          pId.includes(query) ||
+          name.includes(query) ||
+          doc.includes(query) ||
+          diag.includes(query) ||
+          insurer.includes(query) ||
+          dept.includes(query) ||
+          phone.includes(query)
+        ) {
+          return true;
+        }
+
+        if (cleanDigits && cleanDigits.length >= 3) {
+          if (
+            pCode.includes(cleanDigits) ||
+            pNum.includes(cleanDigits) ||
+            uhid.includes(cleanDigits) ||
+            pId.includes(cleanDigits)
+          ) {
+            return true;
+          }
+        }
+
+        return false;
+      });
     }
 
     // In active mode, 'All' consists of active hospital patients: IP + OP + ER
@@ -538,22 +592,11 @@ export default function PatientsView({
 
     if (!debouncedSearch.trim()) return list;
     const s = debouncedSearch.toLowerCase().trim();
-    const isDigits = /^\d+$/.test(s);
+    const cleanDigits = s.replace(/\D/g, '').replace(/^0+/, '');
 
     return list.filter(p => {
-      const pidStr = p.patient_id !== undefined && p.patient_id !== null ? String(p.patient_id).trim() : "";
+      const pidStr = p.patient_id !== undefined && p.patient_id !== null ? String(p.patient_id).trim().toLowerCase() : "";
       const patNumStr = String(p.patient_number || p.patient_code || p.uhid || "").toLowerCase();
-
-      // When user searches a numeric ID (e.g. 87314), match EXACT patient_id or patient UHID/code!
-      // NEVER match admission_id or admission_number when searching by numeric patient ID.
-      if (isDigits) {
-        return (
-          pidStr === s ||
-          patNumStr === s ||
-          patNumStr.endsWith(s)
-        );
-      }
-
       const name = p.name ? p.name.toLowerCase() : "";
       const doctor = p.doctor ? p.doctor.toLowerCase() : "";
       const diagnosis = p.diagnosis ? p.diagnosis.toLowerCase() : "";
@@ -561,7 +604,7 @@ export default function PatientsView({
       const phone = p.phone ? String(p.phone).toLowerCase() : "";
       const admNumStr = String(p.admission_number || "").toLowerCase();
 
-      return (
+      if (
         pidStr.includes(s) ||
         patNumStr.includes(s) ||
         admNumStr.includes(s) ||
@@ -570,15 +613,35 @@ export default function PatientsView({
         diagnosis.includes(s) ||
         diagnoses.includes(s) ||
         phone.includes(s)
-      );
-    });
-  }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName, activeDoctorId, workloadScope, historicalPatients, historicalCategoryRows, dateRange]);
+      ) {
+        return true;
+      }
 
-  const totalRows = useMemo(() => (
-    (dateRange && (dateRange.dateFrom || dateRange.dateTo)) || debouncedSearch
-      ? rows.length
-      : workloadScope === 'all' ? (counts[filter] ?? rows.length) : rows.length
-  ), [workloadScope, filter, counts, rows.length, dateRange, debouncedSearch]);
+      if (cleanDigits && cleanDigits.length >= 3) {
+        if (
+          pidStr.includes(cleanDigits) ||
+          patNumStr.includes(cleanDigits) ||
+          admNumStr.includes(cleanDigits)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+  }, [admitted, opPatients, erPatients, discharged, filter, debouncedSearch, activeDoctorName, activeDoctorId, workloadScope, historicalPatients, historicalCategoryRows, dateRange, counts?.ER]);
+
+  const totalRows = useMemo(() => {
+    if (debouncedSearch) {
+      if (rows.length === 0 && !viewLoading) return 0;
+      if (workloadScope === 'all') {
+        return filter === 'All' ? (historicalTotal || rows.length) : (historicalCategoryCounts[filter] || rows.length);
+      }
+      return rows.length;
+    }
+    if (dateRange && (dateRange.dateFrom || dateRange.dateTo)) return rows.length;
+    return workloadScope === 'all' ? (counts[filter] ?? rows.length) : rows.length;
+  }, [workloadScope, filter, counts, rows.length, dateRange, debouncedSearch, historicalTotal, historicalCategoryCounts, viewLoading]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -802,9 +865,11 @@ export default function PatientsView({
               ? "Loading patients…"
               : isDoctor && activeDoctorName
                 ? `Showing ${counts.All || rows.length} patient${(counts.All || rows.length) === 1 ? '' : 's'} under your care`
-                : (dateRange?.dateFrom || dateRange?.dateTo)
-                  ? `Filtered Patients (${filter}): ${(counts[filter] ?? rows.length).toLocaleString()} patients`
-                  : `Total Overall Patients: ${(counts.All || historicalTotal || 143282).toLocaleString()} patients`}
+                : search.trim()
+                  ? `Search Results: ${totalRows} record${totalRows === 1 ? '' : 's'} matching "${search.trim()}"`
+                  : (dateRange?.dateFrom || dateRange?.dateTo)
+                    ? `Filtered Patients (${filter}): ${(counts[filter] ?? rows.length).toLocaleString()} patients`
+                    : `Total Overall Patients: ${(counts.All || historicalTotal || 143282).toLocaleString()} patients`}
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>

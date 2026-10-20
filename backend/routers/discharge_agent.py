@@ -1503,9 +1503,9 @@ def escalate_discharge_case_internal(
        - discharge_status = 'Ready'
     3. Updates `bills`:
        - bill_status = 'Settled'
-    4. Updates `dim_generated_discharge_summaries`:
-       - approval_status = 'Approved'
-    5. Invalidates DatabricksConnector cache so UI dashboards & page reloads reflect 'Ready' permanently.
+     4. Invalidates DatabricksConnector cache so UI dashboards & page reloads reflect 'Ready' permanently.
+
+     Doctor sign-off remains a separate approval and is never granted by escalation.
     """
     from db_config import get_db_connection
 
@@ -1622,20 +1622,6 @@ def escalate_discharge_case_internal(
                 UPDATE bills
                 SET bill_status = 'Settled'
                 WHERE patient_id = %s AND admission_id IS NOT NULL;
-            """, (resolved_pid,))
-
-        # 4. Update discharge summaries if present
-        if resolved_aid:
-            cur.execute("""
-                UPDATE dim_generated_discharge_summaries
-                SET approval_status = 'Approved'
-                WHERE admission_id = %s;
-            """, (resolved_aid,))
-        elif resolved_pid:
-            cur.execute("""
-                UPDATE dim_generated_discharge_summaries
-                SET approval_status = 'Approved'
-                WHERE patient_id = %s;
             """, (resolved_pid,))
 
         conn.commit()
