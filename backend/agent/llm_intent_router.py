@@ -59,8 +59,8 @@ import db_config
 # ---------------------------------------------------------------------------
 # LLM provider config  (same env-vars as llm_service.py)
 # ---------------------------------------------------------------------------
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
-LLM_MODEL    = os.getenv("LLM_MODEL", "gemini-3.1-flash-lite")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mock").lower()
+LLM_MODEL    = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 LLM_API_KEY  = os.getenv("LLM_API_KEY", "")
 LLM_API_BASE = os.getenv("LLM_API_BASE", "")
 
@@ -281,9 +281,7 @@ def _get_ist_weekday() -> str:
 # ---------------------------------------------------------------------------
 def is_llm_available() -> bool:
     """Returns True when LLM provider and API key are configured."""
-    provider = os.getenv("LLM_PROVIDER", LLM_PROVIDER).lower()
-    api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
-    return bool(api_key and provider in {"gemini", "google", "openai", "ollama"})
+    return bool(LLM_API_KEY and LLM_PROVIDER in {"gemini", "google", "openai", "ollama"})
 
 
 # ---------------------------------------------------------------------------
@@ -294,14 +292,15 @@ def _call_gemini(prompt: str) -> Optional[str]:
     Calls Gemini REST generateContent endpoint with JSON response mode.
     Returns raw JSON text string or None on failure.
     """
-    api_key = os.getenv("LLM_API_KEY", LLM_API_KEY)
-    if not api_key:
+    if not LLM_API_KEY:
         return None
 
-    model_env = (os.getenv("LLM_MODEL") or LLM_MODEL or "").strip()
-    if "3.1" in model_env:
-        model_name = "gemini-3.1-flash-lite"
-    elif "3.6" in model_env:
+    # Resolve correct Gemini model name for the REST API
+    # gemini-2.5-flash → use gemini-2.5-flash (stable endpoint)
+    # gemini-2.0-flash → use gemini-2.0-flash
+    # others → fall back to gemini-1.5-flash-latest
+    model_env = (LLM_MODEL or "").strip()
+    if "3.6" in model_env:
         model_name = "gemini-3.6-flash"
     elif "2.5" in model_env:
         model_name = "gemini-2.5-flash"
@@ -310,7 +309,7 @@ def _call_gemini(prompt: str) -> Optional[str]:
     elif model_env:
         model_name = model_env
     else:
-        model_name = "gemini-3.1-flash-lite"
+        model_name = "gemini-3.6-flash"
 
     ca_bundle = os.getenv("REQUESTS_CA_BUNDLE", "")
     verify_ssl = ca_bundle if ca_bundle and os.path.exists(ca_bundle) else True
@@ -323,17 +322,16 @@ def _call_gemini(prompt: str) -> Optional[str]:
         },
     }
 
-    if not api_key or os.environ.get("SKIP_REMOTE_LLM") == "true":
+    if not LLM_API_KEY or os.environ.get("SKIP_REMOTE_LLM") == "true":
         return None
 
-    # Do not silently substitute a different model if the selected model is unavailable.
-    # Preserve deterministic fallback to rule-based routing when primary model errors.
-    models_to_try = [model_name]
-    api_base = (os.getenv("LLM_API_BASE") or "https://generativelanguage.googleapis.com").rstrip("/")
-    for attempt_model in models_to_try:
+    # Try primary model, then fallback models
+    models_to_try = [model_name, "gemini-2.0-flash", "gemini-1.5-flash"]
+    seen = set()
+    for attempt_model in [m for m in models_to_try if m and not (m in seen or seen.add(m))]:
         attempt_url = (
-            f"{api_base}/v1beta/models/"
-            f"{attempt_model}:generateContent?key={api_key}"
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{attempt_model}:generateContent?key={LLM_API_KEY}"
         )
         try:
             import voice.whatsapp_client as whatsapp_client
@@ -344,6 +342,9 @@ def _call_gemini(prompt: str) -> Optional[str]:
                 timeout=4.0,
                 verify=verify_ssl,
             )
+            if res.status_code == 404 and attempt_model != "gemini-1.5-flash-latest":
+                _log(f"Model {attempt_model} returned 404, trying gemini-1.5-flash-latest")
+                continue
             res.raise_for_status()
 
             data = res.json()
@@ -354,7 +355,10 @@ def _call_gemini(prompt: str) -> Optional[str]:
                     return parts[0].get("text")
             break  # Got a valid response (even empty), no need to retry
         except Exception as exc:
-            _log(f"Gemini API error ({attempt_model}): {exc}")
+            if "404" in str(exc) and attempt_model != "gemini-1.5-flash-latest":
+                _log(f"Model {attempt_model} error ({exc}), trying fallback model")
+                continue
+            _log(f"Gemini API error: {exc}")
             break
 
     return None
