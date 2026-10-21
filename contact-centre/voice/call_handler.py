@@ -18,7 +18,7 @@ class VoiceCallHandler:
         "நான் உங்கள் குரல் உதவியாளர். உங்களுக்கு இன்று எவ்வாறு உதவ முடியும்?"
     )
     GREETING_ENGLISH = (
-        "Welcome to Meridian Hospital helpline. I am your voice assistant. "
+        "Welcome to Hospital helpline. I am your voice assistant. "
         "How may I help you today?"
     )
 

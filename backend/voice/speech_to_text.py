@@ -1,13 +1,13 @@
 """
 speech_to_text.py
 =================
-Speech-to-Text abstraction layer for the Meridian Hospital AI Voice Desk.
+Speech-to-Text abstraction layer for the Hospital AI Voice Desk.
 
 Supports: English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu.
 Enables pluggable/replaceable STT providers.
 Provides a mock implementation for development and testing.
 
-Step 5.2 — Meridian Hospital
+Step 5.2 — Hospital
 """
 
 import abc
@@ -41,7 +41,7 @@ MOCK_TRANSCRIPTION_MAP = {
     "english_cardiologist": ("I want to book an appointment with a cardiologist tomorrow", "ENGLISH"),
     "english_tomorrow": ("I want an appointment tomorrow", "ENGLISH"),
     "english_timing": ("What are the hospital timings?", "ENGLISH"),
-    "english_location": ("Where is Meridian Hospital?", "ENGLISH"),
+    "english_location": ("Where is Hospital?", "ENGLISH"),
     "english_cancel": ("I want to cancel my appointment", "ENGLISH"),
     "english_reschedule": ("I want to reschedule my appointment", "ENGLISH"),
     "english_doctor": ("Is Dr. Arun available tomorrow?", "ENGLISH"),

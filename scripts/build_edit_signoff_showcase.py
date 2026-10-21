@@ -150,7 +150,7 @@ def render_frame(frame_idx, images):
     # Brand icon + Title
     draw.rounded_rectangle([32, 16, 76, 56], radius=8, fill=(14, 165, 233, 255))
     draw.text((43, 18), "+", font=font_header, fill=(255, 255, 255, 255))
-    draw.text((90, 20), "MERIDIAN HEALTHCARE AI", font=font_header, fill=(255, 255, 255, 255))
+    draw.text((90, 20), "HOSPITAL HEALTHCARE AI", font=font_header, fill=(255, 255, 255, 255))
     draw.text((450, 24), "•   DISCHARGE SUMMARY & DOCTOR SIGN-OFF", font=font_badge, fill=(148, 163, 184, 255))
 
     # Elapsed Timer Pill

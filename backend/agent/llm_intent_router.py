@@ -1,7 +1,7 @@
 """
 llm_intent_router.py
 ====================
-LLM-Based Patient Intent Router Agent for Meridian Hospital AI Patient Desk.
+LLM-Based Patient Intent Router Agent for Hospital AI Patient Desk.
 
 Architecture:
   WhatsApp Webhook / Input Message
@@ -312,7 +312,7 @@ def _call_openai(prompt: str) -> Optional[str]:
     """
     import agent.llm_providers as _lp
     system_msg = (
-        "You are an expert medical intake assistant for Meridian Hospital. "
+        "You are an expert medical intake assistant for Hospital. "
         "Your ONLY job is to classify patient intent and extract structured entities. "
         "You NEVER select doctors. You NEVER write to any database. "
         "Always return strict JSON."
@@ -415,7 +415,7 @@ def _build_prompt(
         dept_lines.append(f"- ID {d['id']}: {d['department_name']}{desc}")
     dept_list_str = "\n".join(dept_lines) if dept_lines else "- ID 17: General Medicine\n- ID 18: Cardiology"
 
-    prompt = f"""You are the Patient Intent Router for Meridian Hospital's AI Patient Desk.
+    prompt = f"""You are the Patient Intent Router for Hospital's AI Patient Desk.
 Your ONLY job is to classify the patient's intent and extract structured entities from their message.
 
 === GROUNDING CONTRACT — MANDATORY ===

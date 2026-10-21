@@ -1,7 +1,7 @@
 """
 llm_providers.py
 ================
-Centralized LLM Provider Abstraction for Meridian Hospital AI Patient Desk.
+Centralized LLM Provider Abstraction for Hospital AI Patient Desk.
 
 Supported providers (set via LLM_PROVIDER env-var):
   - gpt6luna  -> GPT-6 Luna (gpt-6-luna) via OpenAI Chat Completions API
@@ -272,7 +272,7 @@ def _call_gemini(
     contents = []
     if system_prompt:
         contents.append({"role": "user",  "parts": [{"text": system_prompt}]})
-        contents.append({"role": "model", "parts": [{"text": "Understood. I am the Meridian Hospital AI Patient Desk."}]})
+        contents.append({"role": "model", "parts": [{"text": "Understood. I am the Hospital AI Patient Desk."}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
 
     gen_cfg: Dict[str, Any] = {"temperature": temperature, "maxOutputTokens": 1024}
@@ -427,7 +427,7 @@ def ping_llm_provider() -> Dict[str, Any]:
         result["status"] = "mock (no remote call)"
         return result
 
-    probe = '{"status": "ok", "provider": "meridian_test"}'
+    probe = '{"status": "ok", "provider": "hospital_test"}'
     probe_prompt = f"Respond with ONLY valid JSON exactly as shown: {probe}"
     t0  = time.monotonic()
     raw = call_llm(prompt=probe_prompt, response_format="json_object", temperature=0.0)

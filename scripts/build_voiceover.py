@@ -9,7 +9,7 @@ VOICE = 'en-US-AndrewMultilingualNeural'
 SCENES = [
     {
         "id": "scene1",
-        "text": "Hospital discharges often face hours of administrative delay due to fragmented notes and delayed sign-offs. Meet the Meridian AI Discharge Summary Agent.",
+        "text": "Hospital discharges often face hours of administrative delay due to fragmented notes and delayed sign-offs. Meet the Hospital AI Discharge Summary Agent.",
         "target_start": 0.5,
     },
     {
@@ -29,7 +29,7 @@ SCENES = [
     },
     {
         "id": "scene5",
-        "text": "Reducing discharge turnaround from hours to minutes, while safeguarding patient outcomes. Meridian Discharge Summary Agent.",
+        "text": "Reducing discharge turnaround from hours to minutes, while safeguarding patient outcomes. Hospital Discharge Summary Agent.",
         "target_start": 53.0,
     }
 ]

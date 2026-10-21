@@ -1,5 +1,5 @@
 """
-Meridian Radiology AI - Configuration
+Hospital Radiology AI - Configuration
 
 Contains locked model decisions. Do NOT change these values without
 explicit sign-off; they were set intentionally (see project brief).

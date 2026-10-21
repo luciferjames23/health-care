@@ -80,8 +80,8 @@ def check_and_trigger_post_discharge_feedback() -> Dict[str, Any]:
 
             # Message content
             msg_text = (
-                f"💬 *Meridian Hospital — Post-Discharge Care*\n\n"
-                f"Dear {pat_name}, thank you for choosing Meridian Hospital.\n"
+                f"💬 *Hospital — Post-Discharge Care*\n\n"
+                f"Dear {pat_name}, thank you for choosing Hospital.\n"
                 f"We hope your recovery is going well following your discharge.\n\n"
                 f"We would value your feedback on your stay and experience with our doctors, nursing, food, and services."
             )

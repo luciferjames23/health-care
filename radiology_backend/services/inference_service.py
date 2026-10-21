@@ -13,7 +13,7 @@ from services.decision_service import build_combined_assessment, build_interpret
 from utils.image_utils import draw_boxes, image_to_base64_png
 from config import DISCLAIMER, DENSENET_PREPROCESSING_CONFIRMED
 
-logger = logging.getLogger("meridian.inference_service")
+logger = logging.getLogger("hospital.inference_service")
 
 
 class InferenceError(Exception):

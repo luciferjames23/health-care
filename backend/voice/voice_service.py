@@ -1,7 +1,7 @@
 """
 voice_service.py
 ================
-Coordinate voice processing pipeline for the Meridian Hospital AI Voice Desk.
+Coordinate voice processing pipeline for the Hospital AI Voice Desk.
 
 Orchestrates:
   1. Speech-to-Text: transcribe audio file
@@ -9,7 +9,7 @@ Orchestrates:
   3. Text-to-Speech: synthesize agent's response text to audio
   4. Returns playable audio & full metadata
 
-Step 5.2 — Meridian Hospital
+Step 5.2 — Hospital
 """
 
 import sys

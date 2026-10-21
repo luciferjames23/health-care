@@ -40,7 +40,7 @@ ag04_data = {
     ],
     'memory': {'session': 'On · 30 min', 'patient': 'Staff-scoped', 'workflow': 'On', 'retention': '90 days (audit) · 0 days (conversation)', 'sensitive': 'No free-text PHI stored'},
     'access': {'roles': 'HR, Hospital Management, Doctors, Nurses, Technicians, Admin', 'departments': 'All Wards, ICUs, Labs, OT, Admin', 'patients': 'Staff-scoped', 'scopes': 'Operational HR read/write', 'env': 'Production'},
-    'model': {'model': 'meridian-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'meridian-llm-small', 'latency': '< 1.5 s p50', 'cost': '₹4 / run'},
+    'model': {'model': 'hospital-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'hospital-llm-small', 'latency': '< 1.5 s p50', 'cost': '₹4 / run'},
     'evals': [
         {'id': 'EV-704', 'ver': 'v1.7.0', 'when': 'Today 09:30', 'cases': 180, 'acc': '98.5%', 'ground': '99.2%', 'hall': '0.1%', 'ref': '100%', 'lat': '1.2s', 'res': 'Pass'},
         {'id': 'EV-650', 'ver': 'v1.6.0', 'when': '15 Sep 2026', 'cases': 120, 'acc': '95.8%', 'ground': '97.4%', 'hall': '0.3%', 'ref': '99%', 'lat': '1.4s', 'res': 'Pass'}

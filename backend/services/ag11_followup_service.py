@@ -354,7 +354,7 @@ def process_due_followup_tasks() -> Dict[str, Any]:
             # Message body & button actions by Day
             if followup_day == 3:
                 msg_body = (
-                    f"*Meridian Hospital — Day 3 Recovery Check-in*\n\n"
+                    f"*Hospital — Day 3 Recovery Check-in*\n\n"
                     f"Dear {pat_name},\n"
                     f"We hope you are resting well following your {procedure_name or 'procedure'}.\n"
                     f"How are you feeling today?"
@@ -366,7 +366,7 @@ def process_due_followup_tasks() -> Dict[str, Any]:
                 ]
             elif followup_day == 7:
                 msg_body = (
-                    f"*Meridian Hospital — Day 7 Follow-up Check-in*\n\n"
+                    f"*Hospital — Day 7 Follow-up Check-in*\n\n"
                     f"Dear {pat_name},\n"
                     f"Checking in on Day 7 of your recovery. Are you continuing your prescribed care and medication as instructed?"
                 )
@@ -377,7 +377,7 @@ def process_due_followup_tasks() -> Dict[str, Any]:
                 ]
             else: # Day 14
                 msg_body = (
-                    f"*Meridian Hospital — Day 14 Final Review Check-in*\n\n"
+                    f"*Hospital — Day 14 Final Review Check-in*\n\n"
                     f"Dear {pat_name},\n"
                     f"It has been 2 weeks since your discharge. How is your overall health, and would you like to schedule a review appointment with your doctor?"
                 )
@@ -648,7 +648,7 @@ def evaluate_patient_response(
 
         if resp_type == "ROUTINE_OK":
             reply_message = (
-                "💚 *Meridian Hospital Care Team*\n\n"
+                "💚 *Hospital Care Team*\n\n"
                 "Thank you for letting us know! We are delighted that your recovery is progressing smoothly. "
                 "Please reach out if you have any questions or concerns."
             )
@@ -723,7 +723,7 @@ def evaluate_patient_response(
 
         else:
             reply_message = (
-                "💬 *Meridian Hospital Assistant*\n\n"
+                "💬 *Hospital Assistant*\n\n"
                 "Thank you for your message. We have logged your response for our care team to review. "
                 "Reply 'CALLBACK' if you need an urgent phone call from our nurse."
             )

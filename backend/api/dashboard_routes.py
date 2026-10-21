@@ -2165,7 +2165,7 @@ def add_patient_whatsapp(
 ):
     """
     Admin action to initiate WhatsApp Patient Desk conversation for a patient phone number.
-    Validates & normalizes the number, checks if existing patient, and sends the Meridian welcome WhatsApp message.
+    Validates & normalizes the number, checks if existing patient, and sends the Hospital welcome WhatsApp message.
     """
     import voice.whatsapp_client as whatsapp_client
     
@@ -2199,7 +2199,7 @@ def add_patient_whatsapp(
         cur.close()
         conn.close()
 
-    # Send Meridian Hospital welcome WhatsApp message (reusing active template meridian_patient_welcome)
+    # Send Hospital welcome WhatsApp message (reusing active template hospital_patient_welcome)
     send_res = whatsapp_client.send_welcome_message(clean_num)
     
     formatted_display = f"+{clean_num}" if not clean_num.startswith("+") else clean_num
@@ -2878,7 +2878,7 @@ def validate_email_address(email: Optional[str], required: bool = True) -> Optio
         return None
     cleaned = email.strip().lower()
     if not EMAIL_REGEX.match(cleaned):
-        raise HTTPException(status_code=400, detail=f"Invalid email format: '{email}'. Please provide a valid email (e.g. doctor@meridian.com).")
+        raise HTTPException(status_code=400, detail=f"Invalid email format: '{email}'. Please provide a valid email (e.g. doctor@hospital.com).")
     return cleaned
 
 def validate_phone_number(phone: Optional[str], required: bool = True) -> Optional[str]:

@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import db_config
 
 # Load secret key from environment or fallback to a default secure key
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "meridian_hospital_secure_jwt_secret_key_2026")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "hospital_secure_jwt_secret_key_2026")
 
 security = HTTPBearer(auto_error=False)
 

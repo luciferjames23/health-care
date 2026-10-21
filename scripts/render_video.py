@@ -133,7 +133,7 @@ def create_frame(frame_idx):
     draw.rounded_rectangle([32, 16, 80, 60], radius=8, fill=(14, 165, 233, 255))
     draw.text((45, 20), "+", font=font_title, fill=(255, 255, 255, 255))
     
-    draw.text((95, 22), "MERIDIAN HEALTHCARE AI", font=font_title, fill=(255, 255, 255, 255))
+    draw.text((95, 22), "HOSPITAL HEALTHCARE AI", font=font_title, fill=(255, 255, 255, 255))
     draw.text((440, 26), "|   AG-08 DISCHARGE SUMMARY AGENT", font=font_scene_tag, fill=(148, 163, 184, 255))
     
     # Timer & Status badge top right

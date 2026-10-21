@@ -543,7 +543,7 @@ class InsurancePreauthAgentService:
                     headers={
                         "Authorization": f"Bearer {self.api_key.strip()}",
                         "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Meridian-Preauth-Agent/1.0"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Hospital-Preauth-Agent/1.0"
                     },
                     method="POST"
                 )
@@ -1539,7 +1539,7 @@ class InsurancePreauthAgentService:
                     headers={
                         "Authorization": f"Bearer {self.api_key.strip()}",
                         "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Meridian-Preauth-Agent/1.0"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Hospital-Preauth-Agent/1.0"
                     },
                     method="POST"
                 )
@@ -1568,7 +1568,7 @@ class InsurancePreauthAgentService:
 
         # Deterministic Medical Insurance Engine Fallback
         if not generated_dossier:
-            inference_source = "meridian-tpa-preauth-engine"
+            inference_source = "hospital-tpa-preauth-engine"
             generated_dossier = self._fallback_preauth_dossier(case_data, diag_str, diag_code, itemized_list, vitals_info)
 
         # Attach 17-criteria statutory rules audit and calibrated 4-tier risk levels
@@ -1819,7 +1819,7 @@ class InsurancePreauthAgentService:
             "section_4_hospital_info": {
                 "section_num": "4",
                 "title": "Hospital Information",
-                "hospital_name": "Meridian Super Specialty Hospital",
+                "hospital_name": "Hospital",
                 "hospital_id": "ROHINI: 890044129038 / MER-HOSP-01",
                 "network_status": "Tier-1 Preferred Cashless Network Hospital (100% Cashless Tie-up)",
                 "tpa_desk": "24x7 Cashless Helpdesk · Ext #402 · Direct TPA Line: 1800-425-2255"

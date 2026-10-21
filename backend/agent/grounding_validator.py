@@ -2,7 +2,7 @@
 grounding_validator.py
 ======================
 Pure, side-effect-free grounding and plausibility validator for the
-Meridian Hospital AI Patient Desk.
+Hospital AI Patient Desk.
 
 PURPOSE
 -------

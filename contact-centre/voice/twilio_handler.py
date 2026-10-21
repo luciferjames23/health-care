@@ -25,7 +25,7 @@ class TwilioVoiceHandler:
         "நான் உங்கள் குரல் உதவியாளர். உங்களுக்கு இன்று எவ்வாறு உதவ முடியும்?"
     )
     GREETING_ENGLISH = (
-        "Welcome to Meridian Hospital helpline. I am your voice assistant. "
+        "Welcome to Hospital helpline. I am your voice assistant. "
         "How may I help you today?"
     )
 
@@ -180,7 +180,7 @@ class TwilioVoiceHandler:
             agent_reply = (
                 "மெரிடியன் மருத்துவமனை உங்கள் சேவைக்கு எப்போதும் தயாராக உள்ளது. வேறு ஏதேனும் தகவல் தேவையா?"
                 if "ta" in session.language.lower() else
-                "Meridian Hospital is at your service. How else may I assist you?"
+                "Hospital is at your service. How else may I assist you?"
             )
 
         session.add_transcript("agent", agent_reply)

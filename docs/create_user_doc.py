@@ -47,7 +47,7 @@ def create_document():
     p_badge = doc.add_paragraph()
     p_badge.paragraph_format.space_before = Pt(0)
     p_badge.paragraph_format.space_after = Pt(4)
-    run_badge = p_badge.add_run("MERIDIAN HEALTHCARE INTELLIGENT PLATFORM · EXECUTIVE OPERATIONAL GUIDE")
+    run_badge = p_badge.add_run("HOSPITAL HEALTHCARE INTELLIGENT PLATFORM · EXECUTIVE OPERATIONAL GUIDE")
     run_badge.font.name = 'Arial'
     run_badge.font.size = Pt(8.5)
     run_badge.font.bold = True
@@ -57,7 +57,7 @@ def create_document():
     p_title = doc.add_paragraph()
     p_title.paragraph_format.space_before = Pt(2)
     p_title.paragraph_format.space_after = Pt(4)
-    run_title = p_title.add_run("Meridian Healthcare Operating System")
+    run_title = p_title.add_run("Hospital Healthcare Operating System")
     run_title.font.name = 'Arial'
     run_title.font.size = Pt(24)
     run_title.font.bold = True
@@ -135,7 +135,7 @@ def create_document():
     p1 = doc.add_paragraph()
     p1.paragraph_format.space_after = Pt(6)
     p1.add_run(
-        "The Meridian Healthcare Platform is an integrated hospital intelligence and care orchestration suite. "
+        "The Hospital Healthcare Platform is an integrated hospital intelligence and care orchestration suite. "
         "Modern hospitals face two crippling challenges: administrative documentation burnout among clinical staff and "
         "operational delays for patients during admissions, nursing shift handovers, and final hospital discharge."
     )
@@ -215,7 +215,7 @@ def create_document():
     p_ai_intro = doc.add_paragraph()
     p_ai_intro.paragraph_format.space_after = Pt(8)
     p_ai_intro.add_run(
-        "Rather than relying on an unpredictable general-purpose chatbot, the Meridian Platform uses specialized, "
+        "Rather than relying on an unpredictable general-purpose chatbot, the Hospital Platform uses specialized, "
         "task-optimized artificial intelligence engines matched to each clinical and administrative requirement:"
     )
 
@@ -269,7 +269,7 @@ def create_document():
     p_acc.paragraph_format.space_after = Pt(6)
     p_acc.add_run(
         "In healthcare, accuracy is not a technical vanity metric—it is a patient safety mandate. "
-        "The Meridian Platform incorporates strict verification mechanisms that eliminate fabrications and ensure 100% clinician supervision:"
+        "The Hospital Platform incorporates strict verification mechanisms that eliminate fabrications and ensure 100% clinician supervision:"
     )
 
     acc_metrics = [
@@ -329,7 +329,7 @@ def create_document():
     p_stories_intro.add_run("The true value of the platform is reflected in how it transforms everyday interactions for patients, front desk staff, nurses, physicians, and administrators:")
 
     stories = [
-        ("Story 1: The Patient Experience", "Sarah, 38 years old", "Felt unwell with a severe migraine on a Sunday evening. Rather than waiting until Monday morning to call the hospital helpline, she sent a WhatsApp message to Meridian Hospital. Within 30 seconds, the assistant verified her file, matched her symptoms to the Neurology clinic, and booked an appointment with Dr. Ramesh for 10:30 AM Monday. She immediately received a digital calendar invite, clinic directions, and parking details."),
+        ("Story 1: The Patient Experience", "Sarah, 38 years old", "Felt unwell with a severe migraine on a Sunday evening. Rather than waiting until Monday morning to call the hospital helpline, she sent a WhatsApp message to Hospital. Within 30 seconds, the assistant verified her file, matched her symptoms to the Neurology clinic, and booked an appointment with Dr. Ramesh for 10:30 AM Monday. She immediately received a digital calendar invite, clinic directions, and parking details."),
         ("Story 2: The Outpatient Receptionist", "Priya, Front Office Lead", "Morning queues at the OPD front desk used to be overwhelming, with patients waiting to book follow-ups or check arrival times. Today, 70% of routine bookings and scheduling queries happen through the AI Patient Desk. Priya's dashboard shows exactly who has arrived, who is pre-registered, and which consultation rooms are active, allowing her to dedicate her time to elderly patients and wheelchair assistance."),
         ("Story 3: The Ward Nurse at Shift Change", "Nurse Anita, General Inpatient Ward", "Handing over 18 patients at the end of a 12-hour shift used to require 60 minutes of rushed paper notes. With the Nursing Handover Agent, Anita opens the SBAR board at 7:00 PM. The system has automatically gathered all 12-hour vital signs, active IV infusions, and pending labs. Bed 4 highlights a borderline potassium level in amber. Anita adds a quick personal note, electronically signs the card, and completes handover to the incoming nurse in just 15 minutes."),
         ("Story 4: The Attending Cardiologist", "Dr. Ramesh, MD (Cardiology)", "Discharging a post-angioplasty patient traditionally meant typing out a multi-page discharge summary while ward rounds backed up. Today, when Dr. Ramesh marks the patient ready, the AI Discharge Agent synthesizes the entire inpatient course, stent deployment records, and home medication plan in 2 seconds. Dr. Ramesh takes 60 seconds to review the summary, confirm dosages, and click 'Sign & Finalize'."),
@@ -363,7 +363,7 @@ def create_document():
     # 6. Operational & Clinical Impact Summary
     add_section_heading("Summary of Business & Clinical Benefits", "6")
     impact_data = [
-        ("Operational Dimension", "Traditional Hospital Benchmark", "Meridian Integrated Suite"),
+        ("Operational Dimension", "Traditional Hospital Benchmark", "Hospital Integrated Suite"),
         ("Patient Discharge Turnaround", "4 to 6 hours of waiting & paperwork", "Under 90 minutes with synchronized milestones"),
         ("Discharge Summary Generation", "30–45 mins of manual physician typing", "Under 2 mins of AI drafting and doctor sign-off"),
         ("Nursing Shift Handover Duration", "45–60 mins of fragmented notes", "15 minutes with structured bedside SBAR cards"),
@@ -409,12 +409,12 @@ def create_document():
     footer_p = doc.add_paragraph()
     footer_p.paragraph_format.space_before = Pt(12)
     footer_p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r_foot = footer_p.add_run("Meridian Healthcare Intelligent Platform · Document Version 1.0 (Executive Edition)")
+    r_foot = footer_p.add_run("Hospital Healthcare Intelligent Platform · Document Version 1.0 (Executive Edition)")
     r_foot.font.size = Pt(8.5)
     r_foot.font.italic = True
     r_foot.font.color.rgb = SLATE
 
-    output_path = r"e:\Bosco-projects\POC\Health-care\code\health-care\docs\Meridian_Healthcare_Platform_User_Story_and_Operational_Guide.docx"
+    output_path = r"e:\Bosco-projects\POC\Health-care\code\health-care\docs\Hospital_Healthcare_Platform_User_Story_and_Operational_Guide.docx"
     doc.save(output_path)
     print(f"Document saved successfully to {output_path}")
 

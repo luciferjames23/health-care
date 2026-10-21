@@ -1,5 +1,5 @@
 # Software Design Document (SDD)
-## Integration of Meridian Hospital AI Patient Desk POC with Hospital Management Portal
+## Integration of Hospital AI Patient Desk POC with Hospital Management Portal
 
 **Document Version:** 1.0.0  
 **Author:** Antigravity AI Engineering Team  
@@ -9,13 +9,13 @@
 
 ## 1. Executive Summary & Core Integration Principles
 
-This Software Design Document (SDD) specifies the architectural blueprint, data model harmonization, and module integration strategy for merging the **Meridian Hospital AI Patient Desk POC** with the **Hospital Management Portal**.
+This Software Design Document (SDD) specifies the architectural blueprint, data model harmonization, and module integration strategy for merging the **Hospital AI Patient Desk POC** with the **Hospital Management Portal**.
 
 ### 1.1 Core Guiding Principles
 
 1. **Non-Destructive Integration (Preserve Friend's Portal)**:
    - We **DO NOT** rebuild, replace, or duplicate any existing modules in the Hospital Management Portal.
-   - Where duplicate concepts exist, the existing Hospital Management Portal UI, components, and user workflows are preserved as the master interface. Meridian POC data is mapped directly into these existing structures.
+   - Where duplicate concepts exist, the existing Hospital Management Portal UI, components, and user workflows are preserved as the master interface. Hospital POC data is mapped directly into these existing structures.
 
 2. **Strict WhatsApp Engine Protection (Protected System Contract)**:
    - The WhatsApp Patient Desk is a **protected, isolated subsystem**.
@@ -23,8 +23,8 @@ This Software Design Document (SDD) specifies the architectural blueprint, data 
    - The WhatsApp system interacts with the merged application strictly via the common data access layer and shared FastAPI backend services.
 
 3. **Strict Categorization Framework (Category A, B, C, D)**:
-   - **Category A (Same Module + Same Functionality)**: Retain friend's UI/workflow; integrate Meridian data into friend's existing implementation.
-   - **Category B (Same Module + Partially Different Functionality)**: Retain friend's functionality; identify and add ONLY missing features from Meridian POC without breaking existing behaviors.
+   - **Category A (Same Module + Same Functionality)**: Retain friend's UI/workflow; integrate Hospital data into friend's existing implementation.
+   - **Category B (Same Module + Partially Different Functionality)**: Retain friend's functionality; identify and add ONLY missing features from Hospital POC without breaking existing behaviors.
    - **Category C (POC-Exclusive Functionality)**: Build missing POC features (e.g., AI Escalations, Live Bot Handoff, Knowledge RAG Admin) directly into friend's portal using friend's UI/UX design tokens.
    - **Category D (Friend Portal-Exclusive Functionality)**: Preserve friend's functionality (e.g., Claims RCM, Radiology Triage, Bed Forecasting) completely untouched.
 
@@ -118,10 +118,10 @@ graph TD
 
 ### 3.1 Admin Portal Modules Mapping
 
-| Module Name | Meridian POC Feature Set | Friend Portal Feature Set | Category | Integration & Mapping Action Plan |
+| Module Name | Hospital POC Feature Set | Friend Portal Feature Set | Category | Integration & Mapping Action Plan |
 | :--- | :--- | :--- | :---: | :--- |
 | **Patient Management** | Multi-patient per WhatsApp number, Dependent linkage, WhatsApp ID tracking, Full Patient Profiles. | Standard Patient List, Search, Patient Details View. | **Category A** | **Preserve Friend's UI & Table Components.** Extend database mapping so friend's Patient table displays both walk-in & WhatsApp-registered patients. Expose dependent relationships and WhatsApp Phone numbers inside friend's existing patient drawer/modal. |
-| **Doctor & Schedule Management** | Doctor listing, Specialization mapping, Dynamic time slot generation, Date-wise schedule rules. | Doctor Directory, Working Hours setup. | **Category B** | **Preserve Friend's Doctor Management UI.** Add Meridian's dynamic slot generation algorithm behind the existing schedule creation modal. Allow admins to configure interactive slot durations and max concurrent patients per slot. |
+| **Doctor & Schedule Management** | Doctor listing, Specialization mapping, Dynamic time slot generation, Date-wise schedule rules. | Doctor Directory, Working Hours setup. | **Category B** | **Preserve Friend's Doctor Management UI.** Add Hospital's dynamic slot generation algorithm behind the existing schedule creation modal. Allow admins to configure interactive slot durations and max concurrent patients per slot. |
 | **Appointment Management** | Dynamic booking, Status tracking (`booked`, `confirmed`, `paid`, `rescheduled`, `cancelled_by_patient`), Mock payment sync. | Appointment List, Calendar View, Basic Status update (`scheduled`, `completed`, `cancelled`). | **Category B** | **Preserve Friend's Appointment List & Calendar Views.** Augment status enums to include AI-specific booking states (`AI-Booked`, `Payment Pending`, `Confirmed via WhatsApp`, `Rescheduled by Patient`). Synchronize status changes bidirectionally so staff updates instantly notify WhatsApp patients. |
 | **AI Patient Desk & Human Handoff** | Live WhatsApp conversation stream, Bot takeover toggle, Direct staff chat dispatch, Escalation triggers. | *None* | **Category C** | **Add New Module into Friend's Navigation Sidebar** under "AI Patient Desk". Styled strictly using Friend's UI component system. Displays active AI conversations, intent logs, sentiment flags, and human agent takeover toggle. |
 | **Pre-Admission Triage** | Emergency surgical pre-admission forms, Guardian consent, Estimated Cost breakdown, Document upload. | *None* | **Category C** | **Add New Module into Friend's Admin Navigation** under "Pre-Admissions". Uses Friend's table/modal components. Populated automatically when patients complete pre-admission via WhatsApp or Web. |
@@ -133,7 +133,7 @@ graph TD
 
 ### 3.2 Doctor Portal Modules Mapping
 
-| Module Name | Meridian POC Feature Set | Friend Portal Feature Set | Category | Integration & Mapping Action Plan |
+| Module Name | Hospital POC Feature Set | Friend Portal Feature Set | Category | Integration & Mapping Action Plan |
 | :--- | :--- | :--- | :---: | :--- |
 | **Doctor Dashboard** | Today's appointment counts, Quick status updates. | Doctor KPI Cards, Daily Schedule, Next Patient preview. | **Category A** | **Preserve Friend's Doctor Dashboard UI.** Feed unified appointment data (combining WhatsApp AI bookings and direct portal walk-ins) into friend's existing dashboard components. |
 | **My Patients & Clinical Records** | Patient summary, Past appointments, Reports viewer. | Clinical Notes, Prescription builder, Patient Medical History. | **Category B** | **Preserve Friend's EMR & Clinical Notes View.** Add a tab/section inside friend's Patient Medical Record modal to display WhatsApp AI pre-consultation symptom summaries and pre-uploaded lab/radiology reports. |

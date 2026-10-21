@@ -2783,7 +2783,7 @@ def handle_feedback_workflow(
         state_manager.save_conversation_state(conversation_code, state)
         resp = (
             "✍️ *Write Feedback*\n\n"
-            "Please type your feedback about your experience at Meridian Hospital:"
+            "Please type your feedback about your experience at Hospital:"
         )
         buttons = [
             language_service.get_translated_button("btn_skip_feedback", current_lang),
@@ -2823,7 +2823,7 @@ def handle_feedback_workflow(
 
         resp = (
             "🗣️ *Patient Feedback*\n\n"
-            "We value your feedback. Please tell us about your experience at Meridian Hospital.\n\n"
+            "We value your feedback. Please tell us about your experience at Hospital.\n\n"
             "You can share your feedback by text or voice message."
         )
         if current_lang == "TAMIL":
@@ -2875,7 +2875,7 @@ def handle_feedback_workflow(
 
             resp = (
                 "💬 *Thank you for your feedback!*\n\n"
-                "We have received your feedback regarding Meridian Hospital. "
+                "We have received your feedback regarding Hospital. "
                 "Our Quality and Patient Relations team will review your comments to continuously improve our care."
             )
             if current_lang == "TAMIL":
@@ -2915,7 +2915,7 @@ def handle_feedback_workflow(
 
             resp = (
                 "💬 *Thank you for your feedback!*\n\n"
-                "We have received your feedback regarding Meridian Hospital. "
+                "We have received your feedback regarding Hospital. "
                 "Our Quality and Patient Relations team will review your comments to continuously improve our care."
             )
             buttons = [language_service.get_translated_button("btn_main_menu", current_lang)]
@@ -2931,7 +2931,7 @@ def handle_feedback_workflow(
         state_manager.save_conversation_state(conversation_code, state)
 
         resp = (
-            "⭐ *How would you rate your overall experience at Meridian Hospital?*\n\n"
+            "⭐ *How would you rate your overall experience at Hospital?*\n\n"
             "Please select a rating from 1 to 10."
         )
         if current_lang == "TAMIL":
@@ -3656,7 +3656,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             return handle_feedback_workflow(conversation_code, state, message_text, current_lang, btn_id, metadata=metadata)
 
         elif btn_id == "btn_cat_staff":
-            resp = "🧑‍💼 *Talk to Hospital Staff*\n\nI can connect you with Meridian Hospital staff without making you repeat the information already shared."
+            resp = "🧑‍💼 *Talk to Hospital Staff*\n\nI can connect you with Hospital staff without making you repeat the information already shared."
             state["interactive_buttons"] = [
                 language_service.get_translated_button("btn_talk_staff_exec", current_lang),
                 language_service.get_translated_button("btn_main_menu", current_lang)
@@ -3925,7 +3925,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 f"*Claims Status:*\n{claim_str}\n\n"
                 f"📞 *TPA & Insurance Helpline:* 044 6666 9910\n"
                 f"📍 *Location:* Ground Floor, Main Block Counter 4\n"
-                f"📧 *TPA Email:* insurance@meridian-hospital.com"
+                f"📧 *TPA Email:* insurance@hospital.com"
             )
             buttons = [
                 {"id": "btn_cat_billing", "title": "Billing & Payments"},
@@ -3947,7 +3947,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
             resp = (
                 "📑 *Patient Documents & Records*\n\n"
-                "Meridian Hospital stores authorized electronic records in your Patient 360 folder.\n\n"
+                "Hospital stores authorized electronic records in your Patient 360 folder.\n\n"
                 f"• Inpatient Discharge Summaries: {d_count} record(s)\n"
                 "• Clinical Diagnoses & Medication Orders\n"
                 "• Outpatient Medical Reports\n\n"
@@ -4150,7 +4150,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 f"*Active Diagnoses:*\n{diag_str}\n\n"
                 f"*Current Medications:*\n{med_str}\n\n"
                 f"*Recent Encounters:*\n{enc_str}\n\n"
-                f"Records are verified and synchronized with Meridian Hospital Patient 360."
+                f"Records are verified and synchronized with Hospital Patient 360."
             )
             buttons = [
                 language_service.get_translated_button("btn_my_reports", current_lang),
@@ -4194,7 +4194,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
         elif btn_id == "btn_other_services":
             resp = (
-                "🩺 *Meridian Hospital Services*\n\n"
+                "🩺 *Hospital Services*\n\n"
                 "• 24/7 Multi-Specialty OPD & Inpatient Care\n"
                 "• Advanced Diagnostic Lab & 3T MRI Radiology\n"
                 "• Emergency, Ambulance & Level-1 Trauma Care\n"
@@ -4355,7 +4355,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             resp = (
                 "🚨 *Emergency Route*\n\n"
                 "🚨 *Emergency Helpline:* 044 6666 9999\n"
-                "📍 *Trauma Care Center:* Ground Floor, Emergency Block, Meridian Hospital, Chennai\n"
+                "📍 *Trauma Care Center:* Ground Floor, Emergency Block, Hospital, Chennai\n"
                 "🚑 *Ambulance Service:* 044 6666 9999 / 108\n\n"
                 "Our Emergency Response Team has been notified of your location query."
             )
@@ -4456,7 +4456,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 conn.close()
 
             dept_str = "\n".join([f"• {d}" for d in dept_list])
-            resp = f"🏥 *Meridian Hospital Departments*\n\n{dept_str}\n\nWould you like to book an appointment with a specialist?"
+            resp = f"🏥 *Hospital Departments*\n\n{dept_str}\n\nWould you like to book an appointment with a specialist?"
             state["interactive_buttons"] = [
                 language_service.get_translated_button("btn_book_appt", current_lang),
                 language_service.get_translated_button("btn_main_menu", current_lang)
@@ -4848,13 +4848,13 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
             }
         elif btn_id == "btn_hosp_info":
             resp = (
-                "🏥 *Meridian Hospital Information*\n\n"
-                "Meridian Hospital is a 300-bed multi-super-specialty hospital in Chennai providing 24/7 emergency care and OPD consultations.\n\n"
+                "🏥 *Hospital Information*\n\n"
+                "Hospital is a 300-bed multi-super-specialty hospital in Chennai providing 24/7 emergency care and OPD consultations.\n\n"
                 "📍 *Address:* #46D, Jawaharlal Nehru Road, 200 Feet Ring Road, Chennai – 600 099\n"
                 "📞 *General Enquiries:* 044 6666 9910\n"
                 "🚨 *24/7 Emergency Helpline:* 044 6666 9999\n"
-                "📧 *Email:* info@meridian-hospital.com\n"
-                "🌐 *Website:* https://meridianhospitals.in/\n\n"
+                "📧 *Email:* info@hospital.com\n"
+                "🌐 *Website:* https://hospital.com/\n\n"
                 "Key Specialties include Cardiology, Oncology, Critical Care, Pediatrics, Orthopedics, Radiology, Nephrology, Neurology, Gynecology, Emergency & Trauma Care, Urology, Dermatology, Pulmonology, Diabetology, Neurosurgery, Plastic Surgery, etc."
             )
             state["interactive_buttons"] = [
@@ -5340,7 +5340,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                         f"Report ID: {r_ref}\n"
                         f"Date: {d_str}\n"
                         f"Department: {dept_name or 'General'}\n"
-                        f"Doctor: {doc_name or 'Meridian Desk'}\n"
+                        f"Doctor: {doc_name or 'Hospital Desk'}\n"
                         f"Status: {r_status}\n\n"
                         f"*Summary:*\n{r_sum or 'Report available in patient record.'}\n\n"
                         f"What would you like to do?"
@@ -5460,7 +5460,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     f"Outstanding Amount:\n{fee_str}\n\n"
                     f"Amount:\n{fee_str}\n\n"
                     f"Payment Method:\n{display_name}\n\n"
-                    f"This is a demo payment for the Meridian Hospital Patient Desk.\n"
+                    f"This is a demo payment for the Hospital Patient Desk.\n"
                     f"No real payment will be processed."
                 )
                 pay_prompt_buttons = [
@@ -5563,7 +5563,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 f"Time: {format_time_12h(appt_time)}\n\n"
                 f"Amount: {fee_str}\n"
                 f"Payment Method: {display_name}\n\n"
-                f"This is a demo payment for the Meridian Hospital Patient Desk.\n"
+                f"This is a demo payment for the Hospital Patient Desk.\n"
                 f"No real payment will be processed."
             )
             pay_prompt_buttons = [
@@ -7757,7 +7757,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["registration_stage"] = "AWAITING_NAME"
                 state["active_workflow"] = "REGISTRATION"
                 state["conversation_state"] = "REGISTER_NEW_PATIENT"
-                resp = "Welcome to Meridian Hospital. I'll help you get registered. May I have your full name?"
+                resp = "Welcome to Hospital. I'll help you get registered. May I have your full name?"
                 buttons = []
             elif not state.get("registration_dob"):
                 state["registration_stage"] = "AWAITING_DOB"
@@ -7842,7 +7842,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 ]
                 resp = (
                     f"🎉 *Registration Successful!*\n\n"
-                    f"Welcome to Meridian Hospital, *{reg_name}*.\n"
+                    f"Welcome to Hospital, *{reg_name}*.\n"
                     f"• *Patient ID:* `{next_code}`\n"
                     f"• *Phone:* {user_phone}\n\n"
                     f"How can I help you today?"
@@ -8752,7 +8752,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                 state["registration_fields"] = {}
             state["booking_stage"] = conversation_stages.Stage.REGISTERING_NAME.value
             response_text = (
-                "Welcome to Meridian Hospital! 😊\n\n"
+                "Welcome to Hospital! 😊\n\n"
                 "I couldn't find a registered patient profile associated with this phone number.\n\n"
                 "To get started, let's create your patient profile step by step.\n\n"
                 "What is your *full name*?"
@@ -8927,7 +8927,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
                     log_agent_action(conversation_code, "PATIENT_REGISTERED", {"patient_id": new_pat_id, "patient_code": next_code})
                     full_name = format_patient_full_name(reg_fields.get("first_name"), reg_fields.get("last_name"))
-                    response_text = f"Thank you, {full_name}. Your registration with Meridian Hospital is complete. Patient ID: {next_code}\n\nHow can I help you today?"
+                    response_text = f"Thank you, {full_name}. Your registration with Hospital is complete. Patient ID: {next_code}\n\nHow can I help you today?"
                     state["interactive_buttons"] = language_service.get_main_menu_buttons(current_lang)
                 except Exception as e:
                     conn.rollback()
@@ -9145,10 +9145,10 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
     elif intent in ["EMERGENCY", "EMERGENCY_GUIDANCE"]:
         log_agent_action(conversation_code, "EMERGENCY_DETECTED", {"trigger_message": message_text})
         response_text = (
-            "🚨 *MERIDIAN HOSPITAL EMERGENCY*\n\n"
-            "Meridian Hospital provides 24/7 Emergency & Trauma Care.\n\n"
+            "🚨 *HOSPITAL EMERGENCY*\n\n"
+            "Hospital provides 24/7 Emergency & Trauma Care.\n\n"
             "📞 *Emergency Helpline:* 044 6666 9999\n"
-            "🏥 *Hospital:* Meridian Hospital\n"
+            "🏥 *Hospital:* Hospital\n"
             "📍 *Address:* #46D, Jawaharlal Nehru Road, 200 Feet Ring Road, Chennai – 600 099\n"
             "☎️ *General Enquiries:* 044 6666 9910\n\n"
             "🚑 Ambulance services are available 24/7.\n\n"
@@ -9673,7 +9673,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
 
         if p_code:
             response_text = (
-                f"🏥 *Meridian Hospital Patient Desk*\n\n"
+                f"🏥 *Hospital Patient Desk*\n\n"
                 f"Your Patient ID is: *{p_code}* ({p_name}).\n\n"
                 f"How can I help you today?"
             )
@@ -10180,7 +10180,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                             f"Time: {format_time_12h(appt_time)}\n"
                             f"Appointment ID: {res['data']['booking_id']}"
                             f"{email_note}\n\n"
-                            f"Thank you for using Meridian Hospital Patient Desk.\n\n"
+                            f"Thank you for using Hospital Patient Desk.\n\n"
                             f"Would you like information about:"
                         )
                         state["intent"] = "POST_BOOKING"
@@ -11524,7 +11524,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
                     f"Date: {appt_date}\n"
                     f"Time: {appt_time}\n\n"
                     f"Please arrive 10–15 minutes before your appointment.\n\n"
-                    f"Thank you for choosing Meridian Hospital. 🙏"
+                    f"Thank you for choosing Hospital. 🙏"
                 )
                 state["interactive_buttons"] = []
                 # Clear state slots to allow clean future workflows
@@ -11934,19 +11934,19 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         msg_clean = message_text.lower().strip()
         state["interactive_buttons"] = []
         if any(w in msg_clean for w in ["no", "thanks", "thank you", "bye", "btn_no_thanks"]):
-            response_text = "You're very welcome! 😊\n\nThank you for choosing Meridian Hospital.\n\nHave a great day! 🙏"
+            response_text = "You're very welcome! 😊\n\nThank you for choosing Hospital.\n\nHave a great day! 🙏"
             state["intent"] = "GREETING"
         elif any(w in msg_clean for w in ["hospital", "btn_hosp_info"]):
             state["intent"] = "HOSPITAL_INFORMATION"
-            return process_agent_message(conversation_code, patient_code, "Tell me about Meridian Hospital")
+            return process_agent_message(conversation_code, patient_code, "Tell me about Hospital")
         elif any(w in msg_clean for w in ["book", "appointment", "btn_book_another"]):
             state["intent"] = "BOOK_APPOINTMENT"
             return process_agent_message(conversation_code, patient_code, "Book Appointment")
         elif any(w in msg_clean for w in ["yes", "sure", "options", "help", "info"]):
             response_text = (
                 "✅ Your appointment has been completed successfully.\n\n"
-                "Thank you for using Meridian Hospital AI Patient Desk. 🙏\n\n"
-                "Is there anything else you'd like to know about Meridian Hospital?"
+                "Thank you for using Hospital AI Patient Desk. 🙏\n\n"
+                "Is there anything else you'd like to know about Hospital?"
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
@@ -11957,8 +11957,8 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         else:
             response_text = (
                 "✅ Your appointment has been completed successfully.\n\n"
-                "Thank you for using Meridian Hospital AI Patient Desk. 🙏\n\n"
-                "Is there anything else you'd like to know about Meridian Hospital?"
+                "Thank you for using Hospital AI Patient Desk. 🙏\n\n"
+                "Is there anything else you'd like to know about Hospital?"
             )
             state["interactive_buttons"] = [
                 {"id": "btn_hosp_info", "title": "Hospital Information"},
@@ -12004,7 +12004,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         if is_features_query:
             state["interactive_buttons"] = []
             response_text = (
-                "Here's what I can help you with at Meridian Hospital:\n\n"
+                "Here's what I can help you with at Hospital:\n\n"
                 "📅 *Book Appointment* — Schedule a consultation with any doctor\n"
                 "👨‍⚕️ *Doctor Availability* — Check which doctors are on duty\n"
                 "🏥 *Hospital Information* — Location, departments, facilities, timings\n"
@@ -12148,7 +12148,7 @@ def process_agent_message(conversation_code: str, patient_code: str, message_tex
         "tool_called": tool_called,
         "interactive_buttons": state.get("interactive_buttons", [])
     }
-    if intent in ["GREETING", "WELCOME"] or "welcome back" in response_text.lower() or "welcome to meridian" in response_text.lower():
+    if intent in ["GREETING", "WELCOME"] or "welcome back" in response_text.lower() or "welcome to hospital" in response_text.lower():
         res_payload["has_welcome_image"] = True
         res_payload["welcome_image"] = "/welcome_banner.jpg"
 

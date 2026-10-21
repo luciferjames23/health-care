@@ -1,4 +1,4 @@
-// Meridian Data Service providing store initialization, demo accounts, and state management
+// Hospital Data Service providing store initialization, demo accounts, and state management
 
 export const DEMO_PASSWORD = 'Hospital@2026';
 export const DEMO_OTP = '246810';
@@ -289,7 +289,7 @@ export const PROTOTYPE_USERS = DEMO_ROLES;
 
 let cachedInstance = null;
 
-export function getMeridianStore(onUpdate) {
+export function getHospitalStore(onUpdate) {
   if (cachedInstance) return cachedInstance;
 
   if (typeof window === 'undefined' || !window.__mm2 || !window.__mm2.views6) {

@@ -89,7 +89,7 @@ except ImportError:
         image_to_base64_png = None
         BoundingBox = None
 
-logger = logging.getLogger("meridian.radiology.study_store")
+logger = logging.getLogger("hospital.radiology.study_store")
 
 
 def _find_in_memory(clean_id: str) -> Optional[dict]:
@@ -329,7 +329,7 @@ def _load_study_from_db(clean_id: str) -> Optional[dict]:
                 "display_study_id": primary.get("display_study_id"),
                 "source": {
                     "type": "hospital_pacs",
-                    "system": "Meridian PACS",
+                    "system": "Hospital PACS",
                     "study_id": str(orig_uid),
                     "series_id": f"series-{primary['scan_id']}",
                     "instance_id": f"instance-{primary['scan_id']}",

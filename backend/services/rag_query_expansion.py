@@ -1,7 +1,7 @@
 """
 rag_query_expansion.py
 ======================
-Context-aware query understanding and expansion layer for Meridian Hospital AI Hybrid RAG.
+Context-aware query understanding and expansion layer for Hospital AI Hybrid RAG.
 
 Key design principles:
 - Expands medical abbreviations and clinical terminology.

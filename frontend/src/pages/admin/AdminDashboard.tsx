@@ -142,7 +142,7 @@ const AdminDashboard: React.FC = () => {
       <div className="page-header" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2>Meridian Hospital — Administration Analytics</h2>
+            <h2>Hospital — Administration Analytics</h2>
             <p>{greeting}, Admin · Date-wise operational data</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

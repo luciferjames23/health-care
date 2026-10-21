@@ -160,7 +160,7 @@ def tool_get_appointment_status(conversation_code: str, booking_id: str, patient
         return {"success": False, "error_code": "UNKNOWN_ERROR", "error": err_msg}
 
 def tool_search_knowledge(conversation_code: str, query: str, category_hint: str = None, language: str = "ENGLISH") -> dict:
-    """Search the Meridian Hospital knowledge base using full-text retrieval."""
+    """Search the Hospital knowledge base using full-text retrieval."""
     input_data = {"query": query, "category_hint": category_hint, "language": language}
     try:
         import knowledge.knowledge_retriever as knowledge_retriever

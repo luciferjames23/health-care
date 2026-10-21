@@ -31,7 +31,7 @@ const TodaysQueueView: React.FC<TodaysQueueViewProps> = ({ onNavigate, onSelectP
   const { user: authContextUser } = useAuth();
   const currentUser = authContextUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }

@@ -10,7 +10,7 @@ window.config = {
       sourceName: 'dicomweb',
 
       configuration: {
-        friendlyName: 'Meridian Orthanc Demo PACS',
+        friendlyName: 'Hospital Orthanc Demo PACS',
         name: 'orthanc',
 
         // Same-origin through the nginx gateway on localhost:3000.

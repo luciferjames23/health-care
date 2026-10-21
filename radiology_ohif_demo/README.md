@@ -1,6 +1,6 @@
-# OHIF Viewer - Meridian Demo
+# OHIF Viewer - Hospital Demo
 
-This folder adds OHIF as a **demo medical image viewer** for the existing Orthanc Demo PACS. It does not replace the Meridian React AI application and does not change DenseNet/YOLO inference.
+This folder adds OHIF as a **demo medical image viewer** for the existing Orthanc Demo PACS. It does not replace the Hospital React AI application and does not change DenseNet/YOLO inference.
 
 ## Prerequisites
 
@@ -23,9 +23,9 @@ Then open:
 
 The nginx gateway serves OHIF and proxies `/dicom-web` to the existing Orthanc container through `host.docker.internal`, injecting the demo Basic Authentication header. This keeps browser DICOMweb requests same-origin and avoids CORS changes to Orthanc.
 
-## Open a study from Meridian AI
+## Open a study from Hospital AI
 
-For PACS-origin studies, the Meridian Radiology Worklist and Analysis screen display **Open in OHIF**. The link uses the real DICOM `StudyInstanceUID`:
+For PACS-origin studies, the Hospital Radiology Worklist and Analysis screen display **Open in OHIF**. The link uses the real DICOM `StudyInstanceUID`:
 
 `http://localhost:3000/viewer?StudyInstanceUIDs=<UID>`
 

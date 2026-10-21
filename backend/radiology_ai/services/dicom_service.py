@@ -21,7 +21,7 @@ import pydicom
 from pydicom.errors import InvalidDicomError
 from PIL import Image
 
-logger = logging.getLogger("meridian.dicom_service")
+logger = logging.getLogger("hospital.dicom_service")
 
 
 class DicomProcessingError(Exception):
@@ -78,7 +78,7 @@ def _format_dicom_datetime(date_str: Optional[str], time_str: Optional[str]) -> 
 
 
 def extract_metadata(ds: pydicom.dataset.FileDataset) -> dict:
-    """Extract the DICOM fields and examination specifications needed by Meridian Radiology."""
+    """Extract the DICOM fields and examination specifications needed by Hospital Radiology."""
     s_date = _safe_get(ds, "StudyDate") or _safe_get(ds, "AcquisitionDate") or _safe_get(ds, "ContentDate")
     s_time = _safe_get(ds, "StudyTime") or _safe_get(ds, "AcquisitionTime") or _safe_get(ds, "ContentTime")
     performed_at = _format_dicom_datetime(s_date, s_time)
@@ -109,7 +109,7 @@ def extract_metadata(ds: pydicom.dataset.FileDataset) -> dict:
         "manufacturer": _safe_get(ds, "Manufacturer", "GE Healthcare"),
         "manufacturer_model_name": _safe_get(ds, "ManufacturerModelName", "Discovery XR656 Plus"),
         "station_name": _safe_get(ds, "StationName", "XR-ROOM-01"),
-        "institution_name": _safe_get(ds, "InstitutionName", "Meridian Health System"),
+        "institution_name": _safe_get(ds, "InstitutionName", "Hospital Health System"),
         "institutional_department_name": _safe_get(ds, "InstitutionalDepartmentName", "Department of Radiology"),
         "kvp": _safe_get(ds, "KVP", "120"),
         "exposure_time": _safe_get(ds, "ExposureTime", "12 ms"),

@@ -4,7 +4,7 @@ const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? '';
 
 export async function selectAccount(username) {
   sessionStorage.removeItem('hc_auth_token');
-  sessionStorage.removeItem('meridian_user');
+  sessionStorage.removeItem('hospital_user');
   const response = await fetch(`${API_BASE_URL}/api/auth/select-account`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username }),
@@ -31,18 +31,18 @@ export async function selectAccount(username) {
     designation: user.designation || user.specialization || user.title || user.role,
   };
     try {
-      sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
+      sessionStorage.setItem('hospital_user', JSON.stringify(userObj));
       sessionStorage.setItem('hx_auth', JSON.stringify(userObj));
-      window.dispatchEvent(new Event('meridian_user_changed'));
+      window.dispatchEvent(new Event('hospital_user_changed'));
     } catch {}
     return userObj;
 }
 
 export async function loginWithPassword(username, password) {
   sessionStorage.removeItem('hc_auth_token');
-  sessionStorage.removeItem('meridian_user');
+  sessionStorage.removeItem('hospital_user');
   sessionStorage.removeItem('hx_auth');
-  window.dispatchEvent(new Event('meridian_user_changed'));
+  window.dispatchEvent(new Event('hospital_user_changed'));
   const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
@@ -69,9 +69,9 @@ export async function loginWithPassword(username, password) {
     designation: user.designation || user.specialization || user.title || user.role,
   };
   try {
-    sessionStorage.setItem('meridian_user', JSON.stringify(userObj));
+    sessionStorage.setItem('hospital_user', JSON.stringify(userObj));
     sessionStorage.setItem('hx_auth', JSON.stringify(userObj));
-    window.dispatchEvent(new Event('meridian_user_changed'));
+    window.dispatchEvent(new Event('hospital_user_changed'));
   } catch {}
   return userObj;
 }

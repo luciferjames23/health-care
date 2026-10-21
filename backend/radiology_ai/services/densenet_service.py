@@ -36,7 +36,7 @@ from radiology_ai.config import (
     CLASSIFICATION_THRESHOLD,
 )
 
-logger = logging.getLogger("meridian.densenet_service")
+logger = logging.getLogger("hospital.densenet_service")
 
 
 class DenseNetInferenceError(Exception):

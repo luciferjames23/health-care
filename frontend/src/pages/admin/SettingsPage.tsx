@@ -29,14 +29,14 @@ const SettingsPage: React.FC = () => {
       <div className="settings-section">
         <h3><Hospital size={18} style={{ marginRight: 8, color: 'var(--primary)' }} />Hospital Information</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-          <img src={logo} alt="Meridian Hospital" style={{ width: 48, height: 48, borderRadius: 10 }} />
+          <img src={logo} alt="Hospital" style={{ width: 48, height: 48, borderRadius: 10 }} />
           <div>
-            <div style={{ fontWeight: 600, fontSize: 16 }}>Meridian Hospital</div>
+            <div style={{ fontWeight: 600, fontSize: 16 }}>Hospital</div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>The Family Hospital — Kolathur, Chennai</div>
           </div>
         </div>
         <div className="settings-item">
-          <div className="settings-item-label"><h4>Hospital Name</h4><p>Meridian Hospital</p></div>
+          <div className="settings-item-label"><h4>Hospital Name</h4><p>Hospital</p></div>
           <button className="btn btn-secondary btn-sm">Edit</button>
         </div>
         <div className="settings-item">

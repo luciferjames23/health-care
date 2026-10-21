@@ -38,7 +38,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
 
   const currentUser = propUser || authContextUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }
@@ -209,7 +209,7 @@ const DoctorDashboard: React.FC<DoctorDashboardProps> = ({ user: propUser, onNav
       <div className="page-header" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h2>Meridian Hospital — Doctor Portal</h2>
+            <h2>Hospital — Doctor Portal</h2>
             <p>{greeting}, {currentUser?.name || 'Doctor'} {(currentUser?.department || currentUser?.dept) ? `· Department: ${currentUser.department || currentUser.dept}` : ''} {(currentUser?.specialization || currentUser?.title) ? `· ${currentUser.specialization || currentUser.title}` : ''}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

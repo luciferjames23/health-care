@@ -1,7 +1,7 @@
 """
 llm_service.py
 ==============
-LLM Conversation & Structured Entity Extraction Service for Meridian Hospital AI Patient Desk.
+LLM Conversation & Structured Entity Extraction Service for Hospital AI Patient Desk.
 
 Supported providers (via LLM_PROVIDER env var):
   gpt6luna  -> GPT-6 Luna (gpt-6-luna) — PRIMARY
@@ -106,7 +106,7 @@ def extract_structured_info(message_text: str, current_state: dict, language: st
     # Attempt LLM extraction if active
     if is_llm_active():
         prompt = f"""
-You are an entity extractor for Meridian Hospital WhatsApp AI Patient Desk.
+You are an entity extractor for Hospital WhatsApp AI Patient Desk.
 Extract structured information from the patient message below.
 
 Current conversation intent: {current_state.get('intent', 'UNKNOWN')}
@@ -115,7 +115,7 @@ Patient language: {language}
 
 Patient message: "{message_text}"
 
-Meridian Hospital departments: General Medicine, Cardiology, Pediatrics, Orthopedics, Dermatology, ENT, Gynecology, Neurology.
+Hospital departments: General Medicine, Cardiology, Pediatrics, Orthopedics, Dermatology, ENT, Gynecology, Neurology.
 
 Symptom → Department mapping rules:
 - Hair fall, hair loss, bald, scalp, acne, pimples, skin rash, itching, eczema → Dermatology
@@ -351,11 +351,11 @@ def llm_classify_intent_and_respond(message_text: str, current_state: dict, lang
     prior_intent = current_state.get("intent", "UNKNOWN")
 
     system_instruction = (
-        "You are the AI Patient Desk Assistant for Meridian Hospital. "
+        "You are the AI Patient Desk Assistant for Hospital. "
         "You help patients via WhatsApp with: booking appointments, checking doctor availability, "
         "cancelling/rescheduling appointments, checking appointment status, hospital information, "
         "pre-admission guidance, symptom-to-department routing, and patient registration.\n\n"
-        "Meridian Hospital departments: General Medicine, Cardiology, Pediatrics, Orthopedics, Dermatology, ENT, Gynecology, Neurology.\n\n"
+        "Hospital departments: General Medicine, Cardiology, Pediatrics, Orthopedics, Dermatology, ENT, Gynecology, Neurology.\n\n"
         "Active doctors:\n"
         "- Dr. Arun Kumar (General Medicine) — Schedule: Mon-Fri\n"
         "- Dr. Priya Ramesh (Cardiology) — Schedule: Mon-Thu\n"

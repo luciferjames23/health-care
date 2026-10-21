@@ -107,8 +107,8 @@ const LoginPage: React.FC = () => {
     <div className="login-page">
       <div className="login-left">
         <div className="login-left-content">
-          <img src={logo} alt="Meridian Hospital" className="login-logo" />
-          <h1 className="login-hospital-name">Meridian Hospital</h1>
+          <img src={logo} alt="Hospital" className="login-logo" />
+          <h1 className="login-hospital-name">Hospital</h1>
           <p className="login-tagline">The Family Hospital</p>
           <p className="login-location">Kolathur, Chennai</p>
           <div className="login-message">
@@ -132,7 +132,7 @@ const LoginPage: React.FC = () => {
       </div>
       <div className="login-right">
         <form className="login-card" onSubmit={handleSubmit}>
-          <h2>Welcome to Meridian Hospital</h2>
+          <h2>Welcome to Hospital</h2>
           <p className="subtitle">AI Patient Desk & Hospital Management</p>
           
           {error && <div className="login-error">{error}</div>}

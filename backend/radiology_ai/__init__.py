@@ -1,1 +1,1 @@
-"""Shared Radiology AI engine integrated into the Meridian backend."""
+"""Shared Radiology AI engine integrated into the Hospital backend."""

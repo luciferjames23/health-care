@@ -1,7 +1,7 @@
 """
 knowledge_service.py
 ====================
-Higher-level knowledge service for the Meridian Hospital Agent.
+Higher-level knowledge service for the Hospital Agent.
 
 Responsibilities:
   - Orchestrates retrieval via knowledge_retriever
@@ -9,7 +9,7 @@ Responsibilities:
   - Provides hallucination guard: returns structured signal when no knowledge found
   - Tracks source context (document_id, chunk_id, category) for audit
 
-Step 5.1 — Meridian Hospital
+Step 5.1 — Hospital
 """
 
 import sys

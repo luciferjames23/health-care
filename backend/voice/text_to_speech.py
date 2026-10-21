@@ -1,13 +1,13 @@
 """
 text_to_speech.py
 =================
-Text-to-Speech abstraction layer for the Meridian Hospital AI Voice Desk.
+Text-to-Speech abstraction layer for the Hospital AI Voice Desk.
 
 Supports: English, Tamil, Hindi, Telugu, Malayalam, Kannada, Urdu.
 Enables pluggable/replaceable TTS providers.
 Provides a mock implementation that generates valid base64 audio data URI silence/beeps.
 
-Step 5.2 — Meridian Hospital
+Step 5.2 — Hospital
 """
 
 import abc

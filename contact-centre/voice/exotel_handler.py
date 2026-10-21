@@ -45,7 +45,7 @@ class ExotelVoiceHandler:
             "வணக்கம்! மெரிடியன் மருத்துவமனை உதவி மையத்திற்கு வரவேற்கிறோம். "
             "நான் உங்கள் குரல் உதவியாளர். டாக்டர் ஆலோசனைக்கு 1-ஐ அழுத்தவும் அல்லது பேசவும்."
             if "ta" in language.lower() else
-            "Welcome to Meridian Hospital helpline. How may I help you today?"
+            "Welcome to Hospital helpline. How may I help you today?"
         )
         session.add_transcript("agent", greeting, language)
 

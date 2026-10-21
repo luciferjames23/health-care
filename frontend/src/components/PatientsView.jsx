@@ -81,7 +81,7 @@ export default function PatientsView({
 
   const authUser = useMemo(() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || '{}');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || '{}');
     } catch {
       return {};
     }

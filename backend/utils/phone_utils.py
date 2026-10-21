@@ -1,7 +1,7 @@
 """
 phone_utils.py
 ==============
-Authoritative phone number normalization, validation, and querying service for Meridian Hospital.
+Authoritative phone number normalization, validation, and querying service for Hospital.
 Uses Google's libphonenumber (via phonenumbers Python package) for robust, country-aware parsing.
 
 Guarantees:

@@ -9,7 +9,7 @@
 
 ## 1. Comparative System Analysis
 
-| System Dimension | Meridian POC Radiology (`healthcare-poc/`) | Master App Radiology (`radiology_backend/` + `ohif-demo`) |
+| System Dimension | Hospital POC Radiology (`healthcare-poc/`) | Master App Radiology (`radiology_backend/` + `ohif-demo`) |
 | :--- | :--- | :--- |
 | **Backend Engine** | Simple mock Pydantic models (`RadiologyStudyModel`) returning simulated static JSON scores. | **Standalone FastAPI PACS Service (`radiology_backend/`)** running on port 8001 with DenseNet/YOLO AI model inference, Orthanc DICOM watcher, and PACS DICOM webstore integration. |
 | **DICOM Viewer** | Static SVG heatmap overlay in web browser. | **Full OHIF Medical DICOM Viewer (`ohif-demo`, `radiology_ohif_demo`)** running via Docker Compose (`VITE_OHIF_URL=http://localhost:3000`). |
@@ -22,7 +22,7 @@
 > [!IMPORTANT]
 > **Architectural Recommendation**:
 > Retain the existing **Master Radiology & PACS Architecture (`radiology_backend/`, `ohif-demo`, `RadiologyView.jsx`) 100% intact**. 
-> The Meridian POC mock radiology endpoint is completely superseded by the live PACS and OHIF viewer integration. No POC mock radiology code should be merged into the production backend.
+> The Hospital POC mock radiology endpoint is completely superseded by the live PACS and OHIF viewer integration. No POC mock radiology code should be merged into the production backend.
 
 ---
 

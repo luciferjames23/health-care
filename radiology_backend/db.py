@@ -1,5 +1,5 @@
 """
-Database connector and queries for Meridian Radiology AI.
+Database connector and queries for Hospital Radiology AI.
 Connects directly to the PostgreSQL Lakehouse database (rv_pbpkghvg).
 """
 import logging
@@ -9,7 +9,7 @@ import psycopg2.extras
 
 import config
 
-logger = logging.getLogger("meridian.radiology.db")
+logger = logging.getLogger("hospital.radiology.db")
 
 
 def get_connection():

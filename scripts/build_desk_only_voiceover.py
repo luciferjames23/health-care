@@ -9,7 +9,7 @@ SEGMENTS = [
     {
         "id": "desk_seg1",
         "start": 0.5,
-        "text": "Welcome to the Meridian Discharge Command Centre, orchestrating live patient readiness across hospital queues.",
+        "text": "Welcome to the Hospital Discharge Command Centre, orchestrating live patient readiness across hospital queues.",
     },
     {
         "id": "desk_seg2",

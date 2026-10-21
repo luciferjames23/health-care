@@ -1,5 +1,5 @@
 """
-Meridian Radiology AI - FastAPI backend entrypoint.
+Hospital Radiology AI - FastAPI backend entrypoint.
 
 Loads both models ONCE at startup (not per-request) and exposes:
   GET  /health
@@ -46,7 +46,7 @@ from schemas.inference import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logger = logging.getLogger("meridian.main")
+logger = logging.getLogger("hospital.main")
 
 # Module-level model handles - populated once at startup, reused for every request
 _state = {
@@ -97,7 +97,7 @@ def _process_pacs_study_core(study_id: str, ingested_at: str | None = None) -> d
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Meridian Radiology AI backend. Device: %s", _state["device"])
+    logger.info("Starting Hospital Radiology AI backend. Device: %s", _state["device"])
 
     try:
         _state["densenet_model"] = load_densenet_model(device=_state["device"])
@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
     _state["yolo_model"] = None
 
 
-app = FastAPI(title="Meridian Radiology AI", version=config.POC_VERSION, lifespan=lifespan)
+app = FastAPI(title="Hospital Radiology AI", version=config.POC_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

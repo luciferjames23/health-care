@@ -5,7 +5,7 @@ import ModuleLoadingScreen from './ModuleLoadingScreen';
 import TablePagination from './TablePagination';
 import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
 
-// Status styling matching Meridian Prototype V2.1 oklch tokens
+// Status styling matching Hospital Prototype V2.1 oklch tokens
 const STATUS_STYLES = {
   Ready: {
     label: 'Ready',
@@ -349,7 +349,7 @@ export default function DischargeCommandCentre({
   const [sortDir, setSortDir] = useState('asc');
   const [kanbanColPages, setKanbanColPages] = useState({});
 
-  // Push notification helper matching Meridian prototype
+  // Push notification helper matching Hospital prototype
   const notify = useCallback((title, text, pri = 'Medium', from = 'Discharge Agent') => {
     const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
     setToasts(prev => [...prev, { id: toastId, title, text, pri, from }]);
@@ -3344,7 +3344,7 @@ export default function DischargeCommandCentre({
         </div>
 
         {/* ========================================================= */}
-        {/* FIXED SLIDE-OVER DRAWER (matching Meridian Prototype V2.1) */}
+        {/* FIXED SLIDE-OVER DRAWER (matching Hospital Prototype V2.1) */}
         {/* ========================================================= */}
         {activeDrawer && (
           <>

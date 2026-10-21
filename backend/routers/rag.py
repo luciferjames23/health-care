@@ -1,7 +1,7 @@
 """
 rag.py
 ======
-REST API Router for Meridian Hospital AI Hybrid RAG Layer.
+REST API Router for Hospital AI Hybrid RAG Layer.
 
 Prefix: /api/rag
 Endpoints:

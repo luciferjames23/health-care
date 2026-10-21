@@ -22,10 +22,10 @@ export const aiConversations: AIConversation[] = [
     timestamp: '2026-08-26 09:15 AM',
     messages: [
       { sender: 'patient', text: 'Hi, I want to book an appointment with a cardiologist tomorrow.', time: '09:15 AM' },
-      { sender: 'ai', text: 'Good morning! Welcome to Meridian Hospital. Let me check the available cardiology appointments for tomorrow.', time: '09:15 AM' },
+      { sender: 'ai', text: 'Good morning! Welcome to Hospital. Let me check the available cardiology appointments for tomorrow.', time: '09:15 AM' },
       { sender: 'ai', text: 'I found the following availability:\n\n🩺 Dr. Surendhar G — 10:00 AM\n🩺 Dr. G. Shanthosh — 2:00 PM\n\nWhich slot would you prefer?', time: '09:16 AM' },
       { sender: 'patient', text: 'I want 2 PM.', time: '09:16 AM' },
-      { sender: 'ai', text: '✅ Your appointment has been confirmed!\n\n📋 Appointment Details:\n👤 Patient: Raj Kumar\n🩺 Doctor: Dr. G. Shanthosh\n📅 Date: 27-Aug-2026\n🕐 Time: 2:00 PM\n🏥 Department: Cardiology\n\nPlease arrive 15 minutes early. Thank you for choosing Meridian Hospital!', time: '09:17 AM' },
+      { sender: 'ai', text: '✅ Your appointment has been confirmed!\n\n📋 Appointment Details:\n👤 Patient: Raj Kumar\n🩺 Doctor: Dr. G. Shanthosh\n📅 Date: 27-Aug-2026\n🕐 Time: 2:00 PM\n🏥 Department: Cardiology\n\nPlease arrive 15 minutes early. Thank you for choosing Hospital!', time: '09:17 AM' },
     ],
   },
   {
@@ -39,10 +39,10 @@ export const aiConversations: AIConversation[] = [
     timestamp: '2026-08-26 10:30 AM',
     messages: [
       { sender: 'patient', text: 'வணக்கம், நாளைக்கு cardiology doctor appointment வேண்டும்.', time: '10:30 AM' },
-      { sender: 'ai', text: 'வணக்கம்! Meridian Hospital-க்கு வரவேற்கிறோம். நாளைக்கான Cardiology appointment availability-ஐ பார்க்கிறேன்.', time: '10:30 AM' },
+      { sender: 'ai', text: 'வணக்கம்! Hospital-க்கு வரவேற்கிறோம். நாளைக்கான Cardiology appointment availability-ஐ பார்க்கிறேன்.', time: '10:30 AM' },
       { sender: 'ai', text: 'நாளைக்கு கிடைக்கும் நேரங்கள்:\n\n🩺 Dr. Surendhar G — காலை 10:00 மணி\n🩺 Dr. G. Shanthosh — மதியம் 2:00 மணி\n\nஎந்த நேரம் உங்களுக்கு வசதியாக இருக்கும்?', time: '10:31 AM' },
       { sender: 'patient', text: '2 மணிக்கு வேண்டும்.', time: '10:31 AM' },
-      { sender: 'ai', text: '✅ உங்கள் appointment வெற்றிகரமாக பதிவு செய்யப்பட்டது!\n\n📋 Appointment விவரங்கள்:\n👤 நோயாளி: Suresh Babu\n🩺 மருத்துவர்: Dr. G. Shanthosh\n📅 தேதி: 27-Aug-2026\n🕐 நேரம்: மதியம் 2:00 மணி\n🏥 துறை: Cardiology\n\nதயவுசெய்து 15 நிமிடங்கள் முன்னதாக வாருங்கள். Meridian Hospital-ஐ தேர்ந்தெடுத்ததற்கு நன்றி!', time: '10:32 AM' },
+      { sender: 'ai', text: '✅ உங்கள் appointment வெற்றிகரமாக பதிவு செய்யப்பட்டது!\n\n📋 Appointment விவரங்கள்:\n👤 நோயாளி: Suresh Babu\n🩺 மருத்துவர்: Dr. G. Shanthosh\n📅 தேதி: 27-Aug-2026\n🕐 நேரம்: மதியம் 2:00 மணி\n🏥 துறை: Cardiology\n\nதயவுசெய்து 15 நிமிடங்கள் முன்னதாக வாருங்கள். Hospital-ஐ தேர்ந்தெடுத்ததற்கு நன்றி!', time: '10:32 AM' },
     ],
   },
   {
@@ -89,8 +89,8 @@ export const aiConversations: AIConversation[] = [
     status: 'Completed',
     timestamp: '2026-08-26 08:30 AM',
     messages: [
-      { sender: 'patient', text: 'What are the OPD timings at Meridian Hospital?', time: '08:30 AM' },
-      { sender: 'ai', text: 'Good morning! Here are the OPD timings at Meridian Hospital, Kolathur:\n\n🕐 General OPD: 8:00 AM – 8:00 PM\n🕐 Specialist OPD: 9:00 AM – 5:00 PM\n🏥 Emergency: 24/7\n\n📞 For specific doctor availability, please call: 044 6666 9910\n\nIs there anything else I can help you with?', time: '08:31 AM' },
+      { sender: 'patient', text: 'What are the OPD timings at Hospital?', time: '08:30 AM' },
+      { sender: 'ai', text: 'Good morning! Here are the OPD timings at Hospital, Kolathur:\n\n🕐 General OPD: 8:00 AM – 8:00 PM\n🕐 Specialist OPD: 9:00 AM – 5:00 PM\n🏥 Emergency: 24/7\n\n📞 For specific doctor availability, please call: 044 6666 9910\n\nIs there anything else I can help you with?', time: '08:31 AM' },
     ],
   },
   {
@@ -119,7 +119,7 @@ export const aiConversations: AIConversation[] = [
     timestamp: '2026-08-26 04:00 PM',
     messages: [
       { sender: 'patient', text: 'Do you have a dermatology department? What treatments are available?', time: '04:00 PM' },
-      { sender: 'ai', text: 'Yes! Meridian Hospital has a well-equipped Dermatology Department.\n\n🏥 Services available:\n• Skin disease diagnosis & treatment\n• Cosmetic dermatology\n• Laser treatments\n• Hair & nail disorders\n• Allergy testing\n\n🩺 Lead Doctor: Dr. Mayuri\n🕐 OPD: 10:00 AM – 4:00 PM\n\nWould you like to book an appointment?', time: '04:01 PM' },
+      { sender: 'ai', text: 'Yes! Hospital has a well-equipped Dermatology Department.\n\n🏥 Services available:\n• Skin disease diagnosis & treatment\n• Cosmetic dermatology\n• Laser treatments\n• Hair & nail disorders\n• Allergy testing\n\n🩺 Lead Doctor: Dr. Mayuri\n🕐 OPD: 10:00 AM – 4:00 PM\n\nWould you like to book an appointment?', time: '04:01 PM' },
     ],
   },
   {
@@ -136,7 +136,7 @@ export const aiConversations: AIConversation[] = [
       { sender: 'ai', text: 'I can help you with that, Raj Kumar. Let me look up your appointment on 30th August.', time: '05:00 PM' },
       { sender: 'ai', text: 'I found your appointment:\n\n📋 Appointment:\n🩺 Doctor: Dr. Surendhar G\n📅 Date: 30-Aug-2026\n🕐 Time: 09:00 AM\n\nAre you sure you want to cancel this appointment?', time: '05:01 PM' },
       { sender: 'patient', text: 'Yes, please cancel it.', time: '05:01 PM' },
-      { sender: 'ai', text: '✅ Your appointment on 30-Aug-2026 has been cancelled.\n\nWould you like to reschedule for a different date? Our team is here to help.\n\nMeridian Hospital | Kolathur, Chennai', time: '05:02 PM' },
+      { sender: 'ai', text: '✅ Your appointment on 30-Aug-2026 has been cancelled.\n\nWould you like to reschedule for a different date? Our team is here to help.\n\nHospital | Kolathur, Chennai', time: '05:02 PM' },
     ],
   },
 ];

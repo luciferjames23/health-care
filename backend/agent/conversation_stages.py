@@ -1,7 +1,7 @@
 """
 conversation_stages.py
 ======================
-Explicit conversation state machine for the Meridian Hospital AI Patient Desk.
+Explicit conversation state machine for the Hospital AI Patient Desk.
 
 This module defines:
   1. Stage enum -- every named stage in the booking/registration flow

@@ -1,12 +1,12 @@
-# MERIDIAN HOSPITAL — AI PATIENT DESK & WHATSAPP CONVERSATIONAL AI
+# HOSPITAL — AI PATIENT DESK & WHATSAPP CONVERSATIONAL AI
 ## Strategic Solution Overview, Operational Blueprint & Leadership Decision Document
 
 ---
 
 > **DOCUMENT CONTROL & GOVERNANCE**  
 > **Prepared For:** Hospital Management, Executive Leadership, Business Heads, Operations Teams, Medical Directors & IT Leadership  
-> **Target Facility:** Meridian Hospital  
-> **System Name:** Meridian AI Patient Desk (WhatsApp Conversational AI)  
+> **Target Facility:** Hospital  
+> **System Name:** Hospital AI Patient Desk (WhatsApp Conversational AI)  
 > **Document Version:** 2.1.0  
 > **Classification:** Confidential — For Executive & Operational Review  
 
@@ -18,7 +18,7 @@
 3. [Business Context](#3-business-context)
 4. [Problem Statement](#4-problem-statement)
 5. [Proposed Solution](#5-proposed-solution)
-6. [Meridian Hospital AI Patient Desk Overview](#6-meridian-hospital-ai-patient-desk-overview)
+6. [Hospital AI Patient Desk Overview](#6-hospital-ai-patient-desk-overview)
 7. [WhatsApp Conversational Experience](#7-whatsapp-conversational-experience)
 8. [Patient Journey](#8-patient-journey)
 9. [Conversational Use Cases](#9-conversational-use-cases)
@@ -45,7 +45,7 @@
 
 ```
 ========================================================================================
-                       MERIDIAN HOSPITAL EXECUTIVE LEADERSHIP DOSSIER
+                       HOSPITAL EXECUTIVE LEADERSHIP DOSSIER
 ========================================================================================
   Project Name       : WhatsApp Conversational AI / AI Patient Desk
   Target Deployment  : Outpatient Care, Patient Intake, & Emergency Triage Support
@@ -56,13 +56,13 @@
 ```
 
 > [!IMPORTANT]
-> **Executive Notice:** This document details the functional, architectural, operational, and business characteristics of the **Meridian Hospital AI Patient Desk**. All metrics, stage classifications, and architectural claims in this document are grounded strictly in empirical code analysis of the repository.
+> **Executive Notice:** This document details the functional, architectural, operational, and business characteristics of the **Hospital AI Patient Desk**. All metrics, stage classifications, and architectural claims in this document are grounded strictly in empirical code analysis of the repository.
 
 ---
 
 ## 2. EXECUTIVE SUMMARY
 
-Meridian Hospital is positioned to revolutionize patient engagement and outpatient access by implementing the **AI Patient Desk**, an enterprise-grade WhatsApp Conversational AI system. In healthcare, patient satisfaction and operational efficiency depend on immediate, accurate, and accessible communication. Traditional web portals, native mobile apps, and central call centers often suffer from high drop-off rates, long queue hold times, language barriers, and friction for non-tech-savvy patients.
+Hospital is positioned to revolutionize patient engagement and outpatient access by implementing the **AI Patient Desk**, an enterprise-grade WhatsApp Conversational AI system. In healthcare, patient satisfaction and operational efficiency depend on immediate, accurate, and accessible communication. Traditional web portals, native mobile apps, and central call centers often suffer from high drop-off rates, long queue hold times, language barriers, and friction for non-tech-savvy patients.
 
 The **WhatsApp AI Patient Desk** eliminates these barriers by bringing full-lifecycle hospital services directly to the patient's mobile phone via WhatsApp—the most widely used messaging application across demographics.
 
@@ -94,7 +94,7 @@ Modern healthcare delivery demands seamless digital entry points. Patients expec
 3. **Language Barriers**: In diverse patient catchments, non-English speaking patients face difficulty navigating automated IVR menus or standard hospital websites.
 4. **App Fatigue**: Patients rarely download dedicated hospital mobile applications for routine annual or bi-monthly doctor visits.
 
-By deploying an AI Patient Desk over WhatsApp, Meridian Hospital taps into an application that patients already use daily, removing software installation barriers while providing 24/7 digital front-door service.
+By deploying an AI Patient Desk over WhatsApp, Hospital taps into an application that patients already use daily, removing software installation barriers while providing 24/7 digital front-door service.
 
 ---
 
@@ -113,13 +113,13 @@ By deploying an AI Patient Desk over WhatsApp, Meridian Hospital taps into an ap
 └───────────────────────────────┴───────────────────────────────┴─────────────────────────┘
 ```
 
-Without an intelligent conversational channel, Meridian Hospital risks losing patient acquisition to competing health networks offering faster digital scheduling. Furthermore, front-desk hospital staff spend up to 60% of their bandwidth handling routine scheduling calls rather than attending to in-person patient care.
+Without an intelligent conversational channel, Hospital risks losing patient acquisition to competing health networks offering faster digital scheduling. Furthermore, front-desk hospital staff spend up to 60% of their bandwidth handling routine scheduling calls rather than attending to in-person patient care.
 
 ---
 
 ## 5. PROPOSED SOLUTION
 
-The **Meridian Hospital WhatsApp Conversational AI** is a multi-layered conversational intelligence layer built specifically for clinical workflow automation.
+The **Hospital WhatsApp Conversational AI** is a multi-layered conversational intelligence layer built specifically for clinical workflow automation.
 
 ```mermaid
 graph TD
@@ -142,13 +142,13 @@ graph TD
 
 ---
 
-## 6. MERIDIAN HOSPITAL AI PATIENT DESK OVERVIEW
+## 6. HOSPITAL AI PATIENT DESK OVERVIEW
 
-The AI Patient Desk operates as a 24/7 digital concierge for Meridian Hospital. It acts as the primary contact point for outpatient inquiries, appointment management, registration, and administrative guidance.
+The AI Patient Desk operates as a 24/7 digital concierge for Hospital. It acts as the primary contact point for outpatient inquiries, appointment management, registration, and administrative guidance.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                           MERIDIAN AI PATIENT DESK CAPABILITIES                        │
+│                           HOSPITAL AI PATIENT DESK CAPABILITIES                        │
 ├──────────────────────────┬──────────────────────────┬──────────────────────────────────┤
 │ MODULE                   │ CHANNEL                  │ CORE FUNCTIONALITY               │
 ├──────────────────────────┼──────────────────────────┼──────────────────────────────────┤
@@ -176,11 +176,11 @@ The WhatsApp user interface is engineered to prioritize simplicity and speed for
 
 ```
 +-------------------------------------------------------------+
-|  Meridian Hospital AI Desk                        9:41 AM   |
+|  Hospital AI Desk                        9:41 AM   |
 +-------------------------------------------------------------+
-|  [Header Image: Meridian Hospital Front Entry]              |
+|  [Header Image: Hospital Front Entry]              |
 |                                                             |
-|  🤖 Hello! Welcome to Meridian Hospital.                    |
+|  🤖 Hello! Welcome to Hospital.                    |
 |  I am your AI Patient Desk Assistant.                       |
 |                                                             |
 |  How can I help you today?                                  |
@@ -314,7 +314,7 @@ Appointment booking is the core transactional engine of the AI Patient Desk. It 
 
 ## 12. EMERGENCY & HUMAN HANDOFF
 
-Healthcare AI applications must maintain strict clinical boundary controls. The Meridian AI Patient Desk enforces unambiguous protocols for emergency handling and human escalation.
+Healthcare AI applications must maintain strict clinical boundary controls. The Hospital AI Patient Desk enforces unambiguous protocols for emergency handling and human escalation.
 
 > [!CAUTION]
 > **Safety-Critical Medical Disclaimer:**  
@@ -324,7 +324,7 @@ Healthcare AI applications must maintain strict clinical boundary controls. The 
 - Evaluated as **Priority 0** using regex pattern matching across all 7 supported languages before any standard NLP or LLM routing occurs.
 - Triggers on red-flag keywords (e.g., "chest pain", "shortness of breath", "severe bleeding", "unconscious", "stroke", "poisoning").
 - Immediately responds with localized emergency guidance:
-  > *"This may require urgent medical attention. Please seek emergency medical care immediately or contact Meridian Hospital Emergency Hotline at 044-2499-9999. I should not delay emergency treatment."*
+  > *"This may require urgent medical attention. Please seek emergency medical care immediately or contact Hospital Emergency Hotline at 044-2499-9999. I should not delay emergency treatment."*
 
 ### 2. Human Staff Handoff (`HUMAN_ESCALATION`)
 - Triggers when a patient explicitly asks to speak with a staff member or when an inquiry exceeds AI domain logic.
@@ -354,7 +354,7 @@ The system features complete multi-language prompt bundles (`language_service.py
 ├───────────┬──────────────┬─────────────────────────────────────────────────────────────┤
 │ LANGUAGE  │ SCRIPT       │ SAMPLE LOCALIZED RESPONSE                                   │
 ├───────────┼──────────────┼─────────────────────────────────────────────────────────────┤
-│ English   │ Latin        │ Hello! Welcome to Meridian Hospital AI Patient Desk.        │
+│ English   │ Latin        │ Hello! Welcome to Hospital AI Patient Desk.        │
 │ Tamil     │ Tamil        │ வணக்கம்! மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம்.       │
 │ Hindi     │ Devanagari   │ नमस्ते! मेरिडियन अस्पताल में आपका स्वागत है।                │
 │ Telugu    │ Telugu       │ నమస్తే! మెరిడియన్ హాస్పిటల్‌కు స్వాగతం.                     │
@@ -377,7 +377,7 @@ The system is designed with a decoupled architecture separating the presentation
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                MERIDIAN AI SYSTEM ARCHITECTURE                          │
+│                                HOSPITAL AI SYSTEM ARCHITECTURE                          │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │ [ PATIENT CHANNELS ]                                                                    │
 │   ├── Meta WhatsApp Cloud API Webhook                                                   │
@@ -440,7 +440,7 @@ The backend is developed using Python FastAPI (`version 2.1.0`), mounted with st
 To demonstrate real-world operational workflows during evaluation, the repository contains a comprehensive PostgreSQL seeding script (`seed_pg_data.py`).
 
 > [!IMPORTANT]
-> **Data Labeling Notice:** All records currently in the prototype database are **Demonstration & Seeded Mock Data**. They do not contain live protected health information (PHI) of Meridian Hospital patients.
+> **Data Labeling Notice:** All records currently in the prototype database are **Demonstration & Seeded Mock Data**. They do not contain live protected health information (PHI) of Hospital patients.
 
 ### Seeded Entity Summary:
 - **Departments (8)**: General Medicine, Cardiology, Pediatrics, Orthopedics, Dermatology, ENT, Gynecology, Neurology.
@@ -553,7 +553,7 @@ A comprehensive evaluation of the existing repository artifacts yields the follo
 To transition from the current high-performance prototype to a live clinical production environment, the following engineering tasks are required:
 
 1. **Meta WhatsApp Enterprise Registration**: Upgrade sandbox Meta developer app to an enterprise Meta WhatsApp Business Account (WABA) with verified hospital phone numbers.
-2. **Hospital Information System (HIS) Connectors**: Replace local mock database calls with real-time REST/HL7 FHIR API connectors into Meridian Hospital’s live HIS/EMR database.
+2. **Hospital Information System (HIS) Connectors**: Replace local mock database calls with real-time REST/HL7 FHIR API connectors into Hospital’s live HIS/EMR database.
 3. **High-Availability Cloud Hosting**: Deploy FastAPI backend services on redundant Kubernetes or containerized Cloud infrastructure (AWS/Azure/GCP) with auto-scaling.
 4. **LLM Provider SLA**: Connect intent router to enterprise-tier LLM endpoints (e.g., Azure OpenAI or Vertex AI) with guaranteed latency SLAs and data privacy guarantees.
 
@@ -563,7 +563,7 @@ To transition from the current high-performance prototype to a live clinical pro
 
 ```mermaid
 gantt
-    title Meridian Hospital AI Patient Desk — Implementation Roadmap
+    title Hospital AI Patient Desk — Implementation Roadmap
     dateFormat  YYYY-MM
     section Phase 1: Prototype
     Repository Analysis & Validation   :done, 2026-08, 2026-09
@@ -584,13 +584,13 @@ Hospital Management and Executive Leadership are invited to consider the followi
 
 1. **Approval for Phase 2 HIS Integration**: Authorize IT team to provide API endpoints for live HIS schedule and patient registration sync.
 2. **Selection of Pilot Department**: Recommend initiating live pilot testing in **General Medicine (D001)** and **Cardiology (D002)**.
-3. **Meta WhatsApp Business Account Setup**: Authorize procurement of dedicated Meridian Hospital WhatsApp business numbers.
+3. **Meta WhatsApp Business Account Setup**: Authorize procurement of dedicated Hospital WhatsApp business numbers.
 
 ---
 
 ## 24. CONCLUSION
 
-The **Meridian Hospital AI Patient Desk** represents a transformative shift in patient access and operational excellence. By bringing intelligent OPD scheduling, multilingual conversational triage, and multimodal voice capabilities to WhatsApp, Meridian Hospital can significantly enhance patient satisfaction, optimize doctor utilization, and reduce administrative costs.
+The **Hospital AI Patient Desk** represents a transformative shift in patient access and operational excellence. By bringing intelligent OPD scheduling, multilingual conversational triage, and multimodal voice capabilities to WhatsApp, Hospital can significantly enhance patient satisfaction, optimize doctor utilization, and reduce administrative costs.
 
 The codebase is fully structured, validated, and ready for Phase 2 HIS integration.
 
@@ -610,4 +610,4 @@ The codebase is fully structured, validated, and ready for Phase 2 HIS integrati
 - `frontend/src/pages/PatientChat.tsx`: WhatsApp Web Simulator UI component.
 
 ---
-*End of Leadership Executive Document — Prepared for Meridian Hospital Management Team*
+*End of Leadership Executive Document — Prepared for Hospital Management Team*

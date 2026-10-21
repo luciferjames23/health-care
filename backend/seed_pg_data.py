@@ -33,9 +33,9 @@ def seed_data():
         # 2. Insert Users (Admin, doc1, doc2)
         print("Seeding Users...")
         users_data = [
-            ("admin", "admin@meridian.com", get_hashed_password("admin"), admin_role_id, "System", "Admin", "9999999999", True, False),
-            ("doc1", "arun.kumar@meridian.com", get_hashed_password("doc1"), doctor_role_id, "Arun", "Kumar", "9888888881", True, False),
-            ("doc2", "priya.ramesh@meridian.com", get_hashed_password("doc2"), doctor_role_id, "Priya", "Ramesh", "9888888882", True, False)
+            ("admin", "admin@hospital.com", get_hashed_password("admin"), admin_role_id, "System", "Admin", "9999999999", True, False),
+            ("doc1", "arun.kumar@hospital.com", get_hashed_password("doc1"), doctor_role_id, "Arun", "Kumar", "9888888881", True, False),
+            ("doc2", "priya.ramesh@hospital.com", get_hashed_password("doc2"), doctor_role_id, "Priya", "Ramesh", "9888888882", True, False)
         ]
         
         user_ids = {}
@@ -76,8 +76,8 @@ def seed_data():
         # 4. Insert Doctors Profiles
         print("Seeding Doctors Profiles...")
         doctors_data = [
-            ("DR001", user_ids["doc1"], dept_ids["D001"], "Arun", "Kumar", "Dr. Arun Kumar", "General Medicine", "MBBS, MD", 12, "9888888881", "arun.kumar@meridian.com", 500.00),
-            ("DR002", user_ids["doc2"], dept_ids["D002"], "Priya", "Ramesh", "Dr. Priya Ramesh", "Cardiology", "MBBS, MD, DM (Cardiology)", 15, "9888888882", "priya.ramesh@meridian.com", 800.00)
+            ("DR001", user_ids["doc1"], dept_ids["D001"], "Arun", "Kumar", "Dr. Arun Kumar", "General Medicine", "MBBS, MD", 12, "9888888881", "arun.kumar@hospital.com", 500.00),
+            ("DR002", user_ids["doc2"], dept_ids["D002"], "Priya", "Ramesh", "Dr. Priya Ramesh", "Cardiology", "MBBS, MD, DM (Cardiology)", 15, "9888888882", "priya.ramesh@hospital.com", 800.00)
         ]
         
         doc_ids = {}
@@ -191,7 +191,7 @@ def seed_data():
         # 9. Insert Knowledge Documents
         print("Seeding Knowledge Documents...")
         knowledge_docs_data = [
-            ("KD001", "Meridian Hospital FAQ", "HOSPITAL_PROFILE", "Meridian Hospital general info brochure", "Welcome to Meridian Hospital, Chennai. We are a leading 350-bed multi-specialty tertiary care hospital. Our OPD hours are Monday to Saturday, 8:00 AM to 8:00 PM. Emergencies are handled 24/7. Cashless billing is supported for major insurance providers.", "ENGLISH"),
+            ("KD001", "Hospital FAQ", "HOSPITAL_PROFILE", "Hospital general info brochure", "Welcome to Hospital, Chennai. We are a leading 350-bed multi-specialty tertiary care hospital. Our OPD hours are Monday to Saturday, 8:00 AM to 8:00 PM. Emergencies are handled 24/7. Cashless billing is supported for major insurance providers.", "ENGLISH"),
             ("KD002", "Appointment Cancellation Policy", "CANCELLATION_POLICY", "Hospital policy manual v2", "Appointments booked through the Patient Desk or WhatsApp can be cancelled up to 2 hours prior to the scheduled slot. If cancelled on time, a full refund of the consulting fee is processed within 5-7 working days. No-shows are charged 50% of the consultation fee.", "ENGLISH"),
             ("KD003", "Pre-Admission Requirements", "PRE_ADMISSION", "Pre-admission desk guidelines", "For planned admissions (Inpatient/Surgery), patients must pre-register at least 24 hours prior. Mandatory documents include Aadhaar Card/Passport, Insurance Card, and Referral Note. Daycare procedures require check-in 1 hour prior to slot.", "ENGLISH")
         ]

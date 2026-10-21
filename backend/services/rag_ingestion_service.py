@@ -1,7 +1,7 @@
 """
 rag_ingestion_service.py
 ========================
-Idempotent, production-grade Document Ingestion Service for Meridian Hospital AI Hybrid RAG.
+Idempotent, production-grade Document Ingestion Service for Hospital AI Hybrid RAG.
 
 Document Types:
 - patient_admission_summary

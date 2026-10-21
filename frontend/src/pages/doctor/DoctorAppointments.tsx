@@ -36,7 +36,7 @@ const DoctorAppointments: React.FC<DoctorAppointmentsProps> = ({ user: propUser 
   const { user: authUser } = useAuth();
   const currentUser = propUser || authUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }

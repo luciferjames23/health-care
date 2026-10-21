@@ -165,7 +165,7 @@ const AppointmentManagement: React.FC<AppointmentManagementProps> = ({
   const { user: authUser } = useAuth();
   const user = currentUser || authUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }

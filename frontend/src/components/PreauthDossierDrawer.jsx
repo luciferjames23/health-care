@@ -1191,7 +1191,7 @@ export default function PreauthDossierDrawer({
                         icon: <Building2 style={{ width: '16px', height: '16px', color: '#0891b2' }} />,
                         badge: 'Network Provider',
                         fields: [
-                          { label: 'Hospital Name', value: s4.hospital_name || 'Meridian Super Specialty Hospital', strong: true },
+                          { label: 'Hospital Name', value: s4.hospital_name || 'Hospital', strong: true },
                           { label: 'Hospital ID', value: s4.hospital_id || 'ROHINI: 890044129038 / MER-HOSP-01', mono: true },
                           { label: 'Network Status', value: s4.network_status || 'Tier-1 Preferred Cashless Network Hospital (100% Cashless Tie-up)' },
                           { label: 'TPA Desk', value: s4.tpa_desk || '24x7 Cashless Helpdesk · Desk Ext #402 · Direct TPA Line: 1800-425-2255' }

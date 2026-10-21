@@ -1,7 +1,7 @@
 """
 patient_service.py
 ==================
-Authoritative Central Patient Registration & ID Generation Service for Meridian Hospital.
+Authoritative Central Patient Registration & ID Generation Service for Hospital.
 Shared across both Portal (Web/Admin) and WhatsApp AI Patient Desk.
 
 Key Guarantees:

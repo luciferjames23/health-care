@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiService, computeDischargeCasesCount } from '../services/api';
-import { isPageAllowed } from '../services/meridianData';
+import { isPageAllowed } from '../services/hospitalData';
 import { isNavigationItemActive } from '../services/navigation';
 
 export const NAV_GROUPS = [
@@ -148,7 +148,7 @@ export default function AppSidebar({
 }) {
   const activeUser = user || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch { return null; }
   })();
 

@@ -82,4 +82,4 @@ The live API health endpoints were queried while preparing the video: the main h
 
 ## Short-video creative direction
 
-The accompanying 24-second video uses authentic Meridian UI screenshots embedded in the project radiology case study. It covers the X-ray order queue, PACS studies, AI worklist, review status, and clarification screen. Patient, accession, and staff identifiers are blurred. The source screenshots are static captures, so the video is a motion-edited walkthrough rather than a live browser recording; the interface styling and controls are from the actual application.
+The accompanying 24-second video uses authentic Hospital UI screenshots embedded in the project radiology case study. It covers the X-ray order queue, PACS studies, AI worklist, review status, and clarification screen. Patient, accession, and staff identifiers are blurred. The source screenshots are static captures, so the video is a motion-edited walkthrough rather than a live browser recording; the interface styling and controls are from the actual application.

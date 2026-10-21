@@ -1,7 +1,7 @@
 """
 patient_identification_service.py
 ===================================
-Patient Identification Service for Meridian Hospital AI Patient Desk.
+Patient Identification Service for Hospital AI Patient Desk.
 
 Responsibilities:
   - Phone number normalization & primary patient lookup via WhatsApp number
@@ -148,7 +148,7 @@ def format_patient_details_response(patient_dict: Optional[Dict[str, Any]], what
         return (
             "We don't have a registered patient profile associated with your phone number "
             f"(*{whatsapp_number}*) yet.\n\n"
-            "Would you like to register as a new patient with Meridian Hospital?"
+            "Would you like to register as a new patient with Hospital?"
         )
 
     p_code = patient_dict.get("patient_code") or (f"MER-PAT-{str(patient_dict.get('id')).zfill(7)}" if patient_dict.get('id') else "")

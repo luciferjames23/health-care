@@ -82,7 +82,7 @@ const AIPatientDesk: React.FC = () => {
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h2>Meridian AI Patient Desk</h2>
+            <h2>Hospital AI Patient Desk</h2>
             <p>AI-powered conversational assistance — data from database</p>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

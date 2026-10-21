@@ -210,7 +210,7 @@ export default function AG11FollowupAgentView({ userRole = 'Doctor' }) {
             </div>
             <div>
               <h1 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: '#0f172a', letterSpacing: '-0.02em' }}>Follow-up Agent</h1>
-              <p style={{ fontSize: '13px', color: '#64748b', margin: '2px 0 0 0' }}>Meridian Hospital Automated Post-Discharge Clinical Care & Monitoring</p>
+              <p style={{ fontSize: '13px', color: '#64748b', margin: '2px 0 0 0' }}>Hospital Automated Post-Discharge Clinical Care & Monitoring</p>
             </div>
           </div>
         </div>

@@ -10,7 +10,7 @@ const Header: React.FC<HeaderProps> = ({ title }) => {
   const { user: authUser } = useAuth();
   const user = authUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }

@@ -1,5 +1,5 @@
 -- 023_create_hybrid_rag_schema.sql
--- Production-grade Hybrid RAG Schema for Meridian Hospital AI Platform
+-- Production-grade Hybrid RAG Schema for Hospital AI Platform
 -- Additive, isolated, idempotent schema creation without altering existing clinical tables.
 
 -- 1. Create RAG Documents Table

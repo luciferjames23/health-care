@@ -23,7 +23,7 @@ AGENTS_TO_SEED = [
         'runs': 580,
         'instructions': {
             'objective': 'Synthesize enterprise hospital performance metrics, bed occupancy trends, revenue cycle velocity, and clinical quality KPIs into real-time executive briefings.',
-            'system': 'You are the Meridian Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).',
+            'system': 'You are the Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).',
             'rules': 'Provide quantitative metrics with percentage trends and benchmark targets. Support dual-language English & Tamil executive summaries. Highlight operational variances exceeding +/- 10%. Include department-level drilldowns.',
             'safety': 'Strictly read-only access to operational, financial, and anonymized clinical analytics. Mask patient PHI in management summaries. Never alter source transaction logs or bill records.',
             'escalation': 'Escalate critical KPI breaches (e.g., Bed Occupancy > 92%, ER Wait Times > 90 mins, Claim Denial Rate > 8%) to Medical Director and Chief Operating Officer immediately.',
@@ -41,7 +41,7 @@ AGENTS_TO_SEED = [
         ],
         'memory': {'session': 'On · 30 min', 'patient': 'Encounter-scoped', 'workflow': 'On', 'retention': '90 days (audit) · 0 days (conversation)', 'sensitive': 'No free-text PHI stored'},
         'access': {'roles': 'Management, Chief Medical Officer, Chief Operating Officer, Department Leads', 'departments': 'All Wards, ICUs, OPD, Finance, Operations', 'patients': 'Anonymized Aggregate Analytics', 'scopes': 'Operational + financial read (no clinical write)', 'env': 'Production'},
-        'model': {'model': 'meridian-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'meridian-llm-small', 'latency': '< 2.0 s p50', 'cost': '₹8 / run'},
+        'model': {'model': 'hospital-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'hospital-llm-small', 'latency': '< 2.0 s p50', 'cost': '₹8 / run'},
         'evals': [
             {'id': 'EV-714', 'ver': 'v2.0.0', 'when': 'Today 10:00', 'cases': 120, 'acc': '97.8%', 'ground': '99.0%', 'hall': '0.1%', 'ref': '100%', 'lat': '1.8s', 'res': 'Pass'}
         ],
@@ -69,7 +69,7 @@ AGENTS_TO_SEED = [
         'runs': 310,
         'instructions': {
             'objective': 'Forecast 7-day inpatient bed demand, emergency inflow surges, and ward-specific capacity bottlenecks to optimize hospital admission flow and staffing.',
-            'system': 'You are the Meridian Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.',
+            'system': 'You are the Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.',
             'rules': 'Generate 7-day rolling horizon projections categorized by ward (Cardiology, ICU, General, Maternity, Pediatric). Provide predicted occupancy percentages and confidence intervals. Flag predicted surge dates.',
             'safety': 'Forecast models serve as decision support only. Do not autonomously reject emergency admissions or alter bed allocation without Bed Manager / Triage Physician approval.',
             'escalation': 'Trigger High-Alert Surge Notification to Hospital Incident Commander and Ward Nursing Lead when forecasted bed occupancy exceeds 90% within 48 hours.',
@@ -87,7 +87,7 @@ AGENTS_TO_SEED = [
         ],
         'memory': {'session': 'On · 30 min', 'patient': 'Encounter-scoped', 'workflow': 'On', 'retention': '90 days (audit) · 0 days (conversation)', 'sensitive': 'No free-text PHI stored'},
         'access': {'roles': 'Operations, Bed Management, Nursing Leadership, Emergency Dept Triage', 'departments': 'All Inpatient Wards, ICUs, Emergency, OT', 'patients': 'Aggregated Ward Cohorts', 'scopes': 'Operational predictive read/write', 'env': 'Production'},
-        'model': {'model': 'meridian-llm-large', 'temperature': 0.1, 'tokens': 8000, 'fallback': 'Clinical Census Predictor', 'latency': '< 1.5 s p50', 'cost': '₹6 / run'},
+        'model': {'model': 'hospital-llm-large', 'temperature': 0.1, 'tokens': 8000, 'fallback': 'Clinical Census Predictor', 'latency': '< 1.5 s p50', 'cost': '₹6 / run'},
         'evals': [
             {'id': 'EV-715', 'ver': 'v2.0.0', 'when': 'Today 06:00', 'cases': 100, 'acc': '98.2%', 'ground': '99.4%', 'hall': '0.0%', 'ref': '100%', 'lat': '1.3s', 'res': 'Pass'}
         ],

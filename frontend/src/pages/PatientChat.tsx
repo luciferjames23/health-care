@@ -192,7 +192,7 @@ const PatientChat: React.FC = () => {
       {
         id: 'welcome_text_' + Date.now(),
         sender: 'AI_AGENT',
-        text: 'Meridian Hospital 👋\n\nWelcome to Meridian Hospital.\nHow can I help you today?',
+        text: 'Hospital 👋\n\nWelcome to Hospital.\nHow can I help you today?',
         timestamp: nowTs,
         interactive_buttons: [
           { id: 'btn_cat_appts', title: '📅 Appointments', description: 'Book, view, reschedule or cancel' },
@@ -484,7 +484,7 @@ const PatientChat: React.FC = () => {
           transition: 'transform 0.3s ease'
         }}
       >
-        {/* Sidebar Header: Meridian Hospital Branding */}
+        {/* Sidebar Header: Hospital Branding */}
         <div style={{
           padding: '16px 20px',
           background: '#075E54',
@@ -512,7 +512,7 @@ const PatientChat: React.FC = () => {
                 MH
               </div>
               <div style={{ fontWeight: 700, fontSize: '17px', letterSpacing: '-0.2px' }}>
-                Meridian Hospital
+                Hospital
               </div>
             </div>
             {/* Close button for mobile */}
@@ -695,7 +695,7 @@ const PatientChat: React.FC = () => {
             </div>
             <div>
               <div style={{ fontWeight: 700, fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>Meridian Hospital</span>
+                <span>Hospital</span>
                 <span style={{ fontSize: '13px', opacity: 0.85, fontWeight: 400 }}>—</span>
                 <span style={{ fontSize: '13.5px', color: '#a7ffeb', fontWeight: 600 }}>{currentSection}</span>
               </div>
@@ -789,7 +789,7 @@ const PatientChat: React.FC = () => {
                     <div style={{ borderRadius: '8px', overflow: 'hidden', marginBottom: m.text ? '8px' : '0px' }}>
                       <img
                         src={m.imageUrl}
-                        alt="Meridian Hospital Welcome Banner"
+                        alt="Hospital Welcome Banner"
                         style={{
                           width: '100%',
                           maxHeight: '280px',
@@ -998,7 +998,7 @@ const PatientChat: React.FC = () => {
               gap: '6px'
             }}>
               <span className="dot-blink" style={{ display: 'inline-block', width: '6px', height: '6px', background: '#999', borderRadius: '50%' }}></span>
-              Meridian AI Assistant is typing...
+              Hospital AI Assistant is typing...
             </div>
           )}
 
@@ -1052,7 +1052,7 @@ const PatientChat: React.FC = () => {
           {/* Text Input */}
           <input
             type="text"
-            placeholder="Message Meridian Hospital..."
+            placeholder="Message Hospital..."
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyPress}

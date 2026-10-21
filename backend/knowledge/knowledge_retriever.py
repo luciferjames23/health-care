@@ -1,7 +1,7 @@
 """
 knowledge_retriever.py
 ======================
-PostgreSQL full-text search retrieval for the Meridian Hospital Knowledge Base.
+PostgreSQL full-text search retrieval for the Hospital Knowledge Base.
 
 Uses native PostgreSQL tsvector + plainto_tsquery for compatible retrieval
 without requiring external embedding APIs.
@@ -12,7 +12,7 @@ Retrieval pipeline:
   3. Results are ranked by score, top_k returned
   4. Source metadata (document_id, chunk_id, category) is always preserved
 
-Step 5.1 — Meridian Hospital
+Step 5.1 — Hospital
 """
 
 import sys
@@ -45,7 +45,7 @@ KEYWORD_CATEGORY_HINTS = {
     "about hospital": "HOSPITAL_PROFILE",
     "hospital info": "HOSPITAL_PROFILE",
     "hospital overview": "HOSPITAL_PROFILE",
-    "meridian hospital": "HOSPITAL_PROFILE",
+    "hospital": "HOSPITAL_PROFILE",
     # Departments
     "department": "DEPARTMENT",
     "departments": "DEPARTMENT",
@@ -240,7 +240,7 @@ def search(
                 "category": category,
                 "title": title,
                 "content": content,
-                "source": source or "MERIDIAN_HOSPITAL_POC",
+                "source": source or "HOSPITAL_POC",
                 "language": lang,
                 "metadata": metadata if isinstance(metadata, dict) else (json.loads(metadata) if metadata else {}),
                 "score": float(score),
@@ -296,7 +296,7 @@ def search(
                         "category": category,
                         "title": title,
                         "content": content,
-                        "source": source or "MERIDIAN_HOSPITAL_POC",
+                        "source": source or "HOSPITAL_POC",
                         "language": lang,
                         "metadata": metadata if isinstance(metadata, dict) else (json.loads(metadata) if metadata else {}),
                         "score": float(score),
@@ -335,7 +335,7 @@ def search_by_category(category: str, top_k: int = 5) -> list[dict]:
                 "category": cat,
                 "title": title,
                 "content": content,
-                "source": source or "MERIDIAN_HOSPITAL_POC",
+                "source": source or "HOSPITAL_POC",
                 "language": lang,
                 "metadata": metadata if isinstance(metadata, dict) else (json.loads(metadata) if metadata else {}),
                 "score": 1.0,

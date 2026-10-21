@@ -1,1 +1,1 @@
-# Knowledge Base package for Meridian Hospital RAG
+# Knowledge Base package for Hospital RAG

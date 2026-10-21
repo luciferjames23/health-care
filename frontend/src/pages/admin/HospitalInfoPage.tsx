@@ -13,22 +13,22 @@ const HospitalInfoPage: React.FC = () => {
     <div>
       <div className="page-header">
         <h2>Hospital Information</h2>
-        <p>About Meridian Hospital — The Family Hospital</p>
+        <p>About Hospital — The Family Hospital</p>
       </div>
 
       {/* Main Overview */}
       <div className="hospital-overview">
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <img src={logo} alt="Meridian Hospital" style={{ width: 64, height: 64, borderRadius: 12 }} />
+          <img src={logo} alt="Hospital" style={{ width: 64, height: 64, borderRadius: 12 }} />
           <div>
-            <h3 style={{ fontSize: 22, display: 'block' }}>Meridian Hospital</h3>
+            <h3 style={{ fontSize: 22, display: 'block' }}>Hospital</h3>
             <p style={{ fontSize: 15, color: 'var(--primary)', fontWeight: 500 }}>The Family Hospital</p>
             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Kolathur, Chennai</p>
           </div>
         </div>
 
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8, maxWidth: 800, marginBottom: 20 }}>
-          Meridian Hospital is a leading multispeciality hospital located in Kolathur, Chennai.
+          Hospital is a leading multispeciality hospital located in Kolathur, Chennai.
           We provide comprehensive healthcare services ranging from primary care to advanced
           specialized treatments. Our mission is to deliver compassionate, world-class medical
           care using the latest technology and AI-powered patient communication to ensure
@@ -71,7 +71,7 @@ const HospitalInfoPage: React.FC = () => {
             <div className="icon"><Mail size={18} /></div>
             <div>
               <label>Email</label>
-              <p>info@meridian-hospital.com</p>
+              <p>info@hospital.com</p>
             </div>
           </div>
           <div className="hospital-contact-item">

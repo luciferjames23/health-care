@@ -1,7 +1,7 @@
 """
 whatsapp_client.py
 ==================
-Meta WhatsApp Cloud API Client abstraction for Meridian Hospital.
+Meta WhatsApp Cloud API Client abstraction for Hospital.
 
 Manages:
   - Text message dispatch
@@ -9,7 +9,7 @@ Manages:
   - Media Upload/Download mechanics
   - Graceful mock simulation for local/offline testing
 
-Step 5.3 — Meridian Hospital
+Step 5.3 — Hospital
 """
 
 import os
@@ -249,7 +249,7 @@ def send_text_message(to_number: str, text: str) -> dict:
         return {"success": False, "status": "FAILED", "error": str(e)}
 
 
-def send_template_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
+def send_template_message(to_number: str, template_name: str = "hospital_patient_welcome", language_code: str = "en") -> dict:
     """Send a Meta WhatsApp template message."""
     to_number = clean_whatsapp_number(to_number)
     payload = {
@@ -297,8 +297,8 @@ def send_template_message(to_number: str, template_name: str = "meridian_patient
         return {"success": False, "status": "FAILED", "error": str(e)}
 
 
-def send_welcome_message(to_number: str, template_name: str = "meridian_patient_welcome", language_code: str = "en") -> dict:
-    """Send Meridian Hospital active WhatsApp welcome template message."""
+def send_welcome_message(to_number: str, template_name: str = "hospital_patient_welcome", language_code: str = "en") -> dict:
+    """Send Hospital active WhatsApp welcome template message."""
     return send_template_message(to_number, template_name=template_name, language_code=language_code)
 
 
@@ -605,7 +605,7 @@ def send_registration_flow_message(to_number: str, text: str, current_lang: str 
             "type": "interactive",
             "interactive": {
                 "type": "flow",
-                "header": {"type": "text", "text": "Meridian Patient Desk"},
+                "header": {"type": "text", "text": "Hospital Patient Desk"},
                 "body": {"text": text},
                 "action": {
                     "name": "flow",
@@ -659,7 +659,7 @@ def send_audio_message(to_number: str, audio_data_uri_or_path: str) -> dict:
         "recipient_type": "individual",
         "to": to_number,
         "type": "audio",
-        "audio": {"link": "http://meridian-hospital.local/static/audio_response.wav"}
+        "audio": {"link": "http://hospital.local/static/audio_response.wav"}
     }
     
     if is_mock_mode():

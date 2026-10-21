@@ -179,7 +179,7 @@ knowledge_router = APIRouter(prefix="/api/knowledge", tags=["Knowledge Base"])
 @knowledge_router.post("/search", response_model=KnowledgeSearchResponse)
 def knowledge_search_endpoint(payload: KnowledgeSearchRequest):
     """
-    Search the Meridian Hospital knowledge base.
+    Search the Hospital knowledge base.
     Returns relevant knowledge chunks ranked by relevance score.
     Internal API — not exposed to patient UI.
     """
@@ -344,7 +344,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "Front Office, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹14 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "hospital-llm-small", "latency": "< 3 s p50", "cost": "₹14 / run"},
             "evals": [
                 {"id": "EV-701", "ver": "v2.3.1", "when": "Today 11:15", "cases": 120, "acc": "96.8%", "ground": "98.0%", "hall": "0.4%", "ref": "99%", "lat": "1.6s", "res": "Pass"},
                 {"id": "EV-640", "ver": "v2.0.0", "when": "18 Aug 2026", "cases": 100, "acc": "94.5%", "ground": "96.2%", "hall": "0.8%", "ref": "98%", "lat": "1.8s", "res": "Pass"}
@@ -391,7 +391,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "Patient Experience, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹12 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "hospital-llm-small", "latency": "< 3 s p50", "cost": "₹12 / run"},
             "evals": [
                 {"id": "EV-702", "ver": "v1.8.0", "when": "Today 11:10", "cases": 140, "acc": "95.1%", "ground": "97.5%", "hall": "0.3%", "ref": "100%", "lat": "1.9s", "res": "Pass"}
             ],
@@ -437,7 +437,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "Front Office, Hospital Management", "departments": "All wards", "patients": "Care-team relationship required", "scopes": "Operational + financial (no clinical write)", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 3 s p50", "cost": "₹15 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "hospital-llm-small", "latency": "< 3 s p50", "cost": "₹15 / run"},
             "evals": [
                 {"id": "EV-703", "ver": "v1.4.2", "when": "Yesterday 17:00", "cases": 80, "acc": "97.4%", "ground": "98.5%", "hall": "0.1%", "ref": "100%", "lat": "1.5s", "res": "Pass"}
             ],
@@ -483,7 +483,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Staff-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "HR, Hospital Management, Doctors, Nurses, Technicians, Admin", "departments": "All Wards, ICUs, Labs, OT, Admin", "patients": "Staff-scoped", "scopes": "Operational HR read/write", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 1.5 s p50", "cost": "₹4 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "hospital-llm-small", "latency": "< 1.5 s p50", "cost": "₹4 / run"},
             "evals": [
                 {"id": "EV-704", "ver": "v1.7.0", "when": "Today 09:30", "cases": 180, "acc": "98.5%", "ground": "99.2%", "hall": "0.1%", "ref": "100%", "lat": "1.2s", "res": "Pass"},
                 {"id": "EV-650", "ver": "v1.6.0", "when": "15 Sep 2026", "cases": 120, "acc": "95.8%", "ground": "97.4%", "hall": "0.3%", "ref": "99%", "lat": "1.4s", "res": "Pass"}
@@ -541,10 +541,10 @@ def ensure_agent_config_table():
                 "env": "Production"
             },
             "model": {
-                "model": "meridian-llm-large",
+                "model": "hospital-llm-large",
                 "temperature": 0.2,
                 "tokens": 8000,
-                "fallback": "meridian-llm-small",
+                "fallback": "hospital-llm-small",
                 "latency": "< 3 s p50",
                 "cost": "₹18 / run"
             },
@@ -575,7 +575,7 @@ def ensure_agent_config_table():
             "runs": 1500,
             "instructions": {
                 "objective": "Provide real-time OPD queue status updates and minimize patient waiting room congestion.",
-                "system": "You are the AG-06 Queue / Flow Agent for Meridian Hospital. All queue facts (tokens, positions, ETAs) are computed deterministically by PostgreSQL.",
+                "system": "You are the AG-06 Queue / Flow Agent for Hospital. All queue facts (tokens, positions, ETAs) are computed deterministically by PostgreSQL.",
                 "rules": "Never guess or compute tokens/positions using LLM. Respect patient's preferred language. Idempotency is strictly enforced.",
                 "safety": "Do not alter clinical triage or priority without doctor/admin action.",
                 "escalation": "Escalate doctor delays exceeding 15 minutes to Outpatient Nursing Lead.",
@@ -586,7 +586,7 @@ def ensure_agent_config_table():
                 { "tool": "WhatsAppNotification", "perm": "Send queue updates via WhatsApp", "read": False, "write": True, "appr": "None", "enabled": True }
             ],
             "knowledge": [
-                { "t": "Meridian OPD Queue SOP", "v": "2.0", "eff": "01 Jan 2026", "status": "Published" }
+                { "t": "Hospital OPD Queue SOP", "v": "2.0", "eff": "01 Jan 2026", "status": "Published" }
             ],
             "memory": {
                 "session": "On • Queue Session scoped",
@@ -603,7 +603,7 @@ def ensure_agent_config_table():
                 "env": "Production"
             },
             "model": {
-                "model": "meridian-llm-small",
+                "model": "hospital-llm-small",
                 "temperature": 0.1,
                 "tokens": 4000,
                 "fallback": "rule-based-engine",
@@ -683,7 +683,7 @@ def ensure_agent_config_table():
             "runs": 342,
             "instructions": {
                 "objective": "Translate complex surgical consumable charges, billing variances (>10%), and itemized tariffs into crystal-clear plain English & Tamil explanations grounded in doctor OT notes.",
-                "system": "You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Meridian Super Speciality Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient's family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.",
+                "system": "You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient's family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.",
                 "rules": "Provide bilingual explanations in English and natural spoken Tamil (தமிழ்). Cite verbatim clinical quotes from doctor intra-operative notes. Itemize top variance drivers with amounts and layman-friendly rationale. Strict valid JSON format.",
                 "safety": "Never alter hospital audited tariffs autonomously. Do not promise discounts without Medical Superintendent / Cashier sign-off. Ensure zero phantom consumable billing.",
                 "escalation": "Escalate variance > 50% or billing disputes without EMR intra-op justification to Chief Financial Officer and Senior Billing Auditor.",
@@ -754,7 +754,7 @@ def ensure_agent_config_table():
             "runs": 1240,
             "instructions": {
                 "objective": "Synthesize shift EMR data, bedside vitals, and MAR charts into structured SBAR (Situation, Background, Assessment, Recommendation) clinical handovers for ward nurses.",
-                "system": "You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.",
+                "system": "You are the Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.",
                 "rules": "Strict adherence to 4-part SBAR format. Highlight high-alert medications (Insulin, Heparin, Narcotics) with dual-sign-off warnings. Flag pending lab orders with critical timeline triggers. Output valid structured JSON.",
                 "safety": "Never omit known allergies or abnormal Early Warning Scores (EWS). Require registered nurse sign-off before committing handover to EHR. Refuse alteration of doctor prescription orders.",
                 "escalation": "Trigger immediate red-flag alert to Ward Nursing Supervisor and On-Call Medical Officer for deteriorating vitals (EWS >= 5 or SpO2 < 92%).",
@@ -800,7 +800,7 @@ def ensure_agent_config_table():
             "runs": 480,
             "instructions": {
                 "objective": "Detect insurance claim shortfalls, extract clinical EMR evidence, classify denial reasons under IRDAI/ICD-10 standards, and generate legally rigorous reconsideration appeal dossiers.",
-                "system": "You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Meridian Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.",
+                "system": "You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.",
                 "rules": "Cite statutory IRDAI Master Circular clauses, policy terms, and NABH guidelines. Include itemized rejected line-item rebuttals. Generate bilingual summaries for hospital leadership and patients.",
                 "safety": "Strictly prohibit fabrication of non-existent medical notes. Re-submission is strictly gated and blocked if required clinical evidence or doctor certifications are missing.",
                 "escalation": "Escalate full claim rejections > ₹50,000 or contentious policy exclusions to Revenue Cycle Lead (R. Sundar) and TPA Liaison (L. Fathima).",
@@ -847,7 +847,7 @@ def ensure_agent_config_table():
             "runs": 580,
             "instructions": {
                 "objective": "Synthesize enterprise hospital performance metrics, bed occupancy trends, revenue cycle velocity, and clinical quality KPIs into real-time executive briefings.",
-                "system": "You are the Meridian Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).",
+                "system": "You are the Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).",
                 "rules": "Provide quantitative metrics with percentage trends and benchmark targets. Support dual-language English & Tamil executive summaries. Highlight operational variances exceeding +/- 10%. Include department-level drilldowns.",
                 "safety": "Strictly read-only access to operational, financial, and anonymized clinical analytics. Mask patient PHI in management summaries. Never alter source transaction logs or bill records.",
                 "escalation": "Escalate critical KPI breaches (e.g., Bed Occupancy > 92%, ER Wait Times > 90 mins, Claim Denial Rate > 8%) to Medical Director and Chief Operating Officer immediately.",
@@ -865,7 +865,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "Management, Chief Medical Officer, Chief Operating Officer, Department Leads", "departments": "All Wards, ICUs, OPD, Finance, Operations", "patients": "Anonymized Aggregate Analytics", "scopes": "Operational + financial read (no clinical write)", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "meridian-llm-small", "latency": "< 2.0 s p50", "cost": "₹8 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.2, "tokens": 8000, "fallback": "hospital-llm-small", "latency": "< 2.0 s p50", "cost": "₹8 / run"},
             "evals": [
                 {"id": "EV-714", "ver": "v2.0.0", "when": "Today 10:00", "cases": 120, "acc": "97.8%", "ground": "99.0%", "hall": "0.1%", "ref": "100%", "lat": "1.8s", "res": "Pass"}
             ],
@@ -894,7 +894,7 @@ def ensure_agent_config_table():
             "runs": 310,
             "instructions": {
                 "objective": "Forecast 7-day inpatient bed demand, emergency inflow surges, and ward-specific capacity bottlenecks to optimize hospital admission flow and staffing.",
-                "system": "You are the Meridian Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.",
+                "system": "You are the Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.",
                 "rules": "Generate 7-day rolling horizon projections categorized by ward (Cardiology, ICU, General, Maternity, Pediatric). Provide predicted occupancy percentages and confidence intervals. Flag predicted surge dates.",
                 "safety": "Forecast models serve as decision support only. Do not autonomously reject emergency admissions or alter bed allocation without Bed Manager / Triage Physician approval.",
                 "escalation": "Trigger High-Alert Surge Notification to Hospital Incident Commander and Ward Nursing Lead when forecasted bed occupancy exceeds 90% within 48 hours.",
@@ -912,7 +912,7 @@ def ensure_agent_config_table():
             ],
             "memory": {"session": "On · 30 min", "patient": "Encounter-scoped", "workflow": "On", "retention": "90 days (audit) · 0 days (conversation)", "sensitive": "No free-text PHI stored"},
             "access": {"roles": "Operations, Bed Management, Nursing Leadership, Emergency Dept Triage", "departments": "All Inpatient Wards, ICUs, Emergency, OT", "patients": "Aggregated Ward Cohorts", "scopes": "Operational predictive read/write", "env": "Production"},
-            "model": {"model": "meridian-llm-large", "temperature": 0.1, "tokens": 8000, "fallback": "Clinical Census Predictor", "latency": "< 1.5 s p50", "cost": "₹6 / run"},
+            "model": {"model": "hospital-llm-large", "temperature": 0.1, "tokens": 8000, "fallback": "Clinical Census Predictor", "latency": "< 1.5 s p50", "cost": "₹6 / run"},
             "evals": [
                 {"id": "EV-715", "ver": "v2.0.0", "when": "Today 06:00", "cases": 100, "acc": "98.2%", "ground": "99.4%", "hall": "0.0%", "ref": "100%", "lat": "1.3s", "res": "Pass"}
             ],

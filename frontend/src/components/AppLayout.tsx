@@ -11,7 +11,7 @@ const pageTitles: Record<string, string> = {
   '/admin/schedules': 'Doctor Schedules & Timings',
   '/admin/appointments': 'Appointment Management',
   '/admin/departments': 'Departments & Specialties',
-  '/admin/ai-desk': 'Meridian AI Patient Desk',
+  '/admin/ai-desk': 'Hospital AI Patient Desk',
   '/admin/escalations': 'Human Escalation Management',
   '/admin/pre-admission': 'Pre-Admission Follow-up',
   '/admin/reports': 'Hospital Reports',

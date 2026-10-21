@@ -1213,9 +1213,9 @@ Disputed Amount: ₹{disputed_amt:,.2f}
 
 Dear Sir/Madam,
 
-On behalf of Meridian Hospitals, we respectfully submit this formal request for reconsideration of the above claim reference {claim_no}. The claim was disputed under {code_sys_str} Denial Code {code_disp} ("{stated_reason}") pursuant to {policy_clause}.
+On behalf of Hospital, we respectfully submit this formal request for reconsideration of the above claim reference {claim_no}. The claim was disputed under {code_sys_str} Denial Code {code_disp} ("{stated_reason}") pursuant to {policy_clause}.
 
-On behalf of Meridian Hospitals, we respectfully submit this formal request for reconsideration of the above claim, which has been denied under Denial Code 402 on the grounds of a pre-existing disease and the applicable 24-month waiting-period exclusion under {policy_clause}.
+On behalf of Hospital, we respectfully submit this formal request for reconsideration of the above claim, which has been denied under Denial Code 402 on the grounds of a pre-existing disease and the applicable 24-month waiting-period exclusion under {policy_clause}.
 
 1. Basis for Reconsideration
 
@@ -1239,7 +1239,7 @@ These documents are provided for review of whether the condition treated during 
 
 3. Request for Reconsideration
 
-In view of the enclosed clinical documentation and supporting evidence, Meridian Hospitals respectfully requests that the claim be re-evaluated against the applicable policy terms and the patient's documented medical history.
+In view of the enclosed clinical documentation and supporting evidence, Hospital respectfully requests that the claim be re-evaluated against the applicable policy terms and the patient's documented medical history.
 
 We request that the TPA/insurer:
 
@@ -1248,7 +1248,7 @@ We request that the TPA/insurer:
 3. Provide the specific medical and policy basis if the denial is maintained; and
 4. Reassess and process the disputed claim amount of ₹{disputed_amt:,.2f} in accordance with the applicable policy terms.
 
-We request that the outcome of the reconsideration, together with the detailed basis for the decision, be communicated to Meridian Hospitals through the registered claims/TPA communication channel.
+We request that the outcome of the reconsideration, together with the detailed basis for the decision, be communicated to Hospital through the registered claims/TPA communication channel.
 
 Enclosures
 - Treating Specialist Medical Necessity Certificate
@@ -1266,11 +1266,11 @@ Yours sincerely,
 
 Dr. {attending_doc}, {spec}
 Treating Physician
-Meridian Hospitals
+Hospital
 
 R. Sundar
 Lead Executive – TPA Liaison & Revenue Cycle Management
-Meridian Hospitals, Chennai
+Hospital, Chennai
 """
         elif denial_code_num == "204":
             return f"""Formal Reconsideration Appeal for Claim Denial
@@ -1296,7 +1296,7 @@ Stated Reason: {stated_reason} under {policy_clause}
 
 Dear Sir/Madam,
 
-On behalf of Meridian Hospitals, we respectfully submit this formal request for reconsideration of the above claim, which has been disputed under Denial Code 204 on the grounds of insufficient clinical justification and conservative management compliance under {policy_clause}.
+On behalf of Hospital, we respectfully submit this formal request for reconsideration of the above claim, which has been disputed under Denial Code 204 on the grounds of insufficient clinical justification and conservative management compliance under {policy_clause}.
 
 1. Basis for Reconsideration
 
@@ -1318,7 +1318,7 @@ These documents confirm that conservative management was exhausted prior to surg
 
 3. Request for Reconsideration
 
-In view of the enclosed clinical documentation and conservative management trial records, Meridian Hospitals respectfully requests that the claim be re-evaluated against the applicable policy terms.
+In view of the enclosed clinical documentation and conservative management trial records, Hospital respectfully requests that the claim be re-evaluated against the applicable policy terms.
 
 We request that the TPA/insurer:
 
@@ -1338,11 +1338,11 @@ Yours sincerely,
 
 Dr. {attending_doc}, {spec}
 Treating Physician
-Meridian Hospitals
+Hospital
 
 R. Sundar
 Lead Executive – TPA Liaison & Revenue Cycle Management
-Meridian Hospitals, Chennai
+Hospital, Chennai
 """
         elif denial_code_num == "102":
             return f"""Formal Reconsideration Appeal for Claim Denial
@@ -1368,7 +1368,7 @@ Stated Reason: {stated_reason} under {policy_clause}
 
 Dear Sir/Madam,
 
-On behalf of Meridian Hospitals, we respectfully submit this formal reconsideration appeal regarding the proportionate room rent capping and consumable deductions executed against claim {claim_no}.
+On behalf of Hospital, we respectfully submit this formal reconsideration appeal regarding the proportionate room rent capping and consumable deductions executed against claim {claim_no}.
 
 1. Basis for Reconsideration
 
@@ -1385,11 +1385,11 @@ The following documents establish policy compliance:
 
 3. Request for Reconsideration
 
-Meridian Hospitals requests that the TPA/insurer:
+Hospital requests that the TPA/insurer:
 
 1. Review the enclosed tariff schedule and room entitlement proof;
 2. Rectify the misapplied proportionate deduction calculation; and
-3. Release the withheld balance of ₹{disputed_amt:,.2f} into Meridian Hospitals' settlement account.
+3. Release the withheld balance of ₹{disputed_amt:,.2f} into Hospital's settlement account.
 
 Enclosures
 - Room Category Entitlement Verification
@@ -1401,11 +1401,11 @@ Yours sincerely,
 
 Dr. {attending_doc}, {spec}
 Treating Physician
-Meridian Hospitals
+Hospital
 
 R. Sundar
 Lead Executive – TPA Liaison & Revenue Cycle Management
-Meridian Hospitals, Chennai
+Hospital, Chennai
 """
         else:
             return f"""Formal Reconsideration Appeal for Claim Denial
@@ -1431,7 +1431,7 @@ Stated Reason: {stated_reason} under {policy_clause}
 
 Dear Sir/Madam,
 
-On behalf of Meridian Hospitals, we respectfully submit this formal request for reconsideration of the above claim.
+On behalf of Hospital, we respectfully submit this formal request for reconsideration of the above claim.
 
 1. Basis for Reconsideration
 
@@ -1455,11 +1455,11 @@ Yours sincerely,
 
 Dr. {attending_doc}, {spec}
 Treating Physician
-Meridian Hospitals
+Hospital
 
 R. Sundar
 Lead Executive – TPA Liaison & Revenue Cycle Management
-Meridian Hospitals, Chennai
+Hospital, Chennai
 """
 
     def _generate_tamil_summary(self, denial_code_num: str, patient_name: str, claim_no: str, rejected_amt: float, stated_reason: str, denial_code_lbl: str, policy_clause: str):

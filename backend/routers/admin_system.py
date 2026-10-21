@@ -659,7 +659,7 @@ def get_employees(search: Optional[str] = Query(None), limit: int = 100, offset:
                 "role": r['role_name'] or r['staff_type'] or "Staff Member",
                 "staff_type": r['staff_type'] or "Clinical",
                 "department": r['department_name'] or "General Medicine",
-                "email": r['email'] or f"staff{r['id']}@meridian.com",
+                "email": r['email'] or f"staff{r['id']}@hospital.com",
                 "phone": r['phone'] or "+91 98401 00000",
                 "joining_date": str(r['joining_date'] or "2022-04-15"),
                 "salary_display": f"₹{sal:,.2f}",

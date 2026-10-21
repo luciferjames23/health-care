@@ -1,7 +1,7 @@
 """
 rag_conversation_service.py
 ===========================
-Session and message continuity management for Meridian Hospital AI Hybrid RAG.
+Session and message continuity management for Hospital AI Hybrid RAG.
 
 Enforces:
 1. Conversation ownership and role continuity.

@@ -777,7 +777,7 @@ export function FinancialRevenueView({ initialTab = "billing", onOpenDrawer, onO
   // CSV Export
   const handleExportCsv = () => {
     let rows = [];
-    let filename = `meridian_${activeTab}_export`;
+    let filename = `hospital_${activeTab}_export`;
 
     if (activeTab === "billing") {
       rows = bills.map((b) => ({

@@ -1,4 +1,4 @@
-"""Render a short showcase from authentic Meridian radiology app screenshots.
+"""Render a short showcase from authentic Hospital radiology app screenshots.
 
 Screens are extracted from the local radiology case-study document at render
 time. Patient and staff identifiers are obscured before they appear in video.
@@ -112,7 +112,7 @@ def cover_frame(screenshot: Image.Image, progress: float) -> Image.Image:
     draw = ImageDraw.Draw(canvas, "RGBA")
     draw.rectangle((0, 0, WIDTH, HEIGHT), fill=(5, 17, 31, 145))
     round_rect(draw, (104, 140, 1176, 580), 26, (11, 31, 49, 244), (52, 91, 111, 255), 2)
-    draw.text((158, 194), "MERIDIAN  /  RADIOLOGY", font=F18, fill=MINT)
+    draw.text((158, 194), "HOSPITAL  /  RADIOLOGY", font=F18, fill=MINT)
     draw.text((158, 247), "AI Radiology Triage", font=F42B, fill=WHITE)
     draw.text((158, 312), "Real system UI walkthrough", font=F30B, fill=PALE)
     draw.text((158, 388), "X-ray orders  →  PACS  →  AI worklist  →  radiologist review", font=F18, fill=PALE)

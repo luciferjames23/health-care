@@ -104,7 +104,7 @@ export default function DoctorProfileView({ user, setUser }) {
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#52585e' }}>Email Address</label>
-              <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="doctor@meridian.com" style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '0 8px', fontSize: '12px' }} />
+              <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="doctor@hospital.com" style={{ width: '100%', height: '32px', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '0 8px', fontSize: '12px' }} />
             </div>
           </div>
 

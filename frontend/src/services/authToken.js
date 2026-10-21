@@ -3,7 +3,7 @@
 // builds may leave hc_auth_token pointing at a previously selected account.
 export function getSessionAuthToken() {
   if (typeof sessionStorage === 'undefined') return '';
-  for (const key of ['hx_auth', 'meridian_user']) {
+  for (const key of ['hx_auth', 'hospital_user']) {
     try {
       const user = JSON.parse(sessionStorage.getItem(key) || 'null');
       if (user?.token) {
@@ -22,7 +22,7 @@ export function clearSessionAuthToken(rejectedToken) {
   if (sessionStorage.getItem('hc_auth_token') === rejectedToken) {
     sessionStorage.removeItem('hc_auth_token');
   }
-  for (const key of ['hx_auth', 'meridian_user']) {
+  for (const key of ['hx_auth', 'hospital_user']) {
     try {
       const user = JSON.parse(sessionStorage.getItem(key) || 'null');
       if (user?.token === rejectedToken) {

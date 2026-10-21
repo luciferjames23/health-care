@@ -13,7 +13,7 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
   const { user: authUser } = useAuth();
   const user = propUser || authUser || (() => {
     try {
-      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('meridian_user') || 'null');
+      return JSON.parse(sessionStorage.getItem('hx_auth') || sessionStorage.getItem('hospital_user') || 'null');
     } catch {
       return null;
     }
@@ -77,7 +77,7 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.email && !isValidEmail(form.email)) {
-      showToast('❌ Please enter a valid Email address (e.g. doctor@meridian.com)', 'error');
+      showToast('❌ Please enter a valid Email address (e.g. doctor@hospital.com)', 'error');
       return;
     }
     if (form.phone && !isValidPhone(form.phone)) {
@@ -108,7 +108,7 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
         if (form.username && user) {
           user.username = form.username;
           user.loginId = form.username;
-          sessionStorage.setItem('meridian_user', JSON.stringify(user));
+          sessionStorage.setItem('hospital_user', JSON.stringify(user));
         }
       } else {
         showToast(`❌ ${res.error || 'Failed to update profile'}`, 'error');
@@ -209,7 +209,7 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
                   type="email"
                   value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="doctor@meridian.com"
+                  placeholder="doctor@hospital.com"
                   style={{ width: '100%', padding: '8px 12px', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
                 />
               </div>
@@ -317,9 +317,9 @@ const DoctorProfile: React.FC<DoctorProfileProps> = ({ user: propUser }) => {
 
       <div className="card" style={{ marginTop: 20 }}>
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--primary-lightest)', borderRadius: 'var(--radius-lg)' }}>
-          <img src={logo} alt="Meridian Hospital" style={{ width: 36, height: 36, borderRadius: 8 }} />
+          <img src={logo} alt="Hospital" style={{ width: 36, height: 36, borderRadius: 8 }} />
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Meridian Hospital</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>Hospital</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>The Family Hospital · Kolathur, Chennai</div>
           </div>
         </div>

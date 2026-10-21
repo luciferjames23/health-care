@@ -1,7 +1,7 @@
 """
 response_validator.py
 =====================
-Response Validation Layer for Meridian Hospital AI Patient Desk.
+Response Validation Layer for Hospital AI Patient Desk.
 
 Pre-send verification layer that intercepts bot response payloads before WhatsApp dispatch.
 Guarantees operational and clinical safety:

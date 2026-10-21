@@ -71,7 +71,7 @@ def base(scene: int, progress: float, alpha: float) -> Image.Image:
     # Brand/header
     rr(d, (64, 36, 101, 73), 11, fill=(19, 72, 82))
     label(d, (82, 54), "M", 20, TEAL, True, anchor="mm")
-    label(d, (114, 43), "MERIDIAN", 16, TEXT, True)
+    label(d, (114, 43), "HOSPITAL", 16, TEXT, True)
     label(d, (114, 63), "RADIOLOGY AI", 12, MUTED, True)
     rr(d, (1005, 42, 1216, 72), 15, fill=(32, 52, 67), outline=(50, 76, 93))
     label(d, (1110, 57), "ILLUSTRATIVE DEMO", 12, (192, 220, 226), True, anchor="mm")

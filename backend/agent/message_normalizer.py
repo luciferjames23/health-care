@@ -2,7 +2,7 @@
 message_normalizer.py
 =====================
 Unified Intelligent Message Normalizer & Semantic Understanding Engine
-for Meridian Hospital AI Patient Desk.
+for Hospital AI Patient Desk.
 
 Responsibilities:
 1. Normalizes patient input (typed text or voice transcripts) without altering medical facts.

@@ -1,7 +1,7 @@
 services:
   ohif:
     image: ohif/app:v3.10.1
-    container_name: meridian-ohif
+    container_name: hospital-ohif
     volumes:
       - ./app-config.js:/usr/share/nginx/html/app-config.js:ro
     expose:
@@ -9,7 +9,7 @@ services:
 
   gateway:
     image: nginx:alpine
-    container_name: meridian-ohif-gateway
+    container_name: hospital-ohif-gateway
     depends_on:
       - ohif
     ports:

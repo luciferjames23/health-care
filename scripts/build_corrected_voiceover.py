@@ -9,7 +9,7 @@ SEGMENTS = [
     {
         "id": "seg1",
         "start": 0.8,
-        "text": "Welcome to the Meridian Smart Discharge Summary Assistant—an intelligent clinical co-pilot designed to eliminate administrative discharge bottlenecks.",
+        "text": "Welcome to the Hospital Smart Discharge Summary Assistant—an intelligent clinical co-pilot designed to eliminate administrative discharge bottlenecks.",
     },
     {
         "id": "seg2",

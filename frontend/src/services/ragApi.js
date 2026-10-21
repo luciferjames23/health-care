@@ -1,5 +1,5 @@
 // frontend/src/services/ragApi.js
-// Production API Client for Meridian Hospital AI Hybrid RAG Layer
+// Production API Client for Hospital AI Hybrid RAG Layer
 
 const BASE = import.meta.env?.VITE_API_BASE_URL ?? '';
 

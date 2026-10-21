@@ -5,7 +5,7 @@ import re
 
 TRANSLATIONS = {
     "ENGLISH": {
-        "GREETING": "Hello! Welcome to Meridian Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. How can I help you today?",
+        "GREETING": "Hello! Welcome to Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. How can I help you today?",
         "ASK_PATIENT_CODE": "Please provide your registered patient code (e.g. P001).",
         "ASK_DEPT_OR_DOCTOR": "Which department or doctor would you like to consult?",
         "ASK_DATE": "What date would you prefer for the appointment? (e.g., today, tomorrow, next Monday)",
@@ -762,9 +762,9 @@ def translate_response(key: str, language: str = "ENGLISH", **kwargs) -> str:
         return template
 
 # Programmatically append registration workflow translations for all 7 Indian languages
-TRANSLATIONS["ENGLISH"]["GREETING"] = "Hello! Welcome to Meridian Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. Are you an existing patient or visiting us for the first time?"
+TRANSLATIONS["ENGLISH"]["GREETING"] = "Hello! Welcome to Hospital. I am your AI Patient Desk Assistant. I can help you with appointments, doctor availability, appointment cancellation or rescheduling, hospital information, and pre-admission assistance. Are you an existing patient or visiting us for the first time?"
 TRANSLATIONS["ENGLISH"]["EXISTING_PATIENT_PROMPT"] = "Please provide your registered patient code (e.g. P001) or registered phone number so I can retrieve your record."
-TRANSLATIONS["ENGLISH"]["NEW_PATIENT_PROMPT"] = "Welcome to Meridian Hospital. I'll help you get registered. May I have your full name?"
+TRANSLATIONS["ENGLISH"]["NEW_PATIENT_PROMPT"] = "Welcome to Hospital. I'll help you get registered. May I have your full name?"
 TRANSLATIONS["ENGLISH"]["ASK_DOB"] = "Thank you. May I have your date of birth? (YYYY-MM-DD)"
 TRANSLATIONS["ENGLISH"]["ASK_GENDER"] = "May I have your gender? (Male/Female/Other)"
 TRANSLATIONS["ENGLISH"]["ASK_PHONE"] = "May I have your contact phone number?"
@@ -826,7 +826,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 Appointment / Hospital Enquiries:\n044 6666 9910\n\n"
         "📞 Insurance Desk:\n044 6666 9910\n\n"
         "🚨 Emergency:\n044 6666 9999\n\n"
-        "📧 Email:\ninfo@meridian-hospital.com\n\n"
+        "📧 Email:\ninfo@hospital.com\n\n"
         "📍 Address:\n#46D, Jawaharlal Nehru Road,\n200 Feet Ring Road,\nChennai – 600 099\n\n"
         "Our team can help with appointments, hospital information, insurance-related queries and other patient support.\n\n"
         "I am connecting you with a hospital staff member. An agent will be with you shortly."
@@ -838,7 +838,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 அப்பாயிண்ட்மெண்ட் / மருத்துவமனை விசாரணைகள்:\n044 6666 9910\n\n"
         "📞 காப்பீட்டு பிரிவு (Insurance Desk):\n044 6666 9910\n\n"
         "🚨 அவசர சிகிச்சை:\n044 6666 9999\n\n"
-        "📧 மின்னஞ்சல்:\ninfo@meridian-hospital.com\n\n"
+        "📧 மின்னஞ்சல்:\ninfo@hospital.com\n\n"
         "📍 முகவரி:\n#46D, ஜவஹர்லால் நேரு சாலை,\n200 அடி ரிங் ரோடு,\nசென்னை – 600 099\n\n"
         "அப்பாயிண்ட்மெண்ட்கள், மருத்துவமனை தகவல்கள், காப்பீடு தொடர்பான கேள்விகள் மற்றும் பிற நோயாளி ஆதரவிற்கு எங்கள் குழு உதவ முடியும்.\n\n"
         "மருத்துவமனை உதவி குழுவுடன் உங்களை இணைக்கிறேன். ஒரு முகவர் விரைவில் உங்களுடன் பேசுவார்."
@@ -850,7 +850,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 अपॉइंटमेंट / अस्पताल पूछताछ:\n044 6666 9910\n\n"
         "📞 इंश्योरेंस डेस्क:\n044 6666 9910\n\n"
         "🚨 आपातकालीन:\n044 6666 9999\n\n"
-        "📧 ईमेल:\ninfo@meridian-hospital.com\n\n"
+        "📧 ईमेल:\ninfo@hospital.com\n\n"
         "📍 पता:\n#46D, जवाहरलाल नेहरू रोड,\n200 फीट रिंग रोड,\nचेन्नई – 600 099\n\n"
         "हमारी टीम अपॉइंटमेंट, अस्पताल की जानकारी, बीमा संबंधी पूछताछ और अन्य सहायता में मदद कर सकती है।\n\n"
         "मैं आपको अस्पताल के कर्मचारी से जोड़ रहा हूं। एक एजेंट जल्द ही आपके साथ होगा।"
@@ -862,7 +862,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 అపాయింట్‌మెంట్ / హాస్పిటల్ విచారణలు:\n044 6666 9910\n\n"
         "📞 ఇన్సూరెన్స్ డెస్క్:\n044 6666 9910\n\n"
         "🚨 అత్యవసర సేవలు:\n044 6666 9999\n\n"
-        "📧 ఈమెయిల్:\ninfo@meridian-hospital.com\n\n"
+        "📧 ఈమెయిల్:\ninfo@hospital.com\n\n"
         "📍 చిరునామా:\n#46D, జవహర్‌లాల్ నెహ్రూ రోడ్,\n200 ఫీట్ రింగ్ రోడ్,\nచెన్నై – 600 099\n\n"
         "అపాయింట్‌మెంట్‌లు, హాస్పిటల్ సమాచారం, ఇన్సూరెన్స్ వివరాలు మరియు ఇతర సహాయం కొరకు మా బృందం సహాయం చేస్తుంది.\n\n"
         "నేను మిమ్మల్ని హాస్పిటల్ సిబ్బందితో కనెక్ట్ చేస్తున్నాను. ప్రతినిధి త్వరలోనే అందుబాటులోకి వస్తారు."
@@ -874,7 +874,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 അപ്പോയിന്റ്മെന്റ് / ആശുപത്രി അന്വേഷണങ്ങൾ:\n044 6666 9910\n\n"
         "📞 ഇൻഷുറൻസ് ഡെസ്ക്:\n044 6666 9910\n\n"
         "🚨 അടിയന്തര സേവനം:\n044 6666 9999\n\n"
-        "📧 ഇമെയിൽ:\ninfo@meridian-hospital.com\n\n"
+        "📧 ഇമെയിൽ:\ninfo@hospital.com\n\n"
         "📍 മേൽവിലാസം:\n#46D, ജവഹർലാൽ നെഹ്റു റോഡ്,\n200 ഫീറ്റ് റിംഗ് റോഡ്,\nചെന്നൈ – 600 099\n\n"
         "അപ്പോയിന്റ്മെന്റുകൾ, ആശുപത്രി വിവരങ്ങൾ, ഇൻഷുറൻസ് സംശയങ്ങൾ എന്നിവയ്ക്ക് ഞങ്ങളുടെ ടീം സഹായിക്കും.\n\n"
         "ഞാൻ നിങ്ങളെ ആശുപത്രി ജീവനക്കാരുമായി ബന്ധപ്പെടുത്തുന്നു. ഒരു ഏജന്റ് ഉടൻ നിങ്ങളുമായി സംസാരിക്കും."
@@ -886,7 +886,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ / ಆಸ್ಪತ್ರೆ ವಿಚಾರಣೆಗಳು:\n044 6666 9910\n\n"
         "📞 ಇನ್ಶೂರೆನ್ಸ್ ಡೆಸ್ಕ್:\n044 6666 9910\n\n"
         "🚨 ತುರ್ತು ಸೇವೆ:\n044 6666 9999\n\n"
-        "📧 ಇಮೇಲ್:\ninfo@meridian-hospital.com\n\n"
+        "📧 ಇಮೇಲ್:\ninfo@hospital.com\n\n"
         "📍 ವಿಳಾಸ:\n#46D, ಜವಾಹರ್‌ಲಾಲ್ ನೆಹರೂ ರಸ್ತೆ,\n200 ಫೀಟ್ ರಿಂಗ್ ರೋಡ್,\nಚೆನ್ನೈ – 600 099\n\n"
         "ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಳು, ಆಸ್ಪತ್ರೆ ಮಾಹಿತಿ, ಇನ್ಶೂರೆನ್ಸ್ ವಿಚಾರಣೆಗಳು ಮತ್ತು ಇತರ ನೆರವಿಗಾಗಿ ನಮ್ಮ ತಂಡ ಸಹಾಯ ಮಾಡುತ್ತದೆ.\n\n"
         "ನಾನು ನಿಮ್ಮನ್ನು ಆಸ್ಪತ್ರೆಯ ಸಿಬ್ಬಂದಿಯೊಂದಿಗೆ ಸಂಪರ್ಕಿಸುತ್ತಿದ್ದೇನೆ. ಏಜೆಂಟ್ ಶೀಘ್ರದಲ್ಲೇ ನಿಮ್ಮನ್ನು ಸಂಪರ್ಕಿಸುತ್ತಾರೆ."
@@ -898,7 +898,7 @@ TALK_TO_STAFF_CONTACTS = {
         "📞 اپائنٹمنٹ / ہسپتال انکوائری:\n044 6666 9910\n\n"
         "📞 انشورنس ڈیسک:\n044 6666 9910\n\n"
         "🚨 ہنگامی امداد:\n044 6666 9999\n\n"
-        "📧 ای میل:\ninfo@meridian-hospital.com\n\n"
+        "📧 ای میل:\ninfo@hospital.com\n\n"
         "📍 پتہ:\n#46D, جواہر لعل نہرو روڈ,\n200 فٹ رنگ روڈ,\nچنئی – 600 099\n\n"
         "ہماری ٹیم اپائنٹمنٹ، ہسپتال کی معلومات، انشورنس کی معلومات اور دیگر مدد میں تعاون کر سکتی ہے۔\n\n"
         "میں آپ کو ہسپتال کے عملے سے جوڑ رہا ہوں۔ ایک ایجنٹ جلد ہی آپ کے ساتھ ہوگا۔"
@@ -991,7 +991,7 @@ for _b_id, _lang_map in GENDER_BUTTONS.items():
 
 PATIENT_ID_MESSAGES = {
     "PATIENT_IDENTIFICATION_PROMPT": {
-        "ENGLISH": "Welcome to Meridian Hospital.\n\nAre you an existing patient or a first-time visitor?",
+        "ENGLISH": "Welcome to Hospital.\n\nAre you an existing patient or a first-time visitor?",
         "TAMIL": "மெரிடியன் மருத்துவமனைக்கு உங்களை வரவேற்கிறோம்.\n\nநீங்கள் ஏற்கனவே உள்ள நோயாளியா அல்லது முதல் முறை வருகிறீர்களா?",
         "HINDI": "मेरिडियन अस्पताल में आपका स्वागत है।\n\nक्या आप एक मौजूदा मरीज हैं या पहली बार आए हैं?",
         "TELUGU": "మెరిడియన్ హాస్పిటల్‌కు స్వాగతం.\n\nమీరు ప్రస్తుతం ఉన్న పేషెంటా లేదా మొదటిసారి వచ్చినవారా?",
@@ -1027,7 +1027,7 @@ PATIENT_ID_MESSAGES = {
         "URDU": "شکریہ۔ آپ کا مریض کا ریکارڈ مل گیا ہے۔\n\nمریض آئی ڈی: {patient_code}\nنام: {name}\nتاریخ پیدائش: {dob}\nجنس: {gender}\n\nآج میں آپ کی کیا مدد کر سکتا ہوں؟"
     },
     "REGISTRATION_SUCCESS_PROMPT": {
-        "ENGLISH": "Thank you, {name}. Your registration with Meridian Hospital is complete. Patient ID: {patient_code}\n\nHow can I help you today?",
+        "ENGLISH": "Thank you, {name}. Your registration with Hospital is complete. Patient ID: {patient_code}\n\nHow can I help you today?",
         "TAMIL": "நன்றி {name}. மெரிடியன் மருத்துவமனையில் உங்கள் பதிவு நிறைவடைந்தது. நோயாளி ஐடி: {patient_code}\n\nஇன்று உங்களுக்கு நான் எவ்வாறு உதவ வேண்டும்?",
         "HINDI": "धन्यवाद {name}। मेरिडियन अस्पताल में आपका पंजीकरण पूरा हो गया है। रोगी आईडी: {patient_code}\n\nआज मैं आपकी क्या मदद कर सकता हूँ?",
         "TELUGU": "ధన్యవాదాలు {name}. మీ రిజిస్ట్రేషన్ పూర్తయింది. పేషెంట్ ఐడీ: {patient_code}\n\nఈ రోజు మీకు ఎలా సహాయపడాలి?",

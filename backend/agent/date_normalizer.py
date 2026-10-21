@@ -2,7 +2,7 @@
 date_normalizer.py
 ==================
 Date and Date of Birth (DOB) normalization, parsing, ambiguity detection,
-and validation for Meridian Hospital AI Patient Desk.
+and validation for Hospital AI Patient Desk.
 """
 
 import re

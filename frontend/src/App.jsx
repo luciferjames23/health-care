@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from './services/api';
 import { selectAccount } from './services/accountSession';
-import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/meridianData';
+import { ROLE_PAGE_ACCESS, isPageAllowed } from './services/hospitalData';
 import { getPostLoginPage, normalizePageId, getPathForPage } from './services/navigation';
 import AuthScreen from './components/AuthScreen';
 import TopHeader from './components/TopHeader';

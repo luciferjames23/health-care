@@ -327,11 +327,11 @@ class NursingHandoverAgentService:
     ) -> Dict[str, Any]:
         """
         Executes Groq LPU inference using openai/gpt-oss-120b.
-        Grounded in Meridian Medication Safety protocols v4.0 and SBAR clinical framework.
+        Grounded in Hospital Medication Safety protocols v4.0 and SBAR clinical framework.
         """
         dynamic_inst = self._get_dynamic_instructions()
         base_system = dynamic_inst.get("system") or (
-            "You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்).\n"
+            "You are the Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்).\n"
             "You operate with clinical summarisation precision for registered nurses during ward shift changes.\n"
             "Clinical Governance SOPs in effect:\n"
             "- Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics).\n"
@@ -385,7 +385,7 @@ class NursingHandoverAgentService:
                     headers={
                         "Authorization": f"Bearer {self.api_key.strip()}",
                         "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Meridian-Nursing-Agent/1.0"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Hospital-Nursing-Agent/1.0"
                     },
                     method="POST"
                 )
@@ -398,7 +398,7 @@ class NursingHandoverAgentService:
 
         # Deterministic Clinical Protocol Fallback (ensures 100% reliability)
         if not generated_sbar:
-            inference_source = "meridian-clinical-protocol-engine"
+            inference_source = "hospital-clinical-protocol-engine"
             generated_sbar = self._fallback_clinical_sbar(emr_data, pharmacy_data)
 
         # Assemble unified SBAR full text

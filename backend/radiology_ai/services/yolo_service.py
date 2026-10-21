@@ -10,7 +10,7 @@ from ultralytics import YOLO
 
 from radiology_ai.config import YOLO_CHECKPOINT_PATH, LOCALIZATION_THRESHOLD, YOLO_IMG_SIZE
 
-logger = logging.getLogger("meridian.yolo_service")
+logger = logging.getLogger("hospital.yolo_service")
 
 
 class YoloInferenceError(Exception):

@@ -306,8 +306,8 @@ AGENTS = [
         ),
         "llm": (
             "Live appeal letters are assembled from grounded templates keyed by denial code (e.g. 204, 402) plus EMR "
-            "facts — not a free-form LLM inventing clinical history. Agent Studio catalogs a meridian-llm-large slot "
-            "with meridian-llm-small fallback for future/narrative runs. Prefer treating this agent as evidence + "
+            "facts — not a free-form LLM inventing clinical history. Agent Studio catalogs a hospital-llm-large slot "
+            "with hospital-llm-small fallback for future/narrative runs. Prefer treating this agent as evidence + "
             "template drafting with insurance-exec approval. Temperature ~0.20 if the LLM path is used."
         ),
         "tools": "TPA rejection parser, EMR clinical retrieval, Appeal dossier assembler",
@@ -369,7 +369,7 @@ def generate_document():
     TEAL = RGBColor(13, 148, 136)
 
     p = doc.add_paragraph()
-    r = p.add_run("MERIDIAN HEALTHCARE PLATFORM")
+    r = p.add_run("HOSPITAL HEALTHCARE PLATFORM")
     r.bold = True
     r.font.size = Pt(11)
     r.font.color.rgb = TEAL
@@ -418,7 +418,7 @@ def generate_document():
         ("AG-14", "Analytics", "KPI dashboard + NL briefing", "SQL facts + Groq openai/gpt-oss-120b narrative", "Read-only"),
         ("AG-15", "Forecasting", "7-day bed/census board", "Census predictor + Groq openai/gpt-oss-120b overlay", "Supervisor for bed moves"),
         ("AG-07", "Insurance Preauth", "Officer submits TPA dossier", "Groq openai/gpt-oss-120b + preauth-denial v0.9", "Required"),
-        ("AG-20", "Claim Denial", "Officer submits appeal pack", "Template + EMR proof (studio: meridian-llm-large)", "Selective / required submit"),
+        ("AG-20", "Claim Denial", "Officer submits appeal pack", "Template + EMR proof (studio: hospital-llm-large)", "Selective / required submit"),
         ("AG-08", "Billing Transparency", "Cashier shows plain bill", "Groq openai/gpt-oss-120b bilingual", "Optional cashier print"),
     ]
     for i, row in enumerate(summary_rows):
@@ -504,7 +504,7 @@ def generate_document():
     r = p.add_run(
         "Source of truth: backend services (discharge_pipeline, nursing_handover_agent, employee_service_agent, "
         "insurance_preauth_agent, claim_denial_agent, billing_transparency_agent), gold live-analytics / live-forecasting, "
-        "and frontend AgentStudioView model defaults. Product copy may still show meridian-llm-large on older catalog cards; "
+        "and frontend AgentStudioView model defaults. Product copy may still show hospital-llm-large on older catalog cards; "
         "runtime Groq openai/gpt-oss-120b is what the live agents call today unless noted."
     )
     r.font.size = Pt(9)

@@ -43,8 +43,8 @@ def _send_email_raw(to_email: str, subject: str, body_html: str, body_text: str)
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    smtp_from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user or "no-reply@meridianhospital.com").strip()
-    smtp_from_name = os.getenv("SMTP_FROM_NAME", "Meridian Hospital").strip()
+    smtp_from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user or "no-reply@hospital.com").strip()
+    smtp_from_name = os.getenv("SMTP_FROM_NAME", "Hospital").strip()
 
     print(f"\n[EMAIL DISPATCH] To: {to_email} | Subject: {subject} | SMTP User: {smtp_user}")
     
@@ -81,11 +81,11 @@ def send_welcome_email(doctor_email: str, doctor_name: str, username: str, passw
         print("[EMAIL DISPATCH] Doctor email missing. Skipping welcome email.")
         return False
 
-    subject = "Welcome to Meridian Hospital - Doctor Account Created"
+    subject = "Welcome to Hospital - Doctor Account Created"
     
     body_text = f"""Dear {doctor_name},
 
-Welcome to Meridian Hospital! Your doctor portal account has been successfully created.
+Welcome to Hospital! Your doctor portal account has been successfully created.
 
 Here are your login credentials:
 Portal Link: http://localhost:5173/login
@@ -95,14 +95,14 @@ Temporary Password: {password}
 Please log in and update your password under your Profile settings.
 
 Warm regards,
-Meridian Hospital Management Team
+Hospital Management Team
 Kolathur, Chennai
 """
 
     body_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; border-radius: 8px; padding: 24px; color: #2D3748;">
         <div style="text-align: center; border-bottom: 2px solid #2B6CB0; padding-bottom: 16px; margin-bottom: 20px;">
-            <h2 style="color: #2B6CB0; margin: 0;">Meridian Hospital</h2>
+            <h2 style="color: #2B6CB0; margin: 0;">Hospital</h2>
             <p style="color: #718096; margin: 4px 0 0 0; font-size: 14px;">The Family Hospital · Kolathur, Chennai</p>
         </div>
         
@@ -119,7 +119,7 @@ Kolathur, Chennai
         <p style="font-size: 13px; color: #718096; margin-top: 24px;">For security, please change your password after your first login in your Profile section.</p>
         
         <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 24px 0;" />
-        <p style="font-size: 12px; color: #A0AEC0; text-align: center;">This is an automated notification from Meridian Hospital Management System.</p>
+        <p style="font-size: 12px; color: #A0AEC0; text-align: center;">This is an automated notification from Hospital Management System.</p>
     </div>
     """
 
@@ -145,12 +145,12 @@ def send_patient_appointment_confirmation_email(
         print("[EMAIL DISPATCH] Patient email missing. Skipping appointment confirmation email.")
         return False
 
-    subject = "Appointment Confirmation - Meridian Hospital"
+    subject = "Appointment Confirmation - Hospital"
     patient_type_label = f" (for {appointment_for})" if appointment_for and appointment_for.upper() != "SELF" else ""
 
     body_text = f"""Dear {patient_name},
 
-Thank you for choosing Meridian Hospital! Your appointment has been successfully confirmed.
+Thank you for choosing Hospital! Your appointment has been successfully confirmed.
 
 Appointment Details:
 --------------------
@@ -162,24 +162,24 @@ Date: {appointment_date}
 Time: {appointment_time}
 
 Hospital Location:
-Meridian Hospital, Kolathur, Chennai - 600099
+Hospital, Kolathur, Chennai - 600099
 Phone: +91 44 2654 3210
 
 Please arrive 15 minutes before your scheduled appointment time.
 
 Warm regards,
-Meridian Hospital Scheduling Team
+Hospital Scheduling Team
 """
 
     body_html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #E2E8F0; border-radius: 8px; padding: 24px; color: #2D3748;">
         <div style="background-color: #2B6CB0; padding: 16px; border-radius: 6px 6px 0 0; color: white; text-align: center;">
             <h3 style="margin: 0;">Appointment Confirmed</h3>
-            <p style="margin: 4px 0 0 0; font-size: 14px;">Meridian Hospital · Kolathur, Chennai</p>
+            <p style="margin: 4px 0 0 0; font-size: 14px;">Hospital · Kolathur, Chennai</p>
         </div>
         <div style="padding: 20px 0;">
             <p>Dear <strong>{patient_name}</strong>,</p>
-            <p>Your appointment at Meridian Hospital has been confirmed successfully!</p>
+            <p>Your appointment at Hospital has been confirmed successfully!</p>
             
             <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
                 <tr style="background-color: #F7FAFC;">
@@ -211,7 +211,7 @@ Meridian Hospital Scheduling Team
             <p style="font-size: 13px; color: #718096;">Please arrive 15 minutes prior to your appointment time.</p>
         </div>
         <div style="font-size: 12px; color: #A0AEC0; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 12px;">
-            Meridian Hospital · Kolathur, Chennai · Phone: +91 44 2654 3210
+            Hospital · Kolathur, Chennai · Phone: +91 44 2654 3210
         </div>
     </div>
     """
@@ -255,7 +255,7 @@ Department: {department_name}
 Please check your Doctor Dashboard for more details.
 
 Warm regards,
-Meridian Hospital Scheduling System
+Hospital Scheduling System
 """
 
     body_html = f"""
@@ -265,7 +265,7 @@ Meridian Hospital Scheduling System
         </div>
         <div style="padding: 20px 0;">
             <p>Dear <strong>{doctor_name}</strong>,</p>
-            <p>A new appointment has been booked for you at Meridian Hospital.</p>
+            <p>A new appointment has been booked for you at Hospital.</p>
             
             <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
                 <tr style="background-color: #F7FAFC;">
@@ -297,7 +297,7 @@ Meridian Hospital Scheduling System
             <p>You can manage your appointments on your <a href="http://localhost:5173/doctor/appointments" style="color: #2B6CB0; font-weight: bold;">Doctor Portal</a>.</p>
         </div>
         <div style="font-size: 12px; color: #A0AEC0; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 12px;">
-            Meridian Hospital · Kolathur, Chennai
+            Hospital · Kolathur, Chennai
         </div>
     </div>
     """
@@ -310,7 +310,7 @@ def send_otp_email(doctor_email: str, doctor_name: str, otp_code: str) -> bool:
         print("[EMAIL DISPATCH] Doctor email missing. Skipping OTP email.")
         return False
 
-    subject = "Password Reset OTP — Meridian Hospital Doctor Portal"
+    subject = "Password Reset OTP — Hospital Doctor Portal"
     
     body_text = f"""Dear {doctor_name},
 
@@ -319,7 +319,7 @@ Your OTP code to reset your password is: {otp_code}
 This code is valid for 10 minutes. Do not share this OTP with anyone.
 
 Regards,
-Meridian Hospital Security Team
+Hospital Security Team
 """
 
     body_html = f"""

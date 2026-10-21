@@ -48,7 +48,7 @@ const ReportsPage: React.FC = () => {
     <div>
       <div className="page-header">
         <h2>Hospital Reports</h2>
-        <p>Analytics and reporting for Meridian Hospital operations</p>
+        <p>Analytics and reporting for Hospital operations</p>
         <span className="demo-badge">⚠️ DEMO DATA — Fictional Reports</span>
       </div>
 

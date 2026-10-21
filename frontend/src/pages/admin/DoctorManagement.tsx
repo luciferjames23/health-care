@@ -552,7 +552,7 @@ const DoctorManagement: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email (for Welcome Email) <span style={{ color: '#E53E3E' }}>*</span></label>
-                    <input type="email" style={inputStyle(!!formErrors.email)} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="doctor@meridian.com" />
+                    <input type="email" style={inputStyle(!!formErrors.email)} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="doctor@hospital.com" />
                     {formErrors.email && <span style={{ fontSize: 11, color: '#E53E3E' }}>{formErrors.email}</span>}
                   </div>
                 </div>

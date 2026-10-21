@@ -52,7 +52,7 @@ MAX_RETRY_ATTEMPTS = 3
 QUEUE_MESSAGES = {
     "ENGLISH": {
         "TOKEN_ASSIGNED": (
-            "🏥 *Meridian Hospital*\n\n"
+            "🏥 *Hospital*\n\n"
             "Hello {patient_name},\n\n"
             "You have been checked in successfully.\n\n"
             "🎫 Token: *#{token_number}*\n"
@@ -131,7 +131,7 @@ QUEUE_MESSAGES = {
             "We regret to inform you that today's consultation queue with {doctor_name} "
             "has been cancelled.\n\n"
             "🎫 Token: *#{token_number}*\n\n"
-            "Please contact Meridian Hospital reception to reschedule your appointment. "
+            "Please contact Hospital reception to reschedule your appointment. "
             "We apologize for the inconvenience."
         ),
     },

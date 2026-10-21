@@ -218,7 +218,7 @@ async def voice_session_stream(websocket: WebSocket, call_id: Optional[str] = No
                             reply_text = (
                                 "மெரிடியன் மருத்துவமனை உங்கள் சேவைக்கு எப்போதும் தயாராக உள்ளது. வேறு ஏதேனும் தகவல் தேவையா?"
                                 if "ta" in session.language.lower() else
-                                "Meridian Hospital is pleased to assist you. Is there anything else you need?"
+                                "Hospital is pleased to assist you. Is there anything else you need?"
                             )
 
                         session.add_transcript("agent", reply_text)

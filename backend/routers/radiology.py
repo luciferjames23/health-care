@@ -48,7 +48,7 @@ from radiology_ai.schemas.inference import (
     ReviewStatusRequest,
 )
 
-logger = logging.getLogger("meridian.radiology.integration")
+logger = logging.getLogger("hospital.radiology.integration")
 
 # Keep persisted read APIs importable when the optional model runtime is not
 # installed. Only inference and model startup need torch/torchvision/ultralytics.
@@ -88,7 +88,7 @@ def initialize_radiology() -> None:
     if _MODEL_DEPENDENCIES_ERROR is not None:
         logger.info("Radiology model initialization skipped because optional inference dependencies are unavailable: %s", _MODEL_DEPENDENCIES_ERROR)
         return
-    logger.info("Starting integrated Meridian Radiology AI backend. Device: %s", _state["device"])
+    logger.info("Starting integrated Hospital Radiology AI backend. Device: %s", _state["device"])
     try:
         _state["densenet_model"] = load_densenet_model(device=_state["device"])
         logger.info("DenseNet121 model loaded successfully.")

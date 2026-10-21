@@ -31,7 +31,7 @@ const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? '';
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
-      const saved = sessionStorage.getItem('meridian_user') || sessionStorage.getItem('hx_auth');
+      const saved = sessionStorage.getItem('hospital_user') || sessionStorage.getItem('hx_auth');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -41,17 +41,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   React.useEffect(() => {
     const syncUser = () => {
       try {
-        const saved = sessionStorage.getItem('meridian_user') || sessionStorage.getItem('hx_auth');
+        const saved = sessionStorage.getItem('hospital_user') || sessionStorage.getItem('hx_auth');
         setUser(saved ? JSON.parse(saved) : null);
       } catch {
         setUser(null);
       }
     };
     window.addEventListener('storage', syncUser);
-    window.addEventListener('meridian_user_changed', syncUser);
+    window.addEventListener('hospital_user_changed', syncUser);
     return () => {
       window.removeEventListener('storage', syncUser);
-      window.removeEventListener('meridian_user_changed', syncUser);
+      window.removeEventListener('hospital_user_changed', syncUser);
     };
   }, []);
 
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           token: data.token,
         };
         setUser(authUser);
-        sessionStorage.setItem('meridian_user', JSON.stringify(authUser));
+        sessionStorage.setItem('hospital_user', JSON.stringify(authUser));
         return { success: true };
       }
 
@@ -90,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     setUser(null);
-    sessionStorage.removeItem('meridian_user');
+    sessionStorage.removeItem('hospital_user');
   }, []);
 
   return (

@@ -460,7 +460,7 @@ class EmployeeServiceAgentService:
         tomorrow = today + datetime.timedelta(days=1)
         dynamic_inst = self._get_dynamic_instructions()
         base_system = dynamic_inst.get("system") or (
-            "You are the Hospital Employee Service Agent AI (AG-04) for Meridian Hospital. "
+            "You are the Hospital Employee Service Agent AI (AG-04) for Hospital. "
             "Your task is to understand staff requests regarding shift rosters, leave applications, comp-offs, and HR policy."
         )
         rules = dynamic_inst.get("rules", "Present duty shifts clearly, support bilingual responses, and log all actions.")

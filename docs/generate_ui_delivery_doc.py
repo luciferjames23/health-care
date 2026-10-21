@@ -48,7 +48,7 @@ def generate_document():
     p_title = doc.add_paragraph()
     p_title.paragraph_format.space_before = Pt(0)
     p_title.paragraph_format.space_after = Pt(2)
-    r_t1 = p_title.add_run("MERIDIAN HEALTHCARE PLATFORM · USER INTERFACE & DELIVERY GUIDE\n")
+    r_t1 = p_title.add_run("HOSPITAL HEALTHCARE PLATFORM · USER INTERFACE & DELIVERY GUIDE\n")
     r_t1.font.bold = True
     r_t1.font.size = Pt(16.0)
     r_t1.font.color.rgb = NAVY

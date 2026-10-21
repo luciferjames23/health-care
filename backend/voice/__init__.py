@@ -1,1 +1,1 @@
-# Voice module package marker for Meridian Hospital RAG + Voice Desk
+# Voice module package marker for Hospital RAG + Voice Desk

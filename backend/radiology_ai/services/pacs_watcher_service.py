@@ -19,7 +19,7 @@ from typing import Callable, Optional
 
 from radiology_ai.services.orthanc_service import get_studies, OrthancError
 
-logger = logging.getLogger("meridian.pacs_watcher")
+logger = logging.getLogger("hospital.pacs_watcher")
 
 _lock = threading.Lock()
 _states: dict[str, dict] = {}
@@ -181,7 +181,7 @@ def start_watcher(analyze_study: Callable[[str, str], None], interval_seconds: i
 
         logger.info("Demo PACS auto-analysis watcher stopped")
 
-    _thread = threading.Thread(target=_run, name="meridian-pacs-watcher", daemon=True)
+    _thread = threading.Thread(target=_run, name="hospital-pacs-watcher", daemon=True)
     _thread.start()
 
 

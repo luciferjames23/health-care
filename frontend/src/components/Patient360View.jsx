@@ -5568,7 +5568,7 @@ export default function Patient360View({
               }}
             >
               <div style={{ fontSize: '11px', color: '#64748b' }}>
-                Powered by Meridian Clinical Imaging Intelligence
+                Powered by Hospital Clinical Imaging Intelligence
               </div>
 
               <div style={{ display: 'flex', gap: '10px' }}>

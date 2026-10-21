@@ -1,7 +1,7 @@
 """
 feedback_agent.py
 =================
-Feedback Agent (AG-05) for Meridian Hospital AI Patient Desk.
+Feedback Agent (AG-05) for Hospital AI Patient Desk.
 
 Provides production-grade semantic feedback understanding, sentiment classification,
 category & issue extraction, patient identity verification, rating handling,
@@ -129,7 +129,7 @@ def analyze_patient_feedback(
 
     # 2. Try LLM semantic understanding first
     system_prompt = (
-        "You are an expert healthcare patient experience agent for Meridian Hospital.\n"
+        "You are an expert healthcare patient experience agent for Hospital.\n"
         "Analyze the patient feedback carefully. Feedback may be in English, Tamil, Hindi, Tanglish, or other languages.\n"
         "Do NOT perform simple keyword matching. Understand the semantic meaning, spelling errors, and mixed languages.\n\n"
         "You MUST return ONLY a JSON object with this exact structure:\n"

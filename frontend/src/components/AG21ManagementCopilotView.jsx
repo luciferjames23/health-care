@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiService } from '../services/api';
-import { isPageAllowed } from '../services/meridianData';
+import { isPageAllowed } from '../services/hospitalData';
 import DetailDrawer from './DetailDrawer';
 import './AG21ManagementCopilotView.css';
 

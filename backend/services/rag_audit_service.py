@@ -1,7 +1,7 @@
 """
 rag_audit_service.py
 ====================
-Audit logging and compliance service for Meridian Hospital AI Hybrid RAG.
+Audit logging and compliance service for Hospital AI Hybrid RAG.
 
 Records every user query, correlation request ID, retrieval strategy,
 retrieved source IDs, and failure reasons into `rag_query_audit`.

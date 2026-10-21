@@ -110,7 +110,7 @@ def build_document(output_path):
         footer = section.footer
         fp = footer.paragraphs[0]
         fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        frun = fp.add_run("Meridian Hospital Enterprise AI Platform · Case Study: Autonomous Discharge Summary Agent")
+        frun = fp.add_run("Hospital Enterprise AI Platform · Case Study: Autonomous Discharge Summary Agent")
         frun.font.name = 'Calibri'
         frun.font.size = Pt(8.5)
         frun.font.color.rgb = RGBColor(148, 163, 184)
@@ -241,7 +241,7 @@ def build_document(output_path):
     # -------------------------------------------------------------
     # DOCUMENT COVER / HEADER
     # -------------------------------------------------------------
-    add_title("MERIDIAN HEALTHCARE PLATFORM · AGENTIC AI ARCHITECTURE")
+    add_title("HOSPITAL HEALTHCARE PLATFORM · AGENTIC AI ARCHITECTURE")
     
     p_main = doc.add_paragraph()
     p_main.paragraph_format.space_before = Pt(2)
@@ -546,7 +546,7 @@ def build_document(output_path):
     # -------------------------------------------------------------
     # SECTION 4: STRATEGIC & OPERATIONAL BENEFITS
     # -------------------------------------------------------------
-    add_h1("4. Strategic & Operational Benefits for Meridian Hospital")
+    add_h1("4. Strategic & Operational Benefits for Hospital")
     add_p(
         "By grounding the AI agent architecture in Graph, Harness, Context, and Loop Engineering rather than ad-hoc prompting, "
         "the hospital achieves substantial measurable operational gains:"
@@ -581,7 +581,7 @@ def build_document(output_path):
     add_callout(
         doc,
         "Conclusion: The combination of Graph, Harness, Context, and Loop Engineering elevates generative AI from an experimental "
-        "chatbot to an enterprise-grade medical autonomous system. In the Meridian Hospital platform, this architecture ensures "
+        "chatbot to an enterprise-grade medical autonomous system. In the Hospital platform, this architecture ensures "
         "uncompromising clinical safety, strict financial governance, rapid bed turnaround, and seamless doctor empowerment.",
         title="ARCHITECTURAL VERDICT"
     )

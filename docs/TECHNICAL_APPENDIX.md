@@ -1,11 +1,11 @@
-# MERIDIAN HOSPITAL — AI PATIENT DESK & WHATSAPP CONVERSATIONAL AI
+# HOSPITAL — AI PATIENT DESK & WHATSAPP CONVERSATIONAL AI
 ## Technical Appendix & System Specification
 
 ---
 
 > **TECHNICAL GOVERNANCE & ARCHITECTURE REFERENCE**  
 > **Target Audience:** Chief Information Officer (CIO), Chief Technology Officer (CTO), Lead Engineers, IT Systems Administrators, & Security Auditors  
-> **System Name:** Meridian AI Patient Desk (WhatsApp Conversational AI Engine)  
+> **System Name:** Hospital AI Patient Desk (WhatsApp Conversational AI Engine)  
 > **Document Version:** 2.1.0  
 
 ---
@@ -315,7 +315,7 @@ POSTGRES_PORT=5432
 # Meta WhatsApp Cloud API Config
 META_WHATSAPP_TOKEN=******
 META_WHATSAPP_PHONE_NUMBER_ID=******
-META_WHATSAPP_VERIFY_TOKEN=meridian_hospital_token
+META_WHATSAPP_VERIFY_TOKEN=hospital_token
 META_APP_SECRET=******
 
 # LLM Provider Credentials
@@ -329,11 +329,11 @@ AZURE_OPENAI_ENDPOINT=******
 
 | Technical Subsystem | Current Implementation | Production Gap / Requirement |
 | :--- | :--- | :--- |
-| **Data Layer** | Seeded PostgreSQL DB (`seed_pg_data.py`) | Connect to real Meridian HIS/EMR database |
+| **Data Layer** | Seeded PostgreSQL DB (`seed_pg_data.py`) | Connect to real Hospital HIS/EMR database |
 | **WhatsApp Channel** | Meta Cloud Sandbox API & iOS Simulator | Register production WABA & verified business phone |
 | **Authentication** | Basic Session Tokens | OAuth2 / OpenID Connect with Hospital SSO |
 | **LLM Inference** | API Keys & Fallback Engine | Enterprise LLM Endpoint with low latency SLA |
 | **Voice Engine** | Lightweight STT/TTS Drivers | Cloud Speech Services (Azure Speech / GCP Speech-to-Text) |
 
 ---
-*End of Technical Appendix — Meridian Hospital IT Architecture Reference*
+*End of Technical Appendix — Hospital IT Architecture Reference*

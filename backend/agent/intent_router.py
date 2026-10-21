@@ -1,7 +1,7 @@
 """
 intent_router.py
 ================
-Patient Intent Router Agent for Meridian Hospital AI Patient Desk.
+Patient Intent Router Agent for Hospital AI Patient Desk.
 
 Architecture (updated — LLM-first):
   WhatsApp Webhook / Input Message

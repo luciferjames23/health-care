@@ -474,7 +474,7 @@ function Analysis({ detail, busy, onBack, onOhif, onFinalise, reviewerName, onSe
             <InfoRow label="Equipment / Facility" value={`${detail.metadata?.manufacturer || 'GE Healthcare'} ${detail.metadata?.manufacturer_model_name || 'Discovery XR656 Plus'}`} />
             <InfoRow label="Acquisition Parameters" value={`${detail.metadata?.kvp ? (String(detail.metadata.kvp).includes('kV') ? detail.metadata.kvp : `${detail.metadata.kvp} kVp`) : '120 kVp'} · ${detail.metadata?.exposure ? (String(detail.metadata.exposure).includes('mAs') ? detail.metadata.exposure : `${detail.metadata.exposure} mAs`) : '3.2 mAs'} · ${detail.metadata?.station_name || 'XR-ROOM-01'}`} />
             <InfoRow label="Image Matrix" value={`${detail.metadata?.columns || 1024} × ${detail.metadata?.rows || 1024} px · ${detail.metadata?.photometric_interpretation || 'MONOCHROME2'}`} />
-            <InfoRow label="Institution" value={`${detail.metadata?.institution_name || 'Meridian Health System'} · ${detail.metadata?.institutional_department_name || 'Department of Radiology'}`} />
+            <InfoRow label="Institution" value={`${detail.metadata?.institution_name || 'Hospital Health System'} · ${detail.metadata?.institutional_department_name || 'Department of Radiology'}`} />
           </div>
         </Card>
 

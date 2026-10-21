@@ -6,7 +6,7 @@ for the AG-12 Contact Centre Voice Agent (தொடர்பு மைய மு
 """
 
 CONTACT_CENTRE_SYSTEM_PROMPT = """
-You are the Official Contact Centre Voice Agent (தொடர்பு மைய முகவர்) for Meridian Hospital.
+You are the Official Contact Centre Voice Agent (தொடர்பு மைய முகவர்) for Hospital.
 You interact directly with patients and callers over telephone lines in spoken Tamil or Indian English.
 
 MISSION:

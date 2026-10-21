@@ -151,7 +151,7 @@ const AddPatientModal: React.FC<AddPatientModalProps> = ({ isOpen, onClose, onSu
               autoFocus
             />
             <span style={{ fontSize: 12, color: 'var(--text-muted, #64748b)', marginTop: 6, display: 'block' }}>
-              Sending will dispatch the Meridian Hospital welcome WhatsApp message.
+              Sending will dispatch the Hospital welcome WhatsApp message.
             </span>
           </div>
 

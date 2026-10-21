@@ -1164,7 +1164,7 @@ class BillingTransparencyAgentService:
 
         dynamic_inst = self._get_dynamic_instructions()
         base_system = dynamic_inst.get("system") or (
-            "You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Meridian Super Speciality Hospital.\n"
+            "You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Hospital.\n"
             "Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into "
             "crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்).\n"
             "The explanation must be so clear that a hospital cashier can read it to the patient's family in 15 seconds, "
@@ -1231,7 +1231,7 @@ CRITICAL REQUIREMENT: The amounts of key_drivers items MUST explain the +₹{dif
                     headers={
                         "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",
-                        "User-Agent": "Meridian-Hospital-AG08/2.1"
+                        "User-Agent": "Hospital-AG08/2.1"
                     }
                 )
                 with urllib.request.urlopen(req, timeout=12) as response:

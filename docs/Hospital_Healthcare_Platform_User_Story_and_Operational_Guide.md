@@ -1,4 +1,4 @@
-# Meridian Healthcare Platform: End-to-End Operational Guide & User Stories
+# Hospital Healthcare Platform: End-to-End Operational Guide & User Stories
 
 **A Plain-Language Executive Guide to System Workflows, AI Models, Clinical Accuracy, and Everyday User Experiences**
 
@@ -6,7 +6,7 @@
 
 ## 1. Executive Purpose & Vision
 
-The **Meridian Healthcare Platform** is an intelligent, integrated hospital operating system designed to eliminate the two biggest challenges in modern healthcare:
+The **Hospital Healthcare Platform** is an intelligent, integrated hospital operating system designed to eliminate the two biggest challenges in modern healthcare:
 1. **Administrative burnout among doctors and nurses** caused by repetitive paperwork, handover notes, and complex discharge documentation.
 2. **Patient delays and fragmented communication** during appointment booking, admission, ward stay, shift handovers, and final hospital discharge.
 
@@ -97,7 +97,7 @@ The platform does not rely on a single generic AI. Instead, it utilizes speciali
 
 ## 5. Model Accuracy, Safety Guardrails & Verification
 
-In healthcare, "hallucinations" or AI inaccuracies are unacceptable. The Meridian platform is engineered around strict **clinical safety principles**:
+In healthcare, "hallucinations" or AI inaccuracies are unacceptable. The Hospital platform is engineered around strict **clinical safety principles**:
 
 ### 1. Concrete Accuracy & Performance Benchmarks
 * **94.8% Clinical Accuracy:** Evaluated against verified clinical templates and approved hospital discharge standards.
@@ -121,7 +121,7 @@ In healthcare, "hallucinations" or AI inaccuracies are unacceptable. The Meridia
 ## 6. A Day in the Life: Real User Stories
 
 ### Story 1: The Patient (Sarah, 38 years old)
-> *"I felt sick with a persistent migraine on a Sunday evening. Instead of waiting until Monday morning to call the hospital helpline, I sent a WhatsApp message to Meridian Hospital. Within 30 seconds, the assistant asked my preferred time, verified my existing file number, and booked an appointment with Dr. Ramesh for 10:30 AM Monday. I got an immediate calendar invite and a parking guide right on WhatsApp."*
+> *"I felt sick with a persistent migraine on a Sunday evening. Instead of waiting until Monday morning to call the hospital helpline, I sent a WhatsApp message to Hospital. Within 30 seconds, the assistant asked my preferred time, verified my existing file number, and booked an appointment with Dr. Ramesh for 10:30 AM Monday. I got an immediate calendar invite and a parking guide right on WhatsApp."*
 
 ### Story 2: The Outpatient Receptionist (Priya)
 > *"On busy mornings, my desk used to have long queues of patients trying to check in or ask when their doctor would arrive. Now, 70% of routine appointment bookings and schedule inquiries happen automatically through the AI Patient Desk. My screen shows who has arrived, who is pre-registered, and which examination rooms are ready. I can focus on helping elderly patients and emergencies."*
@@ -139,7 +139,7 @@ In healthcare, "hallucinations" or AI inaccuracies are unacceptable. The Meridia
 
 ## 7. Summary of Business & Clinical Benefits
 
-| Area | Traditional Hospital | Meridian Integrated Platform |
+| Area | Traditional Hospital | Hospital Integrated Platform |
 | :--- | :--- | :--- |
 | **Discharge Processing Time** | 4 to 6 hours of waiting and paperwork | **Under 90 minutes** with coordinated milestones |
 | **Discharge Summary Documentation** | 30–45 mins per patient of manual typing | **Under 2 minutes** of doctor review and sign-off |
@@ -150,5 +150,5 @@ In healthcare, "hallucinations" or AI inaccuracies are unacceptable. The Meridia
 
 ---
 *Document Version: 1.0 (Operational & Executive Edition)*  
-*Platform: Meridian Healthcare Integrated Clinical & AI Suite*  
+*Platform: Hospital Healthcare Integrated Clinical & AI Suite*  
 *Prepared for: Executive Leadership, Clinical Governance, and Administrative Teams*

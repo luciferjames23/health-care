@@ -1,7 +1,7 @@
 """
 whatsapp_routes.py
 ==================
-Meta WhatsApp Cloud API Webhook routing for Meridian Hospital.
+Meta WhatsApp Cloud API Webhook routing for Hospital.
 
 GET /api/whatsapp/webhook: Webhook verification challenge
 POST /api/whatsapp/webhook: Webhook message delivery (text & voice)
@@ -58,7 +58,7 @@ _idempotency_table_created = False
 router = APIRouter(prefix="/api/whatsapp", tags=["WhatsApp Webhook"])
 
 
-VERIFY_TOKEN = os.getenv("META_WHATSAPP_VERIFY_TOKEN", os.getenv("WHATSAPP_VERIFY_TOKEN", "meridian_hospital_token"))
+VERIFY_TOKEN = os.getenv("META_WHATSAPP_VERIFY_TOKEN", os.getenv("WHATSAPP_VERIFY_TOKEN", "hospital_token"))
 META_APP_SECRET = os.getenv("META_APP_SECRET")
 
 
@@ -416,7 +416,7 @@ def process_and_send_reply(session_code: str, sender_num: str, message_id: str, 
             agent_res.get("has_welcome_image") is True or
             agent_res.get("intent") in ["GREETING", "WELCOME"] or
             "welcome back" in agent_res.get("response", "").lower() or
-            "welcome to meridian" in agent_res.get("response", "").lower()
+            "welcome to hospital" in agent_res.get("response", "").lower()
         )
         if is_welcome:
             welcome_img_path = os.path.join(backend_dir, "static", "welcome_banner.jpg")
@@ -648,9 +648,9 @@ def verify_webhook(
 ):
     """
     Handle Meta webhook verification challenge.
-    GET /api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=1158201444&hub.verify_token=meridian_hospital_token
+    GET /api/whatsapp/webhook?hub.mode=subscribe&hub.challenge=1158201444&hub.verify_token=hospital_token
     """
-    verify_token = os.getenv("META_WHATSAPP_VERIFY_TOKEN", os.getenv("WHATSAPP_VERIFY_TOKEN", "meridian_hospital_token"))
+    verify_token = os.getenv("META_WHATSAPP_VERIFY_TOKEN", os.getenv("WHATSAPP_VERIFY_TOKEN", "hospital_token"))
     if hub_mode == "subscribe" and hub_verify_token == verify_token:
         return Response(content=hub_challenge, media_type="text/plain")
         

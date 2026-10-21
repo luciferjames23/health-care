@@ -58,10 +58,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹14 / run'
     },
@@ -122,10 +122,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹12 / run'
     },
@@ -185,10 +185,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹15 / run'
     },
@@ -250,10 +250,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 1.5 s p50',
       cost: '₹4 / run'
     },
@@ -311,10 +311,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹18 / run'
     },
@@ -373,10 +373,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹8 / run'
     },
@@ -473,7 +473,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Assist Billing Desk & Cashier with automated plain-language English & Tamil breakdown of variance items under human oversight.',
     instructions: {
       objective: 'Translate complex surgical consumable charges, billing variances (>10%), and itemized tariffs into crystal-clear plain English & Tamil explanations grounded in doctor OT notes.',
-      system: 'You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Meridian Super Speciality Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient\'s family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.',
+      system: 'You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient\'s family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.',
       rules: 'Provide bilingual explanations in English and natural spoken Tamil (தமிழ்). Cite verbatim clinical quotes from doctor intra-operative notes. Itemize top variance drivers with amounts and layman-friendly rationale. Strict valid JSON format.',
       safety: 'Never alter hospital audited tariffs autonomously. Do not promise discounts without Medical Superintendent / Cashier sign-off. Ensure zero phantom consumable billing.',
       escalation: 'Escalate variance > 50% or billing disputes without EMR intra-op justification to Chief Financial Officer and Senior Billing Auditor.',
@@ -508,7 +508,7 @@ export const ALL_21_AGENTS = [
       model: 'openai/gpt-oss-120b',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 1.5 s p50',
       cost: '₹18 / run'
     },
@@ -571,10 +571,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹38 / run'
     },
@@ -635,10 +635,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹16 / run'
     },
@@ -698,10 +698,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹14 / run'
     },
@@ -761,10 +761,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹22 / run'
     },
@@ -824,10 +824,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹10 / run'
     },
@@ -857,7 +857,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Assist Management with analytics tasks under human oversight.',
     instructions: {
       objective: 'Synthesize enterprise hospital performance metrics, bed occupancy trends, revenue cycle velocity, and clinical quality KPIs into real-time executive briefings.',
-      system: 'You are the Meridian Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).',
+      system: 'You are the Hospital Analytics Agent (AG-14 · மேம்பட்ட பகுப்பாய்வு முகவர்). Your role is to synthesize enterprise hospital performance data from PostgreSQL and Gold Lakehouse tables (daily census, ward bed occupancy, ALOS, revenue cycle turnaround times, OPD doctor footfall, and clinical safety incident rates). Generate executive-grade daily briefings, identify operational bottlenecks, and formulate actionable management recommendations in English and Tamil (தமிழ்).',
       rules: 'Provide quantitative metrics with percentage trends and benchmark targets. Support dual-language English & Tamil executive summaries. Highlight operational variances exceeding +/- 10%. Include department-level drilldowns.',
       safety: 'Strictly read-only access to operational, financial, and anonymized clinical analytics. Mask patient PHI in management summaries. Never alter source transaction logs or bill records.',
       escalation: 'Escalate critical KPI breaches (e.g., Bed Occupancy > 92%, ER Wait Times > 90 mins, Claim Denial Rate > 8%) to Medical Director and Chief Operating Officer immediately.',
@@ -887,10 +887,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹34 / run'
     },
@@ -920,7 +920,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Assist Operations with forecasting tasks under human oversight.',
     instructions: {
       objective: 'Forecast 7-day inpatient bed demand, emergency inflow surges, and ward-specific capacity bottlenecks to optimize hospital admission flow and staffing.',
-      system: 'You are the Meridian Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.',
+      system: 'You are the Hospital Forecasting Agent (AG-15 · கணிப்பு முகவர்). Your role is to compute 7-day rolling inpatient census projections, predictive emergency/elective bed demand forecasts, and ward unit occupancy trends using PostgreSQL Gold tables (fact_bed_demand_forecast_7day_detailed) and historical admission patterns. Provide early warning alerts for impending ICU/HDU bed shortages and recommend proactive patient transfers and staffing reallocations.',
       rules: 'Generate 7-day rolling horizon projections categorized by ward (Cardiology, ICU, General, Maternity, Pediatric). Provide predicted occupancy percentages and confidence intervals. Flag predicted surge dates.',
       safety: 'Forecast models serve as decision support only. Do not autonomously reject emergency admissions or alter bed allocation without Bed Manager / Triage Physician approval.',
       escalation: 'Trigger High-Alert Surge Notification to Hospital Incident Commander and Ward Nursing Lead when forecasted bed occupancy exceeds 90% within 48 hours.',
@@ -948,10 +948,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹28 / run'
     },
@@ -1009,10 +1009,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹45 / run'
     },
@@ -1071,10 +1071,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹20 / run'
     },
@@ -1104,7 +1104,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Pre-drafts structured bedside SBAR shift handover cards from live EMR vitals and eMAR high-alert drug registries.',
     instructions: {
       objective: 'Synthesize shift EMR data, bedside vitals, and MAR charts into structured SBAR (Situation, Background, Assessment, Recommendation) clinical handovers for ward nurses.',
-      system: 'You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.',
+      system: 'You are the Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.',
       rules: 'Strict adherence to 4-part SBAR format. Highlight high-alert medications (Insulin, Heparin, Narcotics) with dual-sign-off warnings. Flag pending lab orders with critical timeline triggers. Output valid structured JSON.',
       safety: 'Never omit known allergies or abnormal Early Warning Scores (EWS). Require registered nurse sign-off before committing handover to EHR. Refuse alteration of doctor prescription orders.',
       escalation: 'Trigger immediate red-flag alert to Ward Nursing Supervisor and On-Call Medical Officer for deteriorating vitals (EWS >= 5 or SpO2 < 92%).',
@@ -1237,7 +1237,7 @@ export const ALL_21_AGENTS = [
     purpose: 'Analyze insurance claim denials, extract denial reason codes (CO-50, CO-45, CO-97), synthesize clinical evidence from EMR, and draft bilingual rebuttal appeal dossiers under Insurance Desk oversight.',
     instructions: {
       objective: 'Detect insurance claim shortfalls, extract clinical EMR evidence, classify denial reasons under IRDAI/ICD-10 standards, and generate legally rigorous reconsideration appeal dossiers.',
-      system: 'You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Meridian Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.',
+      system: 'You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.',
       rules: 'Cite statutory IRDAI Master Circular clauses, policy terms, and NABH guidelines. Include itemized rejected line-item rebuttals. Generate bilingual summaries for hospital leadership and patients.',
       safety: 'Strictly prohibit fabrication of non-existent medical notes. Re-submission is strictly gated and blocked if required clinical evidence or doctor certifications are missing.',
       escalation: 'Escalate full claim rejections > ₹50,000 or contentious policy exclusions to Revenue Cycle Lead (R. Sundar) and TPA Liaison (L. Fathima).',
@@ -1267,10 +1267,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹26 / run'
     },
@@ -1331,10 +1331,10 @@ export const ALL_21_AGENTS = [
       env: 'Production'
     },
     model: {
-      model: 'meridian-llm-large',
+      model: 'hospital-llm-large',
       temperature: 0.2,
       tokens: 8000,
-      fallback: 'meridian-llm-small',
+      fallback: 'hospital-llm-small',
       latency: '< 3 s p50',
       cost: '₹30 / run'
     },
@@ -1505,9 +1505,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   };
 
   const DEFAULT_APPOINTMENT_MODEL_CONFIG = {
-    primaryModel: 'meridian-llm-large',
-    llmProvider: 'Meridian Inference Engine',
-    fallbackModel: 'meridian-llm-small',
+    primaryModel: 'hospital-llm-large',
+    llmProvider: 'Hospital Inference Engine',
+    fallbackModel: 'hospital-llm-small',
     temperature: 0.20,
     tokenLimit: '8,000 tokens (Max context: 128k)',
     latencyTarget: '< 3 s p50',
@@ -1516,9 +1516,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   };
 
   const DEFAULT_PATIENT_ACCESS_MODEL_CONFIG = {
-    primaryModel: 'meridian-llm-large',
-    llmProvider: 'Meridian Inference Engine',
-    fallbackModel: 'meridian-llm-small',
+    primaryModel: 'hospital-llm-large',
+    llmProvider: 'Hospital Inference Engine',
+    fallbackModel: 'hospital-llm-small',
     temperature: 0.20,
     tokenLimit: '8,000 tokens (Max context: 128k)',
     latencyTarget: '< 3 s p50',
@@ -1527,9 +1527,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   };
 
   const DEFAULT_PREREGISTRATION_MODEL_CONFIG = {
-    primaryModel: 'meridian-llm-large',
-    llmProvider: 'Meridian Inference Engine',
-    fallbackModel: 'meridian-llm-small',
+    primaryModel: 'hospital-llm-large',
+    llmProvider: 'Hospital Inference Engine',
+    fallbackModel: 'hospital-llm-small',
     temperature: 0.20,
     tokenLimit: '8,000 tokens (Max context: 128k)',
     latencyTarget: '< 3 s p50',
@@ -1540,9 +1540,9 @@ export default function AgentStudioView({ onNavigate, onOpenModal, initialAgentI
   // Default model config for Feedback Agent (AG-05) — baseline from DB seed.
   // This is only the UI fallback; the authoritative values come from the DB via backendAgentConfig.
   const DEFAULT_FEEDBACK_MODEL_CONFIG = {
-    primaryModel: 'meridian-llm-large',
-    llmProvider: 'Meridian Inference Engine',
-    fallbackModel: 'meridian-llm-small',
+    primaryModel: 'hospital-llm-large',
+    llmProvider: 'Hospital Inference Engine',
+    fallbackModel: 'hospital-llm-small',
     temperature: 0.20,
     tokenLimit: '8,000 tokens (Max context: 128k)',
     latencyTarget: '< 3 s p50',
@@ -2281,7 +2281,7 @@ Pre-drafted SBAR card persisted to PostgreSQL lakehouse. Receiving nurse (${agen
         const outputText = `EMPLOYEE SERVICE AGENT EXECUTION (AG-04 · பணியாளர் சேவை முகவர்)
 Staff Member: Priya Swaminathan (RN · Staff ID: EMP-1042)
 Department: Nursing Services · Shift Roster: Active
-Inference Engine: Meridian Groq LPU (Groq Llama-3.3-70B) | Latency: ${elapsedSec}s
+Inference Engine: Hospital Groq LPU (Groq Llama-3.3-70B) | Latency: ${elapsedSec}s
 
 AGENT RESPONSE:
 ${agentText}
@@ -2505,7 +2505,7 @@ ${selectedAgent?.name} successfully completed the workflow request. The action h
           { t: timeStr(0), k: 'POLICY', what: `Identity ✓ Consent ✓ Context assembled under ${selectedAgent?.owner}` },
           { t: timeStr(1), k: 'TOOL', what: `Queried connected tools: ${toolsUsed}` },
           { t: timeStr(2), k: 'POLICY', what: 'Safety boundary check passed · zero PHI leakage' },
-          { t: timeStr(3), k: 'AI', what: `Generated response using ${selectedAgent?.model?.model || 'meridian-llm-large'}` },
+          { t: timeStr(3), k: 'AI', what: `Generated response using ${selectedAgent?.model?.model || 'hospital-llm-large'}` },
           { t: timeStr(4), k: selectedAgent?.humanApproval === 'Required' ? 'HUMAN' : 'AI', what: selectedAgent?.humanApproval === 'Required' ? 'Queued for department supervisor sign-off' : 'Action published to destination workflow' }
         ],
         output: outputText

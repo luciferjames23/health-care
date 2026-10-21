@@ -1,4 +1,4 @@
-﻿# Meridian Healthcare AI Agents — Business Overview
+﻿# Hospital Healthcare AI Agents — Business Overview
 
 **Prepared for:** Executive, clinical, operations, and digital health leaders  
 **Reviewed:** 15 October 2026
@@ -197,4 +197,4 @@ A practical leadership scorecard could include:
 
 ## Source note
 
-Prepared from the local Meridian Healthcare repository implementation and documentation, reviewed 15 October 2026. Radiology metrics come from project configuration; model defaults come from the reviewed service configuration; diagnostic preparation and AG-21 management summaries are structured evidence and deterministic database workflows. Configuration may differ by deployment. No live clinical validation was performed for this document.
+Prepared from the local Hospital Healthcare repository implementation and documentation, reviewed 15 October 2026. Radiology metrics come from project configuration; model defaults come from the reviewed service configuration; diagnostic preparation and AG-21 management summaries are structured evidence and deterministic database workflows. Configuration may differ by deployment. No live clinical validation was performed for this document.

@@ -42,7 +42,7 @@ TARGET_AGENTS = [
         ],
         'memory': {'session': 'On · 30 min', 'patient': 'Staff-scoped', 'workflow': 'On', 'retention': '90 days (audit) · 0 days (conversation)', 'sensitive': 'No free-text PHI stored'},
         'access': {'roles': 'HR, Hospital Management, Doctors, Nurses, Technicians, Admin', 'departments': 'All Wards, ICUs, Labs, OT, Admin', 'patients': 'Staff-scoped', 'scopes': 'Operational HR read/write', 'env': 'Production'},
-        'model': {'model': 'meridian-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'meridian-llm-small', 'latency': '< 1.5 s p50', 'cost': '₹4 / run'},
+        'model': {'model': 'hospital-llm-large', 'temperature': 0.2, 'tokens': 8000, 'fallback': 'hospital-llm-small', 'latency': '< 1.5 s p50', 'cost': '₹4 / run'},
         'evals': [
             {'id': 'EV-704', 'ver': 'v1.7.0', 'when': 'Today 09:30', 'cases': 180, 'acc': '98.5%', 'ground': '99.2%', 'hall': '0.1%', 'ref': '100%', 'lat': '1.2s', 'res': 'Pass'},
             {'id': 'EV-650', 'ver': 'v1.6.0', 'when': '15 Sep 2026', 'cases': 120, 'acc': '95.8%', 'ground': '97.4%', 'hall': '0.3%', 'ref': '99%', 'lat': '1.4s', 'res': 'Pass'}
@@ -117,7 +117,7 @@ TARGET_AGENTS = [
         'runs': 342,
         'instructions': {
             'objective': 'Translate complex surgical consumable charges, billing variances (>10%), and itemized tariffs into crystal-clear plain English & Tamil explanations grounded in doctor OT notes.',
-            'system': 'You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Meridian Super Speciality Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient\'s family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.',
+            'system': 'You are AG-08 Billing Transparency Agent (கட்டண வெளிப்படைத்தன்மை முகவர்) at Hospital. Your job is to translate technical hospital billing items, consumable codes, and doctor OT notes into crystal clear, empathetic, non-technical explanations in BOTH English and Tamil (தமிழ்). The explanation must be so clear that a hospital cashier can read it to the patient\'s family in 15 seconds, and the family immediately understands why the charge was medically necessary. Respond strictly in valid JSON format.',
             'rules': 'Provide bilingual explanations in English and natural spoken Tamil (தமிழ்). Cite verbatim clinical quotes from doctor intra-operative notes. Itemize top variance drivers with amounts and layman-friendly rationale. Strict valid JSON format.',
             'safety': 'Never alter hospital audited tariffs autonomously. Do not promise discounts without Medical Superintendent / Cashier sign-off. Ensure zero phantom consumable billing.',
             'escalation': 'Escalate variance > 50% or billing disputes without EMR intra-op justification to Chief Financial Officer and Senior Billing Auditor.',
@@ -163,7 +163,7 @@ TARGET_AGENTS = [
         'runs': 1240,
         'instructions': {
             'objective': 'Synthesize shift EMR data, bedside vitals, and MAR charts into structured SBAR (Situation, Background, Assessment, Recommendation) clinical handovers for ward nurses.',
-            'system': 'You are the Meridian Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.',
+            'system': 'You are the Hospital Nursing Handover Agent (AG-18 · செவிலியர் ஒப்படைப்பு முகவர்). You operate with clinical summarisation precision for registered nurses during ward shift changes. Clinical Governance SOPs in effect: Medication Safety — High-alert drugs v4.0 (Mandatory dual-nurse verification on Insulin, Heparin, Vancomycin, Narcotics), Medication Safety — Ward administration v3.2 (5 rights of drug administration & allergy cross-check), Standard SBAR Structure: Situation, Background, Assessment, Recommendation. Generate a structured, professional, concise clinical handover draft. Respond ONLY with a valid JSON object.',
             'rules': 'Strict adherence to 4-part SBAR format. Highlight high-alert medications (Insulin, Heparin, Narcotics) with dual-sign-off warnings. Flag pending lab orders with critical timeline triggers. Output valid structured JSON.',
             'safety': 'Never omit known allergies or abnormal Early Warning Scores (EWS). Require registered nurse sign-off before committing handover to EHR. Refuse alteration of doctor prescription orders.',
             'escalation': 'Trigger immediate red-flag alert to Ward Nursing Supervisor and On-Call Medical Officer for deteriorating vitals (EWS >= 5 or SpO2 < 92%).',
@@ -208,7 +208,7 @@ TARGET_AGENTS = [
         'runs': 480,
         'instructions': {
             'objective': 'Detect insurance claim shortfalls, extract clinical EMR evidence, classify denial reasons under IRDAI/ICD-10 standards, and generate legally rigorous reconsideration appeal dossiers.',
-            'system': 'You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Meridian Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.',
+            'system': 'You are the AG-20 Claim Denial & Shortfall Appeal Agent (காப்பீட்டு மறுப்பு மேல்முறையீட்டு முகவர்) for Hospital. Your role is to detect claim deductions and shortfalls, extract clinical evidence from patient EMR (operative notes, lab reports, vitals), classify denial codes under IRDAI/ICD-10 standards, and generate formal, legally rigorous medical appeal dossiers for 1-click submission to TPAs and insurers.',
             'rules': 'Cite statutory IRDAI Master Circular clauses, policy terms, and NABH guidelines. Include itemized rejected line-item rebuttals. Generate bilingual summaries for hospital leadership and patients.',
             'safety': 'Strictly prohibit fabrication of non-existent medical notes. Re-submission is strictly gated and blocked if required clinical evidence or doctor certifications are missing.',
             'escalation': 'Escalate full claim rejections > ₹50,000 or contentious policy exclusions to Revenue Cycle Lead (R. Sundar) and TPA Liaison (L. Fathima).',

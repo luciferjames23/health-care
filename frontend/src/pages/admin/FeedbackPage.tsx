@@ -224,7 +224,7 @@ export const FeedbackPage: React.FC = () => {
       const link = document.createElement('a');
       const dateStr = new Date().toISOString().slice(0, 10);
       link.href = url;
-      link.setAttribute('download', `meridian_feedback_${dateStr}.csv`);
+      link.setAttribute('download', `hospital_feedback_${dateStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -1,6 +1,6 @@
 # Radiology Triage System: Business Context, Full Flow, and Comparison
 
-**Product:** Meridian Healthcare Platform — chest X-ray radiology triage
+**Product:** Hospital Healthcare Platform — chest X-ray radiology triage
 
 **Review date:** 29 September 2026  
 **Purpose:** Describe the business workflow implemented in this repository from request through follow-up, compare it with the supplied *Radiology Imaging Module: Business Context Document*, and identify the boundaries between implemented capability, code-level risk, and unverified operational claims.
@@ -90,7 +90,7 @@ If Orthanc does not confirm the upload, the acquisition state is reset so that t
 
 ### 5.4 PACS storage and analysis: only linked images enter the patient workflow
 
-Orthanc is the configured demonstration PACS. The background watcher polls it, but first checks whether each PACS study matches an `Uploaded` order-study record. A study placed directly in Orthanc with no qualifying order link is not accepted as a Meridian patient result.
+Orthanc is the configured demonstration PACS. The background watcher polls it, but first checks whether each PACS study matches an `Uploaded` order-study record. A study placed directly in Orthanc with no qualifying order link is not accepted as a Hospital patient result.
 
 For each eligible uploaded study, the watcher obtains the DICOM, runs the analysis pipeline if both models are available, and saves a durable result against the individual study slot. Failed analysis is recorded as failed and remains retryable; a completed sibling view is not re-analysed merely because another view failed.
 

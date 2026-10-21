@@ -1,7 +1,7 @@
 """
 preadmission_service.py
 ========================
-Pre-Admission & Admission Management Service for Meridian Hospital.
+Pre-Admission & Admission Management Service for Hospital.
 
 Responsibilities:
   - Admission registration & validation (patient, doctor, department, appointment, date)
@@ -350,7 +350,7 @@ def dispatch_pre_admission_notification(pre_admission_id: int) -> Dict[str, Any]
         doc_disp = doc_name if (doc_name and doc_name.startswith("Dr.")) else f"Dr. {doc_name}"
 
         msg = (
-            f"🏥 *MERIDIAN HOSPITAL — PRE-ADMISSION CLEARANCE* 🏥\n\n"
+            f"🏥 *HOSPITAL — PRE-ADMISSION CLEARANCE* 🏥\n\n"
             f"Dear *{f_name}*,\n\n"
             f"Your pre-admission registration has been processed successfully. Please review your admission details:\n\n"
             f"📋 *Admission Summary:*\n"

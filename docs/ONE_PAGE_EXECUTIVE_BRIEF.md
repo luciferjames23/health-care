@@ -1,19 +1,19 @@
-# MERIDIAN HOSPITAL — AI PATIENT DESK (WHATSAPP CONVERSATIONAL AI)
+# HOSPITAL — AI PATIENT DESK (WHATSAPP CONVERSATIONAL AI)
 ## ONE-PAGE EXECUTIVE BRIEF FOR HOSPITAL LEADERSHIP
 
 ---
 
 ```
-                       MERIDIAN HOSPITAL EXECUTIVE SUMMARY
+                       HOSPITAL EXECUTIVE SUMMARY
 ========================================================================================
 Target: CEO, COO, CIO, Medical Director, Business Heads & Clinical Leadership
-System: Meridian AI Patient Desk (WhatsApp Conversational AI)
+System: Hospital AI Patient Desk (WhatsApp Conversational AI)
 Version: 2.1.0 Prototype Validation Complete
 ========================================================================================
 ```
 
 ### 1. THE SOLUTION
-The **Meridian Hospital AI Patient Desk** is an enterprise-grade WhatsApp Conversational AI system designed to act as a 24/7 digital front desk. Built on a deterministic 24-state conversation engine, it brings OPD appointment booking, rescheduling, cancellations, patient registration, multilingual inquiries, and emergency triage directly onto WhatsApp—without requiring patients to download native mobile applications or navigate complex portals.
+The **Hospital AI Patient Desk** is an enterprise-grade WhatsApp Conversational AI system designed to act as a 24/7 digital front desk. Built on a deterministic 24-state conversation engine, it brings OPD appointment booking, rescheduling, cancellations, patient registration, multilingual inquiries, and emergency triage directly onto WhatsApp—without requiring patients to download native mobile applications or navigate complex portals.
 
 ---
 
@@ -35,7 +35,7 @@ The **Meridian Hospital AI Patient Desk** is an enterprise-grade WhatsApp Conver
 ### 4. BUSINESS VALUE & IMPACT
 - **Operational Efficiency**: Offloads routine appointment scheduling, saving up to 60% in call center overhead.
 - **Capacity Maximization**: Reduces missed appointments through self-service rescheduling and instant slot release.
-- **Digital Growth**: Captures after-hours booking requests, expanding Meridian Hospital's outpatient market share.
+- **Digital Growth**: Captures after-hours booking requests, expanding Hospital's outpatient market share.
 - **Safety First**: Priority 0 emergency triage automatically redirects urgent clinical complaints (e.g., chest pain) to emergency hotlines.
 
 ---
@@ -49,9 +49,9 @@ The **Meridian Hospital AI Patient Desk** is an enterprise-grade WhatsApp Conver
 ---
 
 ### 6. RECOMMENDED NEXT STEPS FOR LEADERSHIP
-1. **Authorize Phase 2 HIS Integration**: Connect backend services to Meridian Hospital's live HIS/EMR database for real-time schedule synchronization.
+1. **Authorize Phase 2 HIS Integration**: Connect backend services to Hospital's live HIS/EMR database for real-time schedule synchronization.
 2. **Approve Outpatient Pilot**: Launch a 60-day live pilot in **General Medicine** and **Cardiology**.
-3. **Register Production WhatsApp Account**: Procure verified Meridian Hospital Meta WhatsApp Business numbers.
+3. **Register Production WhatsApp Account**: Procure verified Hospital Meta WhatsApp Business numbers.
 
 ---
-*Prepared for Meridian Hospital Leadership Team | Executive Brief v2.1.0*
+*Prepared for Hospital Leadership Team | Executive Brief v2.1.0*

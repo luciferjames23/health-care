@@ -13,7 +13,7 @@ from radiology_ai.services.decision_service import build_combined_assessment, bu
 from radiology_ai.utils.image_utils import draw_boxes, image_to_base64_png
 from radiology_ai.config import DISCLAIMER, DENSENET_PREPROCESSING_CONFIRMED
 
-logger = logging.getLogger("meridian.inference_service")
+logger = logging.getLogger("hospital.inference_service")
 
 
 class InferenceError(Exception):

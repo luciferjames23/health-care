@@ -1,7 +1,7 @@
 """
 seed_knowledge.py
 =================
-Idempotent seed script for Meridian Hospital knowledge base.
+Idempotent seed script for Hospital knowledge base.
 
 - Reads actual departments and doctors from PostgreSQL
 - Seeds 13 knowledge documents (one per category)
@@ -12,7 +12,7 @@ Idempotent seed script for Meridian Hospital knowledge base.
 Run:
     python knowledge/seed_knowledge.py
 
-Step 5.1 — Meridian Hospital
+Step 5.1 — Hospital
 """
 
 import sys
@@ -78,7 +78,7 @@ def get_schedules(conn) -> list[dict]:
     ]
 
 
-def upsert_document(cur, doc_code, title, doc_type, content, source="MERIDIAN_HOSPITAL_POC") -> int:
+def upsert_document(cur, doc_code, title, doc_type, content, source="HOSPITAL_POC") -> int:
     """Insert or update a knowledge document. Returns the document id."""
     cur.execute("""
         INSERT INTO knowledge_documents (document_code, title, document_type, content, source, language, version, status)
@@ -137,16 +137,16 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 1. HOSPITAL OVERVIEW ──────────────────────────────────────────────
         {
             "code": "KD_HOSPITAL_OVERVIEW",
-            "title": "Meridian Hospital Overview",
+            "title": "Hospital Overview",
             "type": "HOSPITAL_PROFILE",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Meridian Hospital is a 300-bed multi-super-specialty hospital in Chennai operated by Walfs India Private Limited. "
+                        "Hospital is a 300-bed multi-super-specialty hospital in Chennai operated by Walfs India Private Limited. "
                         "It provides comprehensive outpatient (OPD), inpatient care, and 24/7 Emergency & Trauma Care across multiple medical specialties. "
                         "The hospital is committed to delivering compassionate, technology-enabled healthcare services. "
-                        "Meridian Hospital's AI Patient Desk helps patients with appointment scheduling, doctor availability, "
+                        "Hospital's AI Patient Desk helps patients with appointment scheduling, doctor availability, "
                         "hospital information, and pre-admission assistance through WhatsApp and voice interfaces."
                     ),
                     "meta": {"category": "HOSPITAL_OVERVIEW", "language": "ENGLISH"}
@@ -157,13 +157,13 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 2. DEPARTMENTS ────────────────────────────────────────────────────
         {
             "code": "KD_DEPARTMENTS",
-            "title": "Meridian Hospital Departments",
+            "title": "Hospital Departments",
             "type": "DEPARTMENT",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        f"Meridian Hospital provides specialized medical care across the following departments:\n\n"
+                        f"Hospital provides specialized medical care across the following departments:\n\n"
                         f"{dept_list}\n\n"
                         f"Patients can ask the AI Patient Desk to help identify the right department based on their "
                         f"symptoms or medical needs, and to book an OPD appointment directly."
@@ -176,13 +176,13 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 3. DOCTORS ────────────────────────────────────────────────────────
         {
             "code": "KD_DOCTORS",
-            "title": "Meridian Hospital Doctors",
+            "title": "Hospital Doctors",
             "type": "DOCTOR_INFORMATION",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        f"Meridian Hospital has the following active doctors available for OPD consultations:\n\n"
+                        f"Hospital has the following active doctors available for OPD consultations:\n\n"
                         f"{doctor_list}\n\n"
                         f"To book an appointment with any of these doctors, simply tell the AI Patient Desk "
                         f"which doctor or department you need and your preferred date."
@@ -195,13 +195,13 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 4. OPD TIMINGS ────────────────────────────────────────────────────
         {
             "code": "KD_OPD_TIMINGS",
-            "title": "Meridian Hospital OPD Timings",
+            "title": "Hospital OPD Timings",
             "type": "OPD_TIMING",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        f"Meridian Hospital OPD (Outpatient Department) consultation schedules:\n\n"
+                        f"Hospital OPD (Outpatient Department) consultation schedules:\n\n"
                         f"{schedule_list}\n\n"
                         f"Appointment slots are available every 30 minutes during scheduled hours. "
                         f"The AI Patient Desk shows real-time availability and can book a slot instantly."
@@ -226,13 +226,13 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 5. APPOINTMENT INFORMATION ────────────────────────────────────────
         {
             "code": "KD_APPOINTMENT_INFO",
-            "title": "Meridian Hospital Appointment Information",
+            "title": "Hospital Appointment Information",
             "type": "APPOINTMENT_POLICY",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "How to book an appointment at Meridian Hospital:\n"
+                        "How to book an appointment at Hospital:\n"
                         "• Through the AI Patient Desk (WhatsApp or voice)\n"
                         "• Tell the AI your preferred doctor or department and date\n"
                         "• The AI will show available time slots and confirm your booking\n"
@@ -253,13 +253,13 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 6. HOSPITAL FACILITIES ────────────────────────────────────────────
         {
             "code": "KD_FACILITIES",
-            "title": "Meridian Hospital Facilities",
+            "title": "Hospital Facilities",
             "type": "HOSPITAL_SERVICE",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Meridian Hospital facilities and services include:\n\n"
+                        "Hospital facilities and services include:\n\n"
                         "• OPD Consultation Rooms — Dedicated consultation rooms for each specialty\n"
                         "• Diagnostic Laboratory — Full-service pathology and blood work\n"
                         "• Radiology & Imaging — X-ray, ultrasound, and ECG services\n"
@@ -279,17 +279,17 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 7. CONTACT INFORMATION ────────────────────────────────────────────
         {
             "code": "KD_CONTACT",
-            "title": "Meridian Hospital Contact Information",
+            "title": "Hospital Contact Information",
             "type": "HOSPITAL_PROFILE",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Meridian Hospital Contact Information:\n\n"
+                        "Hospital Contact Information:\n\n"
                         "• General Enquiries: 044 6666 9910\n"
                         "• Emergency Helpline: 044 6666 9999 (24/7)\n"
-                        "• Email: info@meridian-hospital.com\n"
-                        "• Official Website: https://meridianhospitals.in/\n"
+                        "• Email: info@hospital.com\n"
+                        "• Official Website: https://hospital.com/\n"
                         "• Address: #46D, Jawaharlal Nehru Road, 200 Feet Ring Road, Chennai – 600 099\n"
                         "• WhatsApp AI Patient Desk: Available 24/7 for appointment booking and hospital information"
                     ),
@@ -301,16 +301,16 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 8. LOCATION ───────────────────────────────────────────────────────
         {
             "code": "KD_LOCATION",
-            "title": "Meridian Hospital Location and Directions",
+            "title": "Hospital Location and Directions",
             "type": "HOSPITAL_PROFILE",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Meridian Hospital Location:\n\n"
+                        "Hospital Location:\n\n"
                         "Address: #46D, Jawaharlal Nehru Road, 200 Feet Ring Road, Chennai – 600 099\n"
                         "Facility: 300-bed multi-super-specialty hospital\n\n"
-                        "How to reach Meridian Hospital:\n"
+                        "How to reach Hospital:\n"
                         "• By Road: Located on Jawaharlal Nehru Road (200 Feet Ring Road), Chennai\n"
                         "• By Public Transport: Easily accessible by bus and auto-rickshaw\n"
                         "• Parking: Patient and visitor parking available on hospital premises\n"
@@ -324,19 +324,19 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 9. EMERGENCY INFORMATION ──────────────────────────────────────────
         {
             "code": "KD_EMERGENCY",
-            "title": "Meridian Hospital Emergency Services",
+            "title": "Hospital Emergency Services",
             "type": "EMERGENCY",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "🚨 MERIDIAN HOSPITAL EMERGENCY & TRAUMA CARE\n\n"
-                        "Emergency services at Meridian Hospital are available 24 hours a day, 7 days a week, 365 days a year.\n\n"
+                        "🚨 HOSPITAL EMERGENCY & TRAUMA CARE\n\n"
+                        "Emergency services at Hospital are available 24 hours a day, 7 days a week, 365 days a year.\n\n"
                         "📞 Emergency Helpline: 044 6666 9999\n\n"
                         "For life-threatening emergencies such as chest pain, severe breathing difficulty, "
                         "stroke, major trauma, or loss of consciousness — call 044 6666 9999 or 112/108 immediately "
-                        "or proceed to the Meridian Hospital Emergency Department without delay.\n\n"
-                        "The Meridian Hospital Emergency Department provides:\n"
+                        "or proceed to the Hospital Emergency Department without delay.\n\n"
+                        "The Hospital Emergency Department provides:\n"
                         "• 24/7 emergency triage and stabilization\n"
                         "• Emergency surgery support\n"
                         "• Critical care monitoring and ICU support\n"
@@ -350,14 +350,14 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 10. PRE-ADMISSION ─────────────────────────────────────────────────
         {
             "code": "KD_PRE_ADMISSION",
-            "title": "Meridian Hospital Pre-Admission Process",
+            "title": "Hospital Pre-Admission Process",
             "type": "PRE_ADMISSION",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Pre-Admission at Meridian Hospital:\n\n"
-                        "For planned procedures and surgeries, Meridian Hospital offers a pre-admission "
+                        "Pre-Admission at Hospital:\n\n"
+                        "For planned procedures and surgeries, Hospital offers a pre-admission "
                         "process to help patients prepare in advance.\n\n"
                         "Pre-Admission Steps:\n"
                         "1. Receive a referral or surgical recommendation from your doctor\n"
@@ -381,7 +381,7 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
                 {
                     "number": 1,
                     "content": (
-                        "Documents required for admission at Meridian Hospital:\n\n"
+                        "Documents required for admission at Hospital:\n\n"
                         "For OPD Appointments:\n"
                         "• Valid government-issued photo ID (Aadhaar card, PAN card, or passport)\n"
                         "• Previous medical records or prescriptions (if applicable)\n"
@@ -408,7 +408,7 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
                 {
                     "number": 1,
                     "content": (
-                        "What to bring for your OPD appointment at Meridian Hospital:\n\n"
+                        "What to bring for your OPD appointment at Hospital:\n\n"
                         "• Valid photo ID (Aadhaar, PAN card, or passport)\n"
                         "• Your appointment confirmation ID (e.g., APT12345)\n"
                         "• Previous medical records, lab reports, or X-rays related to your condition\n"
@@ -429,18 +429,18 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
         # ─── 13. FAQ ───────────────────────────────────────────────────────────
         {
             "code": "KD_FAQ",
-            "title": "Meridian Hospital Frequently Asked Questions",
+            "title": "Hospital Frequently Asked Questions",
             "type": "FAQ",
             "chunks": [
                 {
                     "number": 1,
                     "content": (
-                        "Frequently Asked Questions — Meridian Hospital\n\n"
+                        "Frequently Asked Questions — Hospital\n\n"
                         "Q: Can I book an appointment through WhatsApp?\n"
                         "A: Yes! The AI Patient Desk on WhatsApp can book, cancel, or reschedule "
                         "OPD appointments 24/7.\n\n"
-                        "Q: What departments does Meridian Hospital have?\n"
-                        f"A: Meridian Hospital has departments in: {dept_names}.\n\n"
+                        "Q: What departments does Hospital have?\n"
+                        f"A: Hospital has departments in: {dept_names}.\n\n"
                         "Q: Is emergency care available at night?\n"
                         "A: Yes, the Emergency Department is open 24 hours a day, 7 days a week.\n\n"
                         "Q: Can I reschedule my appointment?\n"
@@ -455,9 +455,9 @@ def build_knowledge_documents(departments, doctors, schedules) -> list[dict]:
                 {
                     "number": 2,
                     "content": (
-                        "Frequently Asked Questions (continued) — Meridian Hospital\n\n"
-                        "Q: Does Meridian Hospital accept health insurance?\n"
-                        "A: Meridian Hospital works with major health insurance providers. "
+                        "Frequently Asked Questions (continued) — Hospital\n\n"
+                        "Q: Does Hospital accept health insurance?\n"
+                        "A: Hospital works with major health insurance providers. "
                         "Please bring your insurance card for verification at the time of visit.\n\n"
                         "Q: Is there a pharmacy in the hospital?\n"
                         "A: Yes, an on-premise pharmacy is available for prescription fulfillment.\n\n"
