@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, cleanDiagnosis } from '../services/api';
 import DischargeSummaryModal from './DischargeSummaryModal';
+import ReadmissionRiskCard from './ReadmissionRiskCard';
 import { CardGridSkeleton } from './ModuleLoadingScreen';
 
 export default function DischargeAgentView({ onNavigate, initialPatientId = '' }) {
@@ -328,6 +329,18 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               }}
             >
               🔍 Patient Inspector
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('readmission')}
+              style={{
+                height: '32px', padding: '0 12px', border: 0, borderLeft: '1px solid #e3e6e8',
+                background: activeTab === 'readmission' ? '#4f46e5' : '#fff',
+                color: activeTab === 'readmission' ? '#fff' : '#4f46e5',
+                fontWeight: 600, fontSize: '11.5px', cursor: 'pointer'
+              }}
+            >
+              📈 Readmission Risk (7d / 14d / 30d)
             </button>
           </div>
 
@@ -995,6 +1008,13 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               </div>
             )}
 
+            {/* Readmission Risk Intelligence Card (7d, 14d, 30d) */}
+            {selectedPatientId && !validating && (
+              <div style={{ marginTop: '4px' }}>
+                <ReadmissionRiskCard patientId={selectedPatientId} />
+              </div>
+            )}
+
             {/* Action Trigger Box */}
             {validationResult && !validating && (
               <div style={{
@@ -1357,6 +1377,111 @@ export default function DischargeAgentView({ onNavigate, initialPatientId = '' }
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: DEDICATED READMISSION RISK PREDICTION (7D, 14D, 30D)                */}
+      {/* ========================================================================= */}
+      {activeTab === 'readmission' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '16px', alignItems: 'start' }}>
+          {/* Left: Patient Selector */}
+          <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#15181b' }}>
+              Select Inpatient for Risk Analysis
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setSelectedPatientId(patientIdInput.trim());
+              }}
+              style={{ display: 'flex', gap: '6px' }}
+            >
+              <input
+                type="text"
+                value={patientIdInput}
+                onChange={(e) => setPatientIdInput(e.target.value)}
+                placeholder="e.g. 17155 or 87224"
+                style={{
+                  flex: 1, height: '32px', padding: '0 10px', borderRadius: '6px',
+                  border: '1px solid #d0d5dd', fontSize: '12px', fontFamily: 'monospace'
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  height: '32px', padding: '0 12px', borderRadius: '6px', border: 0,
+                  background: '#4f46e5', color: '#fff', fontSize: '11.5px',
+                  fontWeight: 600, cursor: 'pointer'
+                }}
+              >
+                Inspect
+              </button>
+            </form>
+
+            {/* Search list */}
+            <div>
+              <input
+                type="text"
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                placeholder="Filter admitted patients..."
+                style={{
+                  width: '100%', height: '30px', padding: '0 10px', borderRadius: '5px',
+                  border: '1px solid #e3e6e8', fontSize: '11.5px'
+                }}
+              />
+            </div>
+
+            {/* Patient List */}
+            <div style={{ maxHeight: '520px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {patientsList
+                .filter(p => !searchFilter || p.patient_name?.toLowerCase().includes(searchFilter.toLowerCase()) || String(p.patient_id).includes(searchFilter))
+                .slice(0, 30)
+                .map((p) => {
+                  const isSel = String(p.patient_id) === String(selectedPatientId);
+                  return (
+                    <div
+                      key={p.patient_id}
+                      onClick={() => {
+                        setSelectedPatientId(String(p.patient_id));
+                        setPatientIdInput(String(p.patient_id));
+                      }}
+                      style={{
+                        padding: '10px 12px', borderRadius: '6px', cursor: 'pointer',
+                        border: isSel ? '1.5px solid #4f46e5' : '1px solid #e3e6e8',
+                        background: isSel ? '#f5f3ff' : '#fff',
+                        display: 'flex', flexDirection: 'column', gap: '3px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#15181b' }}>
+                          {p.patient_name}
+                        </span>
+                        <span style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace' }}>
+                          ID: {p.patient_id}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>
+                        {cleanDiagnosis(p.primary_diagnosis) || 'Inpatient'}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* Right: Readmission Risk Assessment Card */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {selectedPatientId ? (
+              <ReadmissionRiskCard patientId={selectedPatientId} />
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #e3e6e8', borderRadius: '8px', padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                Select a patient from the list to view their 7-day, 14-day, and 30-day readmission risk prediction.
+              </div>
+            )}
           </div>
         </div>
       )}

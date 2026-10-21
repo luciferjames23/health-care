@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from connectors.databricks_connector import DatabricksConnector
 from config.config import Config
 from services.discharge_generator import generate_and_persist_discharge_summaries
+from services.readmission_risk_service import ReadmissionRiskService
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ router = APIRouter(
 )
 
 db_connector = DatabricksConnector()
+readmission_svc = ReadmissionRiskService()
 
 DEFAULT_NOTEBOOK_ID = "2865138219507461"
 
@@ -2570,5 +2572,141 @@ def generate_patient_vitals_by_id(
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# READMISSION RISK PREDICTION (7-DAY, 14-DAY, 30-DAY)
+# ─────────────────────────────────────────────────────────────────────────────
+class ReadmissionEvaluateRequest(BaseModel):
+    patient_id: Union[str, int]
+    model_name: Optional[str] = None
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
+    force_refresh: Optional[bool] = False
 
 
+class ReadmissionReviewRequest(BaseModel):
+    status: str = Field("Accepted", description="Review decision: 'Accepted', 'Modified', 'Rejected'")
+    clinician_notes: Optional[str] = None
+    reviewed_by: Optional[str] = "Attending Physician"
+
+
+@router.get("/readmission-risk/patient/{patient_id}", summary="Get 7-Day, 14-Day, 30-Day Readmission Risk for Patient")
+def get_patient_readmission_risk_endpoint(
+    patient_id: str,
+    force_refresh: bool = Query(False, description="Force recomputation of readmission risk")
+):
+    """
+    Returns the calibrated multi-horizon readmission risk for a patient:
+    - 7-Day Readmission Risk (% and Low/Moderate/High tier)
+    - 14-Day Readmission Risk (% and Low/Moderate/High tier)
+    - 30-Day Readmission Risk (% and Low/Moderate/High tier)
+    - LACE Index & Charlson Comorbidity scoring
+    - Identified clinical risk drivers and modifiable factors
+    - AI-generated clinical rationale and time-sequenced mitigation plan
+    - Clinician review status and sign-off details
+    """
+    try:
+        pid = int(patient_id.replace("MER-PAT-", "").replace("PAT-", "").strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid patient_id: {patient_id}")
+
+    try:
+        if not force_refresh:
+            existing = readmission_svc.get_latest_patient_prediction(pid)
+            if existing:
+                return {
+                    "status": "success",
+                    "source": "cache",
+                    "data": existing
+                }
+
+        # Calculate and persist
+        evaluated = readmission_svc.evaluate_patient_readmission_risk(pid, persist=True)
+        return {
+            "status": "success",
+            "source": "computed",
+            "data": evaluated
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error evaluating readmission risk for patient {patient_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to evaluate readmission risk: {str(e)}")
+
+
+@router.post("/readmission-risk/evaluate", summary="Evaluate & Compute 7-Day, 14-Day, 30-Day Readmission Risk")
+def evaluate_readmission_risk_post(request: ReadmissionEvaluateRequest):
+    """
+    Triggers on-demand evaluation of readmission risk with optional LLM model specification:
+    - Groq (llama-3.3-70b-versatile)
+    - Google Gemini (gemini-1.5-flash / gemini-2.0-flash)
+    - OpenAI / Databricks
+    - Deterministic clinical engine fallback
+    """
+    try:
+        pid = int(str(request.patient_id).replace("MER-PAT-", "").replace("PAT-", "").strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid patient_id: {request.patient_id}")
+
+    try:
+        evaluated = readmission_svc.evaluate_patient_readmission_risk(
+            patient_id=pid,
+            model_name=request.model_name,
+            provider=request.provider,
+            api_key=request.api_key,
+            persist=True
+        )
+        return {
+            "status": "success",
+            "message": "Readmission risk evaluated successfully across 7-day, 14-day, and 30-day horizons.",
+            "data": evaluated
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error evaluating readmission risk: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/readmission-risk/{prediction_id}/review", summary="Clinician Review & Sign-off on Readmission Risk")
+def review_readmission_risk_endpoint(prediction_id: int, request: ReadmissionReviewRequest):
+    """
+    Submits clinician review and sign-off on the readmission prediction:
+    - Status: 'Accepted', 'Modified', 'Rejected'
+    - Clinician notes & clinical mitigation confirmation
+    - Sign-off doctor name & timestamp
+    """
+    try:
+        ok = readmission_svc.update_clinician_review(
+            prediction_id=prediction_id,
+            status=request.status,
+            clinician_notes=request.clinician_notes,
+            reviewed_by=request.reviewed_by
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Prediction with ID {prediction_id} not found.")
+
+        return {
+            "status": "success",
+            "message": f"Readmission prediction {prediction_id} successfully marked as '{request.status}'.",
+            "prediction_id": prediction_id,
+            "clinician_status": request.status
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reviewing readmission risk {prediction_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/readmission-risk/cohort-summary", summary="Get Readmission Risk Cohort Summary")
+def get_cohort_readmission_summary_endpoint():
+    """Returns cohort summary statistics of evaluated readmission risk profiles."""
+    try:
+        stats = readmission_svc.get_cohort_readmission_summary()
+        return {
+            "status": "success",
+            "data": stats
+        }
+    except Exception as e:
+        logger.error(f"Error fetching cohort summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

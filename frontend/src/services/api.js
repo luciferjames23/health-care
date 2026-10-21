@@ -1124,6 +1124,59 @@ export const apiService = {
   },
 
   // -------------------------------------------------------------------------
+  // Readmission Risk Prediction (7-Day, 14-Day, 30-Day)
+  // -------------------------------------------------------------------------
+  async getPatientReadmissionRisk(patientId, forceRefresh = false) {
+    const qs = forceRefresh ? '?force_refresh=true' : '';
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/readmission-risk/patient/${patientId}${qs}`, {
+      forceRefresh: !!forceRefresh,
+      revalidateMs: 3000
+    });
+  },
+
+  async evaluatePatientReadmissionRisk(patientId, payload = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/readmission-risk/evaluate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        patient_id: String(patientId),
+        ...payload
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || `Evaluation error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    notifyDataUpdated(`${API_BASE_URL}/api/v1/discharge-agent/readmission-risk/patient/${patientId}`, data);
+    return data;
+  },
+
+  async reviewReadmissionRisk(predictionId, reviewData = {}) {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/v1/discharge-agent/readmission-risk/${predictionId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({
+        status: reviewData.status || 'Accepted',
+        clinician_notes: reviewData.clinician_notes || '',
+        reviewed_by: reviewData.reviewed_by || 'Attending Physician'
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || err.message || `Review error ${res.status}`);
+    }
+    const data = await res.json();
+    clearAllStorageCache();
+    return data;
+  },
+
+  async getReadmissionCohortSummary() {
+    return await fetchCachedJson(`${API_BASE_URL}/api/v1/discharge-agent/readmission-risk/cohort-summary`, {
+      revalidateMs: 10000
+    });
+  },
+
+  // -------------------------------------------------------------------------
   // Clear Patient Bill & Grant Financial Clearance
   // POST /api/v1/discharge-agent/clear-bill or POST /api/v1/discharge-agent/patient/{patient_id}/clear-bill
   // -------------------------------------------------------------------------

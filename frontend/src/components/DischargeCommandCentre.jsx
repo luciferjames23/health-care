@@ -5,6 +5,7 @@ import ModuleLoadingScreen from './ModuleLoadingScreen';
 import RagAssistantPanel from './RagAssistantPanel';
 import TablePagination from './TablePagination';
 import DateRangeFilter, { isDateInRange } from './DateRangeFilter';
+import ReadmissionRiskCard from './ReadmissionRiskCard';
 
 // Status styling matching Meridian Prototype V2.1 oklch tokens
 const STATUS_STYLES = {
@@ -2769,6 +2770,11 @@ export default function DischargeCommandCentre({
               <div style={{ color: '#8a9096', fontSize: '11px', marginTop: '6px' }}>
                 {dc.isCompleted ? 'Completed' : !canRelease ? 'Available when all dependencies are cleared' : 'Bed goes to housekeeping · follow-up + feedback triggered'}
               </div>
+            </div>
+
+            {/* Readmission Risk Intelligence Card (7d, 14d, 30d) */}
+            <div style={{ margin: '4px 0 8px 0' }}>
+              <ReadmissionRiskCard patientId={dc.patient_id || dc.id} />
             </div>
 
             {/* Agent Activity · Discharge Orchestration Agent card */}
