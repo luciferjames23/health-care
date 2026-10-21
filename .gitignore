@@ -222,6 +222,7 @@ backend/alter_db/*.json
 backend/alter_db/snapshot_data.json
 
 # Scratch & runtime temporary files
+scratch/
 backend/scratch/*
 !backend/scratch/.gitkeep
 
